@@ -1909,9 +1909,51 @@ def create_app():
 
                 # 5. Fetch other necessary data
                 accounts_data = await repository.get_all_accounts()
-                available_accounts = [acc['account_id'] for acc in accounts_data if acc.get('account_id')] 
+                available_accounts = [acc['account_id'] for acc in accounts_data if acc.get('account_id')]
                 exchange_rates_data = await get_exchange_rates(session)
+                currency_symbols = {"EUR": "€", "USD": "$", "GBP": "£"} # Define currency symbols
+
+                # --- START: Add formatting for live position data for popovers --- 
+                formatted_positions_for_tracker = []
+                # Need account net liquidation for percentage calculation. Create a lookup.
+                account_nlvs = {acc.get('account_id'): acc.get('net_liquidation', 0) for acc in accounts_data}
                 
+                for pos in positions_raw:
+                    formatted_pos = dict(pos) # Use a copy
+                    
+                    mkt_value = formatted_pos.get('mkt_value', 0.0) or 0.0
+                    pos_currency = formatted_pos.get('currency', 'USD')
+                    pos_symbol = currency_symbols.get(pos_currency, pos_currency)
+                    account_id = formatted_pos.get('account_id')
+                    raw_net_liq = account_nlvs.get(account_id, 0) or 0.0
+
+                    # Calculate Value (EUR) - needed for % NAV
+                    raw_value_eur = 0.0
+                    usd_rate = exchange_rates_data.get('USD', 1.0)
+                    gbp_rate = exchange_rates_data.get('GBP', 1.0)
+                    if pos_currency == 'USD':
+                        raw_value_eur = mkt_value * usd_rate
+                    elif pos_currency == 'GBP':
+                        raw_value_eur = mkt_value * gbp_rate
+                    elif pos_currency == 'EUR':
+                        raw_value_eur = mkt_value
+                    else:
+                        raw_value_eur = mkt_value # Assume 1:1 if rate unknown
+
+                    # Apply formatting for fields needed by the popover
+                    formatted_pos['value_percentage'] = f"{(raw_value_eur / raw_net_liq * 100):.2f}%" if raw_net_liq != 0 else "0.00%"
+                    formatted_pos['mkt_value_display'] = f"{pos_symbol}{mkt_value:,.2f}"
+                    formatted_pos['pnl_percentage_display'] = f"{formatted_pos.get('pnl_percentage', 0.0):.2f}%"
+                    
+                    # Ensure ticker exists for JS lookup key
+                    if 'ticker' in formatted_pos:
+                        formatted_positions_for_tracker.append(formatted_pos)
+                    else:
+                        logger.warning(f"[Tracker] Position found without ticker, skipping for popover data: {formatted_pos}")
+                        
+                logger.info(f"[Tracker] Formatted {len(formatted_positions_for_tracker)} positions for popover data.")
+                # --- END: Add formatting --- 
+
                 # 6. Prepare Context
                 context = {
                     "request": request, 
@@ -1919,7 +1961,9 @@ def create_app():
                     "status_counts": status_counts,
                     "available_accounts": available_accounts,
                     "all_accounts_data": json.dumps(accounts_data, default=json_datetime_serializer),
-                    "exchange_rates_data": json.dumps(exchange_rates_data, default=json_datetime_serializer)
+                    "exchange_rates_data": json.dumps(exchange_rates_data, default=json_datetime_serializer),
+                    # --- ADD formatted live positions data --- 
+                    "live_positions_data": json.dumps(formatted_positions_for_tracker, default=json_datetime_serializer) 
                 }
                 
                 logger.info(f"[Tracker] Rendering tracker.html with {len(enriched_tickers)} tickers.")
@@ -1927,7 +1971,8 @@ def create_app():
             except Exception as e:
                 logger.error(f"Error loading tracker page: {e}", exc_info=True)
                 # Pass minimal context for error display
-                context = {"request": request, "error": "Failed to load tracker data.", "tickers": [], "status_counts": Counter(), "available_accounts": [], "all_accounts_data": "[]", "exchange_rates_data": "{}"}
+                # --- ADD default for live_positions_data in error case --- 
+                context = {"request": request, "error": "Failed to load tracker data.", "tickers": [], "status_counts": Counter(), "available_accounts": [], "all_accounts_data": "[]", "exchange_rates_data": "{}", "live_positions_data": "[]"} 
                 return request.app.state.templates.TemplateResponse("tracker.html", context, status_code=500)
         # --- End Placeholder --- 
 

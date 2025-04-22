@@ -18,10 +18,10 @@
     <style>
         .indicator-green, .indicator-red {
             display: inline-block;
-            width: 10px;
-            height: 10px;
+            width: 12px; /* Adjusted size */
+            height: 12px; /* Adjusted size */
             border-radius: 50%;
-            margin-left: 5px;
+            margin-right: 5px;
             vertical-align: middle;
         }
         .indicator-green { background-color: green; }
@@ -82,6 +82,23 @@
         .numeric {
             text-align: right !important; 
         }
+
+        /* Make position indicator clickable */
+        .position-indicator {
+            cursor: pointer;
+        }
+
+        /* Highlight row on hover - Added via JS */
+        .row-hover-highlight td {
+            background-color: #ffffcc !important; /* Light yellow background, target TD for specificity */
+        }
+
+        /* Highlight row on hover */
+        /* // REMOVED: Using JS approach instead 
+        #tickerTable tbody tr:hover {
+            background-color: lightblue !important; // More obvious color + important 
+        } 
+        */
     </style>
     <!-- ADD Custom CSS for DataTables Buttons Dropdown Text -->
     <style>
@@ -362,16 +379,22 @@
                                 <tr id="row-{{ item.ticker }}" data-ticker="{{ item.ticker }}"> 
                                     {# Add onclick to the cell itself #}
                                     <td onclick="handleTickerClickPopup(this)" style="cursor: pointer;" title="Click to open Finviz"> {# Ticker - Clickable Cell #}
-                                        <strong>{{ item.ticker }}</strong>
                                         {# Add indicator for portfolio items #}
                                         {% if item.status == 'portfolio' %}
                                             {% if item.in_portfolio %}
-                                                <span class="indicator-green" title="Ticker found in current positions"></span>
+                                                <span class="indicator-green position-indicator"
+                                                      data-ticker="{{ item.ticker }}"
+                                                      data-bs-toggle="popover" 
+                                                      onclick="event.stopPropagation()"
+                                                      tabindex="0" 
+                                                      role="button">
+                                            </span> {# Removed original title #}
                                             {% else %}
                                                 <span class="indicator-red" title="Ticker NOT found in current positions"></span>
                                             {% endif %}
                                         {% endif %}
                                         {# End indicator #}
+                                        <strong>{{ item.ticker }}</strong>
                                     </td>
                                     {# Add Name data cell (not editable by default) #}
                                     <td>{{ item.Company | default('', true) }}</td>
@@ -495,6 +518,10 @@
     </script>
     <script id="exchange-rates-data-json" type="application/json">
         {{ exchange_rates_data|safe }}
+    </script>
+    {# --- ADD Embed Live Positions Data --- #}
+    <script id="live-positions-data-json" type="application/json">
+        {{ live_positions_data|default('[]', true)|safe }}
     </script>
     {# --- End Embed JSON --- #}
 
@@ -710,6 +737,7 @@
             }); // End DataTable Init
             
             // --- Initialize colResizable AFTER DataTable initialization --- 
+            // Re-enable colResizable
             $("#tickerTable").colResizable({
                 liveDrag: false, // Set to true for real-time resizing while dragging
                 // Optional: Define minWidth for columns if needed
@@ -718,6 +746,75 @@
             console.log("colResizable initialized for #tickerTable");
             // --- End colResizable --- 
             
+            // --- Initialize Position Indicator Popovers --- 
+            let livePositionsByTicker = {}; // Initialize lookup map
+            try {
+                const positionsDataElement = document.getElementById('live-positions-data-json');
+                if (positionsDataElement && positionsDataElement.textContent) {
+                    const livePositionsRaw = JSON.parse(positionsDataElement.textContent);
+                    console.log("Parsed Live Positions Data:", livePositionsRaw); // Debug log
+                    // Convert array to map keyed by ticker for quick lookup
+                    livePositionsByTicker = livePositionsRaw.reduce((map, pos) => {
+                        // --- IMPORTANT: Use the correct field names from your live position data --- 
+                        // Adjust these keys based on what V3_web.py actually provides in live_positions_data
+                        map[pos.ticker] = {
+                            mktValue: pos.mkt_value_display || 'N/A', // Assuming these fields exist
+                            percentNav: pos.value_percentage || 'N/A',
+                            pnlPercent: pos.pnl_percentage_display || 'N/A' 
+                        };
+                        return map;
+                    }, {});
+                    console.log("Live Positions Lookup Map:", livePositionsByTicker); // Debug log
+                } else {
+                    console.warn("Live positions JSON data element not found or empty.");
+                }
+            } catch (e) {
+                console.error("Error parsing embedded live positions JSON data:", e);
+                showAlert("Error loading position data for popups.", "danger");
+            }
+
+            // Initialize popovers for the green dots
+            const popoverTriggerList = [].slice.call(document.querySelectorAll('.position-indicator[data-bs-toggle="popover"]'));
+            const popoverList = popoverTriggerList.map(function (popoverTriggerEl) {
+                return new bootstrap.Popover(popoverTriggerEl, {
+                    trigger: 'focus', // Dismiss on next click outside
+                    html: true,
+                    title: 'Position Summary',
+                    placement: 'right',
+                    // --- Content function --- 
+                    content: function() {
+                        // --- FIX: Use the element reference from the outer scope --- 
+                        const ticker = popoverTriggerEl.getAttribute('data-ticker'); 
+                        const positionData = livePositionsByTicker[ticker];
+                        
+                        if (positionData) {
+                             // Format the content using data found
+                             return `
+                                 <div>
+                                     <strong>Mkt Value:</strong> ${positionData.mktValue}<br>
+                                     <strong>% NAV:</strong> ${positionData.percentNav}<br>
+                                     <strong>PNL %:</strong> ${positionData.pnlPercent}
+                                 </div>
+                             `;
+                        } else {
+                            // Ticker not found in the live position data
+                            return '<div class="text-muted">Position data not available.</div>';
+                        }
+                    }
+                    // --- End Content function ---
+                });
+            });
+            // --- End Popover Initialization ---
+
+            // --- Add JS Hover Effect --- 
+            $('#tickerTable tbody').on('mouseenter', 'tr', function() {
+                $(this).addClass('row-hover-highlight');
+            }).on('mouseleave', 'tr', function() {
+                $(this).removeClass('row-hover-highlight');
+            });
+            // --- End JS Hover Effect --- 
+
+            // Input Listener for marking rows dirty on edit
             // Input Listener for marking rows dirty on edit
             $('#tickerTable tbody').on('input', 'td.editable', function() {
                 $(this).closest('tr').addClass('row-dirty').find('.btn-update').show();

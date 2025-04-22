@@ -169,6 +169,10 @@
             padding-top: 0.25rem;
             padding-bottom: 0.25rem;
         }
+        /* Row hover highlight - Added via JS */
+        .row-hover-highlight td {
+            background-color: #ffffcc !important; /* Light yellow */
+        }
     </style>
 </head>
 <body>
@@ -789,6 +793,15 @@
             // setInterval(function() {
             //     location.reload();
             // }, 300000); 
+
+            // --- Add JS Hover Effect for Position and Order Tables --- 
+            $('.position-table tbody, .order-table tbody').on('mouseenter', 'tr', function() {
+                $(this).addClass('row-hover-highlight');
+            }).on('mouseleave', 'tr', function() {
+                $(this).removeClass('row-hover-highlight');
+            });
+            // --- End JS Hover Effect --- 
+
         });
 
         // WebSocket connection for auto-refresh
