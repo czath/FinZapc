@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration - Financial App V3</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Toggle CSS -->
+    {# <link href="https://cdn.jsdelivr.net/npm/bootstrap5-toggle@5.0.4/css/bootstrap5-toggle.min.css" rel="stylesheet"> #}
+    <!-- DataTables CSS -->
+    <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <!-- Include Bootstrap Icons (optional, if using icons) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        /* Custom styles */
+        .card-header {
+            font-weight: bold;
+        }
+        /* Style for toggle */
+        .toggle-group label {
+            margin-bottom: 0; /* Align toggle better */
+        }
+        .toggle.ios, .toggle-on.ios, .toggle-off.ios { border-radius: 20px; }
+        .toggle.ios .toggle-handle { border-radius: 20px; }
+        td, th {
+             vertical-align: middle;
+        }
+        
+        /* Ensure toggles in the table have enough width */
+        #rulesTable .toggle {
+            min-width: 75px; /* Adjust as needed */
+            vertical-align: middle; /* Align toggle with text/buttons */
+        }
+        
+        /* Styles from index.html for consistent tabs */
+        .nav-tabs {
+            margin-bottom: 1.5rem;
+            border-bottom: 2px solid #dee2e6;
+        }
+        .nav-tabs .nav-link {
+            border: none;
+            color: #6c757d;
+            padding: 1rem 1.5rem;
+            font-weight: 500;
+            position: relative;
+        }
+        .nav-tabs .nav-link.active {
+            color: #0d6efd;
+            background: none;
+            border: none;
+        }
+        .nav-tabs .nav-link.active:after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #0d6efd;
+        }
+        .tab-content {
+            padding: 1rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+
+        {# --- Navigation Bar --- #}
+        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+          <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('read_root') }}">FinZapc V1.2</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+              <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+              <ul class="navbar-nav ms-auto">
+                <li class="nav-item">
+                  <a class="nav-link {% if request.url.path == url_for('read_root') %}active{% endif %}" aria-current="page" href="{{ url_for('read_root') }}">Dashboard</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link {% if request.url.path == url_for('get_tracker_page') %}active{% endif %}" href="{{ url_for('get_tracker_page') }}">Tracker</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link {% if request.url.path == url_for('get_config_page') %}active{% endif %}" href="{{ url_for('get_config_page') }}">Settings</a>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </nav>
+        {# --- End Navigation Bar --- #}
+
+        <h1 class="mb-4">Application Configuration</h1>
+
+        <!-- Alert Message Box -->
+        <div class="alert alert-dismissible fade show" role="alert" id="alertMessage" style="display: none;">
+            <!-- Content added by JS -->
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
+        {# Populate the alert box if message exists on load from redirect #}
+        {% if request.query_params.get('message') %}
+            <script>
+              document.addEventListener('DOMContentLoaded', function() {
+                  // Ensure Jinja output is treated as a JS string literal
+                  const initialMessage = `{{ request.query_params.get('message')|tojson|safe }}`;
+                  const initialType = `{{ request.query_params.get('message_type')|default('info', true)|tojson|safe }}`;
+                  // Parse the JSON string received from Jinja
+                  try {
+                      const parsedMessage = JSON.parse(initialMessage);
+                      const parsedType = JSON.parse(initialType);
+                      showAlert(parsedMessage, parsedType);
+                      
+                      // --- Clean the URL after showing the message ---
+                      // Check if history API is supported
+                      if (window.history.replaceState) {
+                          const url = new URL(window.location.href);
+                          url.searchParams.delete('message');
+                          url.searchParams.delete('message_type');
+                          // Replace the current history entry with the cleaned URL
+                          window.history.replaceState({}, '', url.toString());
+                          console.log("Cleaned message params from URL");
+                      }
+                      // --- End URL cleaning ---
+                      
+                  } catch (e) {
+                      console.error("Error parsing initial message/type from query params:", e);
+                      // Fallback: show the raw string if parsing fails (e.g., not valid JSON)
+                      showAlert(initialMessage, 'warning'); 
+                  }
+              });
+            </script>
+        {% endif %}
+
+        <!-- Tab Navigation -->
+        <ul class="nav nav-tabs mb-3" id="configTab" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="scheduler-tab" data-bs-toggle="tab" data-bs-target="#scheduler-pane" type="button" role="tab" aria-controls="scheduler-pane" aria-selected="true">Scheduler</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="rates-tab" data-bs-toggle="tab" data-bs-target="#rates-pane" type="button" role="tab" aria-controls="rates-pane" aria-selected="false">Exchange Rates</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="rules-tab" data-bs-toggle="tab" data-bs-target="#rules-pane" type="button" role="tab" aria-controls="rules-pane" aria-selected="false">Portfolio Rules</button>
+            </li>
+        </ul>
+
+        <!-- Tab Content -->
+        <div class="tab-content" id="configTabContent">
+
+            <!-- Scheduler Pane (Renamed) -->
+            <div class="tab-pane fade show active" id="scheduler-pane" role="tabpanel" aria-labelledby="scheduler-tab" tabindex="0">
+                
+                {# --- IBKR Fetch Card (Reverted to inline JS) --- #}
+                <div class="mb-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>IB fetch - account data</span>
+                             <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" 
+                                       id="ibkr-active-switch" 
+                                       data-job-id="ibkr_fetch" 
+                                       {% if ibkr_is_active %}checked{% endif %} 
+                                       onchange="updateJobStatus(this)" {# Inline onchange #}
+                                       data-bs-toggle="tooltip" data-bs-placement="top" 
+                                       title="Enable/Disable scheduled data pull from IBKR">
+                                <label class="form-check-label" for="ibkr-active-switch"><small>Active</small></label>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                <small>Set the frequency for pulling account, position, and order data from IBKR. Use numbers with units (e.g., '1 hour', '900 seconds').</small>
+                            </p>
+                            <div class="input-group mb-3">
+                                <input type="text" class="form-control" 
+                                       id="ibkr-schedule-input" {# Input ID for JS #}
+                                       placeholder="e.g., 1 hour, 900" 
+                                       aria-label="IBKR pull interval"
+                                       value="{{ interval_to_human(current_interval) }}">
+                                <button class="btn btn-outline-secondary" type="button" 
+                                        onclick="updateGenericSchedule('ibkr_fetch', 'ibkr-schedule-input')" {# Inline onclick #}
+                                        data-bs-toggle="tooltip" data-bs-placement="top" 
+                                        title="Update IBKR pull interval">
+                                    Update
+                                </button>
+                            </div>
+                            <small class="text-muted">Current interval: <span id="current-ibkr-interval">{{ interval_to_human(current_interval) }}</span></small>
+                            <small class="text-muted d-block">Ensure IB gateway is started by bin\run.bat root\conf.yaml and user is authenticated using https://localhost:5000/</small>
+                        </div>
+                    </div>
+                </div>
+                {# --- End IBKR Fetch Card --- #}
+
+                {# --- NEW IBKR Market Snapshot Card (Using inline JS) --- #}
+                <div class="mb-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>IB fetch - market data</span>
+                             <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" 
+                                       id="ibkr-snapshot-active-switch" {# Unique ID #}
+                                       data-job-id="ibkr_sync_snapshot" 
+                                       {% if ibkr_snapshot_is_active %}checked{% endif %} 
+                                       onchange="updateJobStatus(this)" {# Inline onchange #}
+                                       data-bs-toggle="tooltip" data-bs-placement="top" 
+                                       title="Enable/Disable scheduled market data snapshot pull">
+                                <label class="form-check-label" for="ibkr-snapshot-active-switch"><small>Active</small></label>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                <small>Set the frequency for pulling market data snapshots via sync service. Use numbers with units (e.g., '1 minute', '60 seconds').</small>
+                            </p>
+                            <div class="input-group mb-3">
+                                <input type="text" class="form-control" 
+                                       id="ibkr-snapshot-schedule-input" {# Unique Input ID for JS #}
+                                       placeholder="e.g., 1 minute, 60" 
+                                       aria-label="IBKR snapshot interval"
+                                       value="{{ interval_to_human(ibkr_snapshot_schedule_seconds) }}">
+                                <button class="btn btn-outline-secondary" type="button" 
+                                        onclick="updateGenericSchedule('ibkr_sync_snapshot', 'ibkr-snapshot-schedule-input')" {# Inline onclick #}
+                                        data-bs-toggle="tooltip" data-bs-placement="top" 
+                                        title="Update IBKR snapshot interval">
+                                    Update
+                                </button>
+                            </div>
+                            <small class="text-muted">Current interval: <span id="current-ibkr_sync_snapshot-interval">{{ interval_to_human(ibkr_snapshot_schedule_seconds) }}</span></small> {# Unique span ID #}
+                            <small class="text-muted d-block">Ensure IB gateway is started by bin\run.bat root\conf.yaml and user is authenticated using https://localhost:5000/</small> {# Added Instruction #}
+                        </div>
+                    </div>
+                </div>
+                {# --- End NEW IBKR Market Snapshot Card --- #}
+                
+                {# --- Harmonized FinViz Card --- #}
+                <div class="mb-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>FinViz Pull Interval</span>
+                             <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" 
+                                       id="finviz-active-switch" 
+                                       data-job-id="finviz_data_fetch" 
+                                       {% if finviz_is_active %}checked{% endif %} 
+                                       onchange="updateJobStatus(this)"
+                                       data-bs-toggle="tooltip" data-bs-placement="top" 
+                                       title="Enable/Disable scheduled data pull from FinViz">
+                                <label class="form-check-label" for="finviz-active-switch"><small>Active</small></label>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                             <p class="card-text">
+                                <small>Set the frequency for pulling data from FinViz. Use numbers with units (e.g., '1 day', '6 hours', '900 seconds').</small>
+                            </p>
+                           <div class="input-group mb-3">
+                                <input type="text" class="form-control" 
+                                       id="finviz-schedule-input"
+                                       placeholder="e.g., 1 day, 6 hours, 900"
+                                       aria-label="FinViz pull interval"
+                                       value="{{ interval_to_human(finviz_schedule_seconds) }}">
+                                <button class="btn btn-outline-secondary" type="button" 
+                                        onclick="updateGenericSchedule('finviz_data_fetch', 'finviz-schedule-input')"
+                                        data-bs-toggle="tooltip" data-bs-placement="top" 
+                                        title="Update FinViz pull interval">
+                                    Update
+                                </button>
+                            </div>
+                            <small class="text-muted">Current interval: <span id="current-finviz-interval">{{ interval_to_human(finviz_schedule_seconds) }}</span></small>
+                        </div>
+                    </div>
+                </div>
+                {# --- End Harmonized FinViz Card --- #}
+
+                {# --- Harmonized Yahoo Card --- #}
+                <div class="mb-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>Yahoo Pull Interval</span>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" 
+                                       id="yahoo-active-switch" 
+                                       data-job-id="yahoo_data_fetch" 
+                                       {% if yahoo_is_active %}checked{% endif %} 
+                                       onchange="updateJobStatus(this)"
+                                       data-bs-toggle="tooltip" data-bs-placement="top" 
+                                       title="Enable/Disable scheduled data pull from Yahoo Finance">
+                                <label class="form-check-label" for="yahoo-active-switch"><small>Active</small></label>
+                            </div>
+                        </div>
+                         <div class="card-body">
+                            <p class="card-text">
+                                <small>Set the frequency for pulling data from Yahoo Finance. Use numbers with units (e.g., '1 day', '6 hours', '900 seconds').</small>
+                            </p>
+                             <div class="input-group mb-3">
+                                <input type="text" class="form-control" 
+                                       id="yahoo-schedule-input"
+                                       placeholder="e.g., 1 day, 6 hours, 900"
+                                       aria-label="Yahoo pull interval"
+                                       value="{{ interval_to_human(yahoo_schedule_seconds) }}">
+                                <button class="btn btn-outline-secondary" type="button" 
+                                        onclick="updateGenericSchedule('yahoo_data_fetch', 'yahoo-schedule-input')"
+                                        data-bs-toggle="tooltip" data-bs-placement="top" 
+                                        title="Update Yahoo pull interval">
+                                    Update
+                                </button>
+                            </div>
+                             <small class="text-muted">Current interval: <span id="current-yahoo-interval">{{ interval_to_human(yahoo_schedule_seconds) }}</span></small>
+                        </div>
+                    </div>
+                </div>
+                {# --- End Harmonized Yahoo Card --- #}
+                
+                {# --- Moved Investing.com Card INSIDE Scheduler Pane --- #}
+                 <div class="mb-4"> {# Removed col-* classes #}
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>Investing.com Pull Interval</span>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" 
+                                       id="investingcom-active-switch" 
+                                       data-job-id="investingcom_data_fetch"
+                                       {% if investingcom_is_active %}checked{% endif %} 
+                                       onchange="updateJobStatus(this)"
+                                       data-bs-toggle="tooltip" data-bs-placement="top" 
+                                       title="Enable/Disable scheduled data pull from Investing.com">
+                                <label class="form-check-label" for="investingcom-active-switch">
+                                    <small>Active</small>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                <small>Set the frequency for pulling data from Investing.com. Use numbers with units (e.g., '1 day', '6 hours', '900 seconds').</small>
+                            </p>
+                            <div class="input-group mb-3">
+                                <input type="text" class="form-control" 
+                                       id="investingcom-schedule-input"
+                                       placeholder="e.g., 1 day, 6 hours, 900"
+                                       aria-label="Investing.com pull interval"
+                                       value="{{ interval_to_human(investingcom_schedule_seconds) }}">
+                                <button class="btn btn-outline-secondary" type="button" 
+                                        onclick="updateGenericSchedule('investingcom_data_fetch', 'investingcom-schedule-input')"
+                                        data-bs-toggle="tooltip" data-bs-placement="top" 
+                                        title="Update Investing.com pull interval">
+                                    Update
+                                </button>
+                            </div>
+                            <small class="text-muted">Current interval: <span id="current-investingcom-interval">{{ interval_to_human(investingcom_schedule_seconds) }}</span></small>
+                        </div>
+                    </div>
+                </div>
+                {# --- End Moved Investing.com Card --- #}
+                
+            </div>
+
+            <!-- Exchange Rates Pane -->
+            <div class="tab-pane fade" id="rates-pane" role="tabpanel" aria-labelledby="rates-tab" tabindex="0">
+                <div class="card mb-4">
+                    <div class="card-header">Exchange Rates (vs EURO)</div>
+                    <div class="card-body">
+                        <form method="post" id="exchangeRateForm">
+                            {% if exchange_rates %}
+                            <table class="table table-sm table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Currency</th>
+                                        <th>Rate</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for currency, rate in exchange_rates.items() %}
+                                    <tr>
+                                        <td>{{ currency }}</td>
+                                        <td>
+                                            {% if currency == 'USD' or currency == 'GBP' %}
+                                                <input type="number" step="0.0001" class="form-control form-control-sm"
+                                                       name="{{ currency.lower() }}_rate" 
+                                                       value="{{ '%.4f'|format(rate) }}" required>
+                                            {% else %}
+                                                {{ "%.4f"|format(rate) }} {# Other currencies remain read-only #}
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                            <button type="submit" class="btn btn-primary btn-sm mt-2">Update Rates</button>
+                            {% else %}
+                             <p>No exchange rates found.</p>
+                            {% endif %}
+                        </form>
+                        <small class="text-muted mt-2 d-block">Rates are updated periodically. Manual updates apply to USD and GBP only.</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Portfolio Rules Pane -->
+            <div class="tab-pane fade" id="rules-pane" role="tabpanel" aria-labelledby="rules-tab" tabindex="0">
+                <div class="card mb-4">
+                    <div class="card-header">Portfolio Rules</div>
+                    <div class="card-body">
+                        <button type="button" class="btn btn-success btn-sm mb-3" data-bs-toggle="modal" data-bs-target="#ruleModal" onclick="prepareAddRuleModal()">
+                            <i class="bi bi-plus-circle"></i> Add New Rule
+                        </button>
+                        <table class="table table-sm table-striped table-bordered w-100" id="rulesTable">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Rule Name</th>
+                                    <th>Min Value</th>
+                                    <th>Max Value</th>
+                                    <th>Description</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rulesTableBody">
+                                {# REMOVE Jinja loop - DataTables will populate this #}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div> <!-- End Tab Content -->
+
+    </div>
+
+    <!-- Rule Add/Edit Modal (Keep outside tab content) -->
+    <div class="modal fade" id="ruleModal" tabindex="-1" aria-labelledby="ruleModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <!-- The form action will be set by JS -->
+                <form id="ruleForm" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="ruleModalLabel">Add/Edit Rule</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <!-- Hidden field for ID (used for updates) -->
+                        <input type="hidden" id="ruleId" name="rule_id">
+
+                        <div class="mb-3">
+                            <label for="ruleName" class="form-label">Rule Name</label>
+                            <select class="form-select" id="ruleName" name="rule_name" required>
+                                <option value="" disabled selected>Select Rule</option>
+                                <option value="Portfolio Leverage">Portfolio Leverage</option>
+                                <option value="Portfolio Beta">Portfolio Beta</option>
+                                <option value="Position Size (% NAV)">Position Size (% NAV)</option>
+                                <option value="Position Risk">Position Risk</option>
+                                {% for i in range(1, 12) %}
+                                <option value="Sector {{ i }} Allocation">Sector {{ i }} Allocation</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col">
+                                <label for="minValue" class="form-label">Min Value</label>
+                                <input type="number" step="any" class="form-control" id="minValue" name="min_value" value="0.0" required>
+                            </div>
+                            <div class="col">
+                                <label for="maxValue" class="form-label">Max Value</label>
+                                <input type="number" step="any" class="form-control" id="maxValue" name="max_value" value="0.0" required>
+                            </div>
+                        </div>
+                    <div class="mb-3">
+                            <label for="description" class="form-label">Description</label>
+                            <textarea class="form-control" id="description" name="description" rows="2"></textarea>
+                        </div>
+                         <div class="form-check form-switch mb-3">
+                             <input class="form-check-input" type="checkbox" role="switch" id="isActiveSwitch" name="is_active_display" value="true" checked> <!-- Use diff name -->
+                             <label class="form-check-label" for="isActiveSwitch">Active</label>
+                        </div>
+                        <!-- Actual hidden field for submission -->
+                        <input type="hidden" name="is_active" id="isActiveHidden" value="true">
+
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-primary" id="saveRuleButton">Save changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Scripts remain the same -->
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    {# <script src="https://cdn.jsdelivr.net/npm/bootstrap5-toggle@5.0.4/js/bootstrap5-toggle.jquery.min.js"></script> #}
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+    {# Embed initial rules data as JSON #}
+    <script type="application/json" id="initial-rules-data">
+        {{ portfolio_rules_json | safe }}
+    </script>
+
+    {% raw %}
+    <script>
+        // Store rule names for client-side use if needed
+        const VALID_RULE_NAMES = [
+            'Portfolio Leverage', 'Portfolio Beta', 'Position Size (% NAV)', 'Position Risk',
+            'Sector 1 Allocation',
+            'Sector 2 Allocation',
+            'Sector 3 Allocation',
+            'Sector 4 Allocation',
+            'Sector 5 Allocation',
+            'Sector 6 Allocation',
+            'Sector 7 Allocation',
+            'Sector 8 Allocation',
+            'Sector 9 Allocation',
+            'Sector 10 Allocation',
+            'Sector 11 Allocation'
+        ];
+
+        // --- Initialize Toggles and Event Handlers ---
+        $(document).ready(function() {
+            // Parse initial data
+            let initialRulesData = [];
+            const rawJsonElement = document.getElementById('initial-rules-data');
+            const rawJsonContent = rawJsonElement ? rawJsonElement.textContent : '[]';
+            console.log("Raw JSON content from script tag:", rawJsonContent); // Log raw content
+            try {
+                 initialRulesData = JSON.parse(rawJsonContent);
+                 console.log("Parsed initial rules data:", initialRulesData);
+            } catch (e) {
+                 console.error("Error parsing initial rules JSON:", e, "\nRaw content was:\n", rawJsonContent); // Log raw content on error
+                 showAlert("Error loading initial rules data.", "danger");
+            }
+            
+            // Map initial data to the format expected by DataTables columns
+            const initialTableData = initialRulesData.map(rule => createRowDataArray(rule));
+            
+            setTimeout(function() {
+                console.log("Initializing DataTables...");
+                // --- UNCOMMENT AND UPDATE DATATABLES INIT ---
+                var table = $('#rulesTable').DataTable({
+                    data: initialTableData, // Use parsed initial data
+                    columns: [ // Define columns explicitly
+                         { data: 0, title: "ID" }, 
+                         { data: 1, title: "Rule Name" }, 
+                         { data: 2, title: "Min Value" }, 
+                         { data: 3, title: "Max Value" }, 
+                         { data: 4, title: "Description" }, 
+                         { 
+                             data: 5, title: "Status", type: 'string',
+                             render: function(data, type, row, meta) {
+                                 const isActive = (data === 'Active');
+                                 if (type === 'display') {
+                                     const ruleId = row[0]; // Get ID from the row data array
+                                     const ruleName = row[1];
+                                     if (ruleId !== undefined && ruleName !== undefined) {
+                                         // Generate standard Bootstrap 5 switch HTML
+                                         const switchId = `rule-active-switch-${ruleId}`; // Unique ID
+                                         const switchHtml = `
+                                            <div class="form-check form-switch d-flex justify-content-center align-items-center">
+                                                <input class="form-check-input rule-active-toggle" 
+                                                       type="checkbox" 
+                                                       role="switch" 
+                                                       id="${switchId}" 
+                                                       data-rule-id="${ruleId}" 
+                                                       data-rule-name="${ruleName}" 
+                                                       ${isActive ? 'checked' : ''}>
+                                            </div>
+                                         `;
+                                         return switchHtml;
+                                     } else { return data; }
+                                 } 
+                                 return data; 
+                             }
+                         },
+                         { 
+                             data: 6, title: "Actions", orderable: false, 
+                             // Render function for buttons if needed, or rely on createRowDataArray setting HTML
+                             // defaultContent might also work if buttonsHTML is consistent
+                             render: function(data, type, row, meta) {
+                                  // Data for this column is the buttonsHTML string from createRowDataArray
+                                  return data; 
+                             }
+                         }
+                    ],
+                    pageLength: 10, 
+                    order: [[1, 'asc']], 
+                    columnDefs: [
+                        // Keep existing columnDefs for non-orderable columns if needed,
+                        // but target indices might need adjustment if column order changed
+                        { targets: [0, 2, 3, 4, 6], orderable: false }, 
+                        // Render/type defs are now part of the 'columns' array
+                    ],
+                    createdRow: function(row, data, dataIndex) {
+                        // Find the toggle checkbox within the newly created row and initialize it
+                        // const toggleCheckbox = $(row).find('.rule-active-toggle'); // No longer need toggleCheckbox var
+                        // if (toggleCheckbox.length) { // Check no longer needed
+                            // console.log(`Initializing toggle in createdRow for row index ${dataIndex}`);
+                            // toggleCheckbox.bootstrapToggle(); // REMOVED bootstrap-toggle initialization
+                        // } else { // Else no longer needed
+                            // console.log(`No toggle found in createdRow for row index ${dataIndex}`);
+                        // } // End if/else
+                    },
+                    initComplete: function(settings, json) {
+                        console.log('DataTables initComplete: Refreshing all toggles...');
+                        // Find ALL toggle checkboxes in the table and refresh their state
+                        // $('#rulesTable .rule-active-toggle').bootstrapToggle(); // REMOVE THIS LINE - Not needed for standard BS5 switches
+                    }
+                }); // End DataTable Init
+                console.log("DataTables Initialized.");
+                
+                // Add filters after init
+                addTableFilters(table);
+
+                // REMOVE explicit call for initial draw - Rely on createdRow
+                // initializeToggles();
+
+            }, 0); // End setTimeout wrapper for DT init
+
+            $('#ruleModal').on('hidden.bs.modal', function () {
+                resetRuleForm();
+            });
+
+             // Sync hidden input with the display switch in the modal
+            $('#isActiveSwitch').on('change', function() {
+                $('#isActiveHidden').val($(this).prop('checked') ? 'true' : 'false');
+            });
+            
+            // --- KEEP the delegated event handler for toggle changes --- 
+            $('#rulesTableBody').off('change', '.rule-active-toggle').on('change', '.rule-active-toggle', function() {
+                console.log("Rule Active Toggle changed!"); // Updated log message
+                const ruleId = $(this).data('rule-id');
+                const isActive = $(this).prop('checked');
+                 updateRuleActiveStatus(ruleId, isActive);
+            });
+            // --- End delegated event handler ---
+            
+            // --- Re-add event listener for Exchange Rate form submission ---
+            const exchangeRateForm = document.getElementById('exchangeRateForm');
+            if (exchangeRateForm) {
+                exchangeRateForm.addEventListener('submit', async function(event) {
+                    event.preventDefault(); // Prevent traditional form submission
+                    console.log("Exchange rate form submitted via fetch.");
+
+                    const form = event.target;
+                    const formData = new FormData(form);
+                    const data = Object.fromEntries(formData.entries());
+                    
+                    // Convert rates to floats
+                    data.usd_rate = parseFloat(data.usd_rate);
+                    data.gbp_rate = parseFloat(data.gbp_rate);
+
+                    // Basic validation (check if numbers are valid)
+                    if (isNaN(data.usd_rate) || isNaN(data.gbp_rate)) {
+                        showAlert('Please enter valid numbers for exchange rates.', 'warning');
+                        return;
+                    }
+
+                    const url = '/config/rates/update'; // Use the JSON endpoint URL
+
+                    try {
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json', // Ensure JSON
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify(data) // Send as JSON
+                        });
+
+                        const result = await response.json();
+
+                        if (!response.ok) {
+                            throw new Error(result.detail || result.error || `Request failed with status ${response.status}`);
+                        }
+
+                        showAlert(result.message || 'Exchange rates updated successfully!', 'success');
+                        
+                    } catch (error) {
+                        console.error("Error updating exchange rates:", error);
+                        showAlert(`Error updating rates: ${error.message}`, 'danger');
+                    }
+                });
+            }
+            // --- End Exchange Rate form listener ---
+            
+            // --- Generic Schedule Form Listener (for Finviz, Yahoo) ---
+            function addGenericScheduleListener(formId, jobId) {
+                const form = document.getElementById(formId);
+                if (!form) return;
+
+                form.addEventListener('submit', async function(event) {
+                    event.preventDefault();
+                    const scheduleInput = form.querySelector('input[type="text"]');
+                    const scheduleValue = scheduleInput.value.trim();
+
+                    if (!scheduleValue) {
+                        showAlert('Schedule cannot be empty.', 'warning');
+                        return;
+                    }
+
+                    const url = '/config/schedule/generic_update'; // NEW endpoint
+                    const data = { job_id: jobId, schedule: scheduleValue };
+
+                    try {
+                        const response = await fetch(url, { 
+                            method: 'POST', 
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify(data)
+                        });
+                        const result = await response.json();
+                        if (!response.ok) { throw new Error(result.detail || `Request failed: ${response.status}`); }
+                        
+                        showAlert(result.message || `Schedule updated for ${jobId}!`, 'success');
+                        // Update input to show the processed seconds value
+                        if (result.schedule_seconds !== undefined) {
+                           scheduleInput.value = result.schedule_seconds;
+                        }
+                    } catch (error) {
+                        console.error(`Error updating ${jobId}:`, error);
+                        showAlert(`Error updating ${jobId} schedule: ${error.message}`, 'danger');
+                    }
+                });
+            }
+
+            addGenericScheduleListener('finvizScheduleForm', 'finviz_data_fetch');
+            addGenericScheduleListener('yahooScheduleForm', 'yahoo_data_fetch');
+            
+            // Initialize ALL job toggles on page load - REMOVE bootstrapToggle() call
+            // $('.job-active-toggle').bootstrapToggle();
+
+            // Delegated event handler for job status toggle changes
+            $('#scheduler-pane').on('change', '.job-active-toggle', function() {
+                const jobId = $(this).data('job-id');
+                const isActive = $(this).prop('checked');
+                console.log(`Job toggle changed: ${jobId}, Active: ${isActive}`);
+                updateJobActiveStatus(jobId, isActive);
+            });
+            
+        });
+
+        // --- NEW Function to Add Filters ---
+        function addTableFilters(dataTableInstance) {
+             console.log("Adding table filters...");
+             // --- Dynamically create the filter row --- 
+             var filterRow = $('<tr class="filter-row"></tr>');
+             dataTableInstance.columns().every(function() {
+                 filterRow.append('<th></th>'); 
+             });
+             $('#rulesTable thead').append(filterRow);
+             // --- End filter row creation ---
+
+             // --- Add filter widgets --- 
+             dataTableInstance.columns().every(function() {
+                 var column = this;
+                 var columnIndex = column.index();
+                 var filterCell = $('#rulesTable thead .filter-row th').eq(columnIndex);
+                 
+                 if (!filterCell.length) return; 
+
+                 // --- Rule Name Text Filter (Column 1) ---
+                 if (columnIndex === 1) { 
+                      filterCell.html('<input type="text" class="form-control form-control-sm" placeholder="Filter Rule Name" />');
+                      $('input', filterCell).on('keyup change clear', function() {
+                          if (column.search() !== this.value) {
+                              column.search(this.value).draw();
+                          }
+                      });
+                 }
+                 // --- Status Dropdown Filter (Column 5) ---
+                 else if (columnIndex === 5) { 
+                     var select = $('<select class="form-select form-select-sm"><option value="">All Statuses</option></select>')
+                         .appendTo(filterCell.empty()) 
+                         .on('change', function() { 
+                             var val = $(this).val();
+                             column.search(val ? '^' + $.fn.dataTable.util.escapeRegex(val) + '$' : '', true, false).draw(); 
+                         });
+                     ['Active', 'Inactive'].forEach(function(status) { 
+                         select.append('<option value="' + status + '">' + status + '</option>');
+                     });
+                 }
+             });
+             console.log("Table filters added.");
+        }
+
+        // --- Alert Function ---
+        function showAlert(message, type = 'info') {
+            let alertBox = document.getElementById('alertMessage');
+            const container = document.querySelector('.container.mt-5'); // Get the main container
+
+            // If the alertBox doesn't exist (was closed), recreate it
+            if (!alertBox && container) {
+                console.log("Alert box not found, recreating...");
+                alertBox = document.createElement('div');
+                alertBox.id = 'alertMessage';
+                // Add necessary classes dynamically
+                alertBox.className = 'alert alert-dismissible fade show'; 
+                alertBox.setAttribute('role', 'alert');
+                alertBox.style.display = 'none'; // Start hidden until populated
+                
+                // Prepend it to the container so it appears at the top
+                container.prepend(alertBox);
+            } else if (!container) {
+                 console.error("Main container .container.mt-5 not found! Cannot recreate alert.");
+                 // Fallback to standard alert if container is missing (shouldn't happen)
+                 alert(`${type.toUpperCase()}: ${message}`);
+                 return;
+            }
+
+            // Now proceed assuming alertBox exists (either found or created)
+            if (alertBox) {
+                const alertClass = type === 'danger' || type === 'error' ? 'alert-danger' :
+                                 type === 'success' ? 'alert-success' :
+                                 type === 'warning' ? 'alert-warning' : 'alert-info';
+                // Update class based on type, keeping base classes
+                alertBox.className = `alert ${alertClass} alert-dismissible fade show`; 
+                // Set content and add close button
+                alertBox.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>`;
+                // Make it visible
+                alertBox.style.display = 'block';
+            } else {
+                // This case should theoretically not be reached now if container exists
+                console.error("#alertMessage element could not be found or created!");
+                alert(`${type.toUpperCase()}: ${message}`);
+            }
+        }
+
+        // --- Modal Handling ---
+        function prepareAddRuleModal() {
+            resetRuleForm();
+            $('#ruleModalLabel').text('Add New Rule');
+            // Clear form action (it will be determined during submit)
+            // $('#ruleForm').attr('action', ""); 
+            $('#saveRuleButton').text('Add Rule');
+        }
+
+        function prepareEditRuleModal(ruleJson) { // Expects JSON string (or already parsed object)
+            let rule = {};
+            if (typeof ruleJson === 'string') {
+                 try {
+                     rule = JSON.parse(ruleJson);
+                 } catch (e) {
+                     console.error("Error parsing rule JSON for modal:", e);
+                     showAlert("Error preparing edit form.", "danger");
+                     return;
+                 }
+            } else {
+                 rule = ruleJson; // Assume already an object
+            }
+            
+            resetRuleForm();
+            $('#ruleModalLabel').text(`Edit Rule (ID: ${rule.id})`);
+            
+            $('#ruleId').val(rule.id); 
+            $('#ruleName').val(rule.rule_name);
+            $('#minValue').val(rule.min_value);
+            $('#maxValue').val(rule.max_value);
+            $('#description').val(rule.description || '');
+
+            const isActive = rule.is_active === true || rule.is_active === 1 || `${rule.is_active}`.toLowerCase() === 'true';
+             // REMOVE bootstrapToggle() calls
+             $('#isActiveSwitch').prop('checked', isActive);
+             $('#isActiveHidden').val(isActive ? 'true' : 'false');
+
+            $('#saveRuleButton').text('Update Rule');
+
+            var ruleModal = new bootstrap.Modal(document.getElementById('ruleModal'));
+            ruleModal.show();
+        }
+
+        function resetRuleForm() {
+            $('#ruleForm')[0].reset(); // Reset native form elements
+            $('#ruleId').val(''); // Clear hidden ID
+            $('#ruleName').val(''); // Reset select
+            $('#minValue').val('0.0');
+            $('#maxValue').val('0.0');
+            $('#description').val('');
+            // Reset the toggle switch visually and the hidden field - REMOVE bootstrapToggle() calls
+            $('#isActiveSwitch').prop('checked', true);
+            $('#isActiveHidden').val('true');
+        }
+
+        // --- Form Submission (Using Fetch API for dynamic updates) ---
+        document.getElementById('ruleForm').addEventListener('submit', async function(event) {
+            event.preventDefault(); // Stop traditional form submission
+
+            const form = event.target;
+            const ruleId = document.getElementById('ruleId').value;
+            const isUpdate = !!ruleId;
+            // Determine URL based on whether it's an update or add - Use /api/ path
+            const url = isUpdate ? `/api/rules/update` : `/api/rules/add`;
+            const method = 'POST';
+
+            const formData = new FormData(form);
+            // Convert FormData to a plain object suitable for JSON
+             const data = Object.fromEntries(formData.entries());
+
+            // Ensure correct boolean value for is_active from the hidden field
+             data.is_active = data.is_active === 'true';
+
+             // Convert numbers
+             data.min_value = parseFloat(data.min_value);
+             data.max_value = parseFloat(data.max_value);
+
+             // Add rule_id to the payload ONLY for updates
+             if (isUpdate) {
+                 data.rule_id = parseInt(ruleId); // Make sure it's an integer
+             }
+
+             // Basic validation: min <= max
+             if (data.min_value > data.max_value) {
+                 showAlert('Min Value cannot be greater than Max Value.', 'warning');
+                 return; // Stop submission
+             }
+
+            console.log("Submitting to:", url, "Data:", data);
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json', // Sending JSON
+                        'Accept': 'application/json' // Expecting JSON back
+                    },
+                     body: JSON.stringify(data) // Send data as JSON string
+                });
+
+                const result = await response.json(); // Assume backend returns JSON
+
+                if (!response.ok) {
+                     // Use detailed error from backend if available
+                    throw new Error(result.detail || result.error || `Request failed with status ${response.status}`);
+                }
+
+                showAlert(result.message || (isUpdate ? 'Rule updated successfully!' : 'Rule added successfully!'), 'success');
+
+                 // Update table using the full list returned from backend
+                 if (result.all_rules) {
+                    updateRulesTable(result.all_rules);
+                 } else {
+                     // Fallback if full list isn't returned (should not happen with current backend)
+                     console.warn("Backend did not return all_rules, performing individual update/add.");
+                     if (isUpdate && result.rule) {
+                        updateTableRow(result.rule);
+                     } else if (!isUpdate && result.rule) {
+                        addTableRow(result.rule);
+                     } else {
+                        window.location.reload(); // Last resort
+                     }
+                 }
+
+                // Close the modal
+                bootstrap.Modal.getInstance(document.getElementById('ruleModal')).hide();
+
+            } catch (error) {
+                console.error("Error saving rule:", error);
+                showAlert(`Error: ${error.message}`, 'danger');
+            }
+        });
+
+
+        // --- Update Active Status via Fetch ---
+        async function updateRuleActiveStatus(ruleId, isActive) {
+             console.log(`[START] updateRuleActiveStatus called for rule ${ruleId} to ${isActive}`); // Added log
+             // Use the correct API endpoint path
+             const url = `/api/rules/update`; // Use the main JSON update endpoint
+             const data = {
+                 rule_id: ruleId, // Send ID in body as expected by PortfolioRuleUpdate model
+                 is_active: isActive
+             };
+
+             try {
+                 const response = await fetch(url, {
+                     method: 'POST',
+                     headers: {
+                         'Content-Type': 'application/json',
+                         'Accept': 'application/json'
+                     },
+                     body: JSON.stringify(data)
+                 });
+
+                 const result = await response.json();
+
+                 if (!response.ok) {
+                     throw new Error(result.detail || result.error || `HTTP error ${response.status}`);
+                 }
+
+                 showAlert(result.message || `Rule ${ruleId} status updated.`, 'success');
+
+                 // Redraw the table completely to reflect any side-effects (like deactivation)
+                 if (result.all_rules) {
+                     updateRulesTable(result.all_rules);
+                 } else {
+                     console.warn("Backend did not return all rules after toggle, reloading page.");
+                     // window.location.reload(); // COMMENT OUT page reload on error
+                 }
+
+             } catch (error) {
+                 console.error('Error updating rule status:', error);
+                 showAlert(`Error updating status: ${error.message}`, 'danger');
+                 // Consider reloading page to revert toggle visually on error
+                 // window.location.reload(); // COMMENT OUT page reload on error
+             }
+        }
+
+        // --- Delete Rule via Fetch ---
+        async function deleteRule(buttonElement, ruleId) { // Accept button element
+             if (!confirm(`Are you sure you want to delete Rule ID ${ruleId}? This cannot be undone.`)) {
+                 return;
+             }
+             console.log(`Attempting to delete rule ID: ${ruleId}`);
+             // Use the correct API endpoint path
+             const url = `/api/rules/delete`; 
+             const data = { rule_id: ruleId }; 
+
+             try {
+                 const response = await fetch(url, {
+                     method: 'POST', 
+                     headers: {
+                         'Content-Type': 'application/json',
+                         'Accept': 'application/json'
+                     },
+                     body: JSON.stringify(data)
+                 });
+
+                 const result = await response.json();
+
+                 if (!response.ok) {
+                     throw new Error(result.detail || result.error || `HTTP error ${response.status}`);
+                 }
+
+                 showAlert(result.message || `Rule ${ruleId} deleted successfully.`, 'success');
+                 
+                 // --- DataTables: Remove row using the button's parent row --- 
+                 var table = $('#rulesTable').DataTable();
+                 var rowNode = $(buttonElement).closest('tr').get(0); // Get the DOM node
+                 if(rowNode) {
+                     table.row(rowNode).remove().draw(false); // Use DOM node with DataTables API
+                     console.log(`Row node for rule ${ruleId} removed.`);
+                 } else {
+                      console.error(`Could not find row node for rule ${ruleId} to remove.`);
+                      // Fallback: attempt removal by ID selector if node not found (less reliable)
+                      // table.row($(`#rule-row-${ruleId}`)).remove().draw(false);
+                 }
+                 
+                 // Check if table is now empty (after draw)
+                 if (table.rows().count() === 0) {
+                     // Optionally add back the 'no rules' row if desired, 
+                     // but DataTables has its own empty table message.
+                     // $('#rulesTableBody').html('<tr id="no-rules-row"><td colspan="7" class="text-center">No portfolio rules defined yet.</td></tr>');
+                 }
+
+             } catch (error) {
+                 console.error('Error deleting rule:', error);
+                 showAlert(`Error deleting rule ${ruleId}: ${error.message}`, 'danger');
+             }
+        }
+
+        // --- Dynamic Table Updates --- 
+        // Removed addTableRow and updateTableRow as updateRulesTable handles redraw
+
+         function updateRulesTable(rules) {
+             console.log("Updating rules table with new data...");
+             var table = $('#rulesTable').DataTable();
+             
+             table.clear();
+             
+             if (rules && rules.length > 0) {
+                 const tableData = rules.map(rule => createRowDataArray(rule));
+                 table.rows.add(tableData); 
+             } 
+             
+             // Draw the table - drawCallback will handle toggle init for new rows
+             table.draw(false); 
+             console.log("Table redrawn.");
+         }
+
+
+        // Helper function to create array data for a DataTables row
+        function createRowDataArray(rule) {
+             const isActive = rule.is_active === true || rule.is_active === 1 || `${rule.is_active}`.toLowerCase() === 'true';
+             const description = rule.description || '';
+             const ruleJsonString = JSON.stringify(rule).replace(/'/g, "\'");
+
+             // Create ONLY buttons HTML string here
+             const buttonsHtml = `
+                 <button class="btn btn-primary btn-sm btn-edit" 
+                         onclick='prepareEditRuleModal(${ruleJsonString})'>
+                     <i class="bi bi-pencil-square"></i> Edit
+                 </button>
+                 <button class="btn btn-danger btn-sm btn-delete" onclick="deleteRule(this, ${rule.id})">
+                      <i class="bi bi-trash"></i> Delete
+                 </button>
+             `;
+
+             return [
+                 rule.id,
+                 rule.rule_name,
+                 rule.min_value,
+                 rule.max_value,
+                 description,
+                 isActive ? 'Active' : 'Inactive', // Return simple string for Status column
+                 buttonsHtml 
+             ];
+         }
+         
+        // Helper function to create HTML for a table row (Alternative - used by updateRulesTable now)
+        function createTableRow(rule) { // This function is likely NO LONGER USED directly
+             // ... (keep for reference or remove if confident) ...
+             const isActive = rule.is_active === true || rule.is_active === 1 || `${rule.is_active}`.toLowerCase() === 'true';
+             const description = rule.description || ''; // Handle null
+             // Pass the raw JS object to prepareEditRuleModal
+             const ruleJsonString = JSON.stringify(rule).replace(/'/g, "\'"); // Basic escaping for the string itself
+
+             return `
+                 <tr id="rule-row-${rule.id}" data-rule-id="${rule.id}">
+                     <td>${rule.id}</td>
+                     <td class="rule-name">${rule.rule_name}</td>
+                     <td class="min-value">${rule.min_value}</td>
+                     <td class="max-value">${rule.max_value}</td>
+                     <td class="description">${description}</td>
+                     <td data-order="${isActive ? 'Active' : 'Inactive'}" data-filter="${isActive ? 'Active' : 'Inactive'}">
+                         <input type="checkbox"
+                                class="rule-active-toggle"
+                                data-rule-id="${rule.id}"
+                                data-rule-name="${rule.rule_name}"
+                                ${isActive ? 'checked' : ''}
+                                data-toggle="toggle"
+                                data-on="Active"
+                                data-off="Inactive"
+                                data-onstyle="success"
+                                data-offstyle="secondary"
+                                data-size="sm">
+                     </td>
+                     <td>
+                         <button class="btn btn-primary btn-sm btn-edit" 
+                                 onclick='prepareEditRuleModal(${ruleJsonString})'>
+                             <i class="bi bi-pencil-square"></i> Edit
+                         </button>
+                         <button class="btn btn-danger btn-sm btn-delete" onclick="deleteRule(${rule.id})">
+                              <i class="bi bi-trash"></i> Delete
+                         </button>
+                     </td>
+                 </tr>
+             `;
+         }
+
+        // --- NEW Function to Update Job Active Status via Fetch ---
+        async function updateJobStatus(toggleElement) {
+            const jobId = $(toggleElement).data('job-id');
+            const isActive = $(toggleElement).prop('checked');
+            console.log(`[UI Action] updateJobStatus called for job: ${jobId}, isActive: ${isActive}`);
+            
+            const url = '/config/schedule/update_status';
+            const data = { job_id: jobId, is_active: isActive };
+
+            console.log(`Sending status update for ${jobId}:`, data);
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.detail || `Request failed: ${response.status}`);
+                }
+
+                showAlert(result.message || `Job ${jobId} status updated.`, 'success');
+                // TODO: Consider adding logic to visually disable/enable the interval input based on status?
+                
+            } catch (error) {
+                console.error(`Error updating status for ${jobId}:`, error);
+                showAlert(`Error updating ${jobId} status: ${error.message}`, 'danger');
+                // Revert toggle on error? Requires fetching current state or more complex handling.
+                // For now, just shows error. Reload might be needed to see DB state.
+            }
+        }
+
+        // --- Helper Function for JS Interval Formatting ---
+        function intervalSecondsToHumanJS(seconds) {
+            if (seconds === null || seconds === undefined || seconds <= 0) {
+                return "Not Set";
+            }
+            
+            if (seconds % 86400 === 0) {
+                const days = seconds / 86400;
+                return `${days} day${days > 1 ? 's' : ''}`;
+            }
+            if (seconds % 3600 === 0) {
+                const hours = seconds / 3600;
+                return `${hours} hour${hours > 1 ? 's' : ''}`;
+            }
+            if (seconds % 60 === 0) {
+                 const minutes = seconds / 60;
+                 return `${minutes} minute${minutes > 1 ? 's' : ''}`;
+            }
+            
+            return `${seconds} second${seconds > 1 ? 's' : ''}`; // Default to seconds
+        }
+        // --- End Helper Function ---
+
+        // --- NEW Function to Update Generic Schedule via Fetch ---
+        async function updateGenericSchedule(jobId, inputId) {
+            const scheduleInput = document.getElementById(inputId);
+            if (!scheduleInput) {
+                showAlert(`Error: Input element with ID '${inputId}' not found.`, 'danger');
+                return;
+            }
+            const scheduleValue = scheduleInput.value.trim();
+            const displaySpan = document.getElementById(`current-${jobId.replace('_data_fetch', '')}-interval`); // Find display span
+
+            if (!scheduleValue) {
+                showAlert('Schedule input cannot be empty.', 'warning');
+                return;
+            }
+
+            const url = '/config/schedule/generic_update';
+            const data = { job_id: jobId, schedule: scheduleValue };
+
+            console.log(`Updating generic schedule for ${jobId} with input: '${scheduleValue}'`);
+
+            try {
+                const response = await fetch(url, { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                if (!response.ok) { throw new Error(result.detail || `Request failed: ${response.status}`); }
+                
+                showAlert(result.message || `Schedule updated for ${jobId}!`, 'success');
+                
+                // Update the display span with the human-readable format
+                if (displaySpan && result.schedule_seconds !== undefined) {
+                    displaySpan.textContent = intervalSecondsToHumanJS(result.schedule_seconds);
+                    console.log(`Updated display span #${displaySpan.id} to: ${displaySpan.textContent}`);
+                } else if (displaySpan) {
+                    console.warn(`Could not update display span #${displaySpan.id}, schedule_seconds missing from response?`);
+                } else {
+                    console.warn(`Display span for ${jobId} not found.`);
+                }
+                
+                // Also update the input field value itself (optional, shows raw seconds)
+                // scheduleInput.value = result.schedule_seconds;
+
+            } catch (error) {
+                console.error(`Error updating ${jobId}:`, error);
+                showAlert(`Error updating ${jobId} schedule: ${error.message}`, 'danger');
+            }
+        }
+        // --- End NEW Function ---
+
+    </script>
+    {% endraw %}
+
+</body>
+</html> 

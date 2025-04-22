@@ -1,0 +1,1509 @@
+"""
+Database models and repository implementation for V3 of the financial application.
+Combines SQLAlchemy models and repository functionality.
+
+Key features:
+- Database models for accounts, positions, orders, and job configurations
+- Repository implementation for data access
+- Error handling and logging
+"""
+
+import logging
+from datetime import datetime
+from typing import Dict, Any, List, Optional, Set, Union
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, create_engine, delete, MetaData, Table, insert, update, and_, distinct, Text, Boolean, text, func
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker, relationship, Session
+from sqlalchemy.future import select
+import os
+import json
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+import sqlite3
+# Remove the temporary Pydantic import and definitions here
+# from pydantic import BaseModel
+# from typing import Optional
+
+# Import the schemas from the new file using relative import
+# from .schemas import PortfolioRuleCreate, PortfolioRuleUpdate
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+Base = declarative_base()
+
+class AccountModel(Base):
+    """SQLAlchemy model for account data."""
+    __tablename__ = 'accounts'
+    
+    id = Column(Integer, primary_key=True)
+    account_id = Column(String, unique=True, nullable=False)
+    net_liquidation = Column(Float)
+    total_cash = Column(Float)
+    gross_position_value = Column(Float)
+    upd_mode = Column(String)
+    last_update = Column(DateTime, default=datetime.now)
+    
+    positions = relationship("PositionModel", back_populates="account")
+    orders = relationship("OrderModel", back_populates="account")
+
+class PositionModel(Base):
+    """SQLAlchemy model for position data."""
+    __tablename__ = 'positions'
+    
+    id = Column(Integer, primary_key=True)
+    account_id = Column(String, ForeignKey('accounts.account_id'))
+    ticker = Column(String)
+    name = Column(String)
+    position = Column(Float)
+    mkt_price = Column(Float)
+    mkt_value = Column(Float)
+    avg_cost = Column(Float)
+    avg_price = Column(Float)
+    unrealized_pnl = Column(Float)
+    realized_pnl = Column(Float)
+    pnl_percentage = Column(Float)
+    sector = Column(String)
+    group = Column(String)
+    sector_group = Column(String)
+    sec_type = Column(String)
+    contract_desc = Column(String)
+    currency = Column(String)
+    last_update = Column(DateTime, default=datetime.now)
+    
+    account = relationship("AccountModel", back_populates="positions")
+
+class OrderModel(Base):
+    """SQLAlchemy model for order data."""
+    __tablename__ = 'orders'
+    
+    id = Column(Integer, primary_key=True)
+    account_id = Column(String, ForeignKey('accounts.account_id'))
+    order_id = Column(String)
+    ticker = Column(String)
+    description = Column(String)
+    status = Column(String)
+    side = Column(String)
+    order_type = Column(String)
+    total_size = Column(Float)
+    filled_qty = Column(Float)
+    remaining_qty = Column(Float)
+    stop_price = Column(Float)
+    limit_price = Column(Float)
+    limit_offset = Column(Float)
+    trailing_amount = Column(Float)
+    avg_price = Column(Float)
+    currency = Column(String)
+    last_update = Column(DateTime, default=datetime.now)
+    
+    account = relationship("AccountModel", back_populates="orders")
+
+class JobConfigModel(Base):
+    """SQLAlchemy model for job configurations."""
+    __tablename__ = 'job_configs'
+    
+    id = Column(Integer, primary_key=True)
+    job_id = Column(String, unique=True, nullable=False)
+    job_type = Column(String)
+    schedule = Column(String)  # JSON string
+    is_active = Column(Integer, default=1)
+    last_run = Column(DateTime)
+    next_run = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class ScreenerModel(Base):
+    __tablename__ = 'screener'
+    
+    ticker = Column(String, primary_key=True, nullable=False)
+    status = Column(String, nullable=False) # Expected: 'portfolio', 'candidate', 'monitored'
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # --- NEW FIELDS --- 
+    atr = Column(Float, nullable=True)
+    atr_mult = Column(Integer, nullable=True)
+    risk = Column(Float, nullable=True)
+    beta = Column(Float, nullable=True)
+    sector = Column(String, nullable=True)
+    industry = Column(String, nullable=True)
+    comments = Column(Text, nullable=True) # Use Text for longer comments
+    # --- END NEW FIELDS ---
+
+    # --- Tracker Source Fields ---
+    t_source1 = Column(String, nullable=True)
+    conid = Column(String, nullable=True) # Changed type to String to match existing VARCHAR DB column
+    # --- End Tracker Source Fields ---
+    
+    # --- Company Name Field ---
+    Company = Column(String, nullable=True)
+    # --- End Company Name Field ---
+
+    # --- Add Open Pos and Cost Base --- 
+    open_pos = Column(Integer, nullable=True) # Assuming Integer for Open Pos
+    cost_base = Column(Float, nullable=True)  # Assuming Float for Cost Base
+    # --- End Open Pos and Cost Base ---
+
+    # --- Add Currency --- 
+    currency = Column(String, nullable=True)
+    # --- End Currency ---
+
+    # --- Rename Account to Acc ---
+    acc = Column(String, nullable=True) 
+    # --- End Rename ---
+
+    # --- ADDED Price Field ---
+    price = Column(Float, nullable=True)
+    # --- END Price Field ---
+
+    # --- ADDED daychange Field ---
+    daychange = Column(Float, nullable=True)
+    # --- END daychange Field ---
+
+class PortfolioRuleModel(Base):
+    __tablename__ = 'portfolio_rules'
+
+    id = Column(Integer, primary_key=True) # Auto-incrementing primary key
+    rule_name = Column(String, nullable=False) # e.g., 'Portfolio Leverage', 'Sector 1 Allocation'
+    min_value = Column(Float, nullable=False, default=0.0)
+    max_value = Column(Float, nullable=False, default=0.0)
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True) # Using Boolean directly
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # Add a unique constraint potentially? Or handle logic in application layer?
+    # For now, handling uniqueness of active rules in application layer seems safer.
+    # from sqlalchemy import UniqueConstraint
+    # __table_args__ = (UniqueConstraint('rule_name', 'is_active', name='_rule_name_active_uc'),) -> This prevents duplicates but makes toggling harder.
+
+# --- NEW Finviz Raw Data Model ---
+class FinvizRawDataModel(Base):
+    __tablename__ = 'finviz_raw'
+
+    ticker = Column(String, ForeignKey('screener.ticker'), primary_key=True, nullable=False) # Link to screener
+    # Store all fetched fields as a single comma-delimited string for now
+    raw_data = Column(Text, nullable=True)
+    last_fetched_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+# --- End Finviz Raw Data Model ---
+
+# --- NEW Investing.com Raw Data Model ---
+class InvestingComRaw(Base):
+    __tablename__ = 'investingcom_raw'
+
+    # TODO: Consider relationship back to screener if t_source2 becomes unique/indexed?
+    slug = Column(String, primary_key=True, nullable=False) # Use slug as PK
+    name = Column(String, nullable=True)
+    ticker_symbol = Column(String, nullable=True) # Ticker symbol extracted from page
+    lastprice = Column(Float, nullable=True)
+    p_change = Column(Float, nullable=True)
+    currency = Column(String, nullable=True)
+    data_state = Column(String, nullable=True)
+    timestamp = Column(DateTime, nullable=True) # Last successful update timestamp
+
+# Define the exchange_rates table
+metadata = MetaData()
+exchange_rates = Table(
+    'exchange_rates', metadata,
+    Column('currency', String, primary_key=True),
+    Column('rate', Float, nullable=False)
+)
+
+class SQLiteRepository:
+    """Repository for SQLite database operations."""
+    
+    def __init__(self, database_url: str):
+        """Initialize the repository with a database URL."""
+        self.database_url = database_url
+        self.engine = create_async_engine(database_url)
+        
+    # --- Keep simple create_tables --- 
+    async def create_tables(self) -> None:
+         """Creates tables using Base.metadata."""
+         try:
+             logger.info("[DB Init] Creating tables (including investingcom_raw).")
+             async with self.engine.begin() as conn:
+                  await conn.run_sync(Base.metadata.create_all)
+                  await conn.run_sync(lambda sync_conn: exchange_rates.create(sync_conn, checkfirst=True))
+             logger.info("[DB Init] Tables created successfully.")
+         except Exception as e:
+             logger.error(f"[DB Init] Error during table creation: {e}", exc_info=True)
+             raise
+    # --- End create_tables --- 
+
+    async def clear_positions(self, account_id: str) -> None:
+        """Clear all positions for a specific account using ORM model."""
+        try:
+            logger.info(f"[DB] Clearing positions for account {account_id}")
+            async with self.engine.begin() as conn:
+                # Use ORM model for delete
+                stmt = delete(PositionModel).where(PositionModel.account_id == account_id)
+                await conn.execute(stmt)
+            logger.info(f"[DB] Positions cleared for account {account_id}")
+        except Exception as e:
+            logger.error(f"[DB] Error clearing positions: {str(e)}")
+            raise
+    
+    async def save_position(self, position: Dict[str, Any]) -> None:
+        """Save position to database using ORM model."""
+        try:
+            logger.info(f"[DB] Saving position {position.get('ticker', 'N/A')} for account {position.get('account_id', 'N/A')}")
+            async with self.engine.begin() as conn:
+                 # Use ORM model for insert
+                stmt = insert(PositionModel).values(**position)
+                await conn.execute(stmt)
+            logger.info(f"[DB] Position saved: {position.get('ticker', 'N/A')}")
+        except Exception as e:
+            logger.error(f"[DB] Error saving position: {str(e)}")
+            raise
+    
+    async def get_all_positions(self) -> List[Dict[str, Any]]:
+        """Get all positions from database using ORM model."""
+        try:
+            logger.info("[DB] Fetching all positions")
+            async with self.engine.connect() as conn: # Use connect for select
+                # Use ORM model for select
+                result = await conn.execute(select(PositionModel))
+                rows = result.mappings().all() # Use mappings() for dict-like rows
+                positions = [dict(row) for row in rows] # Convert to list of dicts
+                logger.info(f"[DB] Found {len(positions)} positions")
+                return positions
+        except Exception as e:
+            logger.error(f"[DB] Error fetching positions: {str(e)}")
+            raise
+    
+    async def save_account(self, account: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Save or update account data using ORM model (upsert)."""
+        account_id = account.get('account_id')
+        if not account_id:
+            logger.error("[DB] Cannot save account without account_id")
+            return None # Return None if no ID
+
+        logger.info(f"[DB] Saving account {account_id}")
+        try:
+            async with self.engine.begin() as conn:
+                # Check if exists
+                result = await conn.execute(
+                    select(AccountModel).where(AccountModel.account_id == account_id)
+                )
+                existing = result.scalar_one_or_none()
+                
+                if existing:
+                    logger.info(f"[DB] Updating existing account {account_id}")
+                    # Ensure last_update is set for updates too
+                    account['last_update'] = datetime.now()
+                    stmt = (
+                        update(AccountModel)
+                        .where(AccountModel.account_id == account_id)
+                        .values(**account)
+                    )
+                else:
+                    logger.info(f"[DB] Inserting new account {account_id}")
+                    # Ensure last_update is set for inserts
+                    account['last_update'] = datetime.now()
+                    stmt = insert(AccountModel).values(**account)
+                
+                await conn.execute(stmt)
+                # Commit is handled by engine.begin() context manager
+                
+            logger.info(f"[DB] Account {account_id} saved/updated successfully in DB.")
+            
+            # --- Fetch the saved/updated record to return it --- 
+            async with self.engine.connect() as conn:
+                result = await conn.execute(
+                    select(AccountModel).where(AccountModel.account_id == account_id)
+                )
+                saved_record = result.mappings().first()
+                if saved_record:
+                    logger.info(f"[DB] Fetched saved record for {account_id} to return.")
+                    return dict(saved_record) # Convert RowMapping to dict
+                else:
+                     logger.error(f"[DB] Failed to fetch account {account_id} immediately after saving!")
+                     return None # Return None if fetch failed
+            # --- End Fetch --- 
+
+        except Exception as e:
+            logger.error(f"[DB] Error saving account {account_id}: {str(e)}")
+            logger.exception("Database save error:") # Log full traceback
+            return None # Return None on error
+    
+    async def get_all_accounts(self) -> List[Dict[str, Any]]:
+        """Get all accounts from database using ORM model."""
+        try:
+            logger.info("[DB] Fetching all accounts")
+            async with self.engine.connect() as conn: # Use connect for select
+                # Use ORM model for select
+                result = await conn.execute(select(AccountModel))
+                rows = result.mappings().all() # Use mappings() for dict-like rows
+                accounts = [dict(row) for row in rows] # Convert to list of dicts
+                logger.info(f"[DB] Found {len(accounts)} accounts")
+                return accounts
+        except Exception as e:
+            logger.error(f"[DB] Error fetching accounts: {str(e)}")
+            raise
+    
+    async def delete_account(self, account_id: str) -> None:
+        """Delete an account using ORM model."""
+        try:
+            logger.info(f"[DB] Deleting account {account_id}")
+            async with self.engine.begin() as conn:
+                 # Use ORM model for delete
+                stmt = delete(AccountModel).where(AccountModel.account_id == account_id)
+                await conn.execute(stmt)
+            logger.info(f"[DB] Account {account_id} deleted successfully")
+        except Exception as e:
+            logger.error(f"[DB] Error deleting account {account_id}: {str(e)}")
+            raise
+    
+    async def get_account_by_id(self, account_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific account by its ID using ORM model."""
+        try:
+            logger.info(f"[DB] Fetching account {account_id}")
+            async with self.engine.connect() as conn: # Use connect for select
+                # Use ORM model for select
+                result = await conn.execute(
+                    select(AccountModel).where(AccountModel.account_id == account_id)
+                )
+                row = result.mappings().first() # Use mappings().first()
+                account = dict(row) if row else None # Convert to dict if found
+                logger.info(f"[DB] Account {account_id} {'found' if account else 'not found'}")
+                return account
+        except Exception as e:
+            logger.error(f"[DB] Error fetching account {account_id}: {str(e)}")
+            raise
+    
+    async def update_account(self, account_id: str, updates: Dict[str, Any]) -> bool:
+        """Update an account using ORM model. Returns True if updated, False otherwise."""
+        # Removed fetching account_id from dict
+        if not account_id:
+            # Raise error immediately if account_id is missing or empty
+            raise ValueError("account_id cannot be empty")
+            
+        # Always update the timestamp
+        updates['last_update'] = datetime.now()
+            
+        try:
+            logger.info(f"[DB] Updating account {account_id} with data: {updates}")
+            async with self.engine.begin() as conn:
+                 # Use ORM model for update, pass the updates dictionary
+                stmt = update(AccountModel).where(AccountModel.account_id == account_id).values(**updates)
+                result = await conn.execute(stmt)
+                
+                if result.rowcount > 0:
+                    logger.info(f"[DB] Account {account_id} updated successfully ({result.rowcount} row(s) affected).")
+                    return True
+                else:
+                    logger.warning(f"[DB] Account {account_id} not found for update (0 rows affected). Update failed.")
+                    return False
+        except Exception as e:
+            logger.error(f"[DB] Error updating account {account_id}: {str(e)}")
+            raise
+            
+    async def get_all_orders(self) -> List[Dict[str, Any]]:
+        """Get all orders from database using ORM model."""
+        try:
+            logger.info("[DB] Fetching all orders")
+            async with self.engine.connect() as conn: # Use connect for select
+                # Use ORM model for select
+                result = await conn.execute(select(OrderModel))
+                rows = result.mappings().all() # Use mappings() for dict-like rows
+                orders = [dict(row) for row in rows] # Convert to list of dicts
+                logger.info(f"[DB] Found {len(orders)} orders")
+                return orders
+        except Exception as e:
+            logger.error(f"[DB] Error fetching orders: {str(e)}")
+            raise
+            
+    async def save_order(self, order_data: dict) -> None:
+        """Save order to database using ORM model."""
+        order_id = order_data.get('order_id', 'Unknown')
+        account_id = order_data.get('account_id', 'Unknown')
+        try:
+            logger.info(f"[DB] Saving order {order_id} for account {account_id}")
+            async with self.engine.begin() as conn:
+                 # Use ORM model for insert
+                stmt = insert(OrderModel).values(**order_data)
+                await conn.execute(stmt)
+            logger.info(f"[DB] Order {order_id} saved successfully")
+        except Exception as e:
+            logger.error(f"[DB] Error saving order {order_id}: {str(e)}")
+            raise
+    
+    async def get_job_config(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get job configuration by ID."""
+        try:
+            async with self.engine.connect() as conn:
+                stmt = select(JobConfigModel).filter_by(job_id=job_id)
+                result = await conn.execute(stmt)
+                # CORRECTED: Use mappings().first() to get a dict-like object or None
+                job_config_row = result.mappings().first()
+                # Convert the RowMapping to a dict if found
+                return dict(job_config_row) if job_config_row else None
+        except Exception as e:
+            logger.error(f"Error fetching job config {job_id}: {str(e)}")
+            raise
+    
+    async def save_job_config(self, job_config_data: Dict[str, Any]) -> None:
+        """Save or update job configuration using SQLite upsert (for generic schedules)."""
+        try:
+            # Ensure updated_at is set
+            job_config_data['updated_at'] = datetime.now()
+            # Ensure necessary fields exist for insert, providing defaults
+            job_config_data.setdefault('job_type', 'data_fetch')
+            job_config_data.setdefault('is_active', 1)
+            job_config_data.setdefault('created_at', job_config_data['updated_at'])
+            
+            # Create the initial insert statement
+            stmt = sqlite_insert(JobConfigModel).values(**job_config_data)
+            
+            # Define the fields to update on conflict (exclude primary key and created_at)
+            update_fields = {
+                c.name: getattr(stmt.excluded, c.name) # Use getattr for excluded columns
+                for c in JobConfigModel.__table__.columns
+                if c.name not in ['id', 'job_id', 'created_at'] # Don't update id, job_id, or created_at
+            }
+            
+            # Add the ON CONFLICT DO UPDATE clause
+            upsert_stmt = stmt.on_conflict_do_update(
+                index_elements=['job_id'], # The unique column causing the conflict
+                set_=update_fields
+            )
+            
+            async with self.engine.begin() as conn:
+                await conn.execute(upsert_stmt)
+            logger.info(f"[DB] Saved/Updated job config for: {job_config_data.get('job_id')}")
+        except Exception as e:
+            logger.error(f"Error saving/updating job config: {str(e)}", exc_info=True)
+            raise
+    
+    async def update_job_config(self, job_id: str, updates: Dict[str, Any]) -> None:
+        """Update job configuration."""
+        try:
+            async with self.engine.begin() as conn:
+                await conn.execute(
+                    update(JobConfigModel).where(JobConfigModel.job_id == job_id).values(**updates)
+                )
+        except Exception as e:
+            logger.error(f"Error updating job config {job_id}: {str(e)}")
+            raise
+    
+    async def get_fetch_interval_seconds(self, default_interval: int = 3600) -> int:
+        """Get the fetch interval in seconds from job_configs (expects JSON format for ibkr_fetch)."""
+        job_id = 'ibkr_fetch' # Hardcoded for original functionality
+        try:
+            async with self.engine.connect() as conn:
+                result = await conn.execute(
+                    select(JobConfigModel.schedule).where(JobConfigModel.job_id == job_id)
+                )
+                schedule_str = result.scalar_one_or_none()
+                if schedule_str:
+                    try:
+                        schedule_data = json.loads(schedule_str)
+                        # UPDATED: Look for the standard format: {"trigger": "interval", "seconds": NNN}
+                        if isinstance(schedule_data, dict) and schedule_data.get('trigger') == 'interval' and 'seconds' in schedule_data:
+                            interval = int(schedule_data['seconds'])
+                            if interval > 0:
+                                logger.info(f"[DB] Found IBKR fetch interval: {interval} seconds from standard JSON format.")
+                                return interval
+                            else:
+                                logger.warning(f"[DB] Found non-positive seconds '{interval}' in standard JSON. Using default.")
+                                return default_interval
+                        # Check for old specific key as fallback (optional, can be removed if migration is done)
+                        elif isinstance(schedule_data, dict) and 'interval_seconds' in schedule_data: 
+                            interval = int(schedule_data['interval_seconds'])
+                            if interval > 0:
+                                logger.info(f"[DB] Found IBKR fetch interval: {interval} seconds from OLD JSON format.")
+                                return interval
+                            else:
+                                logger.warning(f"[DB] Found non-positive IBKR interval '{interval}' in OLD JSON. Using default.")
+                                return default_interval
+                        else:
+                            logger.warning(f"[DB] Found invalid or unexpected JSON format for {job_id}: '{schedule_str}'. Using default interval.")
+                            return default_interval
+                    except (json.JSONDecodeError, ValueError, TypeError) as e:
+                        logger.warning(f"[DB] Error parsing schedule JSON for {job_id}: {e}. String was '{schedule_str}'. Using default interval.")
+                        return default_interval
+                else:
+                    logger.info(f"[DB] No schedule found for {job_id}. Using default interval {default_interval} seconds.")
+                    return default_interval
+        except Exception as e:
+            logger.error(f"[DB] Error fetching job config {job_id}: {str(e)}. Using default interval.")
+            return default_interval
+
+    async def set_fetch_interval_seconds(self, interval_seconds: int) -> None:
+        """Save or update the fetch interval in job_configs (stores as JSON for ibkr_fetch)."""
+        job_id = 'ibkr_fetch'
+        schedule_data = {'interval_seconds': interval_seconds}
+        schedule_str = json.dumps(schedule_data)
+        try:
+            async with self.engine.begin() as conn:
+                result = await conn.execute(
+                    select(JobConfigModel.id).where(JobConfigModel.job_id == job_id)
+                )
+                exists = result.scalar_one_or_none()
+                now = datetime.now()
+                if exists:
+                    logger.info(f"[DB] Updating fetch interval for {job_id} to JSON: {schedule_str}")
+                    await conn.execute(
+                        update(JobConfigModel)
+                        .where(JobConfigModel.job_id == job_id)
+                        .values(schedule=schedule_str, job_type='data_fetch', is_active=1, updated_at=now)
+                    )
+                else:
+                    logger.info(f"[DB] Setting initial fetch interval for {job_id} with JSON: {schedule_str}")
+                    await conn.execute(
+                        insert(JobConfigModel).values(
+                            job_id=job_id,
+                            job_type='data_fetch', 
+                            schedule=schedule_str,
+                            is_active=1,
+                            created_at=now,
+                            updated_at=now
+                        )
+                    )
+            logger.info(f"[DB] Successfully set fetch interval for {job_id} with JSON.")
+        except Exception as e:
+            logger.error(f"[DB] Error setting fetch interval for {job_id}: {str(e)}")
+            raise
+
+    async def get_job_schedule_seconds(self, job_id: str, default_seconds: int = 0) -> int:
+        """Get the schedule interval in seconds for a generic job_id, expecting standard JSON format."""
+        try:
+            async with self.engine.connect() as conn:
+                result = await conn.execute(
+                    select(JobConfigModel.schedule).where(JobConfigModel.job_id == job_id)
+                )
+                schedule_str = result.scalar_one_or_none()
+                
+                if schedule_str:
+                    try:
+                        schedule_data = json.loads(schedule_str)
+                        # Expecting {"trigger": "interval", "seconds": NNNN}
+                        if isinstance(schedule_data, dict) and schedule_data.get('trigger') == 'interval' and 'seconds' in schedule_data:
+                            seconds = int(schedule_data['seconds'])
+                            if seconds > 0:
+                                logger.info(f"[DB] Found schedule for {job_id}: {seconds} seconds.")
+                                return seconds
+                            else:
+                                logger.warning(f"[DB] Found non-positive seconds for {job_id} in schedule JSON: {schedule_str}. Returning default.")
+                                return default_seconds
+                        else:
+                             logger.warning(f"[DB] Invalid or non-interval schedule JSON format for {job_id}: {schedule_str}. Returning default.")
+                             return default_seconds
+                    except (json.JSONDecodeError, ValueError, TypeError) as e:
+                         logger.warning(f"[DB] Error parsing schedule JSON for {job_id}: {e}. String was '{schedule_str}'. Returning default.")
+                         return default_seconds
+                else:
+                    logger.info(f"[DB] No schedule found for {job_id}. Returning default: {default_seconds}")
+                    return default_seconds
+        except Exception as e:
+            logger.error(f"[DB] Error fetching schedule for {job_id}: {str(e)}. Returning default.")
+            return default_seconds
+
+    async def get_job_is_active(self, job_id: str, default_active: bool = True) -> bool:
+        """Get the is_active status (as boolean) for a specific job_id."""
+        try:
+            async with self.engine.connect() as conn:
+                result = await conn.execute(
+                    select(JobConfigModel.is_active).where(JobConfigModel.job_id == job_id)
+                )
+                is_active_db = result.scalar_one_or_none()
+                if is_active_db is not None:
+                    is_active = bool(is_active_db) # Convert DB int/bool to Python bool
+                    logger.info(f"[DB] Found is_active status for {job_id}: {is_active}")
+                    return is_active
+                else:
+                    logger.info(f"[DB] No is_active status found for {job_id}. Returning default: {default_active}")
+                    return default_active
+        except Exception as e:
+            logger.error(f"[DB] Error fetching is_active status for {job_id}: {str(e)}. Returning default.")
+            return default_active
+
+    async def update_job_active_status(self, job_id: str, is_active: bool) -> bool:
+        """Update the is_active status for a specific job_id. Returns True on success, False otherwise."""
+        try:
+            logger.info(f"[DB] Updating is_active status for {job_id} to {is_active}")
+            async with self.engine.begin() as conn:
+                values_to_set = {'is_active': int(is_active), 'updated_at': datetime.now()}
+                logger.debug(f"[DB Update Status] Prepared values: {values_to_set}") # Log prepared values
+                
+                stmt = update(JobConfigModel)\
+                    .where(JobConfigModel.job_id == job_id)\
+                    .values(**values_to_set) # Use the prepared dict
+                
+                logger.debug(f"[DB Update Status] Executing update for job_id: {job_id}")
+                result = await conn.execute(stmt)
+                logger.debug(f"[DB Update Status] Update executed. Result rowcount: {result.rowcount}") # Log rowcount
+                
+                if result.rowcount > 0:
+                    logger.info(f"[DB] Successfully updated is_active status for {job_id} (rowcount > 0).") # Adjusted log
+                    return True
+                else:
+                    logger.warning(f"[DB] Job ID {job_id} not found for status update.")
+                    return False
+        except Exception as e:
+            logger.error(f"[DB] Error updating is_active status for {job_id}: {str(e)}")
+            raise # Re-raise exception to be handled by caller
+
+    async def clear_all_data(self) -> None:
+        """Clear all data from the database using ORM models."""
+        try:
+            logger.info("[DB] Clearing all data from database")
+            async with self.engine.begin() as conn:
+                # Delete in order due to foreign key constraints, using ORM models
+                await conn.execute(delete(PositionModel)) # Clear positions first
+                await conn.execute(delete(OrderModel))    # Then orders
+                await conn.execute(delete(AccountModel))  # Then accounts
+                # Optionally clear job configs if needed, or handle separately
+                # await conn.execute(delete(JobConfigModel)) 
+            logger.info("[DB] All data cleared successfully")
+        except Exception as e:
+            logger.error(f"[DB] Error clearing data: {str(e)}")
+            raise
+
+    async def delete_orders_for_account(self, account_id: str) -> None:
+        """Delete all orders for a specific account using ORM model."""
+        try:
+            logger.info(f"[DB] Deleting orders for account {account_id}")
+            async with self.engine.begin() as conn:
+                 # Use ORM model for delete
+                stmt = delete(OrderModel).where(OrderModel.account_id == account_id)
+                await conn.execute(stmt)
+            logger.info(f"[DB] Orders deleted for account {account_id}")
+        except Exception as e:
+            logger.error(f"[DB] Error deleting orders: {str(e)}")
+            raise
+
+    # --- Screener Methods ---
+    async def get_all_screened_tickers(self) -> List[Dict[str, Any]]:
+        """Get all tickers and their source info from the screener table."""
+        try:
+            logger.info("[DB] Fetching all screened tickers (full model)") # Updated log
+            async with self.engine.connect() as conn:
+                # Select the full model again for the UI
+                stmt = select(ScreenerModel).order_by(ScreenerModel.ticker) # Select full model and order
+                result = await conn.execute(stmt)
+                # Use mappings() to get results as list of dict-like RowMapping objects
+                rows = result.mappings().all()
+                # Convert RowMapping objects to standard dictionaries
+                tickers_data = [dict(row) for row in rows]
+                logger.info(f"[DB] Found {len(tickers_data)} screened tickers")
+                return tickers_data
+        except Exception as e:
+            logger.error(f"[DB] Error fetching screened tickers: {str(e)}", exc_info=True)
+            raise
+
+    async def add_or_update_screener_ticker(self,
+                                           ticker: str,
+                                           status: str,
+                                           atr: Optional[float] = None,
+                                           atr_mult: Optional[int] = None,
+                                           risk: Optional[float] = None,
+                                           beta: Optional[float] = None,
+                                           sector: Optional[str] = None,
+                                           industry: Optional[str] = None,
+                                           comments: Optional[str] = None
+                                           ) -> None:
+        """Add a new ticker or update the status and details if it already exists."""
+        valid_statuses = ["portfolio", "candidate", "monitored"]
+        if status not in valid_statuses:
+            raise ValueError(f"Invalid status '{status}'. Must be one of {valid_statuses}")
+        if not ticker or not ticker.strip():
+             raise ValueError("Ticker cannot be empty.")
+        ticker_upper = ticker.strip().upper()
+
+        # Prepare data, including new optional fields
+        data_to_insert = {
+            'ticker': ticker_upper,
+            'status': status,
+            'atr': atr,
+            'atr_mult': atr_mult,
+            'risk': risk,
+            'beta': beta,
+            'sector': sector,
+            'industry': industry,
+            'comments': comments,
+            'created_at': datetime.now(),
+            'updated_at': datetime.now()
+        }
+        # Data for updating existing records (don't update created_at)
+        data_to_update = {
+            'status': status,
+            'atr': atr,
+            'atr_mult': atr_mult,
+            'risk': risk,
+            'beta': beta,
+            'sector': sector,
+            'industry': industry,
+            'comments': comments,
+            'updated_at': datetime.now()
+        }
+
+        try:
+            logger.info(f"[DB] Adding/Updating screener ticker: {ticker_upper} with status {status} and details")
+            async with self.engine.begin() as conn:
+                result = await conn.execute(
+                    select(ScreenerModel.ticker).where(ScreenerModel.ticker == ticker_upper)
+                )
+                exists = result.scalar_one_or_none()
+
+                if exists:
+                    stmt = update(ScreenerModel).where(ScreenerModel.ticker == ticker_upper).values(**data_to_update)
+                    await conn.execute(stmt)
+                    logger.info(f"[DB] Updated existing screener ticker: {ticker_upper}")
+                else:
+                    stmt = insert(ScreenerModel).values(**data_to_insert)
+                    await conn.execute(stmt)
+                    logger.info(f"[DB] Added new screener ticker: {ticker_upper}")
+        except Exception as e:
+            logger.error(f"[DB] Error adding/updating screener ticker {ticker_upper}: {str(e)}")
+            raise
+
+    async def update_screener_ticker_status(self, ticker: str, status: str) -> None:
+        """Update the status of an existing screener ticker."""
+        valid_statuses = ["portfolio", "candidate", "monitored"]
+        if status not in valid_statuses:
+            raise ValueError(f"Invalid status '{status}'. Must be one of {valid_statuses}")
+        if not ticker or not ticker.strip():
+             raise ValueError("Ticker cannot be empty.")
+        
+        ticker_upper = ticker.strip().upper()
+
+        try:
+            logger.info(f"[DB] Updating screener ticker status: {ticker_upper} to {status}")
+            async with self.engine.begin() as conn:
+                stmt = update(ScreenerModel).where(ScreenerModel.ticker == ticker_upper).values(status=status, updated_at=datetime.now())
+                result = await conn.execute(stmt)
+                if result.rowcount == 0:
+                    logger.warning(f"[DB] Ticker {ticker_upper} not found for status update.")
+                else:
+                    logger.info(f"[DB] Updated status for screener ticker: {ticker_upper}")
+        except Exception as e:
+            logger.error(f"[DB] Error updating screener ticker status {ticker_upper}: {str(e)}")
+            raise
+
+    async def delete_screener_ticker(self, ticker: str) -> bool:
+        """Delete a ticker from the screener table. Returns True if deleted, False if not found."""
+        if not ticker or not ticker.strip():
+             raise ValueError("Ticker cannot be empty.")
+        ticker_upper = ticker.strip().upper()
+        try:
+            logger.info(f"[DB] Deleting screener ticker: {ticker_upper}")
+            async with self.engine.begin() as conn:
+                stmt = delete(ScreenerModel).where(ScreenerModel.ticker == ticker_upper)
+                result = await conn.execute(stmt)
+                if result.rowcount == 0:
+                    logger.warning(f"[DB] Ticker {ticker_upper} not found for deletion.")
+                    return False # Ticker not found
+                else:
+                    logger.info(f"[DB] Deleted screener ticker: {ticker_upper}")
+                    return True # Ticker deleted
+        except Exception as e:
+            logger.error(f"[DB] Error deleting screener ticker {ticker_upper}: {str(e)}")
+            raise
+
+    async def update_screener_ticker_details(self, ticker: str, field: str, value: Union[str, float, int, None]) -> None:
+        """Update a specific detail field for a ticker in the screener table."""
+        ticker = ticker.strip().upper()
+        # Define valid columns and their expected types (use None for text/flexible)
+        # Ensure this map is consistent with the ScreenerModel definition
+        valid_columns = {
+            'status': str,
+            'atr': float,
+            'atr_mult': int,
+            'risk': float,
+            'beta': float,
+            'sector': str,
+            'industry': str,
+            'comments': str,
+            't_source1': str,
+            'conid': str,
+            'Company': str, 
+            'open_pos': int, 
+            'cost_base': float,
+            'currency': str, 
+            'acc': str,
+            'price': float,  
+            'daychange': float, # ADDED daychange validation
+            'updated_at': datetime 
+        }
+
+        logger.debug(f"[Update Details Check] Checking field: '{field}'. Valid columns dict being used: {valid_columns}")
+
+        if field not in valid_columns:
+            raise ValueError(f"Invalid field name for screener update: {field}")
+
+        # --- Type Conversion (Keep Existing Logic) --- 
+        target_type = valid_columns[field]
+        converted_value = value
+        logger.debug(f"[Update Details - Conversion] Attempting conversion for field '{field}'. Input value: '{value}' (Type: {type(value)})")
+        try:
+            if value is not None and value != '':
+                # Add specific handling for float/int conversion failures
+                if target_type == float:
+                    try:
+                        converted_value = float(value)
+                    except (ValueError, TypeError):
+                        raise ValueError(f"Invalid float value: '{value}'")
+                elif target_type == int:
+                    try:
+                        # Attempt to convert potential floats to int after rounding
+                        converted_value = int(round(float(value)))
+                    except (ValueError, TypeError):
+                        raise ValueError(f"Invalid integer value: '{value}'")
+                elif target_type == str:
+                    converted_value = str(value).strip()
+            elif value == '': # Handle empty string input -> store as NULL
+                 converted_value = None
+            # If value is None, keep it as None
+
+        except ValueError as ve:
+            logger.error(f"[Update Details - Conversion] Conversion failed: {ve!r}", exc_info=True) # Log original error
+            # Re-raise with a more specific message if needed, or just re-raise
+            raise ValueError(f"Invalid value type for {field}: '{value}'. Expected {target_type}. Error: {ve}")
+        except Exception as e: # Catch any other unexpected conversion errors
+             logger.error(f"[Update Details - Conversion] Unexpected conversion error: {e!r}", exc_info=True)
+             raise ValueError(f"Unexpected error converting value '{value}' for field {field}.")
+        # --- End Type Conversion ---
+
+        # --- Refactored Update Logic using SQLAlchemy Core --- 
+        try:
+            async with self.engine.begin() as conn: # Use engine.begin() for transaction
+                stmt = (
+                    update(ScreenerModel)
+                    .where(ScreenerModel.ticker == ticker)
+                    .values(**{field: converted_value, 'updated_at': datetime.now()})
+                )
+                # Execute the SQLAlchemy statement
+                result = await conn.execute(stmt)
+                
+                # Optionally check if any row was actually updated
+                if result.rowcount == 0:
+                    logger.warning(f"[DB Update Screener] Ticker '{ticker}' not found or value for '{field}' was already '{converted_value}'. No update performed.")
+                    # Raise error if ticker MUST exist
+                    # raise ValueError(f"Ticker {ticker} not found for update.")
+                else:
+                    logger.info(f"[DB Update Screener] Updated {field} for ticker {ticker} to {converted_value}")
+
+        except Exception as e:
+            logger.error(f"[DB Update Screener] Error updating {field} for ticker {ticker}: {e}", exc_info=True)
+            # Re-raise the exception to be handled by the caller
+            raise
+        # --- End Refactored Update Logic ---
+
+    def get_session(self) -> AsyncSession:
+        """Create and return a new database session."""
+        return AsyncSession(self.engine)
+
+    async def get_all_position_tickers(self) -> Set[str]:
+        """Get a set of unique ticker symbols from the positions table."""
+        try:
+            logger.info("[DB] Fetching all unique position tickers")
+            async with self.engine.connect() as conn:
+                result = await conn.execute(select(distinct(PositionModel.ticker)))
+                # Fetch all results and extract the ticker from each row (which is a tuple)
+                tickers_set = {row[0] for row in result.fetchall() if row[0]}
+                logger.info(f"[DB] Found {len(tickers_set)} unique position tickers")
+                return tickers_set
+        except Exception as e:
+            logger.error(f"[DB] Error fetching position tickers: {str(e)}")
+            raise
+
+    async def ticker_exists_in_positions(self, ticker: str) -> bool:
+        """Check if a specific ticker exists in the positions table."""
+        try:
+            async with self.engine.connect() as conn:
+                # Select 1 is slightly more efficient than selecting the ticker itself
+                stmt = select(PositionModel.ticker).where(PositionModel.ticker == ticker).limit(1)
+                result = await conn.execute(stmt)
+                exists = result.scalar_one_or_none() is not None
+                logger.debug(f"[DB] Check if ticker '{ticker}' exists in positions: {exists}")
+                return exists
+        except Exception as e:
+            logger.error(f"[DB] Error checking position existence for ticker {ticker}: {str(e)}")
+            # Decide on behavior: re-raise, or return False? Returning False might be safer UI-wise.
+            return False # Return False on error to avoid incorrect green indicators
+
+    async def screener_ticker_exists(self, ticker: str) -> bool:
+        """Check if a specific ticker exists in the screener table."""
+        ticker_upper = ticker.strip().upper()
+        try:
+            async with self.engine.connect() as conn:
+                stmt = select(ScreenerModel.ticker).where(ScreenerModel.ticker == ticker_upper).limit(1)
+                result = await conn.execute(stmt)
+                exists = result.scalar_one_or_none() is not None
+                logger.debug(f"[DB] Screener ticker '{ticker_upper}' exists check: {exists}")
+                return exists
+        except Exception as e:
+            logger.error(f"[DB] Error checking screener existence for {ticker_upper}: {str(e)}")
+            raise # Re-raise errors during check
+
+    async def get_all_portfolio_rules(self) -> List[Dict[str, Any]]:
+        """Fetch all portfolio rules from the database."""
+        try:
+            logger.info("[DB] Fetching all portfolio rules")
+            async with self.engine.connect() as conn:
+                stmt = select(PortfolioRuleModel).order_by(PortfolioRuleModel.rule_name, PortfolioRuleModel.id)
+                result = await conn.execute(stmt)
+                rules = result.mappings().all()
+                logger.info(f"[DB] Found {len(rules)} portfolio rules")
+                return [dict(rule) for rule in rules]
+        except Exception as e:
+            logger.error(f"[DB] Error fetching portfolio rules: {str(e)}")
+            raise
+
+    async def add_portfolio_rule(self, rule_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Add a new portfolio rule to the database from a dictionary."""
+        try:
+            # Use the dict directly
+            insert_dict = rule_data.copy() # Use a copy to avoid modifying original if needed
+            logger.info(f"[DB] Adding portfolio rule: {insert_dict.get('rule_name')}")
+
+            # Handle boolean conversion explicitly again
+            if 'is_active' in insert_dict:
+                insert_dict['is_active'] = bool(int(insert_dict['is_active'])) if isinstance(insert_dict['is_active'], (str, int)) else bool(insert_dict['is_active'])
+            else:
+                insert_dict['is_active'] = True # Default if not provided
+
+            async with self.engine.begin() as conn:
+                stmt = insert(PortfolioRuleModel).values(**insert_dict)
+                result = await conn.execute(stmt)
+                inserted_id = result.inserted_primary_key[0]
+
+                # Fetch the newly inserted rule to return it
+                select_stmt = select(PortfolioRuleModel).where(PortfolioRuleModel.id == inserted_id)
+                new_rule_result = await conn.execute(select_stmt)
+                new_rule = new_rule_result.mappings().first()
+
+                if new_rule and new_rule['is_active']:
+                    await self._deactivate_other_rules(conn, new_rule['rule_name'], new_rule['id'])
+
+                logger.info(f"[DB] Portfolio rule added with ID: {inserted_id}")
+                return dict(new_rule) if new_rule else None # Return as dict
+        except Exception as e:
+            logger.error(f"[DB] Error adding portfolio rule: {str(e)}", exc_info=True)
+            raise
+
+    async def update_portfolio_rule(self, rule_id: int, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update an existing portfolio rule using a dictionary of updates.""" 
+        try:
+            # Use the dict directly
+            updates_dict = updates.copy()
+            logger.info(f"[DB] Updating portfolio rule ID: {rule_id} with data: {updates_dict}")
+            
+            if not updates_dict:
+                 logger.warning(f"[DB] No update data provided for rule ID {rule_id}. Returning None.")
+                 return None 
+            
+            # Handle boolean conversion explicitly again
+            if 'is_active' in updates_dict:
+                 updates_dict['is_active'] = bool(int(updates_dict['is_active'])) if isinstance(updates_dict['is_active'], (str, int)) else bool(updates_dict['is_active'])
+
+            updates_dict['updated_at'] = datetime.now() # Manually update timestamp
+
+            async with self.engine.begin() as conn:
+                stmt = update(PortfolioRuleModel).where(PortfolioRuleModel.id == rule_id).values(**updates_dict)
+                result = await conn.execute(stmt)
+
+                if result.rowcount == 0:
+                    logger.warning(f"[DB] Portfolio rule ID {rule_id} not found for update.")
+                    return None
+
+                # Fetch the updated rule
+                select_stmt = select(PortfolioRuleModel).where(PortfolioRuleModel.id == rule_id)
+                updated_rule_result = await conn.execute(select_stmt)
+                updated_rule = updated_rule_result.mappings().first()
+
+                # If the rule was updated and set to active, deactivate others
+                if updated_rule and updates_dict.get('is_active') is True:
+                     await self._deactivate_other_rules(conn, updated_rule['rule_name'], rule_id)
+
+                logger.info(f"[DB] Portfolio rule ID {rule_id} updated successfully.")
+                return dict(updated_rule) if updated_rule else None # Return as dict
+
+        except Exception as e:
+            logger.error(f"[DB] Error updating portfolio rule ID {rule_id}: {str(e)}", exc_info=True)
+            raise
+
+    async def delete_portfolio_rule(self, rule_id: int) -> bool:
+        """Delete a portfolio rule from the database."""
+        try:
+            logger.info(f"[DB] Deleting portfolio rule ID: {rule_id}")
+            async with self.engine.begin() as conn:
+                stmt = delete(PortfolioRuleModel).where(PortfolioRuleModel.id == rule_id)
+                result = await conn.execute(stmt)
+                deleted = result.rowcount > 0
+                if deleted:
+                    logger.info(f"[DB] Portfolio rule ID {rule_id} deleted successfully.")
+                else:
+                    logger.warning(f"[DB] Portfolio rule ID {rule_id} not found for deletion.")
+                return deleted
+        except Exception as e:
+            logger.error(f"[DB] Error deleting portfolio rule ID {rule_id}: {str(e)}")
+            raise
+
+    async def _deactivate_other_rules(self, conn, rule_name: str, active_rule_id: int):
+        """Internal helper to deactivate other rules with the same name."""
+        logger.info(f"[DB] Deactivating other active rules named '{rule_name}' except ID {active_rule_id}")
+        deactivation_stmt = update(PortfolioRuleModel).\
+            where(
+                PortfolioRuleModel.rule_name == rule_name,
+                PortfolioRuleModel.id != active_rule_id,
+                PortfolioRuleModel.is_active == True # Use True for Boolean
+            ).\
+            values(is_active=False, updated_at=datetime.now()) # Use False for Boolean
+        await conn.execute(deactivation_stmt)
+        logger.info(f"[DB] Deactivation complete for rules named '{rule_name}'.")
+
+    # --- NEW Method for Investing.com Raw Data ---
+    async def save_or_update_investingcom_data(self, slug: str, data: Optional[Dict[str, Any]]) -> None:
+        """Saves or updates data in investingcom_raw using slug as key. If data is None, updates status only."""
+        if not slug or not slug.strip():
+            logger.error("[DB Investing.com Raw] Cannot save data without a slug.")
+            return
+        cleaned_slug = slug.strip()
+
+        now = datetime.now()
+
+        try:
+            async with self.engine.begin() as conn:
+                # Check if the slug exists first
+                select_stmt = select(InvestingComRaw.slug).where(InvestingComRaw.slug == cleaned_slug).limit(1)
+                result = await conn.execute(select_stmt)
+                exists = result.scalar_one_or_none() is not None
+
+                if data is None: # Fetch failed
+                    logger.warning(f"[DB Investing.com Raw] Fetch failed for slug '{cleaned_slug}'. Updating status to 'Delayed Data'.")
+                    update_values = {
+                        'data_state': "Delayed Data"
+                        # DO NOT update timestamp on failure
+                    }
+                    if exists:
+                        # Update only data_state for the existing slug
+                        stmt = update(InvestingComRaw).where(InvestingComRaw.slug == cleaned_slug).values(**update_values)
+                        await conn.execute(stmt)
+                        logger.info(f"[DB Investing.com Raw] Updated status to Delayed Data for existing slug '{cleaned_slug}'")
+                    else:
+                        # Insert new record with only slug and delayed status
+                        insert_values = {
+                            'slug': cleaned_slug,
+                            'data_state': "Delayed Data"
+                            # All other fields will be NULL by default
+                        }
+                        stmt = insert(InvestingComRaw).values(**insert_values)
+                        await conn.execute(stmt)
+                        logger.info(f"[DB Investing.com Raw] Inserted new slug '{cleaned_slug}' with Delayed Data status.")
+
+                else: # Fetch succeeded
+                    logger.info(f"[DB Investing.com Raw] Saving/updating data for slug '{cleaned_slug}'")
+                    update_values = {
+                        'name': data.get('Name'),
+                        'ticker_symbol': data.get('Ticker Symbol'), # Store the extracted symbol
+                        'lastprice': data.get('Last Price'),
+                        'p_change': data.get('Percentage Change'),
+                        'currency': data.get('Currency'),
+                        'data_state': data.get('Data Status'),
+                        'timestamp': data.get('_fetch_timestamp', now) # Use fetched timestamp or current time
+                    }
+
+                    if exists:
+                         # Use standard update for existing record identified by slug
+                         stmt = update(InvestingComRaw).where(InvestingComRaw.slug == cleaned_slug).values(**update_values)
+                         await conn.execute(stmt)
+                         logger.info(f"[DB Investing.com Raw] Updated data for existing slug '{cleaned_slug}'")
+                    else:
+                         # Insert new record with all data, using slug as key
+                         insert_values = update_values.copy()
+                         insert_values['slug'] = cleaned_slug # Add slug for insert
+                         stmt = insert(InvestingComRaw).values(**insert_values)
+                         await conn.execute(stmt)
+                         logger.info(f"[DB Investing.com Raw] Inserted new data for slug '{cleaned_slug}'")
+
+        except Exception as e:
+            logger.error(f"[DB Investing.com Raw] Error saving data for slug '{cleaned_slug}': {e}", exc_info=True)
+            # Consider re-raising if needed by the caller
+    # --- End Method for Investing.com Raw Data ---
+
+    # --- NEW Method to Clear Finviz Raw Data ---
+    async def clear_finviz_raw_data(self) -> None:
+        """Deletes all records from the finviz_raw table."""
+        logger.info("[DB] Clearing all data from finviz_raw table.")
+        try:
+            async with self.engine.begin() as conn:
+                stmt = delete(FinvizRawDataModel) # Delete all rows from the model's table
+                await conn.execute(stmt)
+            logger.info("[DB] finviz_raw table cleared successfully.")
+        except Exception as e:
+            logger.error(f"[DB] Error clearing finviz_raw table: {e}", exc_info=True)
+            raise # Re-raise the exception after logging
+    # --- End Method to Clear Finviz Raw Data ---
+
+    # --- NEW Method to Get All Finviz Raw Data ---
+    async def get_all_finviz_raw_data(self) -> List[Dict[str, Any]]:
+        """Fetches all records (ticker, raw_data) from the finviz_raw table."""
+        logger.info("[DB] Fetching all data from finviz_raw table.")
+        try:
+            async with self.engine.connect() as conn:
+                stmt = select(FinvizRawDataModel.ticker, FinvizRawDataModel.raw_data)
+                result = await conn.execute(stmt)
+                rows = result.mappings().all()
+                logger.info(f"[DB] Fetched {len(rows)} records from finviz_raw.")
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"[DB] Error fetching from finviz_raw table: {e}", exc_info=True)
+            raise
+    # --- End Method to Get All Finviz Raw Data ---
+
+    # --- Add Finviz Raw Data Save/Update ---
+    async def save_or_update_finviz_raw_data(self, ticker: str, raw_data: str) -> None:
+        """Saves or updates raw Finviz data for a ticker."""
+        logger.info(f"[DB] Saving/Updating Finviz raw data for ticker: {ticker}")
+        try:
+            async with self.engine.begin() as conn:
+                # Prepare data dictionary, including the timestamp
+                data_to_insert = {
+                    'ticker': ticker,
+                    'raw_data': raw_data,
+                    'last_fetched_at': datetime.now()
+                }
+                # Use sqlite_insert for UPSERT functionality
+                stmt = sqlite_insert(FinvizRawDataModel).values(data_to_insert)
+                
+                # Define what to do on conflict (ticker exists)
+                # Update raw_data and last_fetched_at
+                update_dict = {
+                    'raw_data': stmt.excluded.raw_data, 
+                    'last_fetched_at': stmt.excluded.last_fetched_at
+                }
+                
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['ticker'], # Conflict on the primary key
+                    set_=update_dict
+                )
+                
+                await conn.execute(stmt)
+            logger.info(f"[DB] Successfully saved/updated Finviz raw data for {ticker}")
+        except Exception as e:
+            logger.error(f"[DB] Error saving/updating Finviz raw data for {ticker}: {e}", exc_info=True)
+            raise
+    # --- End Finviz Raw Data Save/Update ---
+
+    # --- ADDED METHODS FOR INVESTING.COM CLEANUP ---
+
+    async def get_all_screener_slugs(self) -> Optional[Set[str]]:
+        """Fetches all non-null t_source2 slugs from the screener table."""
+        logger.debug("[DB] Fetching all t_source2 slugs from screener table.")
+        try:
+            async with AsyncSession(self.engine) as session:
+                result = await session.execute(
+                    select(ScreenerModel.t_source2).where(ScreenerModel.t_source2.isnot(None))
+                )
+                # Use .scalars().all() to get a list of slugs directly
+                slugs = set(result.scalars().all())
+                logger.debug(f"[DB] Found {len(slugs)} slugs in screener.")
+                return slugs
+        except Exception as e:
+            logger.error(f"[DB] Error fetching screener slugs: {e}", exc_info=True)
+            return None # Return None on error
+
+    async def get_all_investingcom_raw_slugs(self) -> Optional[Set[str]]:
+        """Fetches all slugs from the investingcom_raw table."""
+        logger.debug("[DB] Fetching all slugs from investingcom_raw table.")
+        try:
+            async with AsyncSession(self.engine) as session:
+                result = await session.execute(
+                    select(InvestingComRaw.slug)
+                )
+                slugs = set(result.scalars().all())
+                logger.debug(f"[DB] Found {len(slugs)} slugs in investingcom_raw.")
+                return slugs
+        except Exception as e:
+            logger.error(f"[DB] Error fetching investingcom_raw slugs: {e}", exc_info=True)
+            return None # Return None on error
+
+    async def delete_investingcom_data_by_slugs(self, slugs: List[str]) -> Optional[int]:
+        """Deletes records from investingcom_raw based on a list of slugs."""
+        if not slugs:
+            logger.info("[DB] No slugs provided for deletion. Skipping.")
+            return 0
+
+        logger.warning(f"[DB] Attempting to delete {len(slugs)} records from investingcom_raw.")
+        try:
+            async with self.engine.begin() as conn: # Use begin for transaction
+                stmt = delete(InvestingComRaw).where(InvestingComRaw.slug.in_(slugs))
+                result = await conn.execute(stmt)
+                deleted_count = result.rowcount
+                logger.info(f"[DB] Successfully deleted {deleted_count} records from investingcom_raw.")
+                return deleted_count
+        except Exception as e:
+            logger.error(f"[DB] Error deleting investingcom_raw data by slugs: {e}", exc_info=True)
+            return None # Return None on error
+
+    # --- END ADDED METHODS ---
+
+    # --- ADDED METHODS FOR SCREENER UPDATE FROM INVESTING.COM ---
+
+    async def get_all_investingcom_raw_data(self) -> List[Dict[str, Any]]:
+        """Fetches all records from the investingcom_raw table."""
+        logger.info("[DB] Fetching all data from investingcom_raw table.")
+        try:
+            async with self.engine.connect() as conn:
+                stmt = select(InvestingComRaw) # Select the whole model
+                result = await conn.execute(stmt)
+                rows = result.mappings().all()
+                logger.info(f"[DB] Fetched {len(rows)} records from investingcom_raw.")
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"[DB] Error fetching from investingcom_raw table: {e}", exc_info=True)
+            raise # Re-raise error
+
+    async def get_screener_by_slug(self, slug: str) -> Optional[Dict[str, Any]]:
+        """Fetches a screener record by its t_source2 (slug)."""
+        if not slug:
+            return None
+        logger.debug(f"[DB] Fetching screener entry for slug (t_source2): {slug}")
+        try:
+            async with self.engine.connect() as conn:
+                stmt = select(ScreenerModel).where(ScreenerModel.t_source2 == slug).limit(1)
+                result = await conn.execute(stmt)
+                row = result.mappings().first()
+                if row:
+                    logger.debug(f"[DB] Found screener entry for slug {slug}: Ticker {row.get('ticker')}")
+                    return dict(row)
+                else:
+                    logger.debug(f"[DB] No screener entry found for slug {slug}")
+                    return None
+        except Exception as e:
+            logger.error(f"[DB] Error fetching screener entry by slug {slug}: {e}", exc_info=True)
+            return None # Return None on error
+
+    # --- END ADDED METHODS ---
+
+    # --- NEW Method to get active order configurations ---
+    async def get_all_active_order_configs(self) -> Dict[str, Dict[str, float]]:
+        """
+        Fetches the latest order configuration (stop_price, limit_price, limit_offset)
+        for each ticker where all three values are non-null.
+        Returns a dictionary mapping ticker -> {'stop_price': float, 'limit_price': float, 'limit_offset': float}.
+        """
+        logger.info("[DB] Fetching latest active order configurations (stop/limit/offset).")
+        configs = {}
+        try:
+            async with self.engine.connect() as conn:
+                # Use a CTE with row_number() to get the latest order per ticker that meets the criteria
+                ranked_orders_cte = (
+                    select(
+                        OrderModel.ticker,
+                        OrderModel.stop_price,
+                        OrderModel.trailing_amount, # Select trailing_amount
+                        OrderModel.limit_offset,
+                        # Use func.row_number() for better integration
+                        func.row_number().over(partition_by=OrderModel.ticker, order_by=OrderModel.last_update.desc()).label('rn')
+                    )
+                    .where(
+                        and_(
+                            OrderModel.ticker.isnot(None),
+                            OrderModel.ticker != '',
+                            OrderModel.stop_price.isnot(None),
+                            OrderModel.trailing_amount.isnot(None), # Check trailing_amount
+                            OrderModel.limit_offset.isnot(None)
+                        )
+                    )
+                    .cte("ranked_orders_cte")
+                )
+
+                # Select from the CTE where row_number is 1
+                stmt = select(
+                    ranked_orders_cte.c.ticker,
+                    ranked_orders_cte.c.stop_price,
+                    ranked_orders_cte.c.trailing_amount,
+                    ranked_orders_cte.c.limit_offset
+                ).where(ranked_orders_cte.c.rn == 1)
+
+                result = await conn.execute(stmt)
+                rows = result.mappings().all() # Get results as dict-like rows
+
+                for row in rows:
+                    ticker = row['ticker']
+                    configs[ticker] = {
+                        'stop_price': row['stop_price'],
+                        'trailing_amount': row['trailing_amount'],
+                        'limit_offset': row['limit_offset']
+                    }
+
+            logger.info(f"[DB] Found {len(configs)} tickers with active order configurations.")
+            return configs
+        except Exception as e:
+            logger.error(f"[DB] Error fetching active order configurations: {e}", exc_info=True)
+            return {} # Return empty dict on error
+    # --- End NEW Method ---
+
+    # --- NEW Method to Get Target Currencies --- 
+    async def get_target_currencies(self) -> List[str]:
+        """Fetches the distinct currency keys from the exchange_rates table."""
+        logger.info("[DB] Fetching target currencies from exchange_rates table.")
+        target_currencies = []
+        try:
+            # Create a session for this specific operation
+            async with AsyncSession(self.engine) as session:
+                # Call the existing standalone function
+                rates_dict = await get_exchange_rates(session)
+                # Extract the keys (currency codes)
+                target_currencies = list(rates_dict.keys())
+                logger.info(f"[DB] Found target currencies: {target_currencies}")
+        except Exception as e:
+            logger.error(f"[DB] Error fetching target currencies: {e}", exc_info=True)
+            # Return empty list or re-raise depending on desired error handling
+            # raise
+        return target_currencies
+    # --- End NEW Method --- 
+
+    def update_exchange_rates_sync(self, rates: Dict[str, float]):
+        """Synchronously updates exchange rates in the database using sqlite3."""
+        if not rates:
+            logger.info("[DB Sync Update Rates] No rates provided to update.")
+            return
+
+        logger.info(f"[DB Sync Update Rates] Updating rates for: {list(rates.keys())}")
+        # Extract the raw DB path from the database_url (e.g., 'sqlite+aiosqlite:///path/to/db.db')
+        db_path = None
+        if self.database_url.startswith("sqlite+aiosqlite:///"):
+            db_path = self.database_url.split("///", 1)[1]
+        elif self.database_url.startswith("sqlite:///"): # Handle non-async URL prefix too
+            db_path = self.database_url.split("///", 1)[1]
+
+        if not db_path or ":memory:" in db_path:
+            logger.error("[DB Sync Update Rates] Cannot determine valid database file path from URL for synchronous update.")
+            return
+
+        conn = None
+        try:
+            conn = sqlite3.connect(db_path, timeout=10) # Add timeout
+            cursor = conn.cursor()
+            updates_made = 0
+            for currency, rate in rates.items():
+                try:
+                    # Use standard SQL UPSERT syntax for SQLite
+                    sql = """
+                    INSERT INTO exchange_rates (currency, rate)
+                    VALUES (?, ?)
+                    ON CONFLICT(currency) DO UPDATE SET rate=excluded.rate;
+                    """
+                    cursor.execute(sql, (currency, rate))
+                    updates_made += cursor.rowcount # Count successful upserts
+                except sqlite3.Error as single_err:
+                    logger.error(f"[DB Sync Update Rates] Error upserting rate for {currency}: {single_err}")
+                    # Continue with other currencies
+
+            conn.commit()
+            logger.info(f"[DB Sync Update Rates] Finished updating rates. {updates_made} rows affected.")
+
+        except sqlite3.Error as e:
+            logger.error(f"[DB Sync Update Rates] Database error: {e}", exc_info=True)
+            if conn:
+                conn.rollback()
+        except Exception as e:
+             logger.error(f"[DB Sync Update Rates] Unexpected error: {e}", exc_info=True)
+             if conn:
+                 conn.rollback()
+        finally:
+            if conn:
+                conn.close()
+
+    async def get_portfolio_rule_by_id(self, rule_id: int) -> Optional[Dict[str, Any]]:
+        """Fetch a single portfolio rule by its ID."""
+        logger.info(f"[DB] Fetching portfolio rule ID: {rule_id}")
+        try:
+            async with self.engine.connect() as conn:
+                stmt = select(PortfolioRuleModel).where(PortfolioRuleModel.id == rule_id)
+                result = await conn.execute(stmt)
+                rule = result.mappings().first()
+                if rule:
+                    logger.info(f"[DB] Found portfolio rule ID: {rule_id}")
+                    return dict(rule)
+                else:
+                    logger.warning(f"[DB] Portfolio rule ID {rule_id} not found.")
+                    return None
+        except Exception as e:
+            logger.error(f"[DB] Error fetching portfolio rule ID {rule_id}: {str(e)}", exc_info=True)
+            raise
+
+# Method to fetch exchange rates
+async def get_exchange_rates(session):
+    try:
+        result = await session.execute(exchange_rates.select())
+        # Access Row elements by index (0 for currency, 1 for rate)
+        return {row[0]: row[1] for row in result.fetchall()}
+    except Exception as e:
+        print(f"Error fetching exchange rates: {e}")
+        return {}
+
+# Method to update/insert exchange rates (Upsert)
+async def update_exchange_rate(session, currency, rate):
+    try:
+        # Use SQLite dialect for ON CONFLICT
+        stmt = sqlite_insert(exchange_rates).values(currency=currency, rate=rate)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=['currency'], # Specify the primary key constraint
+            set_=dict(rate=rate)          # Fields to update on conflict
+        )
+        await session.execute(stmt)
+        await session.commit()
+        logger.info(f"[DB] Upserted exchange rate for {currency} to {rate}")
+    except Exception as e:
+        logger.error(f"Error upserting exchange rate for {currency}: {e}")
+        await session.rollback() 
+
+    # --- NEW: Method to fetch a single screener ticker --- 
+    async def get_screener_ticker(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Fetches a single ticker record from the screener table."""
+        ticker_upper = ticker.strip().upper()
+        logger.debug(f"[DB] Fetching screener data for ticker: {ticker_upper}")
+        try:
+            async with self.engine.connect() as conn:
+                stmt = select(ScreenerModel).where(ScreenerModel.ticker == ticker_upper).limit(1)
+                result = await conn.execute(stmt)
+                row = result.mappings().first()
+                if row:
+                    logger.debug(f"[DB] Found screener data for {ticker_upper}.")
+                    return dict(row)
+                else:
+                    logger.debug(f"[DB] Ticker {ticker_upper} not found in screener.")
+                    return None
+        except Exception as e:
+            logger.error(f"[DB] Error fetching screener ticker {ticker_upper}: {e}", exc_info=True)
+            return None # Return None on error 
+
+    # --- NEW: Method to update multiple screener fields --- 
+    async def update_screener_multi_fields(self, ticker: str, updates: Dict[str, Any]) -> bool:
+        """Updates multiple fields for a ticker in the screener table and the updated_at timestamp."""
+        ticker_upper = ticker.strip().upper()
+        if not updates:
+            logger.warning(f"[DB Multi Update] No updates provided for ticker {ticker_upper}. Skipping.")
+            return False
+
+        # Ensure updated_at is always included
+        updates['updated_at'] = datetime.now()
+
+        logger.debug(f"[DB Multi Update] Updating screener for {ticker_upper} with: {updates}")
+        try:
+            async with self.engine.begin() as conn:
+                stmt = (
+                    update(ScreenerModel)
+                    .where(ScreenerModel.ticker == ticker_upper)
+                    .values(**updates)
+                )
+                result = await conn.execute(stmt)
+                if result.rowcount > 0:
+                    logger.debug(f"[DB Multi Update] Successfully updated {len(updates)-1} fields for {ticker_upper}.")
+                    return True
+                else:
+                    logger.warning(f"[DB Multi Update] Ticker {ticker_upper} not found for multi-field update.")
+                    return False
+        except Exception as e:
+            logger.error(f"[DB Multi Update] Error updating multiple fields for {ticker_upper}: {e}", exc_info=True)
+            return False # Return False on error 

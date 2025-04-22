@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ticker Tracker - Financial App V3</title>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <!-- ADD DataTables Buttons CSS -->
+    <link href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css" rel="stylesheet">
+    <!-- REMOVE FixedHeader CSS -->
+    <!-- <link href="https://cdn.datatables.net/fixedheader/4.0.1/css/fixedHeader.bootstrap5.min.css" rel="stylesheet"> -->
+    <!-- REMOVE ColReorder CSS -->
+    <!-- <link href="https://cdn.datatables.net/colreorder/2.0.3/css/colReorder.bootstrap5.min.css" rel="stylesheet"> -->
+    <!-- Ensure style.css exists at src/V3_app/static/css/style.css -->
+    <link rel="stylesheet" href="/static/css/style.css"> <!-- Assuming your common styles are here -->
+    <style>
+        .indicator-green, .indicator-red {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-left: 5px;
+            vertical-align: middle;
+        }
+        .indicator-green { background-color: green; }
+        .indicator-red { background-color: red; }
+
+        /* Style for dirty rows (optional) */
+        tr.row-dirty td {
+            /* background-color: #fffacd; */ /* Example: Light yellow */
+            font-style: italic; /* Example */
+        }
+
+        .action-buttons button, .action-buttons select {
+            margin-right: 5px;
+        }
+        .status-select {
+             width: 150px; /* Adjust as needed */
+        }
+        .acc-select {
+            width: 120px; /* Adjust as needed */
+        }
+        .table th, .table td {
+            vertical-align: middle;
+        }
+
+        /* Add tooltip style to make sure they're visible */
+        .tooltip {
+            z-index: 1076; /* Ensure tooltips appear above other elements, including DataTables filters */
+        }
+        /* Style for cells populated from live position data */
+        .live-data-source {
+            color: orange; 
+            font-style: italic; /* Keep italics for consistency */
+        }
+        /* Style for negative difference in Max Pos */
+        .neg-diff {
+            color: red;
+            /* font-weight: bold; */ /* REMOVED: make it bold */
+        }
+        /* Custom orange text color */
+        .text-orange {
+            color: orange;
+        }
+        /* CSS to hide the cloned filter row in the scroll header REMOVED */
+        /*
+        .dataTables_scrollHeadInner .filter-row {
+            display: none;
+        }
+        */
+    </style>
+    <!-- ADD Custom CSS for DataTables Buttons Dropdown Text -->
+    <style>
+        /* Target the span inside the button for text color */
+        .dt-button-collection .dt-button span {
+            color: #212529 !important; /* Try Bootstrap's default dark text color */
+        }
+        /* Ensure the button itself has a clear background */
+        .dt-button-collection .dt-button {
+            background-color: #fff !important; 
+            color: #212529 !important; /* Set button default text color just in case */
+        }
+        /* Style for active/selected items */
+        .dt-button-collection .dt-button.active span,
+        .dt-button-collection .dt-button.active {
+            color: #fff !important; 
+            background-color: #0d6efd !important; /* Bootstrap primary blue */
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid mt-5">
+
+        {# --- Navigation Bar --- #}
+        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+          <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('read_root') }}">FinZapc V1.2</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+              <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+              <ul class="navbar-nav ms-auto">
+                <li class="nav-item">
+                  <a class="nav-link {% if request.url.path == url_for('read_root') %}active{% endif %}" aria-current="page" href="{{ url_for('read_root') }}">Dashboard</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link {% if request.url.path == url_for('get_tracker_page') %}active{% endif %}" href="{{ url_for('get_tracker_page') }}">Tracker</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link {% if request.url.path == url_for('get_config_page') %}active{% endif %}" href="{{ url_for('get_config_page') }}">Settings</a>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </nav>
+        {# --- End Navigation Bar --- #}
+
+        <h1 class="mb-4">Stock Risk Monitor</h1>
+
+        <!-- Permanent Alert Box (Initially Hidden) -->
+        <div class="alert alert-dismissible fade show" role="alert" id="alertMessage" style="display: none;"> 
+            <!-- Content added by JS or initial load script -->
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
+        {# Store potential message/type in data attributes for safer JS access #}
+        <div id="initial-message-data" 
+             data-message="{{ message|tojson|safe if message else '' }}" 
+             data-type="{{ message_type|default('info', true)|tojson|safe }}"
+             style="display: none;">
+        </div>
+        
+        <script>
+          document.addEventListener('DOMContentLoaded', function() {
+              const messageDataDiv = document.getElementById('initial-message-data');
+              const alertBox = document.getElementById('alertMessage');
+              
+              if (messageDataDiv && alertBox) {
+                  const rawMessageJson = messageDataDiv.getAttribute('data-message');
+                  const rawTypeJson = messageDataDiv.getAttribute('data-type');
+                  
+                  if (rawMessageJson) { // Only proceed if a message exists
+                      try {
+                          // Safely parse the JSON data
+                          const initialMessage = JSON.parse(rawMessageJson);
+                          const initialType = JSON.parse(rawTypeJson);
+                          
+                          // Update the alert box
+                          alertBox.className = `alert alert-${initialType} alert-dismissible fade show`;
+                          
+                          // Clear previous content first
+                          alertBox.innerHTML = ''; 
+                          
+                          // Add the message text
+                          const messageNode = document.createTextNode(initialMessage + ' '); // Add space before button
+                          alertBox.appendChild(messageNode);
+                          
+                          // Create and append the button element (safer than innerHTML)
+                          const button = document.createElement('button');
+                          button.type = 'button';
+                          button.className = 'btn-close';
+                          button.setAttribute('data-bs-dismiss', 'alert');
+                          button.setAttribute('aria-label', 'Close');
+                          alertBox.appendChild(button);
+                          
+                          alertBox.style.display = 'block'; 
+
+                      } catch (e) {
+                          console.error("Error processing initial message from data attributes:", e);
+                          console.error("Raw message JSON:", rawMessageJson);
+                          console.error("Raw type JSON:", rawTypeJson);
+                          // Optionally display a generic error in the alert box
+                          alertBox.className = `alert alert-danger alert-dismissible fade show`;
+                          alertBox.textContent = 'Error displaying initial message.'; 
+                          alertBox.style.display = 'block';
+                      }
+                  }
+              }
+          });
+        </script>
+
+        <!-- Add Ticker Form -->
+        <div class="card mb-4">
+            <div class="card-header">Add New Ticker</div>
+            <div class="card-body">
+                <form action="/tracker/add" method="post">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label for="ticker" class="form-label">Ticker Symbol</label>
+                            <input type="text" class="form-control form-control-sm" id="ticker" name="ticker" required 
+                                   pattern="[A-Za-z0-9\\.^=-]+" 
+                                   data-bs-toggle="tooltip" 
+                                   data-bs-placement="top" 
+                                   title="Enter the stock symbol"> 
+                        </div>
+                        <div class="col-md-3">
+                            <label for="status" class="form-label">Initial Status</label>
+                            <select class="form-select form-select-sm" id="status" name="status" required
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="Select the correct status">
+                                <option value="candidate" selected>Candidate</option>
+                                <option value="monitored">Monitored</option>
+                                <option value="portfolio">Portfolio</option>
+                                <option value="indicator">Indicator</option>
+                            </select>
+                        </div>
+                         <div class="col-md-2">
+                             <label for="atr" class="form-label">ATR</label>
+                             <input type="number" step="0.01" class="form-control form-control-sm" id="atr" name="atr"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="set the Average True Range of the stock">
+                         </div>
+                         <div class="col-md-1">
+                             <label for="atr_mult" class="form-label">ATR Mult</label>
+                             <input type="number" step="1" class="form-control form-control-sm" id="atr_mult" name="atr_mult"
+                                    value="3"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="define the ATR Multiplier that will be used for stop-loss calculation (1-4)">
+                         </div>
+                         <div class="col-md-2">
+                             <label for="risk" class="form-label">Risk</label>
+                             <input type="number" step="0.01" class="form-control form-control-sm" id="risk" name="risk"
+                                    value="1"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="define the max risk for this stock (in % of portfolio NAV)">
+                         </div>
+                    </div>
+                     <div class="row g-3 mb-3">
+                        <div class="col-md-2">
+                            <label for="beta" class="form-label">Beta</label>
+                            <input type="number" step="0.01" class="form-control form-control-sm" id="beta" name="beta"
+                                   data-bs-toggle="tooltip" 
+                                   data-bs-placement="top" 
+                                   title="provide stock's beta">
+                        </div>
+                         <div class="col-md-3">
+                             <label for="sector" class="form-label">Sector</label>
+                             <input type="text" class="form-control form-control-sm" id="sector" name="sector"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="define the sector (e.g. Technology, Healthcare)">
+                         </div>
+                         <div class="col-md-3">
+                             <label for="industry" class="form-label">Industry</label>
+                             <input type="text" class="form-control form-control-sm" id="industry" name="industry"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="define the specific industry within the sector (e.g., Software, Pharmaceuticals)">
+                         </div>
+                         <div class="col-md-4">
+                             <label for="comments" class="form-label">Comments</label>
+                             <textarea class="form-control form-control-sm" id="comments" name="comments" rows="1"
+                                       data-bs-toggle="tooltip" 
+                                       data-bs-placement="top" 
+                                       title="add any notes or observations"></textarea>
+                         </div>
+                    </div>
+                    <div class="row">
+                         <div class="col-12 text-end">
+                            <button type="submit" class="btn btn-primary btn-sm">Add Ticker</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Status Counts -->
+        <div class="mb-3 text-muted">
+            <small>
+                Counts: 
+                Portfolio: <strong id="count-portfolio">{{ status_counts.portfolio }}</strong> | 
+                Candidate: <strong id="count-candidate">{{ status_counts.candidate }}</strong> | 
+                Monitored: <strong id="count-monitored">{{ status_counts.monitored }}</strong>
+            </small>
+        </div>
+
+        <!-- Ticker List Table -->
+        <div class="card">
+            <div class="card-header">Monitored Tickers</div>
+            <div class="card-body">
+                
+                    <!-- ADD Bootstrap Responsive Wrapper -->
+                    <div class="table-responsive">
+                        <table class="table table-striped table-bordered" id="tickerTable">
+                            <thead>
+                                <!-- Row 1: Column Headers -->
+                                <tr>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Main Ticker Symbol">Ticker</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Company/Security Name">Name</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Portfolio/Candidate/Monitored">Status</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Account (if in portfolio)">Acc</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Ticker for FinViz">Source 1</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Interactive Brokers Contract ID">IB Con ID</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Average True Range (14)">ATR</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Multiplier to ATR for stop-loss">ATR Mult</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Max Portfolio Risk">Risk</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Beta (Market Risk)">Beta</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Sector">Sector</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Subsector/Industry">Industry</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Max position size for this risk">Max Pos</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Current position size (open)">Open Pos</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Latest Market Price">Price</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Day Change Percentage">Day Change %</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Tooltip for Cost Base">Cost Base</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Trade Currency">Currency</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Trade config: Stop-loss">Stop</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Trade config: Trailing stop">Trail</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Trade config: Limit Offset">Lmt Ofst</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Additional Info">Comments</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Actions">Actions</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Last Updated At">Updated At</th>
+                                </tr>
+                                <!-- Restore Second Row for Filters (with IDs) -->
+                                <tr class="filter-row">
+                                    <th id="filter-th-0">&nbsp;</th> <!-- Placeholder -->
+                                    <th id="filter-th-1">&nbsp;</th>
+                                    <th id="filter-th-2">&nbsp;</th>
+                                    <th id="filter-th-3">&nbsp;</th>
+                                    <th id="filter-th-4">&nbsp;</th>
+                                    <th id="filter-th-5">&nbsp;</th>
+                                    <th id="filter-th-6">&nbsp;</th>
+                                    <th id="filter-th-7">&nbsp;</th>
+                                    <th id="filter-th-8">&nbsp;</th>
+                                    <th id="filter-th-9">&nbsp;</th>
+                                    <th id="filter-th-10">&nbsp;</th>
+                                    <th id="filter-th-11">&nbsp;</th>
+                                    <th id="filter-th-12">&nbsp;</th>
+                                    <th id="filter-th-13">&nbsp;</th>
+                                    <th id="filter-th-14">&nbsp;</th>
+                                    <th id="filter-th-15">&nbsp;</th>
+                                    <th id="filter-th-16">&nbsp;</th>
+                                    <th id="filter-th-17">&nbsp;</th>
+                                    <th id="filter-th-18">&nbsp;</th>
+                                    <th id="filter-th-19">&nbsp;</th>
+                                    <th id="filter-th-20">&nbsp;</th>
+                                    <th id="filter-th-21">&nbsp;</th>
+                                    <th id="filter-th-22">&nbsp;</th>
+                                    <th id="filter-th-23">&nbsp;</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Restore Jinja loop -->
+                                {% for item in tickers %}
+                                <tr id="row-{{ item.ticker }}" data-ticker="{{ item.ticker }}"> 
+                                    {# Add onclick to the cell itself #}
+                                    <td onclick="handleTickerClickPopup(this)" style="cursor: pointer;" title="Click to open Finviz"> {# Ticker - Clickable Cell #}
+                                        <strong>{{ item.ticker }}</strong>
+                                        {# Add indicator for portfolio items #}
+                                        {% if item.status == 'portfolio' %}
+                                            {% if item.in_portfolio %}
+                                                <span class="indicator-green" title="Ticker found in current positions"></span>
+                                            {% else %}
+                                                <span class="indicator-red" title="Ticker NOT found in current positions"></span>
+                                            {% endif %}
+                                        {% endif %}
+                                        {# End indicator #}
+                                    </td>
+                                    {# Add Name data cell (not editable by default) #}
+                                    <td>{{ item.Company | default('', true) }}</td>
+                                    <td data-order="{{ item.status }}" data-filter="{{ item.status }}"> {# Status #}
+                                        <select class="form-select form-select-sm status-select" data-ticker="{{ item.ticker }}" data-field="status" onchange="handleStatusChange(this)"> <!-- Use new handler -->
+                                            <option value="portfolio" {% if item.status == 'portfolio' %}selected{% endif %}>Portfolio</option>
+                                            <option value="candidate" {% if item.status == 'candidate' %}selected{% endif %}>Candidate</option>
+                                            <option value="monitored" {% if item.status == 'monitored' %}selected{% endif %}>Monitored</option>
+                                            <option value="indicator" {% if item.status == 'indicator' %}selected{% endif %}>Indicator</option>
+                                        </select>
+                                    </td>
+                                    <td data-search="{{ item.acc | default('', true) }}"
+                                        data-order="{{ item.acc | default('', true) }}"
+                                        class="{% if item.acc_from_live %}live-data-source{% endif %}"> {# Acc Column #}
+                                        <select class="form-select form-select-sm acc-select {% if not item.acc_from_live %}editable{% endif %}" 
+                                                data-ticker="{{ item.ticker }}" 
+                                                data-field="acc" 
+                                                onchange="updateField(this)" 
+                                                {% if item.acc_from_live or item.status != 'portfolio' %}disabled title="Value from live position or status not Portfolio (read-only)"{% endif %}>
+                                            <option value="" {% if not item.acc %}selected{% endif %}></option> <!-- Blank Option -->
+                                            {% for acc_id in available_accounts %}
+                                            <option value="{{ acc_id }}" {% if item.acc == acc_id %}selected{% endif %}>{{ acc_id }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </td>
+                                    {# Adjust indices #}
+                                    <td contenteditable="true" data-field="t_source1" class="editable">{{ item.t_source1 | default('', true) }}</td>
+                                    <td contenteditable="true" data-field="conid" class="editable">{{ item.conid | default('', true) }}</td>
+                                    {# New Editable Columns #}
+                                    <td contenteditable="true" data-field="atr" class="numeric editable">{{ item.atr | default('', true) }}</td>
+                                    <td contenteditable="true" data-field="atr_mult" class="numeric editable">{{ item.atr_mult | default('', true) }}</td>
+                                    <td contenteditable="true" data-field="risk" class="numeric editable">{{ item.risk | default('', true) }}</td>
+                                    <td contenteditable="true" data-field="beta" class="numeric editable">{{ item.beta | default('', true) }}</td>
+                                    <td contenteditable="true" data-field="sector" class="editable">{{ item.sector | default('', true) }}</td>
+                                    <td contenteditable="true" data-field="industry" class="editable">{{ item.industry | default('', true) }}</td>
+                                    {# Add new empty data cells #}
+                                    <td></td> {# Max Pos #}
+                                    {# Make Open Pos editable conditionally - ADD FORMATTING & CLASS #}
+                                    <td data-field="open_pos"
+                                        class="numeric {% if not item.open_pos_from_live and item.status == 'portfolio' %}editable{% endif %} {% if item.open_pos_from_live %}live-data-source{% endif %}" 
+                                        contenteditable="{{ 'false' if item.open_pos_from_live or item.status != 'portfolio' else 'true' }}"
+                                        {% if item.open_pos_from_live or item.status != 'portfolio' %}title="Value from live position or status not Portfolio (read-only)"{% endif %}
+                                        >{{ '%.0f'|format(item.open_pos) if item.open_pos is not none else '' }}</td> {# Open Pos #}
+                                    {# --- ADDED Price Cell --- #}
+                                    <td data-field="price" class="numeric">{{ item.price }}</td> {# Price - Simplified #}
+                                    {# --- END Price Cell --- #}
+                                    {# --- ADDED Day Change % Cell --- #}
+                                    <td data-field="daychange" class="numeric"
+                                        data-order="{{ item.daychange | default(0, true) }}"> {# Day Change - Index 15 #}
+                                        {% if item.daychange is not none %}
+                                            <span class="{{ 'text-success' if item.daychange > 0 else 'text-danger' if item.daychange < 0 else '' }}">
+                                                {{ '%.2f%%'|format(item.daychange) }}
+                                            </span>
+                                        {% else %}
+                                            {{ '' }} {# Display nothing if null #}
+                                        {% endif %}
+                                    </td>
+                                    {# --- END Day Change % Cell --- #}
+                                    {# Make Cost Base editable conditionally - ADD FORMATTING & CLASS #}
+                                    <td data-field="cost_base"
+                                        class="numeric {% if not item.cost_base_from_live and item.status == 'portfolio' %}editable{% endif %} {% if item.cost_base_from_live %}live-data-source{% endif %}" 
+                                        contenteditable="{{ 'false' if item.cost_base_from_live or item.status != 'portfolio' else 'true' }}"
+                                        {% if item.cost_base_from_live or item.status != 'portfolio' %}title="Value from live position or status not Portfolio (read-only)"{% endif %}
+                                        >{{ '%.2f'|format(item.cost_base) if item.cost_base is not none else '' }}</td> {# Cost Base #}
+                                    {# Add Currency data cell - Make editable conditionally #}
+                                    <td data-field="currency"
+                                        class="{% if not item.currency_from_live and item.status == 'portfolio' %}editable{% endif %} {% if item.currency_from_live %}live-data-source{% endif %}" 
+                                        contenteditable="{{ 'false' if item.currency_from_live or item.status != 'portfolio' else 'true' }}"
+                                        {% if item.currency_from_live or item.status != 'portfolio' %}title="Value from live position or status not Portfolio (read-only)"{% endif %}
+                                        >{{ item.currency | default('', true) }}</td> {# Currency #}
+                                    {# --- UPDATE Stop Cell --- #}
+                                    <td data-source="{% if item.stop_from_order %}order{% else %}calculated{% endif %}">
+                                        {% if item.stop_from_order %}
+                                            {{ '%.2f'|format(item.order_stop_price) if item.order_stop_price is not none else 'N/A' }}
+                                            <span class="indicator-green" title="From Live Order"></span>
+                                        {% else %}
+                                            {# Calculated by JS #}
+                                        {% endif %}
+                                    </td> {# Stop #}
+                                    {# --- UPDATE Trail Cell --- #}
+                                    <td data-source="{% if item.trail_from_order %}order{% else %}calculated{% endif %}">
+                                        {% if item.trail_from_order %}
+                                            {{ '%.2f'|format(item.order_trailing_amount) if item.order_trailing_amount is not none else 'N/A' }} {# Use trailing_amount #}
+                                            <span class="indicator-green" title="From Live Order"></span>
+                                        {% else %}
+                                            {# Calculated by JS #}
+                                        {% endif %}
+                                    </td> {# Trail #}
+                                    {# --- UPDATE Lmt Ofst Cell --- #}
+                                    <td data-source="{% if item.lmt_ofst_from_order %}order{% else %}calculated{% endif %}">
+                                        {% if item.lmt_ofst_from_order %}
+                                            {{ '%.2f'|format(item.order_limit_offset) if item.order_limit_offset is not none else 'N/A' }}
+                                            <span class="indicator-green" title="From Live Order"></span>
+                                        {% else %}
+                                            {# Calculated by JS #}
+                                        {% endif %}
+                                    </td> {# Lmt Ofst #}
+                                    {# Adjust indices #}
+                                    <td contenteditable="true" data-field="comments" class="editable comments-cell">{{ item.comments | default('', true) }}</td>
+                                    <td class="action-buttons"> {# Actions #}
+                                        <button class="btn btn-success btn-sm btn-update" style="display: none;" onclick="updateRow(this)">Update</button> <!-- Keep this for editable fields -->
+                                        <button class="btn btn-danger btn-sm" onclick="deleteTicker('{{ item.ticker }}')">Delete</button>
+                                    </td>
+                                    {# Add new data cell - Apply strftime format #}
+                                    <td>{{ item.updated_at.strftime('%Y-%m-%d %H:%M:%S') if item.updated_at else '' }}</td>
+                                </tr>
+                                {% endfor %}
+                                <!-- End Restore Jinja loop -->
+                            </tbody>
+                        </table>
+                    </div> <!-- END Bootstrap Responsive Wrapper -->
+                
+            </div>
+        </div>
+        
+    </div>
+
+    {# --- Embed JSON Data for JavaScript --- #}
+    <script id="all-accounts-data-json" type="application/json">
+        {{ all_accounts_data|safe }}
+    </script>
+    <script id="exchange-rates-data-json" type="application/json">
+        {{ exchange_rates_data|safe }}
+    </script>
+    {# --- End Embed JSON --- #}
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script> -->
+    <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+    <!-- <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script> -->
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <!-- ADD colResizable JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/colresizable/1.6.0/colResizable-1.6.min.js"></script>
+    <!-- ADD DataTables Buttons JS -->
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.colVis.min.js"></script>
+    <!-- REMOVE FixedHeader JS -->
+    <!-- <script src="https://cdn.datatables.net/fixedheader/4.0.1/js/dataTables.fixedHeader.min.js"></script> -->
+    <!-- REMOVE ColReorder JS -->
+    <!-- <script src="https://cdn.datatables.net/colreorder/2.0.3/js/dataTables.colReorder.min.js"></script> -->
+
+    <script>
+        // --- Embed and Parse Data from Backend --- 
+        let allAccounts = [];
+        let exchangeRates = {};
+
+        try {
+            const accountsDataElement = document.getElementById('all-accounts-data-json');
+            const ratesDataElement = document.getElementById('exchange-rates-data-json');
+
+            if (accountsDataElement && accountsDataElement.textContent) {
+                allAccounts = JSON.parse(accountsDataElement.textContent);
+                console.log("Parsed All Accounts Data:", allAccounts);
+            } else {
+                console.warn("Accounts JSON data element not found or empty.");
+            }
+
+            if (ratesDataElement && ratesDataElement.textContent) {
+                exchangeRates = JSON.parse(ratesDataElement.textContent);
+                console.log("Parsed Exchange Rates Data:", exchangeRates);
+            } else {
+                console.warn("Exchange Rates JSON data element not found or empty.");
+            }
+        } catch (e) {
+            console.error("Error parsing embedded JSON data:", e);
+            // Optionally show an error to the user
+            showAlert("Error loading necessary page data. Calculations may be incorrect.", "danger");
+        }
+        // --- End Embed and Parse Data --- 
+
+        $(document).ready(function() {
+            // DataTable initialization
+            var table = $('#tickerTable').DataTable({
+                pageLength: 25,
+                order: [[0, 'asc']],
+                stateSave: true, // Enable state saving (uses localStorage)
+                dom: 'lBfrtip', // Add Buttons ('B') to the DOM structure
+                buttons: [ // Define buttons
+                    {
+                        extend: 'colvis',
+                        // Function to get the text for each column button in the dropdown
+                        columnText: function ( dt, idx, title ) {
+                            // More explicit DOM traversal: Find the first <tr> in the <thead>, then the <th> at the correct index
+                            var headerText = $(dt.table().header()).find('tr:first th:eq(' + idx + ')').text();
+                            // Return the formatted text
+                            return (idx + 1) + ': ' + headerText;
+                        }
+                    }
+                ],
+                // REMOVE FixedHeader option
+                // fixedHeader: true,
+                // REMOVE ColReorder option
+                // colReorder: true, 
+                // REMOVE ColReorder and DOM options 
+                // dom: 'Rlfrtip', // Add 'R' for ColReorder/Resize control (adjust if using custom DOM)
+                // scrollX: true, // REMOVED horizontal scrolling
+                // Restore and adjust columnDefs and initComplete 
+                columnDefs: [
+                    // Indices < 4 remain the same (Ticker, Name, Status, Acc)
+                    { targets: [0,1], orderable: true, searchable: true }, // Ticker, Name
+                    // --- REVERT: Restore simple type definition for Status column (index 2) ---
+                    { targets: 2, type: 'string' }, // Status (Reverted)
+                    // --- END REVERT ---
+                    { targets: 3, orderable: true, searchable: true }, // Acc
+                    // Index 4 (Source 1)
+                    { targets: 4, orderable: false, searchable: false },
+                    // Indices 5-11 (IB Con ID -> Industry) - Was 6-12
+                    { targets: 5, orderable: false, searchable: false }, // IB Con ID
+                    { targets: [6, 7, 8, 9], type: 'num-fmt' }, // ATR, Mult, Risk, Beta
+                    { targets: [10, 11], orderable: true, searchable: true }, // Sector, Industry
+                    // Index 12 (Max Pos) - Was 13
+                    {
+                        targets: 12,
+                        orderable: true,
+                        searchable: false,
+                        type: 'num', // Keep type as num for sorting
+                        render: function(data, type, row) {
+                             // Return basic placeholder or existing data for sorting/filtering
+                             // The actual display value will be updated dynamically by JS.
+                             return (type === 'display' || type === 'filter') ? '' : data;
+                        }
+                    }, // End Max Pos
+                    // Index 13 (Open Pos) - Was 14
+                    { targets: 13, orderable: true, searchable: false, type: 'num-fmt' },
+                    // Index 14 (Price) - Was 15
+                    { targets: 14, orderable: true, searchable: false },
+                    // --- ADDED Day Change % columnDef ---
+                    {
+                        targets: 15, // New Index 15
+                        orderable: true,
+                        searchable: false,
+                        type: 'num-fmt', // Use num-fmt for sorting as number
+                        render: function(data, type, row) {
+                            if (type === 'display' || type === 'filter') {
+                                if (data === null || data === undefined || data === '') {
+                                    return ''; // Display nothing if null/undefined/empty
+                                }
+                                try {
+                                    const num = parseFloat(data);
+                                    if (isNaN(num)) { return ''; } // Handle non-numeric if needed
+                                    const className = num > 0 ? 'text-success' : num < 0 ? 'text-danger' : '';
+                                    return `<span class="${className}">${num.toFixed(2)}%</span>`;
+                                } catch (e) {
+                                    return ''; // Error during parsing
+                                }
+                            }
+                            return data; // Return raw data for sorting/other types
+                        }
+                    },
+                    // --- END Day Change % columnDef ---
+                    // Indices 16-23 (Cost Base -> Updated At) - Was 16-23
+                    { targets: 16, orderable: true, searchable: false, type: 'num-fmt' }, // Cost Base
+                    { targets: 17, orderable: true, searchable: true }, // Currency
+                    { targets: [18, 19, 20], orderable: true, searchable: false, type: 'num-fmt' }, // Stop, Trail, Lmt Ofst
+                    { targets: 21, orderable: true, searchable: true }, // Comments
+                    { targets: 22, orderable: false, searchable: false }, // Actions
+                    { targets: 23, orderable: true, searchable: false, type: 'date' }, // Updated At
+                ],
+                // REMOVE headerCallback function
+                /*
+                headerCallback: function(thead, data, start, end, display) {
+                    // ... callback logic removed ... 
+                },
+                */
+                // RESTORE initComplete to manage filters
+                initComplete: function() {
+                    console.log("initComplete triggered."); // LOG: initComplete entry
+                    // Define filter indices and map (Adjusted for new column order)
+                    const filterInputIndices = [0, 1, 3, 10, 11, 17, 21]; // Indices: Ticker, Name, Acc, Sector, Industry, Currency, Comments
+                    const columnMap = {
+                        0: 'Filter Ticker', 1: 'Filter Name', 2: 'Status', 3: 'Filter Acc',
+                        10: 'Filter Sector', 11: 'Filter Industry', 17: 'Filter Currency', 21: 'Filter Comments'
+                    };
+                    const api = this.api();
+
+                    // Check if the filter row exists
+                    const $filterRow = $('#tickerTable thead tr.filter-row');
+                    if (!$filterRow.length) {
+                        console.error("Filter row (.filter-row) not found in thead during initComplete.");
+                        return; // Cannot proceed if filter row isn't there
+                    }
+                    console.log("Filter row found in initComplete:", $filterRow); // LOG: Filter row found
+
+                    api.columns().every(function() {
+                        const column = this;
+                        const columnIndex = column.index();
+                        // Target the specific TH cell using its ID within the filter row
+                        const filterCell = $filterRow.find(`#filter-th-${columnIndex}`);
+
+                        if (!filterCell.length) {
+                            console.warn(`Filter cell #filter-th-${columnIndex} not found within filter row.`);
+                            return;
+                        }
+                        // console.debug(`Processing filter cell #filter-th-${columnIndex}`);
+
+                        // Clear the cell first
+                        filterCell.empty();
+
+                        // Status Dropdown Filter (Index 2 - unchanged)
+                        if (columnIndex === 2) {
+                            console.log(`Adding dropdown filter to column ${columnIndex}`); // LOG
+                            const select = $('<select class="form-select form-select-sm"><option value="">All Statuses</option></select>');
+                            ['portfolio', 'candidate', 'monitored', 'indicator'].forEach(status => {
+                                const displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
+                                select.append('<option value="' + status + '">' + displayStatus + '</option>');
+                            });
+                            // Stop click propagation to prevent sorting when clicking dropdown
+                            select.appendTo(filterCell).on('change', function(e) {
+                                const val = $(this).val();
+                                column.search(val ? '^' + $.fn.dataTable.util.escapeRegex(val) + '$' : '', true, false).draw();
+                            }).on('click', function(e) {
+                                e.stopPropagation();
+                            });
+                        }
+                        // Text Input Filters (Indices adjusted)
+                        else if (filterInputIndices.includes(columnIndex)) {
+                            console.log(`Adding text filter to column ${columnIndex}`); // LOG
+                            const placeholderText = columnMap[columnIndex] || 'Filter...';
+                            const input = $('<input type="text" class="form-control form-control-sm" placeholder="' + placeholderText + '">');
+                            // Stop click propagation to prevent sorting when clicking input
+                            input.appendTo(filterCell).on('keyup change clear', function(e) {
+                                if (column.search() !== this.value) {
+                                    column.search(this.value).draw();
+                                }
+                                e.stopPropagation();
+                            }).on('click', function(e) {
+                                e.stopPropagation();
+                            });
+                        }
+                        // Else: Cell remains empty (already cleared)
+                    }); // End api.columns().every
+                }
+                
+            }); // End DataTable Init
+            
+            // --- Initialize colResizable AFTER DataTable initialization --- 
+            $("#tickerTable").colResizable({
+                liveDrag: false, // Set to true for real-time resizing while dragging
+                // Optional: Define minWidth for columns if needed
+                // minWidth: 50 
+            });
+            console.log("colResizable initialized for #tickerTable");
+            // --- End colResizable --- 
+            
+            // Input Listener for marking rows dirty on edit
+            $('#tickerTable tbody').on('input', 'td.editable', function() {
+                $(this).closest('tr').addClass('row-dirty').find('.btn-update').show();
+            });
+
+            // --- Trigger Max Pos & Stop/Trail/Offset Calculation on relevant changes --- 
+            $('#tickerTable tbody').on('change input', 
+                '.acc-select, td[data-field="risk"], td[data-field="atr"], td[data-field="atr_mult"], td[data-field="currency"], td[data-field="price"], td[data-field="cost_base"], td[data-field="open_pos"]', 
+                function() { 
+                    const row = $(this).closest('tr');
+                    console.log('Change detected, recalculating row values...');
+                    setTimeout(() => calculateAndUpdateRowValues(row), 50); // Small delay
+            });
+
+            // --- Initial Calculation for all rows after table is ready --- 
+            console.log('Performing initial Max Pos & Calculated Fields calculation for all rows...');
+            table.rows().nodes().each(function(rowNode) {
+                calculateAndUpdateRowValues($(rowNode));
+            });
+            console.log('Initial Max Pos & Calculated Fields calculation complete.');
+
+            // --- REMOVE Hover Listener ---
+            /*
+            $('#tickerTable tbody').on('mouseenter', 'td:first-child', function() {
+                 // ... removed hover logic ...
+            });
+            */
+            // --- END REMOVE Hover Listener ---
+
+        }); // End document.ready function
+
+        // --- Function Definitions --- 
+
+        function showAlert(message, type = 'info') {
+            const alertBox = document.getElementById('alertMessage');
+            if (!alertBox) return;
+
+            alertBox.className = `alert alert-${type} alert-dismissible fade show`;
+            // Clear previous content first
+            alertBox.innerHTML = ''; 
+            
+            // Add the message text
+            const messageNode = document.createTextNode(message + ' '); // Add space before button
+            alertBox.appendChild(messageNode);
+            
+            // Create and append the button element
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn-close';
+            button.setAttribute('data-bs-dismiss', 'alert');
+            button.setAttribute('aria-label', 'Close');
+            alertBox.appendChild(button);
+            
+            alertBox.style.display = 'block'; 
+            console.log(`Showing alert: ${message} (Type: ${type})`);
+        }
+
+        function handleStatusChange(selectElement) {
+            const ticker = selectElement.dataset.ticker;
+            const newStatus = selectElement.value;
+            const field = selectElement.dataset.field; // Should be 'status'
+
+            console.log(`Status changed for ${ticker}: Field=${field}, New Status=${newStatus}`);
+
+            // Mark row as dirty and show update button
+            const row = $(selectElement).closest('tr');
+            row.addClass('row-dirty').find('.btn-update').show();
+
+            // Disable/Enable Acc dropdown based on status
+            const accSelect = row.find('.acc-select');
+            // Find other relevant cells
+            const openPosCell = row.find('td[data-field="open_pos"]');
+            const costBaseCell = row.find('td[data-field="cost_base"]');
+            const currencyCell = row.find('td[data-field="currency"]');
+
+            if (newStatus === 'portfolio') {
+                // Enable Acc select only if not populated from live data
+                if (!accSelect.closest('td').hasClass('live-data-source')) {
+                    accSelect.prop('disabled', false);
+                    // Ensure 'editable' class is present if enabled
+                    accSelect.addClass('editable'); 
+                }
+                // Re-enable other fields only if not populated from live data
+                if (!openPosCell.hasClass('live-data-source')) {
+                    openPosCell.prop('contentEditable', true).addClass('editable');
+                }
+                if (!costBaseCell.hasClass('live-data-source')) {
+                    costBaseCell.prop('contentEditable', true).addClass('editable');
+                }
+                if (!currencyCell.hasClass('live-data-source')) {
+                    currencyCell.prop('contentEditable', true).addClass('editable');
+                }
+
+            } else {
+                // Status is not portfolio: Disable Acc and clear its value
+                accSelect.prop('disabled', true).val('').removeClass('editable');
+                
+                // Make other fields non-editable and clear them
+                openPosCell.prop('contentEditable', false).removeClass('editable').text(''); 
+                costBaseCell.prop('contentEditable', false).removeClass('editable').text(''); 
+                currencyCell.prop('contentEditable', false).removeClass('editable').text(''); 
+            }
+            
+            // Maybe call updateField directly? Or wait for explicit Update button click?
+            // For now, rely on the Update button click via updateRow
+        }
+        
+        // Generic function to mark row dirty when editable fields change via <select>
+        function updateField(selectElement) {
+             console.log(`Field updated via select: ${selectElement.dataset.field} for ${selectElement.dataset.ticker}`);
+             $(selectElement).closest('tr').addClass('row-dirty').find('.btn-update').show();
+        }
+
+        function updateRow(buttonElement) {
+            const row = $(buttonElement).closest('tr');
+            const ticker = row.data('ticker');
+            let updates = {};
+
+            console.log(`Updating row for ticker: ${ticker}`);
+
+            // Find all editable cells and selects in this row that have changed
+            row.find('.editable, .status-select, .acc-select').each(function() {
+                const cell = $(this);
+                const field = cell.data('field');
+
+                if (!field) return; // Skip elements without data-field
+
+                let value;
+                if (cell.is('select')) {
+                    value = cell.val();
+                    console.log(` Found select field: ${field}, value: ${value}`);
+                    // Always include select values if the row is dirty?
+                    // Or check original value? For simplicity, let's include if dirty.
+                    if (row.hasClass('row-dirty')) {
+                        updates[field] = value;
+                    }
+                } else if (cell.is('[contenteditable=true]')) {
+                     value = cell.text().trim(); // Get text from contenteditable
+                     console.log(` Found contenteditable field: ${field}, value: ${value}`);
+                     // How to check if contenteditable changed? Compare to original?
+                     // For now, let's assume if the row is dirty, we send all editable fields
+                     if (row.hasClass('row-dirty')) { 
+                         updates[field] = value;
+                     }
+                }
+            });
+
+            if ($.isEmptyObject(updates)) {
+                console.log('No changes detected to update.');
+                showAlert('No changes detected.', 'warning');
+                row.removeClass('row-dirty').find('.btn-update').hide(); // Hide button if no changes
+                return;
+            }
+
+            console.log("Sending updates:", updates);
+
+            // Send data to the backend
+            fetch('/tracker/update-row', { // Use the correct endpoint
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    ticker: ticker, 
+                    updates: updates 
+                }),
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw new Error(err.detail || 'Network response was not ok'); });
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Success:', data);
+                showAlert(data.message || `Ticker ${ticker} updated successfully.`, 'success');
+                // Hide update button and remove dirty marker immediately for visual feedback
+                row.removeClass('row-dirty').find('.btn-update').hide(); 
+                // updateStatusCounts(); // Counts will be updated on reload
+
+                // --- WORKAROUND: Force page reload after successful update ---
+                // Remove previous DataTables update attempts
+                // const table = $('#tickerTable').DataTable();
+                // console.log(`Invalidating row for ${ticker} before redraw.`);
+                // table.row(row).invalidate('dom').draw(false);
+                // console.log(`Redraw called for ${ticker}.`);
+                
+                // Reload the page to reflect changes and ensure filters work
+                console.log(`Update successful for ${ticker}. Reloading page...`);
+                location.reload(); 
+                // --- END WORKAROUND ---
+            })
+            .catch((error) => {
+                console.error('Error:', error);
+                showAlert(error.message || `Error updating ticker ${ticker}.`, 'danger');
+            });
+        }
+
+        function deleteTicker(ticker) {
+            if (!confirm(`Are you sure you want to delete ticker ${ticker}?`)) {
+                return;
+            }
+            console.log(`Deleting ticker: ${ticker}`);
+            fetch('/tracker/delete', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ ticker: ticker }),
+            })
+            .then(response => {
+                 // Check if response is ok (status 200-299)
+                 if (!response.ok) {
+                     // Attempt to parse error detail from JSON response
+                     return response.json().then(err => { 
+                         throw new Error(err.detail || `HTTP error! status: ${response.status}`);
+                     });
+                 }
+                 return response.json(); // Parse JSON body for success
+            })
+            .then(data => {
+                console.log('Delete response:', data);
+                showAlert(data.message || `Ticker ${ticker} deleted.`, data.status === 'warning' ? 'warning' : 'success'); // Use message from server
+                // Remove row from DataTable
+                const table = $('#tickerTable').DataTable();
+                table.row($(`#row-${ticker}`)).remove().draw();
+                // TODO: Update status counts if necessary
+                updateStatusCounts(); // <-- Update counts after successful delete and redraw
+            })
+            .catch((error) => {
+                console.error('Error deleting ticker:', error);
+                showAlert(error.message || `Error deleting ticker ${ticker}.`, 'danger');
+            });
+        }
+
+        // --- NEW Function to update status counts --- 
+        function updateStatusCounts() {
+            const table = $('#tickerTable').DataTable();
+            let counts = { portfolio: 0, candidate: 0, monitored: 0 };
+
+            // Iterate over all rows in the DataTable
+            table.rows().nodes().each(function(rowNode) {
+                const statusSelect = $(rowNode).find('.status-select');
+                if (statusSelect.length) {
+                    const status = statusSelect.val(); // Get current value from the select
+                    if (counts.hasOwnProperty(status)) {
+                        counts[status]++;
+                    }
+                }
+            });
+
+            console.log("Updating status counts:", counts);
+
+            // Update the DOM elements
+            $('#count-portfolio').text(counts.portfolio);
+            $('#count-candidate').text(counts.candidate);
+            $('#count-monitored').text(counts.monitored);
+        }
+
+        // --- RENAMED Function to Calculate and Update Row Values (Max Pos, Stop, Trail, Lmt Ofst) --- 
+        function calculateAndUpdateRowValues(rowElement) {
+            const $row = $(rowElement);
+            const ticker = $row.data('ticker') || 'N/A'; 
+            
+            // --- Get Cells --- 
+            const maxPosCell = $row.find('td:eq(12)'); // Max Pos (index 12)
+            const stopCell = $row.find('td:eq(18)');   // Stop (index 18)
+            const trailCell = $row.find('td:eq(19)');  // Trail (index 19)
+            const lmtOfstCell = $row.find('td:eq(20)'); // Lmt Ofst (index 20)
+            const priceCell = $row.find('td:eq(14)'); // Get the Price cell itself
+
+            // --- Check Data Source for Stop/Trail/Lmt Ofst ---
+            const stopSource = stopCell.data('source');
+            const trailSource = trailCell.data('source');
+            const lmtOfstSource = lmtOfstCell.data('source');
+
+            // --- Get Input Values from Cells --- 
+            const accId = $row.find('.acc-select').val();
+            const riskPercentText = $row.find('td[data-field="risk"]').text().trim();
+            const atrText = $row.find('td[data-field="atr"]').text().trim();
+            const atrMultText = $row.find('td[data-field="atr_mult"]').text().trim();
+            const currency = $row.find('td[data-field="currency"]').text().trim();
+            const priceText = $row.find('td[data-field="price"]').text().trim(); 
+            const costBaseText = $row.find('td[data-field="cost_base"]').text().trim();
+            const openPosText = $row.find('td[data-field="open_pos"]').text().trim().replace(/,/g, ''); // Remove commas before parsing
+            const openPosition = parseInt(openPosText, 10); // Parse Open Pos as integer
+
+            // --- Parse Floats/Ints --- 
+            const riskPercent = parseFloat(riskPercentText);
+            const atr = parseFloat(atrText);
+            const atrMult = parseInt(atrMultText, 10);
+            const price = parseFloat(priceText);
+            const costBase = parseFloat(costBaseText);
+
+            // --- Reset calculated fields --- 
+            let maxPosValue = 'N/A';
+            let stopValue = 'N/A';
+            let trailValue = 'N/A';
+            let lmtOfstValue = 'N/A';
+
+            // ============================
+            // 1. Max Pos Calculation
+            // ============================
+            console.debug(`MaxPos Calc [${ticker}] - Inputs: Acc: ${accId}, Risk%: ${riskPercentText}, ATR: ${atrText}, Mult: ${atrMultText}, Curr: ${currency}`);
+            if (!accId) {
+                console.warn(`MaxPos Calc [${ticker}]: SKIPPED - Account not selected.`);
+            } else if (isNaN(riskPercent) || isNaN(atr) || isNaN(atrMult) || !currency) {
+                console.warn(`MaxPos Calc [${ticker}]: FAILED - Missing/invalid MaxPos input (Risk: ${riskPercent}, ATR: ${atr}, Mult: ${atrMult}, Curr: ${currency})`);
+            } else if (atr <= 0 || atrMult <= 0 || riskPercent <= 0) {
+                console.warn(`MaxPos Calc [${ticker}]: FAILED - Non-positive value for MaxPos (Risk: ${riskPercent}, ATR: ${atr}, Mult: ${atrMult})`);
+            } else {
+                const account = allAccounts.find(acc => acc.account_id === accId);
+                if (!account || typeof account.net_liquidation !== 'number') {
+                    console.warn(`MaxPos Calc [${ticker}]: FAILED - Account ${accId} NLV invalid. Found:`, account);
+                } else {
+                    const accountNlvEur = account.net_liquidation;
+                    let rateToEur = 1.0;
+                    let rateFound = true;
+                    if (currency === 'USD') {
+                        rateToEur = exchangeRates['USD'];
+                        if (typeof rateToEur !== 'number') rateFound = false;
+                    } else if (currency === 'GBP') {
+                        rateToEur = exchangeRates['GBP']; 
+                        if (typeof rateToEur !== 'number') rateFound = false;
+                    } else if (currency !== 'EUR') {
+                        console.warn(`MaxPos Calc [${ticker}]: Unknown currency ${currency}. Assuming 1:1 EUR rate.`);
+                    }
+                    if (!rateFound) {
+                         console.warn(`MaxPos Calc [${ticker}]: FAILED - Exchange rate for ${currency} not found/invalid. Rates:`, exchangeRates);
+                    } else {
+                        const stopDistanceInCurrency = atr * atrMult;
+                        const stopDistanceInEur = stopDistanceInCurrency * rateToEur;
+                        const portfolioRiskAmountEur = accountNlvEur * (riskPercent / 100.0);
+                        if (stopDistanceInEur <= 0) {
+                            console.warn(`MaxPos Calc [${ticker}]: FAILED - Stop Distance in EUR is zero or negative (${stopDistanceInEur}).`);
+                        } else {
+                            const maxPositionSizeRaw = portfolioRiskAmountEur / stopDistanceInEur;
+                            const maxPositionSize = Math.floor(maxPositionSizeRaw);
+                            if (!isNaN(maxPositionSize)) {
+                                // --- Enhancement: Add (Diff to target) with conditional formatting --- 
+                                let diffToTargetText = '(N/A open)';
+                                if (!isNaN(openPosition)) {
+                                    const diff = maxPositionSize - openPosition;
+                                    const diffFormatted = diff.toLocaleString();
+                                    if (diff < 0) {
+                                        // Wrap in span with class if negative
+                                        diffToTargetText = ` (<span class="neg-diff">${diffFormatted}</span>)`;
+                                    } else {
+                                        // Regular text if positive or zero
+                                        diffToTargetText = ` (${diffFormatted})`;
+                                    }
+                                } else {
+                                    console.warn(`MaxPos Enhancement [${ticker}]: Invalid Open Position value (${openPosText}).`);
+                                }
+                                maxPosValue = maxPositionSize.toLocaleString() + diffToTargetText; 
+                                // --- End Enhancement ---
+                            } else {
+                                 console.warn(`MaxPos Calc [${ticker}]: FAILED - Final MaxPos calculation resulted in NaN.`);
+                                 maxPosValue = 'N/A'; // Ensure reset to N/A if calculation fails
+                            }
+                        }
+                    }
+                }
+            }
+            // Update Max Pos cell with the potentially enhanced string using .html()
+            maxPosCell.html(maxPosValue);
+
+            // ============================
+            // 2. Trail, Lmt Ofst, Stop Calculation
+            // ============================
+            console.debug(`Stop/Trail Calc [${ticker}] - Inputs: Price: ${priceText}, CostBase: ${costBaseText}, ATR: ${atrText}, Mult: ${atrMultText}`);
+            
+            // Declare raw values with defaults BEFORE the checks
+            let trailRaw = NaN;
+            let lmtOfstRaw = NaN;
+            let stopRaw = NaN;
+            
+            // Need valid ATR and ATR Multiplier for all these
+            if (isNaN(atr) || isNaN(atrMult) || atr <= 0 || atrMult <= 0) {
+                console.warn(`Stop/Trail Calc [${ticker}]: SKIPPED - Invalid ATR (${atr}) or ATR Mult (${atrMult}).`);
+            } else {
+                trailRaw = atr * atrMult; // Calculate raw value first
+                lmtOfstRaw = trailRaw * 0.1; // Calculate raw value first
+
+                // Calculate and Update Trail Cell (if not from order)
+                if (trailSource !== 'order') {
+                    trailValue = trailRaw.toFixed(2);
+                    trailCell.text(trailValue);
+                    console.debug(`Stop/Trail Calc [${ticker}] - Calculated Trail (JS): ${trailValue}`);
+                }
+
+                // Calculate and Update Lmt Ofst Cell (if not from order)
+                if (lmtOfstSource !== 'order') {
+                    lmtOfstValue = lmtOfstRaw.toFixed(2);
+                    lmtOfstCell.text(lmtOfstValue);
+                    console.debug(`Stop/Trail Calc [${ticker}] - Calculated Lmt Offset (JS): ${lmtOfstValue}`);
+                }
+
+                // Calculate Stop Raw Value (if needed for formatting or calculation)
+                if (isNaN(price) || isNaN(costBase)) {
+                     console.warn(`Stop Calc [${ticker}]: SKIPPED Raw Calc - Invalid Price (${priceText}) or Cost Base (${costBaseText}).`);
+                } else {
+                    stopRaw = Math.max(price - trailRaw, costBase - trailRaw);
+                    console.debug(`Stop Calc [${ticker}]: Raw Stop Value: Max(${price} - ${trailRaw}, ${costBase} - ${trailRaw}) = ${stopRaw}`);
+                }
+
+                // Update Stop Cell Text (if not from order)
+                if (stopSource !== 'order') {
+                    if (!isNaN(stopRaw)) {
+                        stopValue = stopRaw.toFixed(2);
+                        stopCell.text(stopValue);
+                        console.debug(`Stop Calc [${ticker}]: Calculated Stop (JS): ${stopValue}`);
+                    } else {
+                        stopCell.text('N/A'); // Set to N/A if calculation failed
+                    }
+                }
+            }
+
+            // ============================
+            // 3. Stop Column Formatting
+            // ============================
+            // Reset classes first
+            stopCell.removeClass('text-success text-danger text-orange');
+            // Apply formatting ONLY if the source is 'calculated'
+            if (stopSource === 'calculated') {
+                // Check if calculation inputs were valid
+                if (!isNaN(stopRaw) && !isNaN(costBase) && !isNaN(price) && !isNaN(atr)) {
+                    if (stopRaw > costBase) {
+                        stopCell.addClass('text-success');
+                        console.debug(`StopFormat [${ticker}]: Stop (${stopRaw}) > Cost (${costBase}) -> GREEN`);
+                    } else {
+                        // stopRaw <= costBase
+                        if ((price - atr) > stopRaw) {
+                            // Font black (default) - no class needed
+                            console.debug(`StopFormat [${ticker}]: Stop <= Cost AND (Price ${price} - ATR ${atr}) > Stop ${stopRaw} -> BLACK`);
+                        } else if (price < stopRaw) {
+                            stopCell.addClass('text-danger');
+                            console.debug(`StopFormat [${ticker}]: Stop <= Cost AND Price ${price} < Stop ${stopRaw} -> RED`);
+                        } else {
+                            stopCell.addClass('text-orange');
+                            console.debug(`StopFormat [${ticker}]: Stop <= Cost AND Price >= Stop AND (Price-ATR) <= Stop -> ORANGE`);
+                        }
+                    }
+                } else {
+                     console.warn(`StopFormat [${ticker}]: Skipping formatting (calculated) due to invalid values (Stop: ${stopRaw}, Cost: ${costBase}, Price: ${price}, ATR: ${atr})`);
+                }
+            } else { // Source is 'order'
+                 console.debug(`StopFormat [${ticker}]: Skipping formatting because source is 'order'.`);
+            }
+
+            // ============================
+            // 4. Price vs Cost Base Formatting
+            // ============================
+            // Reset existing color classes first
+            priceCell.removeClass('text-danger text-success');
+            if (!isNaN(price) && !isNaN(costBase)) {
+                if (price < costBase) {
+                    priceCell.addClass('text-danger');
+                } else if (price > costBase) {
+                    // Optional: Add success class if price > cost base
+                    // priceCell.addClass('text-success'); 
+                }
+                // If price == costBase, no class is added (default color)
+            } else {
+                // If price or costBase is invalid, ensure no color class
+                 console.warn(`PriceFormat [${ticker}]: Skipping formatting due to invalid Price (${priceText}) or CostBase (${costBaseText}).`);
+            }
+
+            // Optional: Update underlying DataTables data if needed for sorting/filtering later
+            // const table = $('#tickerTable').DataTable();
+            // table.cell(maxPosCell).data(maxPosValue === 'N/A' ? null : parseFloat(maxPosValue.replace(/,/g, '')));
+            // table.cell(stopCell).data(stopValue === 'N/A' ? null : parseFloat(stopValue));
+            // table.cell(trailCell).data(trailValue === 'N/A' ? null : parseFloat(trailValue));
+            // table.cell(lmtOfstCell).data(lmtOfstValue === 'N/A' ? null : parseFloat(lmtOfstValue));
+            // Maybe call table.rows( $row.index() ).invalidate('data').draw('page'); after updates?
+        }
+        // --- End Calculate Row Values --- 
+
+        // --- Variable to hold the popup window reference ---
+        let tickerPopupWindow = null;
+
+        // --- Re-introduce function to handle popup on click ---
+        function handleTickerClickPopup(cellElement) {
+            const row = $(cellElement).closest('tr');
+            const mainTicker = row.data('ticker'); // Get the main ticker for fallback/logging
+            const source1Cell = row.find('td[data-field="t_source1"]');
+            const source1Value = source1Cell.text().trim();
+
+            // Determine which ticker identifier to use for the URL
+            let tickerSuffix = source1Value ? source1Value : mainTicker;
+
+            if (!tickerSuffix) {
+                // This should ideally not happen if mainTicker always exists
+                console.error(`Could not determine ticker suffix for row (Main: ${mainTicker}, Source1: ${source1Value})`);
+                showAlert('Could not identify the ticker for this row.', 'danger');
+                return; 
+            }
+
+            // Construct the Finviz URL using the determined suffix
+            const url = `https://finviz.com/quote.ashx?t=${tickerSuffix}`;
+            console.log(`Click detected for ${mainTicker}. Using suffix \"${tickerSuffix}\". Opening/updating popup for URL: ${url}`);
+
+            // Define popup window features (Increased width)
+            const windowFeatures = 'width=1050,height=700,scrollbars=yes,resizable=yes';
+            const windowName = 'finvizTickerPopup'; // Consistent name
+
+            // Check if the popup window exists and is not closed
+            if (tickerPopupWindow && !tickerPopupWindow.closed) {
+                // If it exists, update its URL and focus it
+                tickerPopupWindow.location.href = url;
+                tickerPopupWindow.focus(); 
+            } else {
+                // If it doesn't exist or was closed, open a new one
+                tickerPopupWindow = window.open(url, windowName, windowFeatures);
+            }
+        }
+        // --- End Click Popup Function ---
+
+        // --- WebSocket Connection for Auto-Refresh ---
+        const wsProtocolTracker = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrlTracker = `${wsProtocolTracker}//${window.location.host}/ws/status`;
+        let socketTracker;
+        let reconnectIntervalTracker = 1000; // Start with 1 second
+        const maxReconnectIntervalTracker = 30000; // Cap at 30 seconds
+
+        function connectWebSocketTracker() {
+            console.log('[Tracker Page] Attempting WebSocket connection...');
+            socketTracker = new WebSocket(wsUrlTracker);
+
+            socketTracker.onopen = function(event) {
+                console.log('[Tracker Page] WebSocket connection established.');
+                reconnectIntervalTracker = 1000; // Reset reconnect interval on successful connection
+            };
+
+            socketTracker.onmessage = function(event) {
+                console.log('[Tracker Page] WebSocket message received:', event.data);
+                try {
+                    const message = JSON.parse(event.data);
+                    if (message.event === 'data_updated') {
+                        console.log('[Tracker Page] Data update event received, reloading page...');
+                        // Optional: Add a small delay or visual indicator before reload
+                        // showAlert('Data updated, reloading page...', 'info', 2000); 
+                        // setTimeout(() => { location.reload(); }, 500); // Slight delay
+                        location.reload(); 
+                    }
+                } catch (e) {
+                    console.error('[Tracker Page] Error parsing WebSocket message:', e);
+                }
+            };
+
+            socketTracker.onclose = function(event) {
+                console.warn('[Tracker Page] WebSocket connection closed. Attempting to reconnect...');
+                // Exponential backoff for reconnection attempts
+                setTimeout(connectWebSocketTracker, reconnectIntervalTracker);
+                reconnectIntervalTracker = Math.min(reconnectIntervalTracker * 2, maxReconnectIntervalTracker);
+            };
+
+            socketTracker.onerror = function(error) {
+                console.error('[Tracker Page] WebSocket error:', error);
+                // onclose will handle the reconnect attempt
+            };
+        }
+
+        // Initial connection attempt for tracker page
+        connectWebSocketTracker();
+        // --- End WebSocket Connection ---
+
+    </script>
+
+    <!-- Initialize Bootstrap Tooltips -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            var tooltipList = tooltipTriggerList.map(function(tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl, { 
+                    trigger: 'hover' 
+                }); 
+            });
+        });
+    </script>
+</body>
+</html> 

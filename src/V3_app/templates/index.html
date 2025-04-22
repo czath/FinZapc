@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial App V3</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- DataTables CSS -->
+    <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <!-- DataTables Buttons CSS -->
+    <link href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css" rel="stylesheet">
+    <style>
+        .account-section {
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            background-color: #fff;
+        }
+        .table-responsive {
+            margin-top: 1rem;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .card {
+            margin-bottom: 1.5rem;
+            border: none;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .card-header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+        }
+        .positive-pnl {
+            color: #198754 !important;
+            font-weight: 600;
+        }
+        .negative-pnl {
+            color: #dc3545 !important;
+            font-weight: 600;
+        }
+        .numeric {
+            font-family: 'Roboto Mono', monospace;
+            text-align: right !important;
+        }
+        .table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            padding: 12px 8px;
+        }
+        .table td {
+            padding: 10px 8px;
+            vertical-align: middle;
+        }
+        .account-summary {
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+        .account-summary-value {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        .account-summary-label {
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+        }
+        .order-status-filled {
+            color: #198754;
+            font-weight: 600;
+        }
+        .order-status-cancelled {
+            color: #dc3545;
+            font-weight: 600;
+        }
+        .order-status-pending {
+            color: #fd7e14;
+            font-weight: 600;
+        }
+        body {
+            background-color: #f8f9fa;
+            padding: 1rem;
+        }
+        .nav-tabs {
+            margin-bottom: 1.5rem;
+            border-bottom: 2px solid #dee2e6;
+        }
+        .nav-tabs .nav-link {
+            border: none;
+            color: #6c757d;
+            padding: 1rem 1.5rem;
+            font-weight: 500;
+            position: relative;
+        }
+        .nav-tabs .nav-link.active {
+            color: #0d6efd;
+            background: none;
+            border: none;
+        }
+        .nav-tabs .nav-link.active:after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #0d6efd;
+        }
+        .tab-content {
+            padding: 1rem 0;
+        }
+        /* Force DataTables generated rows to full width */
+        div.dataTables_wrapper div.row {
+            width: 100%;
+            margin-left: 0; /* Reset potential Bootstrap gutters */
+            margin-right: 0; /* Reset potential Bootstrap gutters */
+        }
+        /* Ensure position table tries to fill width */
+        .position-table {
+            width: 100% !important; /* Force width */
+        }
+        /* Flexbox for Buttons and Filter alignment */
+        div.dataTables_wrapper div.row:first-child > div.col-md-6:nth-child(2) {
+            display: flex;
+            justify-content: flex-end; /* Align container content to the right */
+            align-items: center;
+        }
+        /* Ensure buttons don't shrink and have some space */
+        div.dataTables_wrapper div.dt-buttons {
+            flex: 0 0 auto;  /* Don't grow, don't shrink, use auto size */
+            margin-left: 0.5rem; /* Add space to the left if needed */
+        }
+        /* Ensure filter takes available space but doesn't push buttons */
+        div.dataTables_wrapper div.dataTables_filter {
+            flex: 0 1 auto; /* Don't grow, allow shrinking, use auto size */
+            text-align: right;
+            margin-bottom: 0 !important;
+        }
+        /* Set minimum width for Sector filter multi-select */
+        .filter-row select[multiple] {
+            min-width: 150px; /* Adjust the width as needed */
+        }
+        td.editable:hover { background-color: #f0f0f0; cursor: pointer; }
+        td.editable:focus { background-color: #e0e0e0; outline: 1px solid #aaa; }
+        .updated-success { background-color: #d4edda !important; transition: background-color 0.5s ease-out; }
+        .comments-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .comments-cell:focus { white-space: normal; overflow: visible; max-width: none; }
+        /* Added Styles for Update Mode */
+        .update-mode-auto {
+            color: #198754; /* Bootstrap success green */
+            font-weight: bold;
+        }
+        .update-mode-user {
+            color: #0d6efd; /* Bootstrap primary blue */
+            font-weight: bold;
+        }
+        /* Custom Popover Size */
+        .sector-popover {
+            min-width: 620px !important; /* Slightly larger than canvas to accommodate padding/borders */
+            /* max-width: none !important; /* Optional: remove max-width if Bootstrap imposes one */ */
+        }
+    </style>
+</head>
+<body>
+    <div id="alert-placeholder" class="container-fluid mt-2"></div> <!-- Alert Placeholder -->
+
+    <div class="container-fluid">
+        {# --- Navigation Bar --- #}
+        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+          <div class="container-fluid">
+            <a class="navbar-brand" href="/">FinZapc V1.2</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+              <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+              <ul class="navbar-nav ms-auto">
+                <li class="nav-item">
+                  {# Check request.url.path as request.path might not be directly available #}
+                  <a class="nav-link {% if request.url.path == url_for('read_root') %}active{% endif %}" aria-current="page" href="{{ url_for('read_root') }}">Dashboard</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link {% if request.url.path == url_for('get_tracker_page') %}active{% endif %}" href="{{ url_for('get_tracker_page') }}">Tracker</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link {% if request.url.path == url_for('get_config_page') %}active{% endif %}" href="{{ url_for('get_config_page') }}">Settings</a>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </nav>
+        {# --- End Navigation Bar --- #}
+
+        <!-- Navigation tabs -->
+        <ul class="nav nav-tabs" id="portfolioTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="summary-tab" data-bs-toggle="tab" data-bs-target="#summary" type="button" role="tab" aria-controls="summary" aria-selected="true">Account Summaries</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="positions-tab" data-bs-toggle="tab" data-bs-target="#positions" type="button" role="tab" aria-controls="positions" aria-selected="false">Positions</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="orders-tab" data-bs-toggle="tab" data-bs-target="#orders" type="button" role="tab" aria-controls="orders" aria-selected="false">Orders</button>
+            </li>
+        </ul>
+
+        <!-- Tab content -->
+        <div class="tab-content" id="portfolioTabContent">
+            <!-- Account Summaries Tab -->
+            <div class="tab-pane fade show active" id="summary" role="tabpanel" aria-labelledby="summary-tab">
+                <h1>Accounts Summary</h1>
+                <!-- Add Account Button -->
+                <button type="button" class="btn btn-success btn-sm mb-3" onclick="prepareAddAccountModal()">
+                    <i class="bi bi-plus-circle"></i> Add New Account
+                </button>
+                <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4" id="account-cards-container">
+                    <!-- Existing Account Loop -->
+                    {% for account in accounts %}
+                    <div class="col" id="account-col-{{ account.account_id }}">
+                        <div class="card h-100 shadow-sm">
+                            <div class="card-body">
+                                <h5 class="card-title">{{ account.account_id }}</h5>
+                                <ul class="list-group list-group-flush">
+                                    <li class="list-group-item">Net Liquidation: {{ account.net_liquidation }}</li>
+                                    <li class="list-group-item">Total Cash: {{ account.total_cash }} <span class="text-muted">{{ account.total_cash_percentage }}</span></li>
+                                    <li class="list-group-item">Gross Position Value: {{ account.gross_position_value }} <span class="text-muted">{{ account.gross_position_value_percentage }}</span></li>
+                                    <li class="list-group-item"><small class="text-muted">Last Update: {{ account.last_update }}</small></li>
+                                    <li class="list-group-item"><small class="text-muted">Update Mode: 
+                                        <span class="{% if account.upd_mode == 'auto' %}update-mode-auto{% elif account.upd_mode == 'user' %}update-mode-user{% endif %}">
+                                            {{ account.upd_mode | capitalize | default('N/A') }}
+                                        </span>
+                                    </small></li>
+                                </ul>
+                            </div>
+                            <div class="card-footer bg-transparent border-top-0">
+                                {# Store JSON in data attribute, pass button element to function #}
+                                <button type="button" 
+                                        class="btn btn-outline-primary btn-sm me-2" 
+                                        data-account-json='{{ account | tojson | safe }}' 
+                                        onclick="prepareEditAccountModal(this)">
+                                    <i class="bi bi-pencil-square"></i> Edit
+                                </button>
+                                <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteAccount('{{ account.account_id }}')">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="col">
+                        <p id="no-accounts-message">No account data available.</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Positions Tab -->
+            <div class="tab-pane fade" id="positions" role="tabpanel" aria-labelledby="positions-tab">
+                {% for account in accounts %}
+                {% if account.positions %}
+                <div class="account-section">
+                    <h2 class="h3 mb-4">Positions - Account: {{ account.account_id }}</h2>
+                    <!-- Combined Summary Placeholder -->
+                    <div class="combined-summary mb-2 text-muted"
+                         id="combined-summary-{{ account.account_id }}"
+                         tabindex="0"
+                         style="cursor: pointer;"
+                         data-net-liquidation="{{ account.net_liquidation | default(0, true) }}">
+                        <small>Summary: Calculating...</small>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table position-table table-striped table-bordered" id="positions-{{ account.account_id }}">
+                            <thead>
+                                <tr> <!-- Header Row -->
+                                    <th>Ticker</th>
+                                    <th>Position</th>
+                                    <th>Mkt Price</th>
+                                    <th>Mkt Value</th>
+                                    <th>Mkt Value (EUR)</th>
+                                    <th>% NAV</th>
+                                    <th>Avg Cost</th>
+                                    <th>Unreal PNL</th>
+                                    <th>PNL %</th>
+                                    <th>Sector</th>
+                                    <th>Group</th>
+                                    <th>Sec Type</th>
+                                    <th>Currency</th>
+                                    <th>Last Update</th>
+                                </tr>
+                                <tr class="filter-row"> <!-- Filter Row -->
+                                    <th></th> <!-- Ticker -->
+                                    <th></th> <!-- Position -->
+                                    <th></th> <!-- Mkt Price -->
+                                    <th></th> <!-- Mkt Value -->
+                                    <th></th> <!-- Mkt Value (EUR) -->
+                                    <th></th> <!-- % NAV -->
+                                    <th></th> <!-- Avg Cost -->
+                                    <th></th> <!-- Unreal PNL -->
+                                    <th></th> <!-- PNL % -->
+                                    <th></th> <!-- Sector Filter -->
+                                    <th></th> <!-- Group -->
+                                    <th></th> <!-- Sec Type -->
+                                    <th></th> <!-- Currency Filter -->
+                                    <th></th> <!-- Last Update -->
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for pos in account.positions %}
+                                <tr data-ticker="{{ pos.ticker }}" data-account="{{ pos.account_id }}">
+                                    <td><strong>{{ pos.ticker }}</strong></td>
+                                    <td class="numeric">{{ pos.position }}</td>
+                                    <td class="numeric">{{ pos.mkt_price_display }}</td>
+                                    <td class="numeric">{{ pos.mkt_value_display }}</td>
+                                    <td class="numeric">{{ pos.value_eur }}</td>
+                                    <td class="numeric">{{ pos.value_percentage }}</td>
+                                    <td class="numeric">{{ pos.avg_cost_display }}</td>
+                                    <td class="numeric {{ pos.unrealized_pnl_class }}">{{ pos.unrealized_pnl_display }}</td>
+                                    <td class="numeric {{ pos.pnl_percentage_class }}">{{ pos.pnl_percentage_display }}</td>
+                                    <td>{{ pos.sector }}</td>
+                                    <td>{{ pos.group }}</td>
+                                    <td>{{ pos.sec_type }}</td>
+                                    <td>{{ pos.currency }}</td>
+                                    <td>{{ pos.last_update.split('T')[0] ~ ' ' ~ pos.last_update.split('T')[1].split('.')[0] if pos.last_update and 'T' in pos.last_update else pos.last_update or 'N/A' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+
+            <!-- Orders Tab -->
+            <div class="tab-pane fade" id="orders" role="tabpanel" aria-labelledby="orders-tab">
+                {% for account in accounts %}
+                {% if account.orders %}
+                <div class="account-section">
+                    <h2 class="h3 mb-4">Orders - Account: {{ account.account_id }}</h2>
+                    <div class="table-responsive">
+                        <table class="table order-table">
+                            <thead>
+                                <tr>
+                                    <th>Order ID</th>
+                                    <th>Ticker</th>
+                                    <th>Description</th>
+                                    <th>Status</th>
+                                    <th>Side</th>
+                                    <th>Type</th>
+                                    <th>Total Size</th>
+                                    <th>Filled Qty</th>
+                                    <th>Remaining Qty</th>
+                                    <th>Stop Price</th>
+                                    <th>Limit Price</th>
+                                    <th>Limit Offset</th>
+                                    <th>Trailing Amount</th>
+                                    <th>Avg Price</th>
+                                    <th>Currency</th>
+                                    <th>Last Update</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for order in account.orders %}
+                                <tr>
+                                    <td>{{ order.order_id }}</td>
+                                    <td><strong>{{ order.ticker }}</strong></td>
+                                    <td>{{ order.description }}</td>
+                                    <td class="{{ order.status_class }}">{{ order.status }}</td>
+                                    <td>{{ order.side }}</td>
+                                    <td>{{ order.order_type }}</td>
+                                    <td class="numeric">{{ order.total_size_display }}</td>
+                                    <td class="numeric">{{ order.filled_qty_display }}</td>
+                                    <td class="numeric">{{ order.remaining_qty_display }}</td>
+                                    <td class="numeric">{{ order.stop_price_display }}</td>
+                                    <td class="numeric">{{ order.limit_price_display }}</td>
+                                    <td class="numeric">{{ order.limit_offset }}</td>
+                                    <td class="numeric">{{ order.trailing_amount }}</td>
+                                    <td class="numeric">{{ order.avg_price_display }}</td>
+                                    <td>{{ order.currency }}</td>
+                                    <td>{{ order.last_update.split('T')[0] ~ ' ' ~ order.last_update.split('T')[1].split('.')[0] if order.last_update and 'T' in order.last_update else order.last_update or 'N/A' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <!-- DataTables -->
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <!-- DataTables Buttons JS -->
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.bootstrap5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script> <!-- Needed for Excel export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/pdfmake.min.js"></script> <!-- Needed for PDF export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/vfs_fonts.js"></script> <!-- Needed for PDF export -->
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script> <!-- HTML5 buttons (copy, excel, csv, pdf) -->
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.print.min.js"></script> <!-- Optional: Print button -->
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script> 
+
+    <script>
+        // Define a 12-color palette for the pie chart
+        const pieChartColors = [
+            '#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c',
+            '#fdbf6f','#ff7f00','#cab2d6','#6a3d9a','#ffff99','#b15928'
+        ];
+
+        let accountModalInstance = null; // Declare modal instance globally
+
+        // Function to display Bootstrap alerts
+        function showAlert(message, type = 'info', duration = 5000) {
+            const alertPlaceholder = document.getElementById('alert-placeholder');
+            if (!alertPlaceholder) {
+                console.error('#alert-placeholder element not found!');
+                return;
+            }
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = [
+                `<div class="alert alert-${type} alert-dismissible fade show" role="alert">`,
+                `   <div>${message}</div>`,
+                '   <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>',
+                '</div>'
+            ].join('');
+
+            alertPlaceholder.append(wrapper);
+
+            // Automatically remove the alert after the specified duration
+            if (duration > 0) {
+                 setTimeout(() => {
+                     // Use Bootstrap's dispose method if available, otherwise just remove
+                     const alertInstance = bootstrap.Alert.getInstance(wrapper.firstChild);
+                     if (alertInstance) {
+                         alertInstance.close();
+                     } else {
+                         wrapper.remove();
+                     }
+                 }, duration);
+            }
+        }
+
+        $(document).ready(function() {
+            
+            // Initialize the modal instance once
+            if (document.getElementById('accountModal')) {
+                 accountModalInstance = new bootstrap.Modal(document.getElementById('accountModal'));
+                 console.log('Account modal instance initialized:', accountModalInstance);
+            } else {
+                 console.error('Account modal element not found during initialization.');
+            }
+            
+            // Initialize DataTables for EACH position table
+            $('.position-table').each(function() {
+                var tableId = $(this).attr('id');
+                var table = $(this).DataTable({
+                    pageLength: 25,
+                    order: [[0, 'asc']],
+                    responsive: false,
+                    dom:  "<'row'<'col-sm-12 col-md-6'l><'col-sm-12 col-md-6'fB>>" +
+                          "<'row'<'col-sm-12'tr>>" +
+                          "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>", // Restore original DOM
+                    buttons: [
+                        'copyHtml5',
+                        'excelHtml5',
+                        'csvHtml5',
+                        'pdfHtml5'
+                    ],
+                    drawCallback: function(settings) {
+                        var api = this.api();
+                        var mktValueColIndex = 3;
+                        var valueEurColIndex = 4;
+                        var sectorColIndex = 10;
+                        var currencyColIndex = 13; // Added for completeness, though not used in new calc
+                        var accountId = tableId.split('-').pop();
+                        var combinedSummaryDiv = $('#combined-summary-' + accountId);
+                        // Retrieve Net Liquidation from data attribute
+                        var netLiquidationStr = combinedSummaryDiv.data('net-liquidation') || '0';
+                        var netLiquidation = parseFloat(String(netLiquidationStr).replace(/[^\d.-]/g, '')) || 0;
+
+                        // Calculate Total Euro Value (Column 4)
+                        var totalEuroValue = api
+                            .column(valueEurColIndex, { search: 'applied' })
+                            .data()
+                            .reduce(function (a, b) {
+                                var numStr = String(b).replace(/[^\d.-]/g, ''); // Strip €, commas, etc.
+                                var num = parseFloat(numStr);
+                                return a + (isNaN(num) ? 0 : num);
+                            }, 0);
+                        
+                        // Calculate Sector Totals based on EUR Value
+                        var sectorTotals = {};
+                        api.rows({ search: 'applied' }).data().each(function (rowData) {
+                            var sector = rowData[sectorColIndex] || 'Uncategorized';
+                            var mktValueEurStr = String(rowData[valueEurColIndex]); // Use EUR column
+                            var mktValueEur = parseFloat(mktValueEurStr.replace(/[^\d.-]/g, ''));
+                            if (!isNaN(mktValueEur)) {
+                                sectorTotals[sector] = (sectorTotals[sector] || 0) + mktValueEur;
+                            }
+                        });
+
+                        if (combinedSummaryDiv.length) {
+                            // Start with Net Liquidation
+                            var summaryHtml = '<small>Net Liquidation: ' +
+                                             '<strong>€' + netLiquidation.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</strong>';
+
+                            // Add Filtered Total Euro Value
+                            summaryHtml += ' | Total: ' +
+                                              '<strong>€' + totalEuroValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</strong>';
+
+                            // Add Sector Summaries (based on EUR)
+                            var sectorEntries = [];
+                            var sortedSectors = Object.keys(sectorTotals).sort();
+
+                            if (sortedSectors.length > 0) {
+                                summaryHtml += ' | ';
+                                for (const sector of sortedSectors) {
+                                    var sectorValue = sectorTotals[sector];
+                                    // Use netLiquidation as base for percentage
+                                    var percentage = netLiquidation ? (sectorValue / netLiquidation * 100) : 0;
+                                    sectorEntries.push(
+                                        sector + ': ' +
+                                        '<strong>€' + sectorValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</strong>' + // Display EUR value
+                                        ' (' + percentage.toFixed(2) + '%)'
+                                    );
+                                }
+                                summaryHtml += sectorEntries.join(' | ');
+                            }
+                            
+                            // Calculate "Other" value
+                            const otherValue = Math.max(0, netLiquidation - totalEuroValue);
+
+                            // Convert sectorTotals to array and sort by value descending
+                            const sortedSectorsArray = Object.entries(sectorTotals)
+                                .map(([sector, value]) => ({ sector, value }))
+                                .sort((a, b) => b.value - a.value);
+
+                            summaryHtml += '</small>';
+
+                            // Update the dedicated summary div for this table
+                            $(`#combined-summary-${accountId} small`).html(summaryHtml);
+
+                            // --- Store data for popover --- 
+                            var popoverData = {
+                                sortedSectors: sortedSectorsArray, // Store the sorted array
+                                totalBaseValue: totalEuroValue, // Use totalEuroValue as base
+                                otherValue: otherValue,        // Add calculated Other value
+                                netLiquidation: netLiquidation, // Add Net Liq for tooltip calc
+                                currencySymbol: '€' // Symbol is always EUR now
+                            };
+                            $(`#combined-summary-${accountId}`).data('popoverData', popoverData);
+                            // --- End Store data --- 
+
+                        } else {
+                            console.error('Could not find combined summary div for', tableId);
+                        }
+                    },
+                    initComplete: function() {
+                        var api = this.api();
+                        api.columns().every(function() {
+                            var column = this;
+                            var columnIndex = column.index();
+                            var filterCell = $('#' + tableId + ' thead .filter-row th').eq(columnIndex);
+
+                            // --- Dropdown Filter for Sector (10) - Now Multiple ---
+                            if (columnIndex === 10) { 
+                                // Create container for select and button
+                                var filterContainer = $('<div class="d-flex align-items-center"></div>').appendTo(filterCell.empty());
+                                
+                                var select = $('<select class="form-select form-select-sm me-1" multiple size="3"></select>') // Add margin-end
+                                    .appendTo(filterContainer) // Append select to container
+                                    .on('change', function() {
+                                        var selectedValues = $(this).val(); 
+                                        var regexSearch = '';
+                                        if (selectedValues && selectedValues.length) {
+                                            regexSearch = selectedValues.map(function(val) {
+                                                return '^' + $.fn.dataTable.util.escapeRegex(val) + '$';
+                                            }).join('|');
+                                        }
+                                        column.search(regexSearch, true, false).draw(); 
+                                    })
+                                    .on('click', function(e) {
+                                        e.stopPropagation();
+                                    });
+                                    
+                                // Populate dropdown 
+                                column.data().unique().sort().each(function(d, j) {
+                                    if (d) { 
+                                       select.append('<option value="' + d + '">' + d + '</option>');
+                                    }
+                                });
+
+                                // Add Clear Filter button
+                                $('<button class="btn btn-outline-secondary btn-sm" type="button" title="Clear Sector Filter">&times;</button>')
+                                    .appendTo(filterContainer) // Append button to container
+                                    .on('click', function(e) {
+                                        e.stopPropagation(); // Prevent header sort
+                                        select.val(null).trigger('change'); // Deselect all and trigger change
+                                    });
+                            } 
+                            // --- Dropdown Filter for Currency (13) - Single ---
+                            else if (columnIndex === 13) { 
+                                var select = $('<select class="form-select form-select-sm"><option value="">All</option></select>')
+                                    .appendTo(filterCell.empty()) 
+                                    .on('change', function() {
+                                        var val = $.fn.dataTable.util.escapeRegex($(this).val());
+                                        column.search(val ? '^' + val + '$' : '', true, false).draw(); 
+                                    })
+                                    .on('click', function(e) {
+                                        e.stopPropagation();
+                                    });
+                                // Populate dropdown 
+                                column.data().unique().sort().each(function(d, j) {
+                                    if (d) { 
+                                       select.append('<option value="' + d + '">' + d + '</option>');
+                                    }
+                                });
+                            }
+                            // --- Toggle Filter for Position (2) ---
+                            if (columnIndex === 2) {
+                                var toggleContainer = $('<div class="d-flex align-items-center"></div>').appendTo(filterCell.empty());
+                                var toggleButton = $('<button class="btn btn-outline-secondary btn-sm">Show All</button>')
+                                    .appendTo(toggleContainer)
+                                    .on('click', function() {
+                                        var isShowingAll = $(this).text() === 'Show All';
+                                        $(this).text(isShowingAll ? 'Show Non-Zero' : 'Show All');
+                                        column.search(isShowingAll ? '' : '^(?!0$).*', true, false).draw();
+                                    });
+                                // Apply default filter to show non-zero positions
+                                column.search('^(?!0$).*', true, false).draw();
+                            }
+                        });
+                    }
+                });
+            });
+            
+            // Initialize Order Tables (existing)
+            $('.order-table').DataTable({
+                pageLength: 25,
+                order: [[0, 'desc']],
+                responsive: true
+            });
+            
+            // --- Initialize Sector Pie Chart Popovers --- 
+            $('.combined-summary').each(function() {
+                const summaryDiv = $(this);
+                const accountId = this.id.split('-').pop(); 
+                const canvasId = `pieChart-${accountId}`;
+                let chartInstance = null; // Variable to hold the chart instance for this popover
+
+                summaryDiv.popover({
+                    trigger: 'click',
+                    html: true,
+                    placement: 'bottom', // Or 'auto', 'top', 'left', 'right'
+                    title: 'Sector Breakdown',
+                    content: 'Loading chart...', // Basic placeholder, content set manually
+                    fallbackPlacements: ['bottom', 'top', 'right', 'left'], // Help positioning
+                    customClass: 'sector-popover' // Optional: Add custom class for styling
+                })
+                .on('shown.bs.popover', function () {
+                    console.log(`Popover shown for ${accountId}`);
+                    // Use setTimeout to defer canvas lookup slightly
+                    setTimeout(() => {
+                        // Find the specific popover element associated with this trigger
+                        const popoverInstance = bootstrap.Popover.getInstance(this);
+                        const popoverElement = popoverInstance ? popoverInstance.tip : null;
+                        console.log(`[Popover Shown Timeout - ${accountId}] Popover element:`, popoverElement);
+                        if (popoverElement) {
+                            // Find the popover body
+                            const popoverBody = popoverElement.querySelector('.popover-body');
+                            if (popoverBody) {
+                                // Manually insert the canvas HTML
+                                popoverBody.innerHTML = `<canvas id="${canvasId}" width="600" height="600"></canvas>`;
+                                console.log(`[Popover Shown Timeout - ${accountId}] Manually inserted canvas into:`, popoverBody);
+                            } else {
+                                console.error(`[Popover Shown Timeout - ${accountId}] Could not find .popover-body to insert canvas.`);
+                            }
+                            console.log(`[Popover Shown Timeout - ${accountId}] Popover innerHTML:`, popoverElement.innerHTML);
+                        }
+
+                        // Popover is visible, now render the chart
+                        const popoverData = summaryDiv.data('popoverData');
+                        // Search for the canvas *within* the popover element
+                        const canvasElement = popoverElement ? popoverElement.querySelector(`.popover-body #${canvasId}`) : null;
+
+                        if (canvasElement && popoverData && popoverData.sortedSectors) {
+                            const ctx = canvasElement.getContext('2d');
+                            const labels = popoverData.sortedSectors.map(item => item.sector);
+                            const dataValues = popoverData.sortedSectors.map(item => item.value);
+
+                            // Add "Other" slice if applicable
+                            const otherValue = popoverData.otherValue || 0;
+                            if (otherValue > 0) {
+                                labels.push("Other (incl. cash)");
+                                dataValues.push(otherValue);
+                            }
+
+                            // Destroy previous chart instance if it exists (safety measure)
+                            if (chartInstance) {
+                                chartInstance.destroy();
+                                console.log(`Destroyed previous chart for ${accountId}`);
+                            }
+                            
+                            // Create the new chart
+                            chartInstance = new Chart(ctx, {
+                                type: 'pie',
+                                data: {
+                                    labels: labels,
+                                    datasets: [{
+                                        label: 'Market Value (' + (popoverData.currencySymbol || '') + ')',
+                                        data: dataValues,
+                                        backgroundColor: pieChartColors, // Apply defined palette
+                                        borderWidth: 1
+                                    }]
+                                },
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: true,
+                                    plugins: {
+                                        legend: {
+                                            position: 'top',
+                                        },
+                                        tooltip: {
+                                            callbacks: {
+                                                label: function(context) {
+                                                    // Get account ID from canvas ID
+                                                    const canvasId = context.chart.canvas.id;
+                                                    const accountId = canvasId.split('-').pop();
+                                                    // Select summary div directly and get data
+                                                    const summaryDiv = $('#combined-summary-' + accountId);
+                                                    const popoverData = summaryDiv.length ? summaryDiv.data('popoverData') : null;
+
+                                                    const netLiq = popoverData ? popoverData.netLiquidation : 0;
+
+                                                    let label = context.label || '';
+                                                    if (label) {
+                                                        label += ': ';
+                                                    }
+                                                    if (context.parsed !== null) {
+                                                        const value = context.parsed;
+                                                        // Calculate percentage based on Net Liquidation
+                                                        const percentage = netLiq > 0 ? ((value / netLiq) * 100).toFixed(2) : 0;
+                                                        // Display value (EUR) and percentage of Net Liq
+                                                        label += '€' + value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ` (${percentage}% of NLV)`;
+                                                    }
+                                                    return label;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            console.log(`Chart created for ${accountId}`);
+                        } else {
+                            console.error(`Could not render chart for ${accountId} (in timeout). Canvas or data missing.`, { canvas: !!canvasElement, data: popoverData });
+                        }
+                    }, 0); // Delay of 0 milliseconds
+                })
+                .on('hide.bs.popover', function () {
+                     // Destroy the chart instance when the popover is hidden
+                     if (chartInstance) {
+                         chartInstance.destroy();
+                         chartInstance = null; // Clear the reference
+                         console.log(`Chart destroyed for ${accountId}`);
+                     }
+                });
+            });
+            // --- End Initialize Popovers --- 
+
+            // Remove old interval-based refresh if WS is used
+            // setInterval(function() {
+            //     location.reload();
+            // }, 300000); 
+        });
+
+        // WebSocket connection for auto-refresh
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws/status`;
+        let socket;
+        let reconnectInterval = 1000; // Start with 1 second
+        const maxReconnectInterval = 30000; // Cap at 30 seconds
+
+        function connectWebSocket() {
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = function(event) {
+                console.log('WebSocket connection established.');
+                reconnectInterval = 1000; // Reset reconnect interval on successful connection
+            };
+
+            socket.onmessage = function(event) {
+                console.log('WebSocket message received:', event.data);
+                try {
+                    const message = JSON.parse(event.data);
+                    if (message.event === 'data_updated') {
+                        console.log('Data update received, reloading page...');
+                        location.reload();
+                    }
+                } catch (e) {
+                    console.error('Error parsing WebSocket message:', e);
+                }
+            };
+
+            socket.onclose = function(event) {
+                console.warn('WebSocket connection closed. Attempting to reconnect...');
+                // Exponential backoff for reconnection attempts
+                setTimeout(connectWebSocket, reconnectInterval);
+                reconnectInterval = Math.min(reconnectInterval * 2, maxReconnectInterval);
+            };
+
+            socket.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                // Don't explicitly trigger reconnect here, onclose will handle it
+            };
+        }
+
+        // Initial connection attempt
+        connectWebSocket();
+
+        function resetAccountForm() {
+            $('#accountForm')[0].reset();
+            $('#originalAccountId').val('');
+            $('#accountId').prop('readonly', false); // Ensure ID is editable for Add
+            // Set default values if reset() doesn't handle them
+            $('#netLiquidation').val('0.0');
+            $('#totalCash').val('0.0');
+            $('#grossPositionValue').val('0.0');
+            $('#currency').val('EUR');
+        }
+
+        function prepareAddAccountModal() {
+            resetAccountForm();
+            $('#accountModalLabel').text('Add New Account');
+            $('#saveAccountButton').text('Add Account');
+            if (accountModalInstance) {
+                accountModalInstance.show();
+            } else {
+                console.error("Account modal instance not initialized!");
+                showAlert("Error: Cannot open account modal.", "danger");
+            }
+        }
+
+        function prepareEditAccountModal(buttonElement) { // Reverted: Always expects the button element
+            console.log('Attempting to prepare edit modal from button:', buttonElement);
+            console.log('Modal instance check:', accountModalInstance); 
+            let accountJsonString = null;
+            try {
+                // Always expect the button element and get the data attribute
+                console.log('Argument is an element:', buttonElement);
+                accountJsonString = buttonElement.getAttribute('data-account-json');
+                if (!accountJsonString) {
+                    throw new Error('data-account-json attribute not found or empty on button element.');
+                }
+                console.log('Retrieved JSON string from data attribute:', accountJsonString);
+                                
+                const account = JSON.parse(accountJsonString); // Parse the determined JSON string
+                console.log('Preparing edit modal for:', account);
+                resetAccountForm();
+                $('#accountModalLabel').text(`Edit Account (${account.account_id})`);
+                $('#saveAccountButton').text('Update Account');
+
+                // Helper function to parse currency string to float
+                const parseCurrencyString = (value) => {
+                    if (typeof value !== 'string') return parseFloat(value) || 0.0; // Handle if already number
+                    // Remove currency symbols (like €, $, £), commas, and whitespace
+                    const cleanedValue = value.replace(/[^\d.-]/g, ''); 
+                    return parseFloat(cleanedValue) || 0.0; // Return float or 0.0 if parsing fails
+                };
+                
+                // --- Debugging Logs --- 
+                console.log('Parsed account object:', account);
+                const netLiqString = account.net_liquidation;
+                const totalCashString = account.total_cash;
+                const grossPosString = account.gross_position_value;
+                console.log('Raw values - NetLiq:', netLiqString, 'TotalCash:', totalCashString, 'GrossPos:', grossPosString);
+                // --- End Debugging Logs ---
+
+                // Parse currency strings to numbers BEFORE setting them
+                const netLiqValue = parseCurrencyString(netLiqString);
+                const totalCashValue = parseCurrencyString(totalCashString);
+                const grossPosValue = parseCurrencyString(grossPosString);
+
+                console.log('Parsed numeric values - NetLiq:', netLiqValue, 'TotalCash:', totalCashValue, 'GrossPos:', grossPosValue); 
+
+                // Set values using the parsed numbers
+                $('#originalAccountId').val(account.account_id); 
+                $('#accountId').val(account.account_id).prop('readonly', true); 
+                $('#netLiquidation').val(netLiqValue);
+                $('#totalCash').val(totalCashValue);
+                $('#grossPositionValue').val(grossPosValue);
+                $('#currency').val(account.currency || 'EUR');
+                
+                if (accountModalInstance) {
+                    accountModalInstance.show();
+                } else {
+                    console.error("Account modal instance not initialized!");
+                    showAlert("Error: Cannot open account modal.", "danger");
+                }
+            } catch (error) {
+                 console.error("Error preparing edit modal:", error);
+                 showAlert(`Error preparing modal: ${error.message}`, 'danger');
+            }
+        }
+        
+        // Function to update an existing account card in the UI after edit
+        function updateAccountCardInUI(accountId, newData) {
+            const cardCol = $('#account-col-' + accountId);
+            if (!cardCol.length) {
+                console.error('Could not find card column to update:', accountId);
+                return;
+            }
+
+            // Find the list items within this specific card
+            const netLiqItem = cardCol.find('.list-group-item:contains("Net Liquidation")');
+            const totalCashItem = cardCol.find('.list-group-item:contains("Total Cash")');
+            const grossPosItem = cardCol.find('.list-group-item:contains("Gross Position Value")');
+            const lastUpdateItem = cardCol.find('.list-group-item small.text-muted:contains("Last Update")');
+            const updateModeItem = cardCol.find('.list-group-item small.text-muted:contains("Update Mode")');
+
+            // Use the same formatting function as addAccountCardToUI
+            const formatDisplayValue = (value, currency = 'EUR') => {
+                // Ensure value is treated as a number for formatting
+                const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0.0;
+                if (isNaN(num)) return 'N/A';
+                try {
+                    return num.toLocaleString(undefined, { style: 'currency', currency: currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                } catch (e) {
+                    return `${currency} ${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                }
+            };
+
+            // Reuse or define timestamp formatter if not globally available
+            const formatDisplayTimestamp = (isoString) => {
+                 if (!isoString) return 'N/A';
+                 try {
+                     const parsableString = isoString.replace('T', ' ').substring(0, 19);
+                     const date = new Date(parsableString);
+                     if (isNaN(date)) return isoString;
+                     const pad = (num) => num.toString().padStart(2, '0');
+                     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+                 } catch (e) {
+                     console.error('Error formatting timestamp in update:', e);
+                     return isoString;
+                 }
+            };
+
+            // Calculate percentages (ensure newData has raw numbers or parse them)
+            // We assume newData has raw numbers from the API response for edits
+            const rawNetLiq = parseFloat(newData.net_liquidation) || 0.0;
+            const rawTotalCash = parseFloat(newData.total_cash) || 0.0;
+            const rawGrossPos = parseFloat(newData.gross_position_value) || 0.0;
+
+            const cashPercent = rawNetLiq !== 0 ? (rawTotalCash / rawNetLiq * 100) : 0.0;
+            const posPercent = rawNetLiq !== 0 ? (rawGrossPos / rawNetLiq * 100) : 0.0;
+            const cashPercentStr = `(${cashPercent.toFixed(2)}%)`;
+            const posPercentStr = `(${posPercent.toFixed(2)}%)`;
+
+            // Update the text content including timestamp and percentages
+            if (netLiqItem.length) netLiqItem.html(`Net Liquidation: ${formatDisplayValue(newData.net_liquidation, 'EUR')}`);
+            if (totalCashItem.length) totalCashItem.html(`Total Cash: ${formatDisplayValue(newData.total_cash, 'EUR')} <span class="text-muted">${cashPercentStr}</span>`);
+            if (grossPosItem.length) grossPosItem.html(`Gross Position Value: ${formatDisplayValue(newData.gross_position_value, 'EUR')} <span class="text-muted">${posPercentStr}</span>`);
+            if (lastUpdateItem.length) lastUpdateItem.text(`Last Update: ${formatDisplayTimestamp(newData.last_update)}`);
+            if (updateModeItem.length) {
+                const modeText = (newData.upd_mode || 'N/A').charAt(0).toUpperCase() + (newData.upd_mode || 'N/A').slice(1);
+                const modeClass = newData.upd_mode === 'auto' ? 'update-mode-auto' : (newData.upd_mode === 'user' ? 'update-mode-user' : '');
+                // Update text and class of the span inside the small tag
+                updateModeItem.html(`Update Mode: <span class="${modeClass}">${modeText}</span>`);
+            }
+
+            // --- Update the data-account-json attribute on the edit button --- 
+            const editButton = cardCol.find('button[onclick^="prepareEditAccountModal"]');
+            if (editButton.length) { 
+               try {
+                    // Ensure newData is stringified correctly for the attribute
+                    const newJsonData = JSON.stringify(newData);
+                    editButton.attr('data-account-json', newJsonData); 
+                    console.log('Updated data-account-json attribute for:', accountId);
+               } catch (e) {
+                    console.error('Error updating data-account-json attribute:', e, newData);
+               }
+            } else {
+                 console.warn('Could not find edit button to update data attribute for:', accountId);
+            }
+            // --- End update data attribute --- 
+
+            console.log('Updated UI for account card:', accountId);
+        }
+
+        // Function to dynamically add a new account card to the UI
+        function addAccountCardToUI(account) {
+            const container = $('#account-cards-container');
+            $('#no-accounts-message').closest('.col').remove();
+
+            // Basic formatting for display (adapt currency symbols/logic as needed)
+            const formatDisplayValue = (value, currency = 'EUR') => {
+                const num = parseFloat(value);
+                if (isNaN(num)) return 'N/A';
+                // Example: Use Intl.NumberFormat for better localization
+                try {
+                    return num.toLocaleString(undefined, { style: 'currency', currency: currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                } catch (e) { // Fallback for invalid currency codes etc.
+                    return `${currency} ${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                }
+            };
+
+            // Function to format ISO-like date strings (YYYY-MM-DDTHH:MM:SS...)
+            const formatDisplayTimestamp = (isoString) => {
+                 if (!isoString) return 'N/A';
+                 try {
+                     // Replace 'T' with space and remove microseconds for Date parsing
+                     const parsableString = isoString.replace('T', ' ').substring(0, 19);
+                     const date = new Date(parsableString);
+                     if (isNaN(date)) return isoString; // Return original if invalid
+                     
+                     // Format to YYYY-MM-DD HH:MM:SS
+                     const pad = (num) => num.toString().padStart(2, '0');
+                     const year = date.getFullYear();
+                     const month = pad(date.getMonth() + 1);
+                     const day = pad(date.getDate());
+                     const hours = pad(date.getHours());
+                     const minutes = pad(date.getMinutes());
+                     const seconds = pad(date.getSeconds());
+                     return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+                 } catch (e) {
+                     console.error('Error formatting timestamp:', e);
+                     return isoString; // Fallback to original string on error
+                 }
+            };
+
+            // Calculate percentages from raw account data
+            const rawNetLiq = parseFloat(account.net_liquidation) || 0.0;
+            const rawTotalCash = parseFloat(account.total_cash) || 0.0;
+            const rawGrossPos = parseFloat(account.gross_position_value) || 0.0;
+            
+            const cashPercent = rawNetLiq !== 0 ? (rawTotalCash / rawNetLiq * 100) : 0.0;
+            const posPercent = rawNetLiq !== 0 ? (rawGrossPos / rawNetLiq * 100) : 0.0;
+            const cashPercentStr = `(${cashPercent.toFixed(2)}%)`;
+            const posPercentStr = `(${posPercent.toFixed(2)}%)`;
+
+            // Ensure the account object passed to onclick is stringified correctly
+            const accountJsonString = JSON.stringify(account); 
+
+            const newCardHtml = `
+                <div class="col" id="account-col-${account.account_id}">
+                    <div class="card h-100 shadow-sm">
+                        <div class="card-body">
+                            <h5 class="card-title">${account.account_id || 'N/A'}</h5>
+                            <ul class="list-group list-group-flush">
+                                <li class="list-group-item">Net Liquidation: ${formatDisplayValue(account.net_liquidation, 'EUR')}</li>
+                                <li class="list-group-item">Total Cash: ${formatDisplayValue(account.total_cash, 'EUR')} <span class="text-muted">${cashPercentStr}</span></li>
+                                <li class="list-group-item">Gross Position Value: ${formatDisplayValue(account.gross_position_value, 'EUR')} <span class="text-muted">${posPercentStr}</span></li>
+                                <li class="list-group-item"><small class="text-muted">Last Update: ${formatDisplayTimestamp(account.last_update)}</small></li>
+                                <li class="list-group-item"><small class="text-muted">Update Mode: 
+                                    <span class="${account.upd_mode === 'auto' ? 'update-mode-auto' : (account.upd_mode === 'user' ? 'update-mode-user' : '')}">
+                                        ${(account.upd_mode || 'N/A').charAt(0).toUpperCase() + (account.upd_mode || 'N/A').slice(1)}
+                                    </span>
+                                </small></li>
+                            </ul>
+                        </div>
+                        <div class="card-footer bg-transparent border-top-0">
+                            {# Dynamically added button: Use data attribute and pass this #}
+                            <button type="button" 
+                                    class="btn btn-outline-primary btn-sm me-2" 
+                                    data-account-json='${accountJsonString}' 
+                                    onclick="prepareEditAccountModal(this)">
+                                <i class="bi bi-pencil-square"></i> Edit
+                            </button>
+                            <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteAccount('${account.account_id || ''}')">
+                                <i class="bi bi-trash"></i> Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            container.append(newCardHtml);
+            console.log('Appended new account card to UI for:', account.account_id);
+        }
+
+        // New function called directly by the modal save button's onclick
+        async function handleAccountSubmit() {
+            const form = document.getElementById('accountForm');
+            const accountIdInput = document.getElementById('accountId');
+            const accountId = accountIdInput.value;
+            const isUpdate = accountIdInput.readOnly; 
+            
+            const url = isUpdate ? `/api/accounts/update/${accountId}` : '/api/accounts/add';
+            const method = isUpdate ? 'PUT' : 'POST';
+            
+            const formData = new FormData(form);
+            const data = Object.fromEntries(formData.entries());
+
+            // --- Add Client-Side Uniqueness Check for ADD --- 
+            if (!isUpdate) {
+                const existingAccountIds = [];
+                $('#account-cards-container .card-title').each(function() {
+                    existingAccountIds.push($(this).text().trim().toLowerCase());
+                });
+                
+                const enteredAccountIdLower = accountId.trim().toLowerCase();
+                
+                if (existingAccountIds.includes(enteredAccountIdLower)) {
+                    showAlert(`Error: Account ID '${accountId}' already exists. Please use a unique ID.`, 'danger');
+                    return; // Stop submission
+                }
+            }
+            // --- End Uniqueness Check ---
+
+            data.net_liquidation = parseFloat(data.net_liquidation);
+            data.total_cash = parseFloat(data.total_cash);
+            data.gross_position_value = parseFloat(data.gross_position_value);
+            
+            // Basic validation
+            if (!accountId || accountId.toLowerCase() === 'all') {
+                 showAlert('Invalid Account ID provided.', 'warning'); return;
+            }
+            if (isNaN(data.net_liquidation) || isNaN(data.total_cash) || isNaN(data.gross_position_value)) {
+                showAlert('Numeric fields must contain valid numbers.', 'warning'); return;
+            }
+            
+            console.log(`Submitting account ${isUpdate ? 'update' : 'add'} to ${url} via ${method}`);
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                console.log('Backend response:', result);
+                
+                if (!response.ok) { throw new Error(result.detail || `Request failed: ${response.status}`); }
+                
+                if (accountModalInstance) {
+                    accountModalInstance.hide();
+                }
+                showAlert(result.message || `Account ${isUpdate ? 'updated' : 'added'} successfully!`, 'success');
+                
+                if (!isUpdate && result.account) {
+                    // If adding was successful and we got account data back, add card to UI
+                    addAccountCardToUI(result.account);
+                } else if (isUpdate) {
+                    // If updating was successful, update the card in the UI immediately
+                    // Use the updated account data returned from the backend if available
+                    if (result.account) {
+                         console.log('Using backend result.account for UI update');
+                         updateAccountCardInUI(accountId, result.account);
+                    } else {
+                         console.warn('Backend did not return updated account object, using form data for UI update (may be incomplete).');
+                         updateAccountCardInUI(accountId, data); // Fallback to submitted form data
+                    }
+                } else {
+                    // Fallback: Reload page if add didn't return account data (shouldn't happen ideally)
+                     console.warn('Add successful but no account data returned, reloading page.');
+                     setTimeout(() => window.location.reload(), 1500); 
+                }
+
+            } catch (error) {
+                 console.error("Error saving account:", error);
+                 showAlert(`Error: ${error.message}`, 'danger');
+            }
+        }
+
+        // Delete Account function
+        async function deleteAccount(accountId) {
+             if (!confirm(`Are you sure you want to delete account ${accountId}? This cannot be undone and might fail if positions/orders exist.`)) {
+                return;
+            }
+            console.log(`Attempting to delete account: ${accountId}`);
+            const url = `/api/accounts/delete/${accountId}`;
+            try {
+                const response = await fetch(url, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+                const result = await response.json();
+                if (!response.ok) { throw new Error(result.detail || `Request failed: ${response.status}`); }
+                
+                // Remove card from UI immediately
+                $('#account-col-' + accountId).remove();
+                
+                // Show success alert
+                showAlert(result.message || `Account ${accountId} deleted successfully.`, 'success');
+                
+                // No longer reloading page here
+                // setTimeout(() => window.location.reload(), 1500);
+            } catch (error) {
+                console.error(`Error deleting account ${accountId}:`, error);
+                showAlert(`Error deleting account: ${error.message}`, 'danger');
+            }
+        }
+        // Make deleteAccount globally accessible if called directly from onclick
+        window.deleteAccount = deleteAccount;
+
+    </script>
+
+    <!-- Add/Edit Account Modal -->
+    <div class="modal fade" id="accountModal" tabindex="-1" aria-labelledby="accountModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form id="accountForm">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="accountModalLabel">Add/Edit Account</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <!-- Hidden field for original ID during edit (optional, could just disable field) -->
+                        <input type="hidden" id="originalAccountId">
+                        
+                        <div class="mb-3">
+                            <label for="accountId" class="form-label">Account ID</label>
+                            <input type="text" class="form-control" id="accountId" name="account_id" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="netLiquidation" class="form-label">Net Liquidation</label>
+                            <input type="number" step="any" class="form-control" id="netLiquidation" name="net_liquidation" value="0.0" required>
+                        </div>
+                         <div class="mb-3">
+                            <label for="totalCash" class="form-label">Total Cash</label>
+                            <input type="number" step="any" class="form-control" id="totalCash" name="total_cash" value="0.0" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="grossPositionValue" class="form-label">Gross Position Value</label>
+                            <input type="number" step="any" class="form-control" id="grossPositionValue" name="gross_position_value" value="0.0" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Currency</label>
+                            <p class="form-control-plaintext">EUR</p>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary" id="saveAccountButton" onclick="handleAccountSubmit()">Save changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <!-- End Modal -->
+
+</body>
+</html> 
