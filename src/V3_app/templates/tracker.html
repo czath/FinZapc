@@ -70,6 +70,18 @@
             display: none;
         }
         */
+       
+        /* Reduce font size and padding for table cells */
+        #tickerTable th, #tickerTable td {
+            font-size: 0.8em; /* Adjust value as needed */
+            padding-top: 0.25rem; /* Reduce vertical padding */
+            padding-bottom: 0.25rem; /* Reduce vertical padding */
+        }
+
+        /* Right-align numeric columns */
+        .numeric {
+            text-align: right !important; 
+        }
     </style>
     <!-- ADD Custom CSS for DataTables Buttons Dropdown Text -->
     <style>
@@ -388,11 +400,11 @@
                                     {# Adjust indices #}
                                     <td contenteditable="true" data-field="t_source1" class="editable">{{ item.t_source1 | default('', true) }}</td>
                                     <td contenteditable="true" data-field="conid" class="editable">{{ item.conid | default('', true) }}</td>
-                                    {# New Editable Columns #}
-                                    <td contenteditable="true" data-field="atr" class="numeric editable">{{ item.atr | default('', true) }}</td>
-                                    <td contenteditable="true" data-field="atr_mult" class="numeric editable">{{ item.atr_mult | default('', true) }}</td>
-                                    <td contenteditable="true" data-field="risk" class="numeric editable">{{ item.risk | default('', true) }}</td>
-                                    <td contenteditable="true" data-field="beta" class="numeric editable">{{ item.beta | default('', true) }}</td>
+                                    {# New Editable Columns - Use round filter for safety #}
+                                    <td contenteditable="true" data-field="atr" class="numeric editable">{{ item.atr | round(2) if item.atr is number else item.atr | default('', true) }}</td>
+                                    <td contenteditable="true" data-field="atr_mult" class="numeric editable">{{ item.atr_mult | round(0) | int if item.atr_mult is number else item.atr_mult | default('', true) }}</td>
+                                    <td contenteditable="true" data-field="risk" class="numeric editable">{{ item.risk | round(2) if item.risk is number else item.risk | default('', true) }}</td>
+                                    <td contenteditable="true" data-field="beta" class="numeric editable">{{ item.beta | round(3) if item.beta is number else item.beta | default('', true) }}</td>
                                     <td contenteditable="true" data-field="sector" class="editable">{{ item.sector | default('', true) }}</td>
                                     <td contenteditable="true" data-field="industry" class="editable">{{ item.industry | default('', true) }}</td>
                                     {# Add new empty data cells #}
@@ -402,9 +414,9 @@
                                         class="numeric {% if not item.open_pos_from_live and item.status == 'portfolio' %}editable{% endif %} {% if item.open_pos_from_live %}live-data-source{% endif %}" 
                                         contenteditable="{{ 'false' if item.open_pos_from_live or item.status != 'portfolio' else 'true' }}"
                                         {% if item.open_pos_from_live or item.status != 'portfolio' %}title="Value from live position or status not Portfolio (read-only)"{% endif %}
-                                        >{{ '%.0f'|format(item.open_pos) if item.open_pos is not none else '' }}</td> {# Open Pos #}
+                                        >{{ item.open_pos | round(0) | int if item.open_pos is number else item.open_pos | default('', true) }}</td> {# Open Pos - Use round #}
                                     {# --- ADDED Price Cell --- #}
-                                    <td data-field="price" class="numeric">{{ item.price }}</td> {# Price - Simplified #}
+                                    <td data-field="price" class="numeric">{{ item.price | round(2) if item.price is number else item.price | default('', true) }}</td> {# Price - Use round #}
                                     {# --- END Price Cell --- #}
                                     {# --- ADDED Day Change % Cell --- #}
                                     <td data-field="daychange" class="numeric"
@@ -423,7 +435,7 @@
                                         class="numeric {% if not item.cost_base_from_live and item.status == 'portfolio' %}editable{% endif %} {% if item.cost_base_from_live %}live-data-source{% endif %}" 
                                         contenteditable="{{ 'false' if item.cost_base_from_live or item.status != 'portfolio' else 'true' }}"
                                         {% if item.cost_base_from_live or item.status != 'portfolio' %}title="Value from live position or status not Portfolio (read-only)"{% endif %}
-                                        >{{ '%.2f'|format(item.cost_base) if item.cost_base is not none else '' }}</td> {# Cost Base #}
+                                        >{{ item.cost_base | round(2) if item.cost_base is number else item.cost_base | default('', true) }}</td> {# Cost Base - Use round #}
                                     {# Add Currency data cell - Make editable conditionally #}
                                     <td data-field="currency"
                                         class="{% if not item.currency_from_live and item.status == 'portfolio' %}editable{% endif %} {% if item.currency_from_live %}live-data-source{% endif %}" 
@@ -431,27 +443,27 @@
                                         {% if item.currency_from_live or item.status != 'portfolio' %}title="Value from live position or status not Portfolio (read-only)"{% endif %}
                                         >{{ item.currency | default('', true) }}</td> {# Currency #}
                                     {# --- UPDATE Stop Cell --- #}
-                                    <td data-source="{% if item.stop_from_order %}order{% else %}calculated{% endif %}">
+                                    <td data-source="{% if item.stop_from_order %}order{% else %}calculated{% endif %}" class="numeric"> {# Add numeric class #}
                                         {% if item.stop_from_order %}
-                                            {{ '%.2f'|format(item.order_stop_price) if item.order_stop_price is not none else 'N/A' }}
+                                            {{ item.order_stop_price | round(2) if item.order_stop_price is number else item.order_stop_price | default('N/A', true) }}
                                             <span class="indicator-green" title="From Live Order"></span>
                                         {% else %}
                                             {# Calculated by JS #}
                                         {% endif %}
                                     </td> {# Stop #}
                                     {# --- UPDATE Trail Cell --- #}
-                                    <td data-source="{% if item.trail_from_order %}order{% else %}calculated{% endif %}">
+                                    <td data-source="{% if item.trail_from_order %}order{% else %}calculated{% endif %}" class="numeric"> {# Add numeric class #}
                                         {% if item.trail_from_order %}
-                                            {{ '%.2f'|format(item.order_trailing_amount) if item.order_trailing_amount is not none else 'N/A' }} {# Use trailing_amount #}
+                                            {{ item.order_trailing_amount | round(2) if item.order_trailing_amount is number else item.order_trailing_amount | default('N/A', true) }} {# Use trailing_amount #}
                                             <span class="indicator-green" title="From Live Order"></span>
                                         {% else %}
                                             {# Calculated by JS #}
                                         {% endif %}
                                     </td> {# Trail #}
                                     {# --- UPDATE Lmt Ofst Cell --- #}
-                                    <td data-source="{% if item.lmt_ofst_from_order %}order{% else %}calculated{% endif %}">
+                                    <td data-source="{% if item.lmt_ofst_from_order %}order{% else %}calculated{% endif %}" class="numeric"> {# Add numeric class #}
                                         {% if item.lmt_ofst_from_order %}
-                                            {{ '%.2f'|format(item.order_limit_offset) if item.order_limit_offset is not none else 'N/A' }}
+                                            {{ item.order_limit_offset | round(2) if item.order_limit_offset is number else item.order_limit_offset | default('N/A', true) }}
                                             <span class="indicator-green" title="From Live Order"></span>
                                         {% else %}
                                             {# Calculated by JS #}
