@@ -230,8 +230,8 @@
                                     data-bs-toggle="tooltip" 
                                     data-bs-placement="top" 
                                     title="Select the correct status">
-                                <option value="candidate" selected>Candidate</option>
-                                <option value="monitored">Monitored</option>
+                                <option value="candidate">Candidate</option>
+                                <option value="monitored" selected>Monitored</option>
                                 <option value="portfolio">Portfolio</option>
                                 <option value="indicator">Indicator</option>
                             </select>
@@ -291,7 +291,7 @@
                          </div>
                     </div>
                     <div class="row">
-                         <div class="col-12 text-end">
+                         <div class="col-12 text-start">
                             <button type="submit" class="btn btn-primary btn-sm">Add Ticker</button>
                         </div>
                     </div>
@@ -424,9 +424,9 @@
                                     <td contenteditable="true" data-field="t_source1" class="editable">{{ item.t_source1 | default('', true) }}</td>
                                     <td contenteditable="true" data-field="conid" class="editable">{{ item.conid | default('', true) }}</td>
                                     {# New Editable Columns - Use round filter for safety #}
-                                    <td contenteditable="true" data-field="atr" class="numeric editable">{{ item.atr | round(2) if item.atr is number else item.atr | default('', true) }}</td>
-                                    <td contenteditable="true" data-field="atr_mult" class="numeric editable">{{ item.atr_mult | round(0) | int if item.atr_mult is number else item.atr_mult | default('', true) }}</td>
-                                    <td contenteditable="true" data-field="risk" class="numeric editable">{{ item.risk | round(2) if item.risk is number else item.risk | default('', true) }}</td>
+                                    <td contenteditable="true" data-field="atr" class="numeric editable">{{ '%.2f'|format(item.atr) if item.atr is number else item.atr | default('', true) }}</td>
+                                    <td contenteditable="true" data-field="atr_mult" class="numeric editable"><strong>{{ item.atr_mult | round(0) | int if item.atr_mult is number else item.atr_mult | default('', true) }}</strong></td>
+                                    <td contenteditable="true" data-field="risk" class="numeric editable"><strong>{{ item.risk | round(1) if item.risk is number else item.risk | default('', true) }}</strong></td>
                                     <td contenteditable="true" data-field="beta" class="numeric editable">{{ item.beta | round(3) if item.beta is number else item.beta | default('', true) }}</td>
                                     <td contenteditable="true" data-field="sector" class="editable">{{ item.sector | default('', true) }}</td>
                                     <td contenteditable="true" data-field="industry" class="editable">{{ item.industry | default('', true) }}</td>
@@ -437,7 +437,7 @@
                                         class="numeric {% if not item.open_pos_from_live and item.status == 'portfolio' %}editable{% endif %} {% if item.open_pos_from_live %}live-data-source{% endif %}" 
                                         contenteditable="{{ 'false' if item.open_pos_from_live or item.status != 'portfolio' else 'true' }}"
                                         {% if item.open_pos_from_live or item.status != 'portfolio' %}title="Value from live position or status not Portfolio (read-only)"{% endif %}
-                                        >{{ item.open_pos | round(0) | int if item.open_pos is number else item.open_pos | default('', true) }}</td> {# Open Pos - Use round #}
+                                        >{{ item.open_pos | round(0) | int if item.open_pos is number else item.open_pos | default('', true) }}</td> {# Open Pos - No Decimals #}
                                     {# --- ADDED Price Cell --- #}
                                     <td data-field="price" class="numeric">{{ item.price | round(2) if item.price is number else item.price | default('', true) }}</td> {# Price - Use round #}
                                     {# --- END Price Cell --- #}
@@ -446,7 +446,7 @@
                                         data-order="{{ item.daychange | default(0, true) }}"> {# Day Change - Index 15 #}
                                         {% if item.daychange is not none %}
                                             <span class="{{ 'text-success' if item.daychange > 0 else 'text-danger' if item.daychange < 0 else '' }}">
-                                                {{ '%.2f%%'|format(item.daychange) }}
+                                                {{ '%.2f%%'|format(item.daychange) }} {# 2 Decimals #}
                                             </span>
                                         {% else %}
                                             {{ '' }} {# Display nothing if null #}
@@ -458,7 +458,7 @@
                                         class="numeric {% if not item.cost_base_from_live and item.status == 'portfolio' %}editable{% endif %} {% if item.cost_base_from_live %}live-data-source{% endif %}" 
                                         contenteditable="{{ 'false' if item.cost_base_from_live or item.status != 'portfolio' else 'true' }}"
                                         {% if item.cost_base_from_live or item.status != 'portfolio' %}title="Value from live position or status not Portfolio (read-only)"{% endif %}
-                                        >{{ item.cost_base | round(2) if item.cost_base is number else item.cost_base | default('', true) }}</td> {# Cost Base - Use round #}
+                                        >{{ item.cost_base | round(2) if item.cost_base is number else item.cost_base | default('', true) }}</td> {# Cost Base - 2 Decimals #}
                                     {# Add Currency data cell - Make editable conditionally #}
                                     <td data-field="currency"
                                         class="{% if not item.currency_from_live and item.status == 'portfolio' %}editable{% endif %} {% if item.currency_from_live %}live-data-source{% endif %}" 
@@ -468,7 +468,7 @@
                                     {# --- UPDATE Stop Cell --- #}
                                     <td data-source="{% if item.stop_from_order %}order{% else %}calculated{% endif %}" class="numeric"> {# Add numeric class #}
                                         {% if item.stop_from_order %}
-                                            {{ item.order_stop_price | round(2) if item.order_stop_price is number else item.order_stop_price | default('N/A', true) }}
+                                            {{ '%.2f'|format(item.order_stop_price) if item.order_stop_price is number else item.order_stop_price | default('N/A', true) }} {# 2 Decimals #}
                                             <span class="indicator-green" title="From Live Order"></span>
                                         {% else %}
                                             {# Calculated by JS #}
@@ -477,7 +477,7 @@
                                     {# --- UPDATE Trail Cell --- #}
                                     <td data-source="{% if item.trail_from_order %}order{% else %}calculated{% endif %}" class="numeric"> {# Add numeric class #}
                                         {% if item.trail_from_order %}
-                                            {{ item.order_trailing_amount | round(2) if item.order_trailing_amount is number else item.order_trailing_amount | default('N/A', true) }} {# Use trailing_amount #}
+                                            {{ '%.2f'|format(item.order_trailing_amount) if item.order_trailing_amount is number else item.order_trailing_amount | default('N/A', true) }} {# 2 Decimals #}
                                             <span class="indicator-green" title="From Live Order"></span>
                                         {% else %}
                                             {# Calculated by JS #}
@@ -486,7 +486,7 @@
                                     {# --- UPDATE Lmt Ofst Cell --- #}
                                     <td data-source="{% if item.lmt_ofst_from_order %}order{% else %}calculated{% endif %}" class="numeric"> {# Add numeric class #}
                                         {% if item.lmt_ofst_from_order %}
-                                            {{ item.order_limit_offset | round(2) if item.order_limit_offset is number else item.order_limit_offset | default('N/A', true) }}
+                                            {{ '%.2f'|format(item.order_limit_offset) if item.order_limit_offset is number else item.order_limit_offset | default('N/A', true) }} {# 2 Decimals #}
                                             <span class="indicator-green" title="From Live Order"></span>
                                         {% else %}
                                             {# Calculated by JS #}
@@ -570,6 +570,41 @@
             showAlert("Error loading necessary page data. Calculations may be incorrect.", "danger");
         }
         // --- End Embed and Parse Data --- 
+
+        // --- ADD BACK: Parse Live Positions Data ---
+        let livePositionsByTicker = {}; // Initialize lookup map
+        try {
+            const positionsDataElement = document.getElementById('live-positions-data-json');
+            if (positionsDataElement && positionsDataElement.textContent) {
+                const livePositionsRaw = JSON.parse(positionsDataElement.textContent);
+                console.log("Parsed Live Positions Data:", livePositionsRaw); // Debug log
+                // Convert array to map keyed by ticker for quick lookup
+                livePositionsByTicker = livePositionsRaw.reduce((map, pos) => {
+                    // Adjust keys based on actual data structure from V3_web.py
+                    map[pos.ticker] = {
+                        conid: pos.conid || 'N/A',
+                        position: pos.position ? pos.position.toLocaleString() : 'N/A',
+                        marketPrice: pos.market_price_display || 'N/A',
+                        marketValue: pos.mkt_value_display || 'N/A',
+                        averageCost: pos.average_cost_display || 'N/A',
+                        unrealizedPNL: pos.unrealized_pnl_display || 'N/A',
+                        realizedPNL: pos.realized_pnl_display || 'N/A',
+                        account: pos.account || 'N/A',
+                        valuePercentage: pos.value_percentage || 'N/A',
+                        pnlPercentage: pos.pnl_percentage_display || 'N/A' 
+                        // Add any other fields from live_positions_data you want to display
+                    };
+                    return map;
+                }, {});
+                console.log("Live Positions Lookup Map:", livePositionsByTicker); // Debug log
+            } else {
+                console.warn("Live positions JSON data element not found or empty.");
+            }
+        } catch (e) {
+            console.error("Error parsing embedded live positions JSON data:", e);
+            showAlert("Error loading position data for popups.", "danger");
+        }
+        // --- END Parse Live Positions Data ---
 
         $(document).ready(function() {
             // DataTable initialization
@@ -746,65 +781,9 @@
             console.log("colResizable initialized for #tickerTable");
             // --- End colResizable --- 
             
-            // --- Initialize Position Indicator Popovers --- 
-            let livePositionsByTicker = {}; // Initialize lookup map
-            try {
-                const positionsDataElement = document.getElementById('live-positions-data-json');
-                if (positionsDataElement && positionsDataElement.textContent) {
-                    const livePositionsRaw = JSON.parse(positionsDataElement.textContent);
-                    console.log("Parsed Live Positions Data:", livePositionsRaw); // Debug log
-                    // Convert array to map keyed by ticker for quick lookup
-                    livePositionsByTicker = livePositionsRaw.reduce((map, pos) => {
-                        // --- IMPORTANT: Use the correct field names from your live position data --- 
-                        // Adjust these keys based on what V3_web.py actually provides in live_positions_data
-                        map[pos.ticker] = {
-                            mktValue: pos.mkt_value_display || 'N/A', // Assuming these fields exist
-                            percentNav: pos.value_percentage || 'N/A',
-                            pnlPercent: pos.pnl_percentage_display || 'N/A' 
-                        };
-                        return map;
-                    }, {});
-                    console.log("Live Positions Lookup Map:", livePositionsByTicker); // Debug log
-                } else {
-                    console.warn("Live positions JSON data element not found or empty.");
-                }
-            } catch (e) {
-                console.error("Error parsing embedded live positions JSON data:", e);
-                showAlert("Error loading position data for popups.", "danger");
-            }
-
-            // Initialize popovers for the green dots
-            const popoverTriggerList = [].slice.call(document.querySelectorAll('.position-indicator[data-bs-toggle="popover"]'));
-            const popoverList = popoverTriggerList.map(function (popoverTriggerEl) {
-                return new bootstrap.Popover(popoverTriggerEl, {
-                    trigger: 'focus', // Dismiss on next click outside
-                    html: true,
-                    title: 'Position Summary',
-                    placement: 'right',
-                    // --- Content function --- 
-                    content: function() {
-                        // --- FIX: Use the element reference from the outer scope --- 
-                        const ticker = popoverTriggerEl.getAttribute('data-ticker'); 
-                        const positionData = livePositionsByTicker[ticker];
-                        
-                        if (positionData) {
-                             // Format the content using data found
-                             return `
-                                 <div>
-                                     <strong>Mkt Value:</strong> ${positionData.mktValue}<br>
-                                     <strong>% NAV:</strong> ${positionData.percentNav}<br>
-                                     <strong>PNL %:</strong> ${positionData.pnlPercent}
-                                 </div>
-                             `;
-                        } else {
-                            // Ticker not found in the live position data
-                            return '<div class="text-muted">Position data not available.</div>';
-                        }
-                    }
-                    // --- End Content function ---
-                });
-            });
-            // --- End Popover Initialization ---
+            // --- REMOVE Initialize Position Indicator Popovers --- 
+            // The old popover logic is removed from here.
+            // --- END REMOVE Popover Initialization ---
 
             // --- Add JS Hover Effect --- 
             $('#tickerTable tbody').on('mouseenter', 'tr', function() {
@@ -813,6 +792,70 @@
                 $(this).removeClass('row-hover-highlight');
             });
             // --- End JS Hover Effect --- 
+
+            // --- NEW: Ticker Cell Hover Popup Logic ---
+            $('#tickerTable tbody').on('mouseenter', 'td:first-child', function() {
+                const cell = $(this);
+                const row = cell.closest('tr');
+                const ticker = row.data('ticker');
+
+                if (ticker && livePositionsByTicker[ticker]) {
+                    const positionData = livePositionsByTicker[ticker];
+                    // --- START: Modify Popup Content ---
+                    let contentHtml = '<div style="min-width: 200px;">'; // Adjusted min-width slightly
+
+                    // Explicitly select and display the desired fields
+                    const mktValue = positionData.marketValue || 'N/A';
+                    const navPercent = positionData.valuePercentage || 'N/A'; 
+                    const pnlPercent = positionData.pnlPercentage || 'N/A'; 
+
+                    // --- START: Add PnL Formatting ---
+                    let pnlDisplayValue = pnlPercent; // Default to the original string
+                    try {
+                        // Attempt to parse the number (remove % if present)
+                        const pnlNum = parseFloat(pnlPercent.toString().replace('%',''));
+                        if (!isNaN(pnlNum)) { // Check if parsing was successful
+                            if (pnlNum > 0) {
+                                pnlDisplayValue = `<span class="text-success">${pnlPercent}</span>`;
+                            } else if (pnlNum < 0) {
+                                pnlDisplayValue = `<span class="text-danger">${pnlPercent}</span>`;
+                            } 
+                            // If pnlNum is 0, it uses the default color (no class)
+                        }
+                    } catch (e) {
+                        // Ignore parsing errors, just display the original string
+                        console.warn(`Could not parse PnL Percentage for formatting: ${pnlPercent}`, e);
+                    }
+                    // --- END: Add PnL Formatting ---
+
+                    contentHtml += `<strong>Market Value:</strong> ${mktValue}<br>`;
+                    contentHtml += `<strong>% NAV:</strong> ${navPercent}<br>`;
+                    contentHtml += `<strong>% PnL:</strong> ${pnlDisplayValue}`; // Use the formatted value
+
+                    contentHtml += '</div>';
+                    // --- END: Modify Popup Content ---
+
+                    // Initialize and show popover manually
+                    cell.popover({
+                        trigger: 'manual',
+                        html: true,
+                        title: 'Live Position Details',
+                        placement: 'right',
+                        content: contentHtml,
+                        container: 'body' // Attach to body to avoid table clipping issues
+                    }).popover('show');
+                     // Add a class to indicate the popover is active (optional)
+                    cell.addClass('popover-active'); 
+                }
+            }).on('mouseleave', 'td:first-child', function() {
+                const cell = $(this);
+                // Check if popover was initialized before trying to hide/dispose
+                if (cell.hasClass('popover-active')) { // Check if the popover was actually shown
+                    cell.popover('hide').popover('dispose');
+                    cell.removeClass('popover-active');
+                }
+            });
+            // --- END Ticker Cell Hover Popup Logic ---
 
             // Input Listener for marking rows dirty on edit
             // Input Listener for marking rows dirty on edit
@@ -1158,7 +1201,9 @@
                                 let diffToTargetText = '(N/A open)';
                                 if (!isNaN(openPosition)) {
                                     const diff = maxPositionSize - openPosition;
-                                    const diffFormatted = diff.toLocaleString();
+                                    // --- FIX: Round the difference before formatting ---
+                                    const diffFormatted = Math.round(diff).toLocaleString();
+                                    // --- END FIX ---
                                     if (diff < 0) {
                                         // Wrap in span with class if negative
                                         diffToTargetText = ` (<span class="neg-diff">${diffFormatted}</span>)`;
