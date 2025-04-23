@@ -912,63 +912,105 @@ class SyncIBKRService:
         self.base_url = base_url
         logger.info(f"SyncIBKRService initialized with base URL: {self.base_url}")
 
-    def get_conids_sync(self, tickers: List[str]) -> List[Optional[int]]:
-        """Synchronously fetches conids for a list of tickers.
+    def get_conids_sync(self, identifiers_info: List[Dict[str, str]]) -> List[Optional[int]]:
+        """Synchronously fetches conids for a list of identifiers (ticker or pair)
+           and their security types.
         Returns a list of the same length as input, with None for failed lookups.
         """
-        if not tickers:
+        if not identifiers_info:
             return []
 
         conid_results: List[Optional[int]] = [] # Initialize list to hold results (int or None)
         search_url = f"{self.base_url}/iserver/secdef/search"
         headers = {'accept': 'application/json'}
-        
-        logger.info(f"Sync GetConids: Fetching conids for {len(tickers)} tickers.")
-        
+
+        logger.info(f"Sync GetConids: Fetching conids for {len(identifiers_info)} identifiers.")
+
         # Disable SSL warnings for localhost testing if necessary
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        
+
         session = requests.Session()
         session.verify = False # Disable SSL verification for localhost
 
-        for ticker in tickers:
-            payload = {"symbol": ticker.upper(), "secType": "STK"}
-            found_conid: Optional[int] = None # Reset for each ticker
+        for identifier_info in identifiers_info:
+            identifier = identifier_info.get('identifier')
+            sec_type = identifier_info.get('secType')
+
+            if not identifier or not sec_type:
+                logger.warning(f"Sync GetConids: Skipping invalid entry in identifiers_info: {identifier_info}")
+                conid_results.append(None)
+                continue
+
+            # Use the provided secType in the payload
+            payload = {"symbol": identifier.upper(), "secType": sec_type}
+            found_conid: Optional[int] = None # Reset for each identifier
+
             try:
                 response = session.post(search_url, headers=headers, json=payload)
+
                 if response.status_code == 200:
+                    # Use response.json() directly
                     results = response.json()
+
                     if results and isinstance(results, list):
-                        try:
-                            # Attempt to get conid from the first result
-                            conid_val = results[0].get('conid')
-                            if conid_val is not None:
-                                found_conid = int(conid_val) # Convert to int
-                                if found_conid <= 0: # Treat 0 or negative as invalid
-                                     logger.warning(f"Sync GetConids: Found non-positive conid {found_conid} for {ticker}. Treating as failure.")
-                                     found_conid = None 
-                            else:
-                                logger.warning(f"Sync GetConids: 'conid' key missing in first result for {ticker}.")
-                        except (ValueError, TypeError, IndexError):
-                            logger.warning(f"Sync GetConids: Error parsing/converting conid for {ticker}. Result: {results[0] if results else 'N/A'}")
-                        except Exception as parse_err:
-                             logger.error(f"Sync GetConids: Unexpected error parsing result for {ticker}: {parse_err}", exc_info=True)
+                        # Iterate through results to find matching secType
+                        match_found = False # RENAME to first_match_found
+                        first_match_found = False
+                        match_count = 0 # ADD counter
+                        for item in results:
+                            try:
+                                # Check secType within the first section if available
+                                response_sec_type = None
+                                if isinstance(item, dict) and 'sections' in item and isinstance(item['sections'], list) and item['sections']:
+                                    response_sec_type = item['sections'][0].get('secType')
+                                
+                                if response_sec_type == sec_type: # Compare with requested sec_type
+                                    match_count += 1 # Increment count
+                                    # Store only the FIRST valid conid found
+                                    if not first_match_found:
+                                        conid_val = item.get('conid')
+                                        if conid_val is not None:
+                                            temp_conid = int(conid_val) # Convert to int
+                                            if temp_conid <= 0: # Treat 0 or negative as invalid
+                                                logger.warning(f"Sync GetConids: Found matching {sec_type} (first) but non-positive conid {temp_conid} for {identifier}. Treating as failure.")
+                                                # Keep found_conid as None for this item
+                                            else:
+                                                # This is the first valid match
+                                                found_conid = temp_conid 
+                                                first_match_found = True 
+                                                logger.info(f"Sync GetConids: Found FIRST matching conid {found_conid} for {identifier} (secType: {sec_type}) in results.")
+                                        else:
+                                             logger.warning(f"Sync GetConids: Found matching {sec_type} (first) for {identifier} but 'conid' key missing in item: {item}")
+                                    # END storing logic
+                            except (ValueError, TypeError, IndexError, KeyError) as e:
+                                logger.warning(f"Sync GetConids: Error processing item while searching for {sec_type} match for {identifier}: {e}. Item: {item}")
+                                continue # Try next item
+                        
+                        # Update logging based on count
+                        if match_count == 0:
+                             logger.warning(f"Sync GetConids: No result with matching secType '{sec_type}' found for {identifier} in {len(results)} results.")
+                        elif match_count > 1:
+                             logger.warning(f"Sync GetConids: Found {match_count} results matching secType '{sec_type}' for {identifier}. Using first conid found: {found_conid}.")
+                        # END Update logging
                     else:
-                         logger.warning(f"Sync GetConids: No results or invalid format for {ticker}. Response: {results}")
+                        # Log remains the same: No results or invalid format
+                        logger.warning(f"Sync GetConids: No results or invalid format for {identifier} (secType: {sec_type}). Response: {results}")
                 else:
-                    logger.error(f"Sync GetConids: API error for {ticker}: {response.status_code} - {response.text}")
+                    # Log API error (already exists, keep it)
+                    logger.error(f"Sync GetConids: API error for {identifier} (secType: {sec_type}): {response.status_code} - {response.text}")
+
             except requests.exceptions.RequestException as e:
-                logger.error(f"Sync GetConids: Network error for {ticker}: {e}")
+                logger.error(f"Sync GetConids: Network error for {identifier} (secType: {sec_type}): {e}")
             except Exception as e:
-                 logger.error(f"Sync GetConids: Unexpected error processing {ticker}: {e}", exc_info=True)
-            
+                 logger.error(f"Sync GetConids: Unexpected error processing {identifier} (secType: {sec_type}): {e}", exc_info=True)
+
             # ALWAYS append the result (found_conid or None)
             conid_results.append(found_conid)
             if found_conid is None:
-                 logger.debug(f"Sync GetConids: Appending None for ticker {ticker}")
+                 logger.debug(f"Sync GetConids: Appending None for identifier {identifier} (secType: {sec_type})")
             else:
-                 logger.debug(f"Sync GetConids: Appending {found_conid} for ticker {ticker}")
-                 
+                 logger.debug(f"Sync GetConids: Appending {found_conid} for identifier {identifier} (secType: {sec_type})")
+
         successful_count = sum(1 for c in conid_results if c is not None)
         logger.info(f"Sync GetConids: Found {successful_count} conids in total. Returning list of length {len(conid_results)}.")
         return conid_results

@@ -887,7 +887,7 @@ class SQLiteRepository:
                     # Raise error if ticker MUST exist
                     # raise ValueError(f"Ticker {ticker} not found for update.")
                 else:
-                    logger.info(f"[DB Update Screener] Updated {field} for ticker {ticker} to {converted_value}")
+                    logger.debug(f"[DB Update Screener] Updated {field} for ticker {ticker} to {converted_value}")
 
         except Exception as e:
             logger.error(f"[DB Update Screener] Error updating {field} for ticker {ticker}: {e}", exc_info=True)

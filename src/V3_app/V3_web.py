@@ -245,6 +245,9 @@ def run_sync_ibkr_snapshot_job(repository: SQLiteRepository, loop: AbstractEvent
         # <<< --- BEGIN PART 1: Fetch Identifiers --- >>>
         tickers_to_snapshot: List[str] = []
         target_currencies: List[str] = []
+        # --- NEW: List to hold identifier dictionaries ---
+        identifiers_to_fetch: List[Dict[str, str]] = []
+        # --- END NEW ---
 
         try:
             # Fetch tickers using the async method via the threadsafe bridge
@@ -252,8 +255,21 @@ def run_sync_ibkr_snapshot_job(repository: SQLiteRepository, loop: AbstractEvent
             screened_tickers_data_future = asyncio.run_coroutine_threadsafe(repository.get_all_screened_tickers(), loop)
             # Wait for the result synchronously
             screened_tickers_data = screened_tickers_data_future.result(timeout=30) # Add timeout
-            tickers_to_snapshot = [item['ticker'] for item in screened_tickers_data if item.get('ticker')] # Extract tickers
-            logger.info(f"Snapshot Job: Fetched {len(tickers_to_snapshot)} tickers: {tickers_to_snapshot}")
+            # tickers_to_snapshot = [item['ticker'] for item in screened_tickers_data if item.get('ticker')] # Extract tickers - REMOVED
+            # logger.info(f"Snapshot Job: Fetched {len(tickers_to_snapshot)} tickers: {tickers_to_snapshot}") # REMOVED
+
+            # --- NEW: Process screened tickers to determine secType ---
+            processed_tickers = 0
+            for item in screened_tickers_data:
+                ticker = item.get('ticker')
+                status = item.get('status') # Get the status field
+                if ticker:
+                    # Determine secType based on status
+                    sec_type = 'IND' if status == 'indicator' else 'STK'
+                    identifiers_to_fetch.append({'identifier': ticker, 'secType': sec_type})
+                    processed_tickers += 1
+            logger.info(f"Snapshot Job: Processed {processed_tickers} screened tickers for conid fetch.")
+            # --- END NEW ---
 
             # Fetch target currencies using the async method via the threadsafe bridge
             logger.info("Snapshot Job: Calling async get_target_currencies...")
@@ -275,38 +291,60 @@ def run_sync_ibkr_snapshot_job(repository: SQLiteRepository, loop: AbstractEvent
         # <<< --- BEGIN PART 2: Fetch ConIDs --- >>>
         conid_map: Dict[int, str] = {} # Map conid -> ticker/pair
         valid_conids: List[int] = []
-        currency_pairs_to_snapshot: List[str] = []
+        currency_pairs_to_snapshot: List[str] = [] # Keep this for logging? Or remove? Let's keep for logging for now.
 
-        # Format currency pairs (e.g., EUR.USD)
+        # Format currency pairs (e.g., EUR.USD) and add to identifiers_to_fetch
         if target_currencies:
-            currency_pairs_to_snapshot = [f"EUR.{curr}" for curr in target_currencies if curr != 'EUR']
-            logger.info(f"Snapshot Job: Formatted currency pairs for conid fetch: {currency_pairs_to_snapshot}")
+            added_pairs_count = 0
+            for curr in target_currencies:
+                if curr != 'EUR': # Assuming base is EUR
+                    pair = f"EUR.{curr}"
+                    identifiers_to_fetch.append({'identifier': pair, 'secType': 'CASH'})
+                    currency_pairs_to_snapshot.append(pair) # Keep populating for log message
+                    added_pairs_count += 1
+            # Log the count of PAIRS added
+            logger.info(f"Snapshot Job: Added {added_pairs_count} currency pairs for conid fetch: {currency_pairs_to_snapshot}")
+            # currency_pairs_to_snapshot = [f"EUR.{curr}" for curr in target_currencies if curr != 'EUR'] # REMOVED
+            # logger.info(f"Snapshot Job: Formatted currency pairs for conid fetch: {currency_pairs_to_snapshot}") # REMOVED
 
         # Combine tickers and pairs for conid fetching (if service handles both)
-        identifiers_to_fetch = tickers_to_snapshot + currency_pairs_to_snapshot
+        # identifiers_to_fetch = tickers_to_snapshot + currency_pairs_to_snapshot # REMOVED
 
         if identifiers_to_fetch:
-            logger.info(f"Snapshot Job: Fetching conids for {len(identifiers_to_fetch)} total identifiers...")
+            logger.info(f"Snapshot Job: Fetching conids for {len(identifiers_to_fetch)} total identifiers (incl. types)...")
             try:
                 # Call the existing sync method - Assuming it handles both Stocks and Cash implicitly
-                # NOTE: This might fail for cash pairs if get_conids_sync strictly uses secType='STK'
+                # NOTE: This might fail for cash pairs if get_conids_sync strictly uses secType='STK' -> TO BE FIXED IN API
+                # --- PASS the list of dictionaries ---
                 conids_list = sync_ibkr_service.get_conids_sync(identifiers_to_fetch)
+                # --- END PASS ---
 
                 # Process results and build the map
                 successful_stock_conids = 0
                 successful_cash_conids = 0
-                for identifier, conid in zip(identifiers_to_fetch, conids_list):
+                successful_ind_conids = 0 # ADDED for IND indicators
+                # --- Use zip with identifiers_to_fetch ---
+                for identifier_info, conid in zip(identifiers_to_fetch, conids_list):
+                    identifier = identifier_info['identifier'] # Get identifier string
+                    sec_type = identifier_info['secType'] # Get secType
+                    # --- END Use zip ---
                     if conid is not None and conid > 0:
-                        conid_map[conid] = identifier
+                        conid_map[conid] = identifier # Map conid -> identifier string
                         valid_conids.append(conid)
-                        if '.' in identifier: # Check if it's a currency pair
+                        # --- Count based on sec_type ---
+                        if sec_type == 'CASH':
                             successful_cash_conids += 1
-                        else:
+                        elif sec_type == 'STK':
                             successful_stock_conids += 1
+                        elif sec_type == 'IND':
+                            successful_ind_conids += 1
+                        # --- END Count ---
                     else:
-                        logger.warning(f"Snapshot Job: Failed to get valid conid for identifier '{identifier}'.")
+                        # --- Include sec_type in warning ---
+                        logger.warning(f"Snapshot Job: Failed to get valid conid for identifier '{identifier}' (secType: {sec_type}).")
+                        # --- END Include ---
 
-                logger.info(f"Snapshot Job: Successfully fetched {successful_stock_conids} stock conids and {successful_cash_conids} cash conids.")
+                logger.info(f"Snapshot Job: Successfully fetched {successful_stock_conids} STK, {successful_ind_conids} IND, and {successful_cash_conids} CASH conids.")
                 logger.debug(f"Snapshot Job: Valid conids list: {valid_conids}")
                 # logger.debug(f"Snapshot Job: Conid map: {conid_map}") # Optional: Can be very verbose
 
@@ -347,7 +385,7 @@ def run_sync_ibkr_snapshot_job(repository: SQLiteRepository, loop: AbstractEvent
                 if all_snapshot_data: # Log structure of the first item if data exists
                      logger.debug(f"Snapshot Job: Structure of first snapshot item: {all_snapshot_data[0]}")
                 # --- ADDED: Log the entire snapshot data --- 
-                logger.debug(f"Snapshot Job: Full snapshot data received: {all_snapshot_data}")
+                # logger.debug(f"Snapshot Job: Full snapshot data received: {all_snapshot_data}") # --- COMMENTED OUT TO REDUCE LOGGING ---
                 # --- END LOG --- 
 
             except Exception as snapshot_err:
