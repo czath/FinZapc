@@ -1804,3 +1804,143 @@ async def add_or_update_exchange_rate_conid(session: AsyncSession, currency: str
     # --- End Add/Update Screener --- 
     
 # Example Usage (Conceptual)
+
+# --- ADDED SYNC FUNCTIONS FOR CONID FETCHING (Placed outside the class) ---
+def get_screener_tickers_and_conids_sync(db_path: str) -> List[Dict[str, Any]]:
+    """Synchronously fetches tickers and valid conids from the screener table."""
+    results = []
+    logger.info(f"[DB Sync Screener Conids] Fetching tickers and conids from: {db_path}")
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path, timeout=10)
+        cursor = conn.cursor()
+        # Select ticker and conid where conid is not NULL and not empty
+        cursor.execute("SELECT ticker, conid FROM screener WHERE conid IS NOT NULL AND conid != ''")
+        rows = cursor.fetchall()
+        for row in rows:
+            ticker, conid_str = row
+            try:
+                # Attempt to convert conid to int, skip if invalid
+                conid_int = int(conid_str)
+                if conid_int > 0: # Ensure conid is positive
+                    results.append({'ticker': ticker, 'conid': conid_int})
+                else:
+                     logger.warning(f"[DB Sync Screener Conids] Skipping ticker {ticker}: Non-positive conid value '{conid_str}'.")
+            except (ValueError, TypeError):
+                logger.warning(f"[DB Sync Screener Conids] Skipping ticker {ticker}: Could not convert conid '{conid_str}' to a valid integer.")
+        logger.info(f"[DB Sync Screener Conids] Found {len(results)} valid ticker/conid pairs.")
+    except sqlite3.Error as e:
+        logger.error(f"[DB Sync Screener Conids] Database error: {e}", exc_info=True)
+    except Exception as e:
+         logger.error(f"[DB Sync Screener Conids] Unexpected error: {e}", exc_info=True)
+    finally:
+        if conn:
+            conn.close()
+    return results
+
+def get_exchange_rates_and_conids_sync(db_path: str) -> List[Dict[str, Any]]:
+    """Synchronously fetches currencies and valid conids from the exchange_rates table."""
+    results = []
+    logger.info(f"[DB Sync FX Conids] Fetching currencies and conids from: {db_path}")
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path, timeout=10)
+        cursor = conn.cursor()
+        # Select currency and conid where conid is not NULL and not empty
+        # Assuming the table has 'currency' and 'conid' columns
+        cursor.execute("SELECT currency, conid FROM exchange_rates WHERE conid IS NOT NULL AND conid != ''")
+        rows = cursor.fetchall()
+        for row in rows:
+            currency, conid_str = row
+            try:
+                # Attempt to convert conid to int, skip if invalid
+                conid_int = int(conid_str)
+                if conid_int > 0: # Ensure conid is positive
+                    results.append({'currency': currency, 'conid': conid_int})
+                else:
+                     logger.warning(f"[DB Sync FX Conids] Skipping currency {currency}: Non-positive conid value '{conid_str}'.")
+            except (ValueError, TypeError):
+                logger.warning(f"[DB Sync FX Conids] Skipping currency {currency}: Could not convert conid '{conid_str}' to a valid integer.")
+        logger.info(f"[DB Sync FX Conids] Found {len(results)} valid currency/conid pairs.")
+    except sqlite3.Error as e:
+        # Handle case where 'conid' column might not exist yet gracefully
+        if "no such column: conid" in str(e):
+             logger.warning(f"[DB Sync FX Conids] 'conid' column not found in exchange_rates table. Skipping FX conid fetch.")
+        else:
+             logger.error(f"[DB Sync FX Conids] Database error: {e}", exc_info=True)
+    except Exception as e:
+         logger.error(f"[DB Sync FX Conids] Unexpected error: {e}", exc_info=True)
+    finally:
+        if conn:
+            conn.close()
+    return results
+
+# --- END ADDED SYNC FUNCTIONS ---
+
+# --- NEW SYNC FUNCTION FOR MULTI-FIELD SCREENER UPDATE ---
+def update_screener_multi_fields_sync(db_path: str, ticker: str, updates: Dict[str, Any]) -> bool:
+    """Synchronously updates multiple fields for a ticker in the screener table.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        ticker: The ticker symbol to update.
+        updates: Dictionary of field names and their new values.
+
+    Returns:
+        True if the update was successful (row affected), False otherwise.
+    """
+    ticker_upper = ticker.strip().upper()
+    if not updates:
+        logger.warning(f"[DB Sync Multi Update] No updates provided for ticker {ticker_upper}. Skipping.")
+        return False
+
+    # Ensure updated_at is always included and is a datetime object
+    updates['updated_at'] = datetime.now()
+
+    logger.debug(f"[DB Sync Multi Update] Updating screener for {ticker_upper} with: {updates}")
+    conn = None
+    success = False
+    try:
+        conn = sqlite3.connect(db_path, timeout=10)
+        cursor = conn.cursor()
+
+        # Prepare the SET part of the SQL query dynamically
+        # Corrected f-string formatting for literal double quotes around the key
+        set_clause = ", ".join([f'\"{k}\" = ?' for k in updates.keys()]) 
+        values = list(updates.values())
+        values.append(ticker_upper) # Add ticker for the WHERE clause
+
+        # Convert datetime objects to ISO format strings for SQLite
+        for i, val in enumerate(values):
+            if isinstance(val, datetime):
+                values[i] = val.isoformat()
+
+        sql = f"UPDATE screener SET {set_clause} WHERE ticker = ?"
+        
+        logger.debug(f"[DB Sync Multi Update] Executing SQL: {sql} with values: {values}")
+        cursor.execute(sql, values)
+        conn.commit()
+
+        if cursor.rowcount > 0:
+            logger.debug(f"[DB Sync Multi Update] Successfully updated {len(updates)-1} fields for {ticker_upper}.")
+            success = True
+        else:
+            logger.warning(f"[DB Sync Multi Update] Ticker {ticker_upper} not found for multi-field update or values unchanged.")
+            success = False # Ensure success is False if no rows updated
+
+    except sqlite3.Error as e:
+        logger.error(f"[DB Sync Multi Update] Database error updating {ticker_upper}: {e}", exc_info=True)
+        if conn:
+            conn.rollback()
+        success = False # Ensure success is False on error
+    except Exception as e:
+        logger.error(f"[DB Sync Multi Update] Unexpected error updating {ticker_upper}: {e}", exc_info=True)
+        if conn:
+            conn.rollback()
+        success = False # Ensure success is False on error
+    finally:
+        if conn:
+            conn.close()
+            
+    return success
+# --- END NEW SYNC FUNCTION ---

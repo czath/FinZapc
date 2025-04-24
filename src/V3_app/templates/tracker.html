@@ -151,7 +151,7 @@
         </nav>
         {# --- End Navigation Bar --- #}
 
-        <h1 class="mb-4">Stock Risk Monitor</h1>
+        <h1 class="mb-4">Monitor</h1>
 
         <!-- Permanent Alert Box (Initially Hidden) -->
         <div class="alert alert-dismissible fade show" role="alert" id="alertMessage" style="display: none;"> 
@@ -216,93 +216,7 @@
         </script>
 
         <!-- Add Ticker Form -->
-        <div class="card mb-4">
-            <div class="card-header">Add New Ticker</div>
-            <div class="card-body">
-                <form action="/tracker/add" method="post">
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-4">
-                            <label for="ticker" class="form-label">Ticker Symbol</label>
-                            <input type="text" class="form-control form-control-sm" id="ticker" name="ticker" required 
-                                   pattern="[A-Za-z0-9\\.^=-]+" 
-                                   data-bs-toggle="tooltip" 
-                                   data-bs-placement="top" 
-                                   title="Enter the stock symbol"> 
-                        </div>
-                        <div class="col-md-3">
-                            <label for="status" class="form-label">Initial Status</label>
-                            <select class="form-select form-select-sm" id="status" name="status" required
-                                    data-bs-toggle="tooltip" 
-                                    data-bs-placement="top" 
-                                    title="Select the correct status">
-                                <option value="candidate">Candidate</option>
-                                <option value="monitored" selected>Monitored</option>
-                                <option value="portfolio">Portfolio</option>
-                                <option value="indicator">Indicator</option>
-                            </select>
-                        </div>
-                         <div class="col-md-2">
-                             <label for="atr" class="form-label">ATR</label>
-                             <input type="number" step="0.01" class="form-control form-control-sm" id="atr" name="atr"
-                                    data-bs-toggle="tooltip" 
-                                    data-bs-placement="top" 
-                                    title="set the Average True Range of the stock">
-                         </div>
-                         <div class="col-md-1">
-                             <label for="atr_mult" class="form-label">ATR Mult</label>
-                             <input type="number" step="1" class="form-control form-control-sm" id="atr_mult" name="atr_mult"
-                                    value="3"
-                                    data-bs-toggle="tooltip" 
-                                    data-bs-placement="top" 
-                                    title="define the ATR Multiplier that will be used for stop-loss calculation (1-4)">
-                         </div>
-                         <div class="col-md-2">
-                             <label for="risk" class="form-label">Risk</label>
-                             <input type="number" step="0.01" class="form-control form-control-sm" id="risk" name="risk"
-                                    value="1"
-                                    data-bs-toggle="tooltip" 
-                                    data-bs-placement="top" 
-                                    title="define the max risk for this stock (in % of portfolio NAV)">
-                         </div>
-                    </div>
-                     <div class="row g-3 mb-3">
-                        <div class="col-md-2">
-                            <label for="beta" class="form-label">Beta</label>
-                            <input type="number" step="0.01" class="form-control form-control-sm" id="beta" name="beta"
-                                   data-bs-toggle="tooltip" 
-                                   data-bs-placement="top" 
-                                   title="provide stock's beta">
-                        </div>
-                         <div class="col-md-3">
-                             <label for="sector" class="form-label">Sector</label>
-                             <input type="text" class="form-control form-control-sm" id="sector" name="sector"
-                                    data-bs-toggle="tooltip" 
-                                    data-bs-placement="top" 
-                                    title="define the sector (e.g. Technology, Healthcare)">
-                         </div>
-                         <div class="col-md-3">
-                             <label for="industry" class="form-label">Industry</label>
-                             <input type="text" class="form-control form-control-sm" id="industry" name="industry"
-                                    data-bs-toggle="tooltip" 
-                                    data-bs-placement="top" 
-                                    title="define the specific industry within the sector (e.g., Software, Pharmaceuticals)">
-                         </div>
-                         <div class="col-md-4">
-                             <label for="comments" class="form-label">Comments</label>
-                             <textarea class="form-control form-control-sm" id="comments" name="comments" rows="1"
-                                       data-bs-toggle="tooltip" 
-                                       data-bs-placement="top" 
-                                       title="add any notes or observations"></textarea>
-                         </div>
-                    </div>
-                    <div class="row">
-                         <div class="col-12 text-start">
-                            <button type="submit" class="btn btn-primary btn-sm">Add Ticker</button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
+        <!-- REMOVED Add Ticker Form Card -->
 
         <!-- Status Counts -->
         <div class="mb-3 text-muted">
@@ -319,6 +233,8 @@
             <div class="card-header">Monitored Tickers</div>
             <div class="card-body">
                 
+                    {# REMOVED Reset Filters Button HTML - Will be added via JS #}
+                    
                     <!-- ADD Bootstrap Responsive Wrapper -->
                     <div class="table-responsive">
                         <table class="table table-striped table-bordered" id="tickerTable">
@@ -329,7 +245,7 @@
                                     <th data-bs-toggle="tooltip" data-bs-placement="top" title="Company/Security Name">Name</th>
                                     <th data-bs-toggle="tooltip" data-bs-placement="top" title="Portfolio/Candidate/Monitored">Status</th>
                                     <th data-bs-toggle="tooltip" data-bs-placement="top" title="Account (if in portfolio)">Acc</th>
-                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Ticker for FinViz">Source 1</th>
+                                    <th data-bs-toggle="tooltip" data-bs-placement="top" title="Ticker for FinViz">Finviz ticker</th>
                                     <th data-bs-toggle="tooltip" data-bs-placement="top" title="Interactive Brokers Contract ID">IB Con ID</th>
                                     <th data-bs-toggle="tooltip" data-bs-placement="top" title="Average True Range (14)">ATR</th>
                                     <th data-bs-toggle="tooltip" data-bs-placement="top" title="Multiplier to ATR for stop-loss">ATR Mult</th>
@@ -444,10 +360,10 @@
                                         {% if item.open_pos_from_live or item.status != 'portfolio' %}title="Value from live position or status not Portfolio (read-only)"{% endif %}
                                         >{{ item.open_pos | round(0) | int if item.open_pos is number else item.open_pos | default('', true) }}</td> {# Open Pos - No Decimals #}
                                     {# --- ADDED Price Cell --- #}
-                                    <td data-field="price" class="numeric">{{ item.price | round(2) if item.price is number else item.price | default('', true) }}</td> {# Price - Use round #}
+                                    <td data-field="price" class="numeric fw-bold">{{ item.price | round(2) if item.price is number else item.price | default('', true) }}</td> {# Price - Use round #}
                                     {# --- END Price Cell --- #}
                                     {# --- ADDED Day Change % Cell --- #}
-                                    <td data-field="daychange" class="numeric"
+                                    <td data-field="daychange" class="numeric fw-bold"
                                         data-order="{{ item.daychange | default(0, true) }}"> {# Day Change - Index 15 #}
                                         {% if item.daychange is not none %}
                                             <span class="{{ 'text-success' if item.daychange > 0 else 'text-danger' if item.daychange < 0 else '' }}">
@@ -617,7 +533,12 @@
                 pageLength: 25,
                 order: [[0, 'asc']],
                 stateSave: true, // Enable state saving (uses localStorage)
-                dom: 'lBfrtip', // Add Buttons ('B') to the DOM structure
+                // --- UPDATED DOM Structure ---
+                dom: "<'row mb-3'<'col-sm-12 col-md-6 d-flex align-items-center'l <'#reset-filters-placeholder'>>" + // Left col: Length + Reset Button Placeholder
+                     "<'col-sm-12 col-md-6 d-flex justify-content-md-end align-items-center'f B>>" + // Right col: Filter + Buttons
+                     "<'row'<'col-sm-12'tr>>" + // Table row
+                     "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>", // Info + Pagination row
+                // --- END UPDATED DOM Structure ---
                 buttons: [ // Define buttons
                     {
                         extend: 'colvis',
@@ -786,6 +707,39 @@
             console.log("colResizable initialized for #tickerTable");
             // --- End colResizable --- 
             
+            // --- Add Reset Filters Button Logic ---
+            // Create the button HTML
+            const resetButtonHtml = '<button class="btn btn-secondary btn-sm ms-2" id="resetFiltersBtn">Reset Filters</button>'; 
+            // Append the button to the placeholder created in the DOM string
+            $('#reset-filters-placeholder').html(resetButtonHtml); 
+            
+            // Attach the click listener to the newly added button
+            $('#resetFiltersBtn').on('click', function() { 
+                console.log("Reset Filters button clicked.");
+                // Reset global search
+                table.search('').draw(); 
+                
+                // Reset column filters
+                table.columns().every(function() {
+                    const column = this;
+                    // Clear the search in DataTables internal state
+                    column.search(''); 
+                    
+                    // Clear the visual input/select elements in the filter row
+                    const columnIndex = column.index();
+                    const filterCell = $(`#filter-th-${columnIndex}`);
+                    const input = filterCell.find('input, select');
+                    if (input.length) {
+                        input.val(''); // Clear the value
+                    }
+                });
+                
+                // Redraw the table to apply the cleared filters
+                table.draw(); 
+                console.log("Filters reset.");
+            });
+            // --- End Reset Filters Button Logic ---
+
             // --- REMOVE Initialize Position Indicator Popovers --- 
             // The old popover logic is removed from here.
             // --- END REMOVE Popover Initialization ---

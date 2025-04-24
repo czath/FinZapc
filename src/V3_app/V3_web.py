@@ -49,7 +49,7 @@ from .V3_ibkr_api import IBKRService, IBKRError, SyncIBKRService # ADD SyncIBKRS
 from .V3_finviz_fetch import fetch_and_store_finviz_data, update_screener_from_finviz # Corrected import
 # from .V3_yahoo_api import YahooFinanceAPI, YahooError # Assuming Yahoo API integration
 from .V3_investingcom_fetch import fetch_and_store_investingcom_data, update_screener_from_investingcom # Corrected import
-from .V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate, add_or_update_exchange_rate_conid # Import new DB function AND SQLiteRepository
+from .V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate, add_or_update_exchange_rate_conid, update_screener_multi_fields_sync, get_screener_tickers_and_conids_sync, get_exchange_rates_and_conids_sync # Import new DB function AND SQLiteRepository
 # --- End Local Application Imports ---
 
 # Configure logging
@@ -152,475 +152,219 @@ def _update_screener_single_field_sync(db_path: str, ticker: str, field_name: st
     return success
 # --- End Sync Update Screener Single Field Helper ---
 
-# --- NEW Sync DB Helper for Updating Multiple Screener Fields ---
-def update_screener_multi_fields_sync(db_path: str, ticker: str, updates_dict: Dict[str, Any]) -> bool:
-    """Updates multiple fields for a ticker in the screener table using sqlite3.
-       Also updates the updated_at timestamp.
-    """
-    if not updates_dict:
-        logger.warning(f"[Sync Update Screener Multi] No updates provided for ticker {ticker}. Skipping DB call.")
-        return False # Nothing to update
-
-    allowed_fields = {'price', 'company', 'beta', 'sector', 'industry'}
-    update_fields = {k: v for k, v in updates_dict.items() if k in allowed_fields}
-
-    if not update_fields:
-        logger.error(f"[Sync Update Screener Multi] No *allowed* fields provided in updates for ticker {ticker}. Update dict: {updates_dict}")
-        return False
-
-    success = False
-    now = datetime.now()
-    try:
-        # logger.debug(f"[Sync Update Screener Multi] Connecting to DB sync to update fields {list(update_fields.keys())} for {ticker}: {db_path}") # Keep commented
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            
-            set_clauses = [f"{field} = ?" for field in update_fields.keys()]
-            set_clauses.append("updated_at = ?") # Always update timestamp
-            sql = f"UPDATE screener SET {', '.join(set_clauses)} WHERE ticker = ?"
-            
-            values = list(update_fields.values())
-            values.append(now) # Add timestamp value
-            values.append(ticker) # Add ticker for WHERE clause
-            
-            cursor.execute(sql, tuple(values))
-            conn.commit()
-
-            if cursor.rowcount > 0:
-                # logger.debug(f"[Sync Update Screener Multi] Successfully updated fields {list(update_fields.keys())} and timestamp for ticker {ticker}") # Keep commented
-                success = True
-            else:
-                logger.warning(f"[Sync Update Screener Multi] Ticker {ticker} not found for multi-field update.")
-                success = False
-    except sqlite3.Error as e:
-        logger.error(f"[Sync Update Screener Multi] DB error updating multiple fields for {ticker}: {e}")
-        success = False
-    except Exception as e:
-        logger.error(f"[Sync Update Screener Multi] Unexpected error updating multiple fields for {ticker}: {e}")
-        success = False
-    finally:
-        job_lock.release() # Release lock in finally block
-        # logger.debug("Job lock released by scheduled_fetch_job") # Keep commented
-            
-        # Notify clients ONLY if fetch was successful
-       # if fetch_successful:
-        #    logger.info("Broadcasting data update notification to WebSocket clients.")
-            
-            # --- Update last_run time in DB --- 
-         #   try:
-          #      now = datetime.now()
-           #     logger.info(f"Updating last_run for job 'ibkr_fetch' to {now}")
-                # Use the existing generic update method
-             #   await repository.update_job_config('ibkr_fetch', {'last_run': now})
-            #except Exception as db_update_err:
-            #     logger.error(f"Failed to update last_run time for ibkr_fetch: {db_update_err}")
-            # --- End update last_run ---
-
-    return success
-# --- End Sync Job Function ---
-
 # --- NEW Sync Snapshot Job Function --- 
 def run_sync_ibkr_snapshot_job(repository: SQLiteRepository, loop: AbstractEventLoop, manager: 'ConnectionManager', ibkr_base_url: str):
     # --- ADD ENTRY LOG --- 
-    logger.info(f"--->>> ENTERING run_sync_ibkr_snapshot_job (Thread: {threading.current_thread().name})")
-    # --- END ENTRY LOG --- 
-    """Synchronous job function to fetch IBKR snapshots.
-    Runs in a separate thread managed by the thread pool executor.
-    Fetches conids, gets snapshot data, updates screener and exchange rates.
-    Uses the passed repository instance directly.
-    """
-    job_id = "ibkr_sync_snapshot"
-    logger.info(f"Starting synchronous job: {job_id}...")
+    logger.info("[Sync Snapshot Job] Starting synchronous IBKR snapshot job...")
+    db_path = repository.database_url.split("///", 1)[1] if repository.database_url.startswith("sqlite") else None
+    if not db_path:
+        logger.error("[Sync Snapshot Job] Could not extract database path from repository URL.")
+        return # Cannot proceed without DB path
 
-    # Ensure the passed repository is not None
-    if repository is None:
-        logger.error(f"Snapshot Job ({job_id}): Received None for repository instance. Cannot proceed.")
-        return
+    # Define fields to fetch (map internal name to IBKR field code)
+    # Price = 31, Percentage Change = 83 (often), Volume = 77 (often) - VERIFY THESE
+    # Using placeholder _ prefixes for now as per snapshot response examples
+    snapshot_fields_map = {
+        "price": "31",
+        "daychange": "83", 
+        "ticker_symbol": "55", # Needed to confirm ticker, though conid is primary key
+        "company_name": "7051",
+        "sector_from_industry": "7280", 
+        "industry_from_category": "7281",
+        "beta": "7718",
+        "sec_type": "6070", # Added SecType field
+        "contract_desc": "7219", # Added Contract Description
+        "contract_expiry": "7220" # Added Contract Expiry
+        # Add others if needed, e.g., volume? "volume": "77"
+    }
+    ibkr_field_codes = list(snapshot_fields_map.values()) # Get all the numeric codes to request
 
-    # --- ADD Check is_active status (using run_coroutine_threadsafe) --- 
-    is_active = False # Default to inactive
     try:
-        # We need to run the async check from this sync function using the provided loop
-        check_future = asyncio.run_coroutine_threadsafe(repository.get_job_is_active(job_id), loop)
-        # Wait for the result (add a reasonable timeout)
-        is_active = check_future.result(timeout=10) 
-        if not is_active:
-            logger.info(f"Job '{job_id}' is inactive in DB. Skipping execution.")
-            return
-    except asyncio.TimeoutError:
-         logger.error(f"Snapshot Job ({job_id}): Timeout checking active status. Skipping execution.")
-         return
-    except Exception as check_err:
-        logger.error(f"Snapshot Job ({job_id}): Error checking active status: {check_err}. Skipping execution.", exc_info=True)
-        return
-    # --- END Check --- 
+        logger.info("[Sync Snapshot Job] Initializing SyncIBKRService.")
+        sync_service = SyncIBKRService(base_url=ibkr_base_url)
 
-    sync_ibkr_service = SyncIBKRService(base_url=ibkr_base_url)
-    # REMOVED: repository = SQLiteRepository(database_url=db_path)
-    
-    # Ensure the passed repository is not None
-    if repository is None:
-        logger.error("Snapshot Job: Received None for repository instance. Cannot proceed.")
-        return
+        # --- Fetch Tickers/Currencies and ConIDs directly from DB --- 
+        logger.info(f"[Sync Snapshot Job] Fetching stock tickers/conids from DB: {db_path}")
+        stock_data = get_screener_tickers_and_conids_sync(db_path)
+        logger.info(f"[Sync Snapshot Job] Fetched {len(stock_data)} stock items.")
         
-    try:
-        # --- Move initializations inside the try block --- 
-        rates_to_update = {} # Dictionary to hold calculated {DB_Currency: Rate}
-        updates_for_screener = [] # List of (ticker, field, value) tuples for screener updates
-        # --- End move ---
-        
-        # 1. Get tickers from screener DB requiring IBKR source
-        logger.info("Snapshot Job: Fetching IBKR source tickers from screener DB...")
+        logger.info(f"[Sync Snapshot Job] Fetching FX currencies/conids from DB: {db_path}")
+        fx_data = get_exchange_rates_and_conids_sync(db_path)
+        logger.info(f"[Sync Snapshot Job] Fetched {len(fx_data)} FX items.")
+        # --- End DB Fetch --- 
 
-        # <<< --- BEGIN PART 1: Fetch Identifiers --- >>>
-        tickers_to_snapshot: List[str] = []
-        target_currencies: List[str] = []
-        # --- NEW: List to hold identifier dictionaries ---
-        identifiers_to_fetch: List[Dict[str, str]] = []
-        # --- END NEW ---
+        # --- Build combined conid list and conid->identifier map --- 
+        all_conids = []
+        conid_map = {}
+        processed_tickers = set() # Avoid duplicates if a ticker somehow maps to multiple conids
+        processed_currencies = set()
 
-        try:
-            # Fetch tickers using the async method via the threadsafe bridge
-            logger.info("Snapshot Job: Calling async get_all_screened_tickers...")
-            screened_tickers_data_future = asyncio.run_coroutine_threadsafe(repository.get_all_screened_tickers(), loop)
-            # Wait for the result synchronously
-            screened_tickers_data = screened_tickers_data_future.result(timeout=30) # Add timeout
-            # tickers_to_snapshot = [item['ticker'] for item in screened_tickers_data if item.get('ticker')] # Extract tickers - REMOVED
-            # logger.info(f"Snapshot Job: Fetched {len(tickers_to_snapshot)} tickers: {tickers_to_snapshot}") # REMOVED
+        for item in stock_data:
+            ticker = item.get('ticker')
+            conid = item.get('conid')
+            if ticker and conid and ticker not in processed_tickers:
+                all_conids.append(conid)
+                conid_map[conid] = {'identifier': ticker, 'type': 'stock'}
+                processed_tickers.add(ticker)
+            elif ticker in processed_tickers:
+                logger.warning(f"[Sync Snapshot Job] Duplicate ticker {ticker} found with conid {conid} during map build. Using first encountered.")
 
-            # --- NEW: Process screened tickers to determine secType ---
-            processed_tickers = 0
-            for item in screened_tickers_data:
-                ticker = item.get('ticker')
-                status = item.get('status') # Get the status field
-                if ticker:
-                    # Determine secType based on status
-                    sec_type = 'IND' if status == 'indicator' else 'STK'
-                    identifiers_to_fetch.append({'identifier': ticker, 'secType': sec_type})
-                    processed_tickers += 1
-            logger.info(f"Snapshot Job: Processed {processed_tickers} screened tickers for conid fetch.")
-            # --- END NEW ---
+        for item in fx_data:
+            currency = item.get('currency')
+            conid = item.get('conid')
+            if currency and conid and currency not in processed_currencies:
+                all_conids.append(conid)
+                conid_map[conid] = {'identifier': currency, 'type': 'fx'}
+                processed_currencies.add(currency)
+            elif currency in processed_currencies:
+                 logger.warning(f"[Sync Snapshot Job] Duplicate currency {currency} found with conid {conid} during map build. Using first encountered.")
+        # --- End Build Map --- 
 
-            # Fetch target currencies using the async method via the threadsafe bridge
-            logger.info("Snapshot Job: Calling async get_target_currencies...")
-            target_currencies_future = asyncio.run_coroutine_threadsafe(repository.get_target_currencies(), loop)
-            # Wait for the result synchronously
-            target_currencies = target_currencies_future.result(timeout=10) # Add timeout
-            logger.info(f"Snapshot Job: Fetched {len(target_currencies)} target currencies: {target_currencies}")
+        # Log the map for debugging (optional)
+        # logger.debug(f"[Sync Snapshot Job] Built conid_map: {conid_map}")
 
-        except asyncio.TimeoutError as timeout_err:
-            logger.error(f"Snapshot Job: Timeout waiting for async DB operation: {timeout_err}", exc_info=True)
-            # Decide how to handle timeout - stop the job?
+        if not all_conids:
+            logger.warning("[Sync Snapshot Job] No valid conids found in the database (screener or exchange_rates). Skipping snapshot fetch.")
             return
-        except Exception as fetch_err:
-            logger.error(f"Snapshot Job: Error during initial async data fetch: {fetch_err}", exc_info=True)
-            # Stop the job if we can't get identifiers
-            return
-        # <<< --- END PART 1 --- >>>
+            
+        logger.info(f"[Sync Snapshot Job] Requesting snapshot for {len(all_conids)} conids.")
+        # Fetch snapshot data using the combined list of conids
+        snapshot_data = sync_service.fetch_snapshot_sync(all_conids, ibkr_field_codes)
 
-        # <<< --- BEGIN PART 2: Fetch ConIDs --- >>>
-        conid_map: Dict[int, str] = {} # Map conid -> ticker/pair
-        valid_conids: List[int] = []
-        currency_pairs_to_snapshot: List[str] = [] # Keep this for logging? Or remove? Let's keep for logging for now.
+        if snapshot_data:
+            logger.info(f"[Sync Snapshot Job] Received {len(snapshot_data)} snapshot results. Processing...")
+            fx_updates_dict = {} # Collect FX updates
 
-        # Format currency pairs (e.g., EUR.USD) and add to identifiers_to_fetch
-        if target_currencies:
-            added_pairs_count = 0
-            for curr in target_currencies:
-                if curr != 'EUR': # Assuming base is EUR
-                    pair = f"EUR.{curr}"
-                    identifiers_to_fetch.append({'identifier': pair, 'secType': 'CASH'})
-                    currency_pairs_to_snapshot.append(pair) # Keep populating for log message
-                    added_pairs_count += 1
-            # Log the count of PAIRS added
-            logger.info(f"Snapshot Job: Added {added_pairs_count} currency pairs for conid fetch: {currency_pairs_to_snapshot}")
-            # currency_pairs_to_snapshot = [f"EUR.{curr}" for curr in target_currencies if curr != 'EUR'] # REMOVED
-            # logger.info(f"Snapshot Job: Formatted currency pairs for conid fetch: {currency_pairs_to_snapshot}") # REMOVED
-
-        # Combine tickers and pairs for conid fetching (if service handles both)
-        # identifiers_to_fetch = tickers_to_snapshot + currency_pairs_to_snapshot # REMOVED
-
-        if identifiers_to_fetch:
-            logger.info(f"Snapshot Job: Fetching conids for {len(identifiers_to_fetch)} total identifiers (incl. types)...")
-            try:
-                # Call the existing sync method - Assuming it handles both Stocks and Cash implicitly
-                # NOTE: This might fail for cash pairs if get_conids_sync strictly uses secType='STK' -> TO BE FIXED IN API
-                # --- PASS the list of dictionaries ---
-                conids_list = sync_ibkr_service.get_conids_sync(identifiers_to_fetch)
-                # --- END PASS ---
-
-                # Process results and build the map
-                successful_stock_conids = 0
-                successful_cash_conids = 0
-                successful_ind_conids = 0 # ADDED for IND indicators
-                # --- Use zip with identifiers_to_fetch ---
-                for identifier_info, conid in zip(identifiers_to_fetch, conids_list):
-                    identifier = identifier_info['identifier'] # Get identifier string
-                    sec_type = identifier_info['secType'] # Get secType
-                    # --- END Use zip ---
-                    if conid is not None and conid > 0:
-                        conid_map[conid] = identifier # Map conid -> identifier string
-                        valid_conids.append(conid)
-                        # --- Count based on sec_type ---
-                        if sec_type == 'CASH':
-                            successful_cash_conids += 1
-                        elif sec_type == 'STK':
-                            successful_stock_conids += 1
-                        elif sec_type == 'IND':
-                            successful_ind_conids += 1
-                        # --- END Count ---
-                    else:
-                        # --- Include sec_type in warning ---
-                        logger.warning(f"Snapshot Job: Failed to get valid conid for identifier '{identifier}' (secType: {sec_type}).")
-                        # --- END Include ---
-
-                logger.info(f"Snapshot Job: Successfully fetched {successful_stock_conids} STK, {successful_ind_conids} IND, and {successful_cash_conids} CASH conids.")
-                logger.debug(f"Snapshot Job: Valid conids list: {valid_conids}")
-                # logger.debug(f"Snapshot Job: Conid map: {conid_map}") # Optional: Can be very verbose
-
-            except Exception as conid_err:
-                logger.error(f"Snapshot Job: Error during conid fetching: {conid_err}", exc_info=True)
-                # Decide if we can proceed without conids, or return
-                return
-        else:
-            logger.info("Snapshot Job: No tickers or currencies to fetch conids for.")
-        # <<< --- END PART 2 --- >>>
-
-        # <<< --- BEGIN PART 3: Fetch Snapshot Data --- >>>
-        all_snapshot_data: List[Dict[str, Any]] = [] # Store results from all batches
-
-        if valid_conids:
-            logger.info(f"Snapshot Job: Fetching snapshot for {len(valid_conids)} total valid conids.")
-            # Fetch the fields requested by the user, including description fields
-            # --- ADD '83' to the list of fields --- 
-            fields_to_fetch = ["31", "55", "6070", "7051", "7280", "7281", "7718", "7219", "7220", "83"]
-            # --- END ADD --- 
-            batch_size = 100 # Adjust if needed based on API limits/performance
-
-            try:
-                for i in range(0, len(valid_conids), batch_size):
-                    conid_batch = valid_conids[i:i + batch_size]
-                    logger.info(f"Snapshot Job: Fetching snapshot batch {i//batch_size + 1}/{ (len(valid_conids) + batch_size - 1)//batch_size } (size: {len(conid_batch)})...")
-                    # Call the existing synchronous snapshot method
-                    snapshot_results = sync_ibkr_service.fetch_snapshot_sync(conid_batch, fields_to_fetch)
-
-                    if snapshot_results is not None:
-                        logger.info(f"Snapshot Job: Received {len(snapshot_results)} results for batch.")
-                        # logger.debug(f"Snapshot Batch Data: {snapshot_results}") # Optional: very verbose
-                        all_snapshot_data.extend(snapshot_results)
-                    else:
-                        logger.warning(f"Snapshot Job: fetch_snapshot_sync returned None for batch starting at index {i}. Check logs for details.")
-
-                logger.info(f"Snapshot Job: Finished fetching snapshots. Total results received: {len(all_snapshot_data)}.")
-                if all_snapshot_data: # Log structure of the first item if data exists
-                     logger.debug(f"Snapshot Job: Structure of first snapshot item: {all_snapshot_data[0]}")
-                # --- ADDED: Log the entire snapshot data --- 
-                # logger.debug(f"Snapshot Job: Full snapshot data received: {all_snapshot_data}") # --- COMMENTED OUT TO REDUCE LOGGING ---
-                # --- END LOG --- 
-
-            except Exception as snapshot_err:
-                logger.error(f"Snapshot Job: Error during snapshot fetching: {snapshot_err}", exc_info=True)
-                # Decide if we can proceed without snapshot data, or return
-                return
-        else:
-            logger.info("Snapshot Job: No valid conids found. Skipping snapshot fetch.")
-        # <<< --- END PART 3 --- >>>
-
-        # <<< --- BEGIN PART 4: Process Snapshot Data (Rates - Using Field 31 for Price) --- >>>
-        logger.info(f"Snapshot Job: Processing {len(all_snapshot_data)} snapshot results for exchange rates (using field 31 for price)...")
-        processed_cash_items = 0
-        queued_rate_updates = 0
-
-        for item in all_snapshot_data:
-            try:
-                # Extract key fields needed for rate processing - Use correct field names (no underscore)
-                sec_type = item.get('6070') # Field 6070 = SecType
-
-                # --- Process CASH items for Exchange Rates --- 
-                if sec_type == 'CASH':
-                    processed_cash_items += 1
-                    # Use correct field name for conid
-                    conid_str = item.get('conid')
-                    # PRICE SOURCE: Using field 31 as requested (no underscore)
-                    price_str = item.get('31')
-                    # DESCRIPTION SOURCE: Using field 7219 as requested (no underscore)
-                    desc = item.get('7219')
-
-                    if not desc or not price_str:
-                        logger.debug(f"Snapshot Job: Skipping CASH item for conid {conid_str}: Missing description ('{desc}') or price field 31 ('{price_str}').")
-                        continue
-
-                    # Validate pair format (EUR.XXX) and extract target currency
-                    if desc.startswith("EUR.") and len(desc) == 7:
-                        target_curr = desc.split('.')[-1]
-                        try:
-                            # Convert price from field 31
-                            price = float(price_str)
-                            if price > 0:
-                                inverse_rate = 1.0 / price
-                                rates_to_update[target_curr] = inverse_rate
-                                queued_rate_updates += 1
-                                logger.debug(f"Snapshot Job: Queued rate update for {target_curr}: {inverse_rate:.6f} (Original {desc} price field 31: {price})")
-                            else:
-                                logger.warning(f"Snapshot Job: Skipping CASH item {desc} (conid {conid_str}): Non-positive price field 31 '{price_str}'.")
-                        except (ValueError, TypeError):
-                            # Note: Field 31 is often a timestamp (milliseconds). If this logs often, field 31 is likely not the price.
-                            logger.warning(f"Snapshot Job: Skipping CASH item {desc} (conid {conid_str}): Could not convert price field 31 '{price_str}' to float.")
-                    else:
-                        logger.debug(f"Snapshot Job: Skipping CASH item {desc} (conid {conid_str}): Description from field 7219 not in expected EUR.XXX format.")
-                # else: # Placeholder for STK processing later
-                    # pass
-
-            except Exception as process_err:
-                logger.error(f"Snapshot Job: Error processing snapshot item {item}: {process_err}", exc_info=True)
-                # Continue processing other items
-
-        logger.info(f"Snapshot Job: Finished processing results. Found {processed_cash_items} CASH items. Queued {queued_rate_updates} rate updates.")
-        # <<< --- END PART 4 --- >>>
-
-        # <<< --- BEGIN PART 5: Process Snapshot Data (Screener Updates - Revised) --- >>>
-        logger.info(f"Snapshot Job: Processing {len(all_snapshot_data)} snapshot results for screener updates (Revised approach)...")
-        processed_items_for_screener = 0
-        updated_tickers_in_screener = set()
-        all_screener_data_dict = {} # To store pre-fetched screener data
-
-        # --- Pre-fetch all screener data using available method --- 
-        try:
-            logger.info(f"Snapshot Job: Pre-fetching all screener data...")
-            future = asyncio.run_coroutine_threadsafe(repository.get_all_screened_tickers(), loop)
-            all_screener_data_list = future.result(timeout=30)
-            all_screener_data_dict = {item['ticker']: item for item in all_screener_data_list if item.get('ticker')}
-            logger.info(f"Snapshot Job: Pre-fetched data for {len(all_screener_data_dict)} tickers from screener.")
-        except Exception as fetch_all_err:
-            logger.error(f"Snapshot Job: Failed to pre-fetch all screener data: {fetch_all_err}. Cannot perform conditional updates.", exc_info=True)
-            # If we can't fetch all data, conditional logic fails. We might choose to skip Part 5.
-            # For now, let the loop run, but current_screener_data lookups will fail gracefully (return None).
-            pass
-
-        # --- Process snapshot items --- 
-        for item in all_snapshot_data:
-            ticker = None # Reset ticker for each item
-            try:
-                # Extract ticker from field 55
-                ticker = item.get('55')
-                if not ticker:
-                    conid_str = item.get('conid')
-                    logger.debug(f"Snapshot Job: Skipping item for screener update: Missing ticker ('55'). Conid: {conid_str}")
+            for item in snapshot_data:
+                item_conid_str = item.get('conid') # ConID might be string in response
+                if not item_conid_str:
+                    logger.warning(f"[Sync Snapshot Job] Snapshot item missing 'conid': {item}")
+                    continue
+                
+                try:
+                    item_conid = int(item_conid_str)
+                except (ValueError, TypeError):
+                    logger.warning(f"[Sync Snapshot Job] Could not convert snapshot item conid '{item_conid_str}' to int. Item: {item}")
                     continue
 
-                processed_items_for_screener += 1
-
-                # Lookup current screener data from the pre-fetched dictionary
-                current_screener_data = all_screener_data_dict.get(ticker)
-
-                # Prepare updates based on rules
-                updates_to_apply = [] # List of (field, value) tuples
-
-                # --- Always Update --- 
-                # Beta (7718)
-                beta_str = item.get('7718')
-                if beta_str is not None:
-                    try:
-                        updates_to_apply.append(('beta', float(beta_str)))
-                    except (ValueError, TypeError):
-                        logger.warning(f"Snapshot Job: Could not convert beta '{beta_str}' to float for ticker {ticker}.")
-                # Price (31)
-                price_str = item.get('31')
-                if price_str is not None:
-                    try:
-                        updates_to_apply.append(('price', float(price_str)))
-                    except (ValueError, TypeError):
-                         logger.warning(f"Snapshot Job: Could not convert price field 31 '{price_str}' to float for ticker {ticker}.")
-                
-                # Day Change (83) - ADDED
-                daychange_str = item.get('83') # Get value for field '83'
-                if daychange_str is not None:
-                    try:
-                        updates_to_apply.append(('daychange', float(daychange_str)))
-                    except (ValueError, TypeError):
-                        logger.warning(f"Snapshot Job: Could not convert daychange '{daychange_str}' to float for ticker {ticker}.")
-                # --- End Always Update ---
-
-                # --- Conditional Updates (if current field is empty) ---
-                # Company (7051)
-                company_name = item.get('7051')
-                if company_name and (not current_screener_data or not current_screener_data.get('Company')):
-                    updates_to_apply.append(('Company', str(company_name)))
-                # Sector (using 7280 - Industry field code)
-                industry_val = item.get('7280')
-                if industry_val and (not current_screener_data or not current_screener_data.get('sector')):
-                     updates_to_apply.append(('sector', str(industry_val)))
-                # Industry (using 7281 - Category field code)
-                category_val = item.get('7281')
-                if category_val and (not current_screener_data or not current_screener_data.get('industry')):
-                     updates_to_apply.append(('industry', str(category_val)))
-                # Conid ('conid')
-                conid_val = item.get('conid')
-                # Check current screener data OR if conid is None/empty string
-                if conid_val and (not current_screener_data or not current_screener_data.get('conid')):
-                     updates_to_apply.append(('conid', str(conid_val)))
-
-                # --- Apply Updates (field by field using available method) --- 
-                if updates_to_apply:
-                    logger.debug(f"Snapshot Job: Applying {len(updates_to_apply)} individual updates for ticker {ticker}...")
-                    update_successful_for_ticker = True
-                    for field, value in updates_to_apply:
-                       try:
-                            # Use the available single-field update method
-                            future = asyncio.run_coroutine_threadsafe(
-                                repository.update_screener_ticker_details(ticker, field, value),
-                                loop
-                           )
-                            future.result(timeout=15) # Wait for completion
-                            # logger.debug(f"Snapshot Job: Updated {field} for {ticker}.")
-                       except Exception as update_err:
-                           logger.error(f"Snapshot Job: Failed to update field '{field}' for ticker {ticker}: {update_err}", exc_info=True)
-                           update_successful_for_ticker = False
-                            # Continue trying other fields for this ticker
-
-                    if update_successful_for_ticker:
-                        updated_tickers_in_screener.add(ticker)
-                        # Also update the main timestamp if any field was updated successfully
+                if item_conid in conid_map:
+                    map_entry = conid_map[item_conid]
+                    identifier = map_entry['identifier']
+                    item_type = map_entry['type']
+                    
+                    # Extract price (always try field 31 for both stock and FX)
+                    price_str = item.get(snapshot_fields_map["price"]) # Field 31
+                    price = None
+                    if price_str is not None:
                         try:
-                            future = asyncio.run_coroutine_threadsafe(
-                                repository.update_screener_ticker_details(ticker, 'updated_at', datetime.now()), # Use 'updated_at' field name
-                                loop
-                            )
-                            future.result(timeout=15)
-                        except Exception as ts_update_err:
-                            logger.error(f"Snapshot Job: Failed to update timestamp for ticker {ticker}: {ts_update_err}", exc_info=True)
+                            # Attempt to strip known prefixes like 'C' before converting
+                            cleaned_price_str = price_str.lstrip('Cc') # Strip leading 'C' or 'c'
+                            price = float(cleaned_price_str)
+                        except (ValueError, TypeError):
+                            logger.warning(f"[Sync Snapshot Job] Could not convert price '{price_str}' to float for {identifier} (conid: {item_conid}).")
+                    
+                    if item_type == 'stock':
+                        ticker = identifier
+                        
+                        # --- Check for Allowed SecTypes (STK or IND) --- 
+                        actual_sec_type = item.get(snapshot_fields_map.get("sec_type")) # Field 6070
+                        if actual_sec_type not in ['STK', 'IND']:
+                            logger.debug(f"[Sync Snapshot Job] Skipping screener update for {ticker} (conid: {item_conid}). Actual secType from snapshot: '{actual_sec_type}' (Expected STK or IND).")
+                            continue # Skip to the next item in snapshot_data
+                        # --- END Check --- 
+                        
+                        # --- Prepare updates - Common fields first --- 
+                        updates_for_ticker = {}
+                        if price is not None: # Price is already extracted above
+                            updates_for_ticker['price'] = price
                             
+                        daychange_str = item.get(snapshot_fields_map["daychange"]) # Field 83
+                        daychange = None
+                        if daychange_str is not None:
+                             try:
+                                 daychange = float(daychange_str)
+                                 updates_for_ticker['daychange'] = daychange # Add if valid
+                             except (ValueError, TypeError):
+                                 logger.warning(f"[Sync Snapshot Job] Could not convert daychange '{daychange_str}' to float for {ticker} (conid: {item_conid}).")
+                        # --- End Common fields --- 
+                        
+                        # --- Extract and Add Other Fields (for both STK and IND) --- 
+                        company_name = item.get(snapshot_fields_map["company_name"]) # 7051
+                        sector = item.get(snapshot_fields_map["sector_from_industry"]) # 7280
+                        industry = item.get(snapshot_fields_map["industry_from_category"]) # 7281
+                        beta_str = item.get(snapshot_fields_map["beta"]) # 7718
+                        beta = None
+                        if beta_str is not None:
+                            try:
+                                beta = float(beta_str)
+                            except (ValueError, TypeError):
+                                logger.warning(f"[Sync Snapshot Job] Could not convert beta '{beta_str}' to float for {ticker} (conid: {item_conid}).")
+                        
+                        # Add to updates if they exist
+                        if company_name is not None:
+                            updates_for_ticker['Company'] = str(company_name) # Ensure string
+                        if sector is not None:
+                             updates_for_ticker['sector'] = str(sector)
+                        if industry is not None:
+                             updates_for_ticker['industry'] = str(industry)
+                        if beta is not None:
+                            updates_for_ticker['beta'] = beta
+                        # --- End Other Fields --- 
+                                
+                        # Proceed with update if any fields were collected
+                        if updates_for_ticker:
+                            logger.debug(f"[Sync Snapshot Job] Updating screener for {ticker} ({actual_sec_type}): {updates_for_ticker}")
+                            success = update_screener_multi_fields_sync(db_path, ticker, updates_for_ticker)
+                            if not success:
+                                logger.error(f"[Sync Snapshot Job] Failed to update screener for {ticker}.")
+                        else:
+                            logger.debug(f"[Sync Snapshot Job] No valid fields extracted from snapshot for stock {ticker} (conid: {item_conid}).")
+                    
+                    elif item_type == 'fx':
+                        currency = identifier
+                        if price is not None: # Price field (_31) is used for FX rate
+                            logger.debug(f"[Sync Snapshot Job] Received price {price} for FX {currency} (conid: {item_conid}). Calculating inverse.")
+                            # --- ADD INVERSION LOGIC --- 
+                            if price > 0:
+                                inverse_rate = 1.0 / price
+                                fx_updates_dict[currency] = inverse_rate
+                                logger.debug(f"[Sync Snapshot Job] Queued inverse rate update for {currency}: {inverse_rate:.6f}")
+                            else:
+                                 logger.warning(f"[Sync Snapshot Job] Skipping FX rate update for {currency} (conid: {item_conid}): Non-positive price {price} received.")
+                            # --- END INVERSION LOGIC ---
+                        else:
+                             logger.debug(f"[Sync Snapshot Job] No valid rate (field {snapshot_fields_map['price']}) extracted from snapshot for FX {currency} (conid: {item_conid}).")
+                
                 else:
-                    logger.debug(f"Snapshot Job: No updates needed for ticker {ticker} based on snapshot rules.")
+                     logger.warning(f"[Sync Snapshot Job] Received snapshot data for unexpected conid: {item_conid}. Data: {item}")
 
-            except Exception as process_err:
-                logger.error(f"Snapshot Job: Error processing snapshot item {item} for screener update (Ticker: {ticker}): {process_err}", exc_info=True)
-                # Continue processing other items
+            # Update all collected FX rates in one go
+            if fx_updates_dict:
+                logger.info(f"[Sync Snapshot Job] Updating {len(fx_updates_dict)} exchange rates in DB...")
+                repository.update_exchange_rates_sync(fx_updates_dict) # Use the existing sync method
+            else:
+                 logger.info("[Sync Snapshot Job] No FX rates to update.")
 
-        logger.info(f"Snapshot Job: Finished processing screener updates. Processed {processed_items_for_screener} items. Updated {len(updated_tickers_in_screener)} unique tickers.")
-        # <<< --- END PART 5 --- >>>
-
-        # ... (rest of the code inside the try block) ...
-        # The code below will handle the actual DB update using rates_to_update
-
-        # Update Exchange Rates Table
-        if rates_to_update:
-            logger.info(f"Snapshot Job: Updating exchange rates in DB: {rates_to_update}")
-            try:
-                repository.update_exchange_rates_sync(rates_to_update)
-                logger.info("Snapshot Job: Successfully updated exchange rates.")
-            except Exception as db_err:
-                 logger.error(f"Snapshot Job: Failed to update exchange rates in DB: {db_err}", exc_info=True)
         else:
-             logger.info("Snapshot Job: No new exchange rates to update based on snapshot data.")
-    
-    # --- Ensure except and finally are correctly indented relative to the try --- 
-    except Exception as e:
-        logger.error(f"Error during synchronous IBKR snapshot job: {e}", exc_info=True)
-    finally:
-        logger.info("Finished synchronous IBKR snapshot job.")
+            logger.warning("[Sync Snapshot Job] No snapshot data received from IBKR.")
+            # Optionally: Send error status via websocket
+            # message = json.dumps({"type": "status", "service": "ibkr_snapshot", "status": "error", "message": "Failed to fetch snapshot data"})
+            # loop.call_soon_threadsafe(asyncio.create_task, manager.broadcast(message))
 
-# --- End Sync Job Function ---
+        # --- REMOVED: Original ticker/conid fetching and loop --- 
+
+        logger.info("[Sync Snapshot Job] Synchronous IBKR snapshot job finished.")
+        # Optionally: Send success status via websocket
+        # message = json.dumps({"type": "status", "service": "ibkr_snapshot", "status": "success", "message": "Snapshot data updated"})
+        # loop.call_soon_threadsafe(asyncio.create_task, manager.broadcast(message))
+
+    except Exception as e:
+        logger.error(f"[Sync Snapshot Job] Error during execution: {e}", exc_info=True)
+        # Optionally: Send error status via websocket
+        # message = json.dumps({"type": "status", "service": "ibkr_snapshot", "status": "error", "message": str(e)})
+        # loop.call_soon_threadsafe(asyncio.create_task, manager.broadcast(message))
+
+# --- END SYNC SNAPSHOT JOB ---
 
 # --- WebSocket Connection Manager --- 
 class ConnectionManager:
@@ -1201,6 +945,73 @@ def create_app():
                 except Exception as db_update_err:
                      logger.error(f"Failed to update last_run time for {job_id}: {db_update_err}")
 
+        # --- NEW Yahoo Scheduled Job --- 
+        async def scheduled_yahoo_job():
+            """Job function for fetching Yahoo data and updating screener."""
+            job_id = "yahoo_data_fetch"
+            logger.info(f"Scheduler executing {job_id}...")
+
+            # --- ADD Check is_active status --- 
+            try:
+                repository: SQLiteRepository = app.state.repository
+                is_active = await repository.get_job_is_active(job_id)
+                if not is_active:
+                    logger.info(f"Job '{job_id}' is inactive in DB. Skipping execution.")
+                    return
+            except Exception as check_err:
+                logger.error(f"Error checking active status for {job_id}: {check_err}. Skipping execution.", exc_info=True)
+                return
+            # --- END Check ---
+
+            fetch_successful = False
+            update_successful = False
+            job_lock: asyncio.Lock = app.state.job_execution_lock
+            
+            if job_lock.locked():
+                logger.warning(f"Skipping {job_id}: Another job is already running.")
+                return
+            
+            await job_lock.acquire() # Acquire lock
+            try:
+                repository: SQLiteRepository = app.state.repository
+                is_active = await repository.get_job_is_active(job_id, default_active=False)
+                
+                if is_active:
+                    logger.info(f"Job '{job_id}' is active. Proceeding with fetch and update.")
+                    await fetch_and_store_yahoo_data(repository)
+                    fetch_successful = True # Mark fetch as attempted/done
+                    
+                    await update_screener_from_yahoo(repository)
+                    update_successful = True # Mark update as attempted/done
+                    
+                    logger.info(f"Scheduled Yahoo fetch and screener update completed.")
+                    
+                    # --- Broadcast Update --- 
+                    try:
+                        logger.info(f"[{job_id}] Broadcasting data update notification.")
+                        await app.state.manager.broadcast(json.dumps({"event": "data_updated"}))
+                    except Exception as broadcast_err:
+                        logger.error(f"[{job_id}] Error during broadcast: {broadcast_err}")
+                    # --- End Broadcast --- 
+                else:
+                    logger.info(f"Job '{job_id}' is inactive. Skipping execution.")
+                    
+            except Exception as e:
+                logger.error(f"Error during scheduled {job_id} execution: {str(e)}")
+                logger.exception(f"Scheduled {job_id} failed:")
+            finally:
+                 job_lock.release() # Release lock in finally block
+                 logger.debug(f"Job lock released by {job_id}")
+
+            # Update last_run time in DB if the job was active (regardless of internal success)
+            if is_active: 
+                try:
+                    now = datetime.now()
+                    logger.info(f"Updating last_run for job '{job_id}' to {now}")
+                    await repository.update_job_config(job_id, {'last_run': now})
+                except Exception as db_update_err:
+                     logger.error(f"Failed to update last_run time for {job_id}: {db_update_err}")
+
         @app.on_event("startup")
         async def startup_event():
             """Run initial fetch and start the scheduler."""
@@ -1320,24 +1131,6 @@ def create_app():
                 yahoo_interval_seconds = await repository.get_job_schedule_seconds(yahoo_job_id, default_seconds=yahoo_default_seconds)
                 yahoo_is_active = await repository.get_job_is_active(yahoo_job_id, default_active=True) # Check DB
 
-                # Placeholder for the actual job function
-                async def scheduled_yahoo_job(): 
-                    # --- ADD Check is_active status (within job) --- 
-                    job_id_internal = "yahoo_data_fetch"
-                    try:
-                        repo_internal: SQLiteRepository = app.state.repository
-                        is_active_internal = await repo_internal.get_job_is_active(job_id_internal)
-                        if not is_active_internal:
-                            logger.info(f"Job '{job_id_internal}' is inactive in DB. Skipping execution (checked within job).")
-                            return
-                    except Exception as check_err_internal:
-                        logger.error(f"Error checking active status for {job_id_internal} within job: {check_err_internal}. Skipping execution.", exc_info=True)
-                        return
-                    # --- END Check ---
-                    logger.info(f"Running {job_id_internal} job...")
-                    # TODO: Implement actual Yahoo data fetching logic here
-                    pass
-                
                 # Always add the job if interval is valid
                 if yahoo_interval_seconds > 0:
                     try:
@@ -1411,21 +1204,6 @@ def create_app():
                 else:
                     logger.warning(f"Job '{sync_snapshot_job_id}' has invalid interval ({sync_interval_seconds}s). Not scheduling.")
                 # --- End Schedule NEW Sync Job --- 
-
-                # --- ADD Simple Test Job ---
-                # test_job_id = "simple_test_job"
-                # try:
-                #     scheduler.add_job(
-                #         lambda: logger.info(f"--- Simple Test Job Executing ({datetime.now()}) ---"),
-                #         trigger='interval',
-                #         seconds=10,
-                #         id=test_job_id,
-                #         replace_existing=True
-                #     )
-                #     logger.info(f"Scheduled simple test job '{test_job_id}' to run every 10 seconds.")
-                # except Exception as test_job_err:
-                #     logger.error(f"Failed to add simple test job: {test_job_err}")
-                # --- End Simple Test Job ---
 
                 # Start the scheduler if not already running
                 if not scheduler.running:
@@ -2680,7 +2458,4 @@ def add_websocket_route(app_instance: FastAPI):
 # from V3_web import create_app, add_websocket_route
 # app = create_app()
 # add_websocket_route(app) 
-# uvicorn.run(app, ...)
-
-# --- End WebSocket Endpoint --- 
         
