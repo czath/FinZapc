@@ -12,6 +12,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Set, Union
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, create_engine, delete, MetaData, Table, insert, update, and_, distinct, Text, Boolean, text, func
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, relationship, Session
@@ -215,6 +216,7 @@ exchange_rates = Table(
 
 class SQLiteRepository:
     """Repository for SQLite database operations."""
+    print("--- SQLiteRepository class definition loaded ---") # <--- ADD THIS LINE
     
     def __init__(self, database_url: str):
         """Initialize the repository with a database URL."""
@@ -700,26 +702,44 @@ class SQLiteRepository:
     async def add_or_update_screener_ticker(self,
                                            ticker: str,
                                            status: str,
+                                           # Add all other optional fields from the form/model
+                                           conid: Optional[str] = None, # ADDED
                                            atr: Optional[float] = None,
                                            atr_mult: Optional[int] = None,
                                            risk: Optional[float] = None,
                                            beta: Optional[float] = None,
                                            sector: Optional[str] = None,
                                            industry: Optional[str] = None,
-                                           comments: Optional[str] = None
-                                           ) -> None:
-        """Add a new ticker or update the status and details if it already exists."""
-        valid_statuses = ["portfolio", "candidate", "monitored"]
+                                           comments: Optional[str] = None,
+                                           Company: Optional[str] = None, # ADDED
+                                           open_pos: Optional[int] = None, # ADDED
+                                           cost_base: Optional[float] = None, # ADDED
+                                           currency: Optional[str] = None, # ADDED
+                                           acc: Optional[str] = None, # ADDED
+                                           price: Optional[float] = None, # ADDED
+                                           daychange: Optional[float] = None, # ADDED
+                                           t_source1: Optional[str] = None # ADDED
+                                           # **kwargs: Any # Alternative: Accept arbitrary kwargs
+                                           ) -> Dict[str, str]: # <-- CHANGE RETURN TYPE HINT
+        """Add a new ticker or update the status and details if it already exists.
+        Returns a dictionary with status and message.
+        """
+        valid_statuses = ["portfolio", "candidate", "monitored", "indicator"] # Added indicator
         if status not in valid_statuses:
-            raise ValueError(f"Invalid status '{status}'. Must be one of {valid_statuses}")
+            # Return error dict instead of raising ValueError
+            return {"status": "error", "message": f"Invalid status '{status}'. Must be one of {valid_statuses}"}
         if not ticker or not ticker.strip():
-             raise ValueError("Ticker cannot be empty.")
+             # Return error dict instead of raising ValueError
+             return {"status": "error", "message": "Ticker cannot be empty."}
+
         ticker_upper = ticker.strip().upper()
 
         # Prepare data, including new optional fields
+        # Make sure all added parameters are included here
         data_to_insert = {
             'ticker': ticker_upper,
             'status': status,
+            'conid': conid,
             'atr': atr,
             'atr_mult': atr_mult,
             'risk': risk,
@@ -727,12 +747,21 @@ class SQLiteRepository:
             'sector': sector,
             'industry': industry,
             'comments': comments,
+            'Company': Company,
+            'open_pos': open_pos,
+            'cost_base': cost_base,
+            'currency': currency,
+            'acc': acc,
+            'price': price,
+            'daychange': daychange,
+            't_source1': t_source1,
             'created_at': datetime.now(),
             'updated_at': datetime.now()
         }
         # Data for updating existing records (don't update created_at)
         data_to_update = {
             'status': status,
+            'conid': conid,
             'atr': atr,
             'atr_mult': atr_mult,
             'risk': risk,
@@ -740,28 +769,60 @@ class SQLiteRepository:
             'sector': sector,
             'industry': industry,
             'comments': comments,
+            'Company': Company,
+            'open_pos': open_pos,
+            'cost_base': cost_base,
+            'currency': currency,
+            'acc': acc,
+            'price': price,
+            'daychange': daychange,
+            't_source1': t_source1,
             'updated_at': datetime.now()
         }
 
         try:
-            logger.info(f"[DB] Adding/Updating screener ticker: {ticker_upper} with status {status} and details")
+            logger.info(f"[DB] Adding/Updating screener ticker: {ticker_upper} with status {status}, ConID: {conid}")
             async with self.engine.begin() as conn:
-                result = await conn.execute(
-                    select(ScreenerModel.ticker).where(ScreenerModel.ticker == ticker_upper)
-                )
-                exists = result.scalar_one_or_none()
+                # --- Check if ticker exists and fetch its conid --- 
+                stmt_check = select(ScreenerModel.conid).where(ScreenerModel.ticker == ticker_upper)
+                result = await conn.execute(stmt_check)
+                existing_conid_row = result.first() # Fetch the row (tuple) or None
+                # --- End Check ---
 
-                if exists:
-                    stmt = update(ScreenerModel).where(ScreenerModel.ticker == ticker_upper).values(**data_to_update)
-                    await conn.execute(stmt)
-                    logger.info(f"[DB] Updated existing screener ticker: {ticker_upper}")
+                if existing_conid_row is not None:
+                    # --- Ticker Exists - Check ConID --- 
+                    existing_conid = existing_conid_row[0] # Get conid from the tuple
+                    logger.debug(f"[DB] Ticker {ticker_upper} exists. Existing ConID: {existing_conid}, Incoming ConID: {conid}")
+                    
+                    # Convert incoming conid to string for comparison, handling None
+                    incoming_conid_str = str(conid) if conid is not None else None
+                    
+                    # Skip update only if BOTH ticker AND conid match
+                    if existing_conid == incoming_conid_str:
+                        logger.info(f"[DB] Ticker {ticker_upper} with ConID {conid} already exists. Skipping update.")
+                        return {"status": "skipped", "message": f"Ticker {ticker_upper} with ConID {conid} already exists. No update performed."}
+                    else:
+                        # Ticker exists, but ConID is different or was NULL. Proceed with UPDATE.
+                        logger.info(f"[DB] Ticker {ticker_upper} exists, but ConID differs (Existing: {existing_conid}, New: {conid}). Updating...")
+                        stmt = update(ScreenerModel).where(ScreenerModel.ticker == ticker_upper).values(**data_to_update)
+                        await conn.execute(stmt)
+                        logger.info(f"[DB] Updated existing screener ticker: {ticker_upper}")
+                        return {"status": "updated", "message": f"Updated existing screener ticker: {ticker_upper}"}
+                    # --- End ConID Check ---
+
                 else:
+                    # --- Ticker Does Not Exist - Insert --- 
+                    logger.info(f"[DB] Ticker {ticker_upper} does not exist. Inserting...")
                     stmt = insert(ScreenerModel).values(**data_to_insert)
                     await conn.execute(stmt)
                     logger.info(f"[DB] Added new screener ticker: {ticker_upper}")
+                    return {"status": "inserted", "message": f"Added new screener ticker: {ticker_upper}"}
+                    # --- End Insert ---
         except Exception as e:
-            logger.error(f"[DB] Error adding/updating screener ticker {ticker_upper}: {str(e)}")
-            raise
+            logger.error(f"[DB] Error adding/updating screener ticker {ticker_upper}: {str(e)}", exc_info=True)
+            # Return error dict instead of raising
+            return {"status": "error", "message": f"Error adding/updating screener ticker {ticker_upper}: {str(e)}"}
+            # Remove raise
 
     async def update_screener_ticker_status(self, ticker: str, status: str) -> None:
         """Update the status of an existing screener ticker."""
@@ -1458,6 +1519,103 @@ async def update_exchange_rate(session, currency, rate):
         logger.error(f"Error upserting exchange rate for {currency}: {e}")
         await session.rollback() 
 
+# --- NEW Function to Add/Update Exchange Rate with ConID ---
+async def add_or_update_exchange_rate_conid(session: AsyncSession, currency: str, conid: str) -> Dict[str, str]:
+    """
+    Adds or updates an exchange rate entry, specifically handling the ConID.
+
+    Logic:
+    1. Check if currency + conid already exists. If yes, do nothing (skip).
+    2. Check if currency exists (regardless of conid).
+       - If yes and conid is NULL/empty: Update the existing record's conid.
+       - If yes and conid has a *different* value: Log warning and skip update (conflict).
+    3. If currency does not exist: Insert a new record with currency, conid, and a default rate of 1.0.
+
+    Args:
+        session: The AsyncSession for database operations.
+        currency: The currency code (e.g., 'USD').
+        conid: The IBKR Contract ID.
+
+    Returns:
+        A dictionary containing 'status' and 'message'.
+        Possible statuses: 'skipped', 'updated', 'conflict', 'inserted', 'error'.
+    """
+    currency_upper = currency.strip().upper()
+    logger.info(f"[DB Add/Update Rate ConID] Processing: Currency={currency_upper}, ConID={conid}")
+
+    try:
+        # Define table name and columns directly
+        tbl_name = 'exchange_rates'
+        col_currency = 'currency'
+        col_conid = 'conid'
+        col_rate = 'rate'
+
+        # --- Use Core select, update, insert --- 
+        # 1. Check if currency + conid exists
+        stmt_check_exact = text(f"SELECT {col_currency}, {col_conid}, {col_rate} FROM {tbl_name} WHERE {col_currency} = :curr AND {col_conid} = :conid")
+        result_exact = await session.execute(stmt_check_exact, {"curr": currency_upper, "conid": conid})
+        if result_exact.first() is not None:
+            logger.info(f"[DB Add/Update Rate ConID] Record for {currency_upper} with ConID {conid} already exists. Skipping.")
+            return {"status": "skipped", "message": f"Record for {currency_upper} with ConID {conid} already exists."}
+
+        # 2. Check if currency exists (without specific conid)
+        stmt_check_currency = text(f"SELECT {col_currency}, {col_conid}, {col_rate} FROM {tbl_name} WHERE {col_currency} = :curr")
+        result_currency = await session.execute(stmt_check_currency, {"curr": currency_upper})
+        existing_rate_row = result_currency.first() # Fetch the first matching row (as a tuple)
+
+        if existing_rate_row is not None:
+            # Currency exists, check its conid (assuming conid is the second column selected, index 1)
+            existing_conid = existing_rate_row[1] 
+            
+            # --- NEW LOGIC: Always update if currency exists (unless exact match already caught) ---
+            if existing_conid != conid: 
+                logger.info(f"[DB Add/Update Rate ConID] Updating ConID for existing currency {currency_upper} from {existing_conid} to {conid}.")
+            else: # existing_conid is None or matches the new conid
+                logger.info(f"[DB Add/Update Rate ConID] Setting/Updating ConID for existing currency {currency_upper} to {conid}.")
+            
+            stmt_update = text(f"UPDATE {tbl_name} SET {col_conid} = :conid WHERE {col_currency} = :curr")
+            await session.execute(stmt_update, {"conid": conid, "curr": currency_upper})
+            await session.commit()
+            # Return "updated" status in both cases (new conid or overwriting different conid)
+            return {"status": "updated", "message": f"Updated ConID for {currency_upper}."}
+            # --- END NEW LOGIC ---
+            
+            # --- REMOVE OLD CONFLICT/UPDATE LOGIC --- 
+            # # if existing_conid is None or existing_conid == '':
+            # #     # Update existing record with the new conid
+            # #     logger.info(f"[DB Add/Update Rate ConID] Updating ConID for existing currency {currency_upper} to {conid}.")
+            # #     stmt_update = text(f"UPDATE {tbl_name} SET {col_conid} = :conid WHERE {col_currency} = :curr")
+            # #     await session.execute(stmt_update, {"conid": conid, "curr": currency_upper})
+            # #     await session.commit()
+            # #     return {"status": "updated", "message": f"Updated ConID for {currency_upper}."}
+            # # elif existing_conid != conid:
+            # #     # Currency exists but with a different ConID. Log warning and skip.
+            # #     logger.warning(f"[DB Add/Update Rate ConID] Currency {currency_upper} exists but with different ConID ({existing_conid}). Update with {conid} skipped.")
+            # #     return {"status": "conflict", "message": f"Record for {currency_upper} exists with a different ConID. Update skipped."}
+            # # else:
+            # #      # Logically shouldn't happen, but handle defensively.
+            # #      logger.info(f"[DB Add/Update Rate ConID] Record for {currency_upper} with ConID {conid} confirmed to exist. Skipping.")
+            # #      return {"status": "skipped", "message": f"Record for {currency_upper} with ConID {conid} already exists."}
+            # --- END REMOVE OLD --- 
+
+        else:
+            # 3. Currency does not exist, insert new record
+            logger.info(f"[DB Add/Update Rate ConID] Inserting new record for {currency_upper} with ConID {conid}.")
+            stmt_insert = text(f"INSERT INTO {tbl_name} ({col_currency}, {col_conid}, {col_rate}) VALUES (:curr, :conid, :rate)")
+            await session.execute(stmt_insert, {"curr": currency_upper, "conid": conid, "rate": 1.0})
+            await session.commit()
+            return {"status": "inserted", "message": f"Inserted new record for {currency_upper}."}
+
+    except SQLAlchemyError as e: # Catch specific SQLAlchemy errors
+        await session.rollback()
+        logger.error(f"[DB Add/Update Rate ConID] Database error for {currency_upper}/{conid}: {e}", exc_info=True)
+        return {"status": "error", "message": f"Database error: {e}"}
+    except Exception as e: # Catch any other unexpected errors
+        await session.rollback()
+        logger.error(f"[DB Add/Update Rate ConID] Unexpected error for {currency_upper}/{conid}: {e}", exc_info=True)
+        return {"status": "error", "message": f"Unexpected error: {e}"}
+
+
     # --- NEW: Method to fetch a single screener ticker --- 
     async def get_screener_ticker(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetches a single ticker record from the screener table."""
@@ -1507,3 +1665,142 @@ async def update_exchange_rate(session, currency, rate):
         except Exception as e:
             logger.error(f"[DB Multi Update] Error updating multiple fields for {ticker_upper}: {e}", exc_info=True)
             return False # Return False on error 
+
+    # --- NEW: Add/Update Screener Entry --- 
+    async def save_screener_entry(self, data: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Adds a new entry to the screener table or updates an existing one 
+        based on the 'ticker', ensuring ConID and other fields are saved/updated.
+
+        Args:
+            data: A dictionary containing form data, MUST include 'ticker' and 'status'.
+                  May include 'conid', 'atr', 'atr_mult', 'risk', 'beta', 
+                  'sector', 'industry', 'comments', etc.
+
+        Returns:
+            A dictionary with 'status' ('inserted', 'updated', 'error') 
+            and 'message'.
+        """
+        ticker = data.get('ticker')
+        status = data.get('status')
+
+        if not ticker or not ticker.strip():
+            return {"status": "error", "message": "Missing or empty required field: ticker."}
+        if not status:
+             return {"status": "error", "message": "Missing required field: status."}
+
+        ticker_upper = ticker.strip().upper()
+        conid = data.get('conid') # Optional but often provided
+
+        logger.info(f"[DB Add/Update Screener] Processing: Ticker={ticker_upper}, Status={status}, ConID={conid}")
+
+        # Use the repository's engine
+        async with self.engine.begin() as conn: # Use conn instead of session
+            try:
+                # Define table and columns based on ScreenerModel
+                # Use ticker as the primary key column
+                col_ticker = ScreenerModel.ticker.name # Get column name string
+                col_status = ScreenerModel.status.name
+                col_conid = ScreenerModel.conid.name
+                col_created_at = ScreenerModel.created_at.name
+                col_updated_at = ScreenerModel.updated_at.name
+                
+                # Map form keys (data keys) to model column names
+                # Only include columns present in the model
+                optional_cols_map = {
+                    'atr': ScreenerModel.atr.name,
+                    'atr_mult': ScreenerModel.atr_mult.name,
+                    'risk': ScreenerModel.risk.name,
+                    'beta': ScreenerModel.beta.name,
+                    'sector': ScreenerModel.sector.name,
+                    'industry': ScreenerModel.industry.name,
+                    'comments': ScreenerModel.comments.name,
+                    'Company': ScreenerModel.Company.name, # Added Company
+                    'open_pos': ScreenerModel.open_pos.name, # Added open_pos
+                    'cost_base': ScreenerModel.cost_base.name, # Added cost_base
+                    'currency': ScreenerModel.currency.name, # Added currency
+                    'acc': ScreenerModel.acc.name, # Added acc
+                    'price': ScreenerModel.price.name, # Added price
+                    'daychange': ScreenerModel.daychange.name, # Added daychange
+                    't_source1': ScreenerModel.t_source1.name # Added t_source1
+                    # Add other ScreenerModel fields here if needed
+                }
+
+                # Check if ticker exists using SQLAlchemy Core Select
+                stmt_check = select(ScreenerModel.ticker).where(ScreenerModel.ticker == ticker_upper)
+                result_check = await conn.execute(stmt_check)
+                exists = result_check.scalar_one_or_none() is not None
+
+                now = datetime.now()
+                
+                values_to_process = {col_status: status, col_conid: conid} # Start with required/common fields
+                
+                # Prepare optional fields, handling types and empty strings
+                for form_key, db_col in optional_cols_map.items():
+                    if form_key in data: # Check if the key exists in the input data
+                        value = data[form_key]
+                        target_col = ScreenerModel.__table__.columns[db_col]
+                        target_type = target_col.type.python_type
+
+                        if value is None or value == '':
+                             # For numeric types, store None if input is empty/None
+                             if target_type in (float, int):
+                                 values_to_process[db_col] = None
+                             # For string types, store None if input is empty/None (or store empty string if desired)
+                             elif target_type == str:
+                                 values_to_process[db_col] = None # Store NULL for empty strings
+                             else:
+                                  values_to_process[db_col] = None # Default to None for other types
+                        else:
+                            # Attempt conversion for numeric types
+                            if target_type in (float, int):
+                                try:
+                                    # Be flexible: try float first, then int if needed
+                                    float_val = float(value)
+                                    values_to_process[db_col] = int(float_val) if target_type == int else float_val
+                                except (ValueError, TypeError):
+                                    logger.warning(f"[DB Add/Update Screener] Could not convert {form_key}='{value}' to {target_type.__name__} for {ticker_upper}. Storing NULL.")
+                                    values_to_process[db_col] = None
+                            elif target_type == str:
+                                values_to_process[db_col] = str(value) # Ensure string
+                            else:
+                                # Handle other types if necessary (e.g., boolean, datetime)
+                                values_to_process[db_col] = value # Assume correct type for now
+
+                if exists:
+                    # --- UPDATE Logic --- 
+                    logger.info(f"[DB Add/Update Screener] Ticker '{ticker_upper}' exists. Updating.")
+                    values_to_process[col_updated_at] = now # Set update timestamp
+                    
+                    # Use SQLAlchemy Core Update
+                    stmt_update = (
+                        update(ScreenerModel)
+                        .where(ScreenerModel.ticker == ticker_upper)
+                        .values(**values_to_process) # Pass prepared dictionary
+                    )
+                    await conn.execute(stmt_update)
+                    return {"status": "updated", "message": f"Updated entry for {ticker_upper}."}
+
+                else:
+                    # --- INSERT Logic --- 
+                    logger.info(f"[DB Add/Update Screener] Ticker '{ticker_upper}' not found. Inserting.")
+                    values_to_process[col_ticker] = ticker_upper # Add ticker for insert
+                    values_to_process[col_created_at] = now # Set create timestamp
+                    values_to_process[col_updated_at] = now # Also set update timestamp on insert
+
+                    # Use SQLAlchemy Core Insert
+                    stmt_insert = insert(ScreenerModel).values(**values_to_process)
+                    await conn.execute(stmt_insert)
+                    return {"status": "inserted", "message": f"Inserted new entry for {ticker_upper}."}
+
+            except SQLAlchemyError as e:
+                # Rollback is handled by engine.begin() context manager on exception
+                logger.error(f"[DB Add/Update Screener] Database error for {ticker_upper}: {e}", exc_info=True)
+                return {"status": "error", "message": f"Database error: {e}"}
+            except Exception as e:
+                # Rollback is handled by engine.begin() context manager on exception
+                logger.error(f"[DB Add/Update Screener] Unexpected error for {ticker_upper}: {e}", exc_info=True)
+                return {"status": "error", "message": f"Unexpected error: {e}"}
+    # --- End Add/Update Screener --- 
+    
+# Example Usage (Conceptual)

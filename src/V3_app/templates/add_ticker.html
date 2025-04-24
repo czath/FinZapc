@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add New Ticker - Financial App V3</title>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Ensure style.css exists at src/V3_app/static/css/style.css -->
+    <link rel="stylesheet" href="/static/css/style.css"> 
+    <style>
+        /* Add specific styles if needed */
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+
+        {# --- Navigation Bar (Copied from tracker.html) --- #}
+        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+          <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('read_root') }}">FinZapc V1.2</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+              <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+              <ul class="navbar-nav ms-auto">
+                <li class="nav-item">
+                  <a class="nav-link {% if request.url.path == url_for('read_root') %}active{% endif %}" aria-current="page" href="{{ url_for('read_root') }}">Dashboard</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link {% if request.url.path == url_for('get_tracker_page') %}active{% endif %}" href="{{ url_for('get_tracker_page') }}">Tracker</a>
+                </li>
+                {# --- Add link to the new page --- #}
+                <li class="nav-item">
+                  <a class="nav-link active" href="{{ url_for('get_add_ticker_page') }}">Add Ticker</a> {# Assume route name is 'get_add_ticker_page' #}
+                </li>
+                {# --- End Add link --- #}
+                <li class="nav-item">
+                  <a class="nav-link {% if request.url.path == url_for('get_config_page') %}active{% endif %}" href="{{ url_for('get_config_page') }}">Settings</a>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </nav>
+        {# --- End Navigation Bar --- #}
+
+        <h1 class="mb-4">Add New Ticker / Instrument</h1>
+
+        <!-- Alert Container -->
+        <div id="alertContainer" class="mb-3">
+            <!-- Alerts will be dynamically injected here by JavaScript -->
+        </div>
+        {# Store potential message/type in data attributes for safer JS access #}
+        <div id="initial-message-data" 
+             data-message="{{ message|tojson|safe if message else '' }}" 
+             data-type="{{ message_type|default('info', true)|tojson|safe }}"
+             style="display: none;">
+        </div>
+
+        <!-- Add Ticker Form -->
+        <div class="card mb-4">
+            <div class="card-header">Enter Ticker Details</div>
+            <div class="card-body">
+                {# Point form action to a new endpoint (e.g., /add_instrument) #}
+                <form id="addInstrumentForm"> 
+                    {# --- Row 1: Core Identifier, Type, ConID --- #}
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4"> {# Adjusted width #}
+                            <label for="identifier" class="form-label">Identifier (Ticker/Currency)</label>
+                            <input type="text" class="form-control form-control-sm" id="identifier" name="identifier" required 
+                                   
+                                   data-bs-toggle="tooltip" 
+                                   data-bs-placement="top" 
+                                   title="Enter Ticker (e.g., AAPL) or Currency (e.g., USD). EUR is implied base for currencies."> 
+                        </div>
+                        <div class="col-md-4"> {# Adjusted width #}
+                            <label for="status" class="form-label">Type / Status</label>
+                            <select class="form-select form-select-sm" id="status" name="status" required
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="Select the status/type for the instrument">
+                                <option value="candidate">Candidate</option>
+                                <option value="monitored" selected>Monitored</option>
+                                <option value="portfolio">Portfolio</option>
+                                <option value="indicator">Indicator</option>
+                                <option value="currency">Currency</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4"> {# Added ConID Field #}
+                            <label for="conidDisplay" class="form-label">IB ConID</label>
+                            <input type="text" class="form-control form-control-sm" id="conidDisplay" name="conid" 
+                                   placeholder="Select from search..." readonly
+                                   data-bs-toggle="tooltip" 
+                                   data-bs-placement="top" 
+                                   title="Interactive Brokers Contract ID (populated after search)">
+                        </div>
+                    </div>
+                    
+                    {# --- Row 2: Optional Details (From original form) --- #}
+                    <div class="row g-3 mb-3">
+                         <div class="col-md-2">
+                             <label for="atr" class="form-label">ATR</label>
+                             <input type="number" step="0.01" class="form-control form-control-sm" id="atr" name="atr"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="Optional: Average True Range">
+                         </div>
+                         <div class="col-md-1">
+                             <label for="atr_mult" class="form-label">ATR Mult</label>
+                             <input type="number" step="1" class="form-control form-control-sm" id="atr_mult" name="atr_mult" value="3"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="Optional: ATR Multiplier for stop-loss (default 3)">
+                         </div>
+                         <div class="col-md-2">
+                             <label for="risk" class="form-label">Risk %</label>
+                             <input type="number" step="0.01" class="form-control form-control-sm" id="risk" name="risk" value="1"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="Optional: Max portfolio risk % (default 1)">
+                         </div>
+                         <div class="col-md-2">
+                            <label for="beta" class="form-label">Beta</label>
+                            <input type="number" step="0.01" class="form-control form-control-sm" id="beta" name="beta"
+                                   data-bs-toggle="tooltip" 
+                                   data-bs-placement="top" 
+                                   title="Optional: Stock Beta">
+                        </div>
+                         <div class="col-md-2">
+                             <label for="sector" class="form-label">Sector</label>
+                             <input type="text" class="form-control form-control-sm" id="sector" name="sector"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="Optional: Sector (e.g., Technology)">
+                         </div>
+                         <div class="col-md-3">
+                             <label for="industry" class="form-label">Industry</label>
+                             <input type="text" class="form-control form-control-sm" id="industry" name="industry"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="Optional: Industry (e.g., Software)">
+                         </div>
+                    </div>
+                    
+                    {# --- Row 3: Comments --- #}
+                     <div class="row g-3 mb-3">
+                         <div class="col-md-12">
+                             <label for="comments" class="form-label">Comments</label>
+                             <textarea class="form-control form-control-sm" id="comments" name="comments" rows="2"
+                                       data-bs-toggle="tooltip" 
+                                       data-bs-placement="top" 
+                                       title="Optional: Add any notes or observations"></textarea>
+                         </div>
+                    </div>
+
+                    {# --- Row 4: Buttons --- #}
+                    <div class="row">
+                         <div class="col-12 text-start d-flex gap-2"> {# Use flexbox for spacing #}
+                            <button type="button" class="btn btn-primary" id="lookupContractButton">Lookup Contract</button> {# Renamed and changed type #}
+                            <button type="button" class="btn btn-success" id="addContractButton" style="display: none;">Add Instrument</button> {# New button, initially hidden #}
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        {# --- Modal for ConID Selection (Placeholder) --- #}
+        {# We will need to implement the JS and potentially a modal here later #}
+        <div class="modal fade" id="selectConidModal" tabindex="-1" aria-labelledby="selectConidModalLabel" aria-hidden="true">
+          <div class="modal-dialog modal-lg modal-dialog-scrollable"> 
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="selectConidModalLabel">Select IBKR Contract</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <p>Multiple contracts found. Please select the correct one:</p>
+                <div id="conidListContainer">
+                  <!-- Contract list will be populated here by JavaScript -->
+                  <div class="text-center">
+                     <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                     </div>
+                  </div>
+                </div>
+                <div id="conidSelectionError" class="text-danger mt-2" style="display: none;"></div> 
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirmConidSelection">Confirm Selection & Add</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        {# --- End Modal --- #}
+
+    </div> {# End Main Container #}
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+
+    <script>
+        // --- Updated Alert Function --- 
+        function showAlert(message, type = 'info') {
+            const alertContainer = document.getElementById('alertContainer'); 
+            if (!alertContainer) {
+                console.error("showAlert: Could not find alert container element with ID 'alertContainer'!");
+                return; // Exit if container not found
+            }
+
+            // Clear any previous alerts in the container
+            alertContainer.innerHTML = ''; 
+
+            // Create the new alert element
+            const alertBox = document.createElement('div');
+            alertBox.className = `alert alert-${type} alert-dismissible fade show`; 
+            alertBox.setAttribute('role', 'alert');
+
+            // Add message text
+            const messageNode = document.createTextNode(message + ' '); 
+            alertBox.appendChild(messageNode);
+
+            // Add close button
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn-close';
+            button.setAttribute('data-bs-dismiss', 'alert'); 
+            button.setAttribute('aria-label', 'Close');
+            alertBox.appendChild(button);
+
+            // Append the new alert to the container
+            alertContainer.appendChild(alertBox);
+            
+            console.log(`Showing alert in container: ${message} (Type: ${type})`);
+        }
+
+        // --- Initialize Bootstrap Tooltips ---
+        document.addEventListener('DOMContentLoaded', function() {
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            var tooltipList = tooltipTriggerList.map(function(tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl, { 
+                    trigger: 'hover' 
+                }); 
+            });
+
+            // --- Load Initial Alert Message (Copied from tracker.html) ---
+             const messageDataDiv = document.getElementById('initial-message-data');
+              const alertBox = document.getElementById('alertMessage');
+              if (messageDataDiv && alertBox) {
+                  const rawMessageJson = messageDataDiv.getAttribute('data-message');
+                  const rawTypeJson = messageDataDiv.getAttribute('data-type');
+                  if (rawMessageJson) { 
+                      try {
+                          const initialMessage = JSON.parse(rawMessageJson);
+                          const initialType = JSON.parse(rawTypeJson);
+                          showAlert(initialMessage, initialType); // Use the function
+                      } catch (e) {
+                          console.error("Error processing initial message from data attributes:", e);
+                          showAlert('Error displaying initial message.', 'danger');
+                      }
+                  }
+              }
+
+            // --- TODO: Add Form Submission Logic for ConID Search ---
+            const addInstrumentForm = document.getElementById('addInstrumentForm');
+            const selectConidModalElement = document.getElementById('selectConidModal');
+            const selectConidModal = new bootstrap.Modal(selectConidModalElement); // Initialize modal instance
+            const conidListContainer = document.getElementById('conidListContainer');
+            const confirmConidButton = document.getElementById('confirmConidSelection');
+            const conidSelectionError = document.getElementById('conidSelectionError');
+            // --- Update button references ---
+            const lookupButton = document.getElementById('lookupContractButton');
+            const addButton = document.getElementById('addContractButton');
+            const conidDisplayField = document.getElementById('conidDisplay'); // Add reference for conid display
+            const identifierField = document.getElementById('identifier'); // Add reference for identifier input
+            // --- End Update ---
+            
+            // --- Get references to the optional fields --- 
+            const statusSelect = document.getElementById('status');
+            const optionalFields = [
+                document.getElementById('atr'),
+                document.getElementById('atr_mult'),
+                document.getElementById('risk'),
+                document.getElementById('beta'),
+                document.getElementById('sector'),
+                document.getElementById('industry'),
+                document.getElementById('comments')
+            ]; // Add other field IDs if needed
+            
+            // Function to enable/disable optional fields
+            function toggleOptionalFields(disable) {
+                optionalFields.forEach(field => {
+                    if (field) {
+                        field.disabled = disable;
+                        if (disable) {
+                            // Clear value when disabling
+                            if (field.type === 'number' || field.type === 'text' || field.tagName.toLowerCase() === 'textarea') {
+                                field.value = ''; 
+                            }
+                        } else {
+                            // Restore default values when enabling, if applicable
+                            if (field.id === 'atr_mult') {
+                                field.value = '3'; // Default ATR Multiplier
+                            } else if (field.id === 'risk') {
+                                field.value = '1'; // Default Risk %
+                            }
+                            // Note: Other fields will remain empty when re-enabled,
+                            // unless they had a value attribute in the HTML initially.
+                        }
+                    }
+                });
+            }
+            
+            // --- Event listener for status change --- 
+            if (statusSelect) {
+                statusSelect.addEventListener('change', function() {
+                    const selectedValue = this.value;
+                    const disableFields = (selectedValue === 'indicator' || selectedValue === 'currency');
+                    toggleOptionalFields(disableFields);
+
+                    // NEW logic to clear ConID
+                    clearConidAndHideAddButton(); 
+                });
+                
+                // --- Initial check on page load --- 
+                const initialValue = statusSelect.value;
+                const shouldDisableInitially = (initialValue === 'indicator' || initialValue === 'currency');
+                toggleOptionalFields(shouldDisableInitially);
+            }
+            // --- End Optional Field Logic --- 
+
+            let originalFormData = {}; // To store original form data
+
+             // --- REMOVE form submit listener --- 
+             /* if (addInstrumentForm) { ... } */
+
+             // --- NEW: Add listener for Lookup Button --- 
+             if (lookupButton && addInstrumentForm) {
+                 lookupButton.addEventListener('click', async function(event) {
+                    // event.preventDefault(); // No longer needed for type="button"
+                    console.log("Lookup Contract button clicked.");
+
+                    // Basic UI feedback
+                    lookupButton.disabled = true;
+                    lookupButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Searching...';
+                    addButton.style.display = 'none'; // Hide Add button during lookup
+                    document.getElementById('conidDisplay').value = ''; // Clear previous conid
+                    conidSelectionError.style.display = 'none'; 
+                    conidListContainer.innerHTML = '<div class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>'; 
+
+                    const formData = new FormData(addInstrumentForm);
+                    originalFormData = Object.fromEntries(formData.entries());
+                    const identifier = originalFormData['identifier'];
+                    const statusValue = originalFormData['status']; 
+
+                    if (!identifier || !statusValue) {
+                        showAlert('Identifier and Type/Status are required.', 'warning');
+                        lookupButton.disabled = false;
+                        lookupButton.textContent = 'Lookup Contract';
+                        return;
+                    }
+
+                    try {
+                        const searchResponse = await fetch('/find_instruments', { 
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ identifier: identifier, status: statusValue }),
+                        });
+
+                        if (!searchResponse.ok) {
+                             const errorData = await searchResponse.json().catch(() => ({ detail: `HTTP Error ${searchResponse.status}` }));
+                             throw new Error(errorData.detail || `Failed to search`);
+                        }
+                        
+                        const searchData = await searchResponse.json();
+
+                        if (searchData.contracts && searchData.contracts.length > 0) {
+                            populateConidModal(searchData.contracts, identifier);
+                            selectConidModal.show();
+                        } else {
+                            showAlert(`No contracts found for ${identifier} (Type/Status: ${statusValue}).`, 'warning');
+                        }
+
+                    } catch (error) {
+                        console.error('Error during instrument lookup:', error);
+                        showAlert(`Error during lookup: ${error.message}`, 'danger');
+                    } finally {
+                        // Always re-enable lookup button after search attempt
+                        lookupButton.disabled = false;
+                        lookupButton.textContent = 'Lookup Contract';
+                    }
+                });
+            }
+            // --- End Lookup Button Listener --- 
+
+            // --- Populate Modal Function (Updated) ---
+            function populateConidModal(contracts, identifier) {
+                conidListContainer.innerHTML = ''; // Clear spinner
+                document.getElementById('selectConidModalLabel').textContent = `Select IBKR Contract for ${identifier.toUpperCase()}`;
+                const listGroup = document.createElement('div');
+                listGroup.className = 'list-group';
+                contracts.forEach((contract, index) => {
+                    // Extract data received from backend (matches python dict keys)
+                    const conid = contract.conid;
+                    const symbol = contract.symbol || 'N/A'; 
+                    const companyName = contract.companyName || 'N/A';
+                    const description = contract.description || 'N/A'; // This is the companyHeader
+                    const secType = contract.secType || 'N/A';
+                    // Keep exchange/currency for potential future use or debugging
+                    // const exchange = contract.exchange || 'N/A'; 
+                    // const currency = contract.currency || 'N/A';
+
+                    const label = document.createElement('label');
+                    label.className = 'list-group-item d-flex gap-2';
+                    const input = document.createElement('input');
+                    input.className = 'form-check-input flex-shrink-0';
+                    input.type = 'radio';
+                    input.name = 'selectedConid';
+                    input.value = conid;
+                    input.setAttribute('data-contract-details', JSON.stringify(contract)); // Store full details if needed
+                    if (index === 0) input.checked = true; // Default select first
+
+                    const contentDiv = document.createElement('div');
+                    // Format the display string as requested
+                    contentDiv.innerHTML = `
+                        <strong>${symbol}</strong> - ${companyName}<br>
+                        <small class="text-muted">Desc: ${description} | ConID: ${conid} | Type: ${secType}</small>
+                    `;
+                    label.appendChild(input);
+                    label.appendChild(contentDiv);
+                    listGroup.appendChild(label);
+                });
+                conidListContainer.appendChild(listGroup);
+            }
+
+            // --- Populate Modal Function (Updated) ---
+            if (confirmConidButton) {
+                confirmConidButton.addEventListener('click', async function() {
+                    const selectedRadio = conidListContainer.querySelector('input[name="selectedConid"]:checked');
+                    if (!selectedRadio) {
+                        conidSelectionError.textContent = 'Please select a contract.';
+                        conidSelectionError.style.display = 'block';
+                        return;
+                    }
+                    const selectedConid = selectedRadio.value;
+                    conidSelectionError.style.display = 'none';
+                    
+                    // Add selected conid to original form data (still useful for backend)
+                    originalFormData['conid'] = selectedConid;
+                    // --- Populate the read-only display field --- 
+                    const conidDisplayField = document.getElementById('conidDisplay');
+                    if (conidDisplayField) {
+                        conidDisplayField.value = selectedConid;
+                    }
+                    // --- End populate display field --- 
+
+                    selectConidModal.hide(); // Hide modal after selection
+                    addButton.style.display = 'inline-block'; // Show the Add Instrument button
+                    addButton.disabled = false; // Ensure it's enabled
+                    
+                    /* // Keep backend call commented out for now
+                    try {
+                         // Call backend confirmation endpoint (replace with actual endpoint)
+// ... existing code ...
+                    */
+                });
+            }
+            
+            // --- NEW: Add listener for the Add Instrument Button --- 
+            if (addButton && addInstrumentForm) {
+                 addButton.addEventListener('click', async function() {
+                     console.log("Add Instrument button clicked.");
+                     addButton.disabled = true;
+                     addButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Adding...';
+                     
+                     // 1. Gather all form data again (including the selected conid)
+                     const finalFormData = new FormData(addInstrumentForm);
+                     const dataToSubmit = Object.fromEntries(finalFormData.entries());
+                     console.log("Data to submit:", dataToSubmit);
+
+                     // Basic check: Ensure conid was actually selected
+                     if (!dataToSubmit.conid) {
+                         showAlert('No ConID selected. Please lookup and select a contract first.', 'warning');
+                         addButton.disabled = false;
+                         addButton.textContent = 'Add Instrument';
+                         return;
+                     }
+
+                     // 2. Implement the fetch call to the new backend endpoint 
+                     try {
+                         const addResponse = await fetch('/add_instrument', { // Use the correct endpoint
+                             method: 'POST',
+                             headers: { 'Content-Type': 'application/json' },
+                             body: JSON.stringify(dataToSubmit) // Send the full form data
+                         });
+                         
+                         // Get response body regardless of status for detailed message
+                         const addResult = await addResponse.json().catch((err) => {
+                             // If JSON parsing fails, create a default error object
+                             console.error("Failed to parse JSON response:", err);
+                             return { message: `Operation failed with status ${addResponse.status}`, status: "error" };
+                         }); 
+                         
+                         if (!addResponse.ok) {
+                             // Use message from backend result first, then generic error
+                             const errorMessage = addResult.message || `Operation failed (Status: ${addResponse.status})`;
+                             throw new Error(errorMessage);
+                         }
+                         
+                         // --- Restore Original Status Handling --- 
+                         let alertType = 'info'; 
+                         let resetForm = false;
+                         console.log("Received status from backend:", addResult.status);
+
+                         if (addResult.status === 'inserted') {
+                             alertType = 'success';
+                             resetForm = true;
+                         } else if (addResult.status === 'updated') {
+                             alertType = 'success'; 
+                             resetForm = false;
+                         } else if (addResult.status === 'skipped' || addResult.status === 'conflict') {
+                             alertType = 'warning';
+                             resetForm = false;
+                         } else {
+                             // Handle any other unexpected positive statuses as info
+                             // Use console.warn for browser console
+                             console.warn("Received unexpected status from /add_instrument:", addResult.status);
+                         }
+                         
+                         console.log("Attempting to find alertBox before calling showAlert:", document.getElementById('alertMessage')); 
+                         showAlert(addResult.message || 'Operation completed.', alertType);
+
+                         if (resetForm) {
+                            addInstrumentForm.reset(); 
+                            document.getElementById('conidDisplay').value = ''; 
+                            addButton.style.display = 'none'; 
+                            toggleOptionalFields(false); 
+                         }
+                         // --- End Restore Original Status Handling ---
+
+                     } catch (error) {
+                         console.error("Error adding instrument:", error);
+                         showAlert(`Error: ${error.message}`, 'danger');
+                     } finally {
+                         // Re-enable button only if the process failed before completion
+                         // On success, the button is hidden, so no need to re-enable here.
+                         // Check if button is still visible (i.e., add failed before hiding)
+                         if (addButton.style.display !== 'none') {
+                            addButton.disabled = false;
+                            addButton.textContent = 'Add Instrument';
+                         }
+                     }
+                     
+                 });
+            }
+            // --- End Add Button Listener ---
+
+             // Re-enable form button when modal is closed without confirmation
+            selectConidModalElement.addEventListener('hidden.bs.modal', function (event) {
+                 // Only re-enable lookup button if modal closed without confirming
+                 if (lookupButton) lookupButton.disabled = false; 
+                 if (lookupButton) lookupButton.textContent = 'Lookup Contract';
+                 // Don't automatically show/enable the Add button here
+            });
+
+            // --- NEW: Clear ConID if Identifier or Status changes after lookup ---
+            function clearConidAndHideAddButton() {
+                if (conidDisplayField && conidDisplayField.value !== '') {
+                    console.log('Clearing ConID and hiding Add button due to input change.');
+                    conidDisplayField.value = ''; // Clear the displayed ConID
+                    if (addButton) {
+                        addButton.style.display = 'none'; // Hide the Add button
+                    }
+                    // Optional: Show a brief message
+                    // showAlert('Identifier or Type/Status changed. Please Lookup Contract again if needed.', 'warning');
+                }
+            }
+
+            if (identifierField) {
+                identifierField.addEventListener('input', clearConidAndHideAddButton);
+            }
+            if (statusSelect) {
+                 // We already have a change listener for statusSelect to toggle optional fields.
+                 // Add the ConID clearing logic to the existing listener.
+                 statusSelect.addEventListener('change', function() {
+                    // Existing logic to toggle optional fields
+                    const selectedValue = this.value;
+                    const disableFields = (selectedValue === 'indicator' || selectedValue === 'currency');
+                    toggleOptionalFields(disableFields);
+
+                    // NEW logic to clear ConID
+                    clearConidAndHideAddButton(); 
+                });
+                 // Initial check is already handled for optional fields.
+                 // No need to clear ConID on initial load.
+            }
+            // --- End NEW --- 
+
+        }); // End DOMContentLoaded
+    </script>
+
+</body>
+</html> 

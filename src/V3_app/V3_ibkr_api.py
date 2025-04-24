@@ -13,8 +13,8 @@ import logging
 import json
 import asyncio
 import functools
-from datetime import datetime
-from typing import Dict, Any, List, Optional
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional, Tuple, Union
 import aiohttp
 import sqlite3
 import websocket # ADDED for websocket-client
@@ -29,17 +29,24 @@ from asyncio import Queue # Explicit import for clarity
 
 # Use simple import -> CHANGE TO RELATIVE IMPORT
 # from .V3_database import SQLiteRepository # Revert this line
-from V3_database import SQLiteRepository # Back to simple import
+from .V3_database import SQLiteRepository # Back to simple import
+from sqlalchemy.exc import SQLAlchemyError
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 # RE-ADD: Disable SSL Warnings for sync example
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# --- START: Define exceptions for this module --- 
+class IBKRError(Exception):
+    """Custom exception for IBKR service errors."""
+    pass
+# --- END: Define exceptions ---
 
 class IBKRService:
     """Service for interacting with IBKR API."""
@@ -736,6 +743,134 @@ class IBKRService:
             return None
     # --- End Get ConID ---
 
+    # --- NEW Search Contracts Method ---
+    async def search_contracts(self, symbol: str, sec_type: str) -> List[Dict[str, Any]]:
+        """Searches for contracts matching a symbol and security type.
+
+        Args:
+            symbol: The ticker symbol or currency code (e.g., "AAPL", "USD").
+            sec_type: The security type (e.g., "STK", "CASH", "IND").
+
+        Returns:
+            A list of dictionaries, each representing a found contract with details.
+            Returns an empty list if no contracts are found or an error occurs.
+        """
+        if not self.session or self.session.closed:
+            logger.error("SearchContracts: Cannot search, no active REST session.")
+            return []
+
+        search_url = f"{self.base_url}/iserver/secdef/search"
+        # For currency, the symbol might need formatting (e.g., EUR.USD)
+        # Let's handle this in the backend endpoint for now based on sec_type
+        # For STK/IND, use the symbol directly
+        payload_symbol = symbol.upper()
+        if sec_type == 'CASH' and len(symbol) == 3: # Assume single currency means EUR base
+            payload_symbol = f"EUR.{symbol.upper()}"
+            logger.info(f"SearchContracts: Detected CASH secType, formatted symbol to {payload_symbol}")
+        
+        payload = {
+            "symbol": payload_symbol, 
+            "secType": sec_type,
+            "delayed": False # Request non-delayed data if possible
+        }
+        logger.info(f"SearchContracts: Searching for contracts with payload: {payload}")
+
+        processed_contracts = []
+        try:
+            async with self.session.post(search_url, json=payload) as response:
+                logger.info(f"SearchContracts: Response Status: {response.status}")
+                if response.status == 200:
+                    results = await response.json()
+                    logger.info(f"SearchContracts: Received {len(results)} results for {symbol} ({sec_type}).")
+                    # logger.debug(f"SearchContracts Raw Results: {results}") # Optional: Can be verbose
+                    
+                    if not results or not isinstance(results, list):
+                        logger.warning(f"SearchContracts: No contracts found or invalid format for {symbol} ({sec_type}).")
+                        return []
+
+                    # Log the raw response for debugging
+                    logger.info(f"Attempting to log raw response for '{symbol}'")
+                    # Use print() for direct debugging output, bypassing logging framework
+                    try:
+                        raw_json_str = json.dumps(results, indent=2) # Add indent for readability
+                        print(f"--- RAW IBKR RESPONSE for {symbol} ---")
+                        print(raw_json_str)
+                        print(f"--- END RAW IBKR RESPONSE for {symbol} ---")
+                    except Exception as print_err:
+                        print(f"*** ERROR trying to print raw results for {symbol}: {print_err} ***")
+                        print(f"*** Raw results variable type: {type(results)} ***")
+                        # Avoid printing the raw results if dumps failed, might be huge/problematic
+
+                    # Process each result
+                    for contract_data in results:
+                        try:
+                            # Extract fields required for the UI
+                            conid = contract_data.get('conid')
+                            company_name = contract_data.get('companyName')
+                            symbol = contract_data.get('symbol')
+                            # Use companyHeader as the primary description source for UI
+                            description = contract_data.get('companyHeader')
+
+                            # --- Extract secType from the FIRST section --- 
+                            first_sec_type = 'N/A' # Default
+                            sections = contract_data.get('sections')
+                            if isinstance(sections, list) and sections and isinstance(sections[0], dict):
+                                first_sec_type = sections[0].get('secType', 'N/A')
+                            else:
+                                # Fallback for structures without sections or non-dict first section
+                                logger.warning(f"SearchContracts: Could not extract secType from first section for conid {conid}. Sections: {sections}")
+                                # Optionally fallback to top-level secType if needed, but sticking to user request for now
+                                # first_sec_type = contract_data.get('secType', 'N/A') 
+                            # --- End First secType Extraction ---
+
+                            # Add fallbacks for key display fields if they are missing
+                            if not conid:
+                                logger.warning(f"SearchContracts: Skipping result due to missing conid: {contract_data}")
+                                continue # Skip if no conid
+                            symbol = symbol or 'N/A'
+                            company_name = company_name or 'N/A'
+                            description = description or company_name or symbol # Fallback description chain
+
+                            # Extract other fields needed for processing or potential future display
+                            exchange = contract_data.get('exchange', 'N/A')
+                            currency = contract_data.get('currency', 'N/A')
+
+                            # --- Filter based on requested sec_type --- 
+                            requested_sec_type = sec_type # Original argument passed to function
+                            if first_sec_type != requested_sec_type:
+                                logger.info(f"SearchContracts: Skipping conid {conid} ({description}) - Actual type '{first_sec_type}' != Requested type '{requested_sec_type}'")
+                                continue # Skip this contract
+                            # --- End Filter --- 
+                                 
+                            processed_contracts.append({
+                                'conid': int(conid),
+                                'symbol': symbol,
+                                'companyName': company_name, 
+                                'description': description, # This is companyHeader or fallback
+                                'secType': first_sec_type,   # Use the first secType found
+                                'exchange': exchange,
+                                'currency': currency
+                            })
+                        except Exception as item_proc_err:
+                            logger.error(f"SearchContracts: Error processing individual contract item {contract_data}: {item_proc_err}", exc_info=True)
+                            continue # Skip this item
+                            
+                    logger.info(f"SearchContracts: Successfully processed {len(processed_contracts)} contracts for {symbol} ({sec_type}).")
+                    return processed_contracts
+                
+                else:
+                    error_text = await response.text()
+                    logger.error(f"SearchContracts: Failed API call for {symbol} ({sec_type}): {response.status} - {error_text}")
+                    return [] # Return empty list on API error
+
+        except aiohttp.ClientError as e:
+            logger.error(f"SearchContracts: Network error for {symbol} ({sec_type}): {e}")
+            return []
+        except Exception as e:
+            logger.error(f"SearchContracts: Unexpected error for {symbol} ({sec_type}): {e}", exc_info=True)
+            return []
+    # --- End Search Contracts Method ---
+
     # --- Market Data Snapshot via REST (Using aiohttp Session) ---
     async def fetch_market_data_snapshot(self, conids: List[int], fields: List[str]) -> Optional[List[Dict[str, Any]]]:
         """Fetches snapshot using the active authenticated aiohttp session."""
@@ -1082,4 +1217,86 @@ class SyncIBKRService:
                  logger.error(f"Sync Snapshot: Failed after {retries} attempts.")
 
         return None # Return None after all retries failed
+
+    # --- Comment out the incorrectly placed async function --- 
+    # --- NEW Function to Add/Update Exchange Rate with ConID (Using text()) ---
+    # async def add_or_update_exchange_rate_conid(self, session: AsyncSession, currency: str, conid: str) -> Dict[str, str]:
+    #     """
+    #     Adds or updates an exchange rate entry, specifically handling the ConID.
+    #
+    #     Logic:
+    #     1. Check if currency + conid already exists. If yes, do nothing (skip).
+    #     2. Check if currency exists (regardless of conid).
+    #        - If yes and conid is NULL/empty: Update the existing record's conid.
+    #        - If yes and conid has a *different* value: Log warning and skip update (conflict).
+    #     3. If currency does not exist: Insert a new record with currency, conid, and a default rate of 1.0.
+    #
+    #     Args:
+    #         session: The AsyncSession for database operations.
+    #         currency: The currency code (e.g., 'USD').
+    #         conid: The IBKR Contract ID.
+    #
+    #     Returns:
+    #         A dictionary containing 'status' and 'message'.
+    #         Possible statuses: 'skipped', 'updated', 'conflict', 'inserted', 'error'.
+    #     """
+    #     currency_upper = currency.strip().upper()
+    #     logger.info(f"[DB Add/Update Rate ConID] Processing: Currency={currency_upper}, ConID={conid}")
+    #
+    #     try:
+    #         # Define table name and columns directly
+    #         tbl_name = 'exchange_rates'
+    #         col_currency = 'currency'
+    #         col_conid = 'conid'
+    #         col_rate = 'rate'
+    #
+    #         # --- Use Core select, update, insert ---
+    #         # 1. Check if currency + conid exists
+    #         stmt_check_exact = text(f"SELECT {col_currency}, {col_conid}, {col_rate} FROM {tbl_name} WHERE {col_currency} = :curr AND {col_conid} = :conid")
+    #         result_exact = await session.execute(stmt_check_exact, {"curr": currency_upper, "conid": conid})
+    #         if result_exact.first() is not None:
+    #             logger.info(f"[DB Add/Update Rate ConID] Record for {currency_upper} with ConID {conid} already exists. Skipping.")
+    #             return {"status": "skipped", "message": f"Record for {currency_upper} with ConID {conid} already exists."}
+    #
+    #         # 2. Check if currency exists (without specific conid)
+    #         stmt_check_currency = text(f"SELECT {col_currency}, {col_conid}, {col_rate} FROM {tbl_name} WHERE {col_currency} = :curr")
+    #         result_currency = await session.execute(stmt_check_currency, {"curr": currency_upper})
+    #         existing_rate_row = result_currency.first() # Fetch the first matching row (as a tuple)
+    #
+    #         if existing_rate_row is not None:
+    #             # Currency exists, check its conid (assuming conid is the second column selected, index 1)
+    #             existing_conid = existing_rate_row[1]
+    #             if existing_conid is None or existing_conid == '':
+    #                 # Update existing record with the new conid
+    #                 logger.info(f"[DB Add/Update Rate ConID] Updating ConID for existing currency {currency_upper} to {conid}.")
+    #                 stmt_update = text(f"UPDATE {tbl_name} SET {col_conid} = :conid WHERE {col_currency} = :curr")
+    #                 await session.execute(stmt_update, {"conid": conid, "curr": currency_upper})
+    #                 await session.commit()
+    #                 return {"status": "updated", "message": f"Updated ConID for {currency_upper}."}
+    #             elif existing_conid != conid:
+    #                 # Currency exists but with a different ConID. Log warning and skip.
+    #                 logger.warning(f"[DB Add/Update Rate ConID] Currency {currency_upper} exists but with different ConID ({existing_conid}). Update with {conid} skipped.")
+    #                 return {"status": "conflict", "message": f"Record for {currency_upper} exists with a different ConID. Update skipped."}
+    #             else:
+    #                  # Logically shouldn't happen, but handle defensively.
+    #                  logger.info(f"[DB Add/Update Rate ConID] Record for {currency_upper} with ConID {conid} confirmed to exist. Skipping.")
+    #                  return {"status": "skipped", "message": f"Record for {currency_upper} with ConID {conid} already exists."}
+    #
+    #         else:
+    #             # 3. Currency does not exist, insert new record
+    #             logger.info(f"[DB Add/Update Rate ConID] Inserting new record for {currency_upper} with ConID {conid}.")
+    #             stmt_insert = text(f"INSERT INTO {tbl_name} ({col_currency}, {col_conid}, {col_rate}) VALUES (:curr, :conid, :rate)")
+    #             await session.execute(stmt_insert, {"curr": currency_upper, "conid": conid, "rate": 1.0})
+    #             await session.commit()
+    #             return {"status": "inserted", "message": f"Inserted new record for {currency_upper}."}
+    #
+    #     except SQLAlchemyError as e: # Catch specific SQLAlchemy errors
+    #         await session.rollback()
+    #         logger.error(f"[DB Add/Update Rate ConID] Database error for {currency_upper}/{conid}: {e}", exc_info=True)
+    #         return {"status": "error", "message": f"Database error: {e}"}
+    #     except Exception as e: # Catch any other unexpected errors
+    #         await session.rollback()
+    #         logger.error(f"[DB Add/Update Rate ConID] Unexpected error for {currency_upper}/{conid}: {e}", exc_info=True)
+    #         return {"status": "error", "message": f"Unexpected error: {e}"}
+    # --- End Comment out ---
 # --- End Sync Service --- 

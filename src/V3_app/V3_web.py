@@ -12,6 +12,7 @@ Key features:
 
 import os
 import logging
+import importlib # <-- ADD THIS LINE
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, WebSocketDisconnect, Body, Depends, status # ADD status
@@ -25,6 +26,7 @@ import json
 from pydantic import BaseModel, Field, ValidationError
 from collections import Counter
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession # <-- ADD THIS IMPORT
 from starlette.middleware.base import BaseHTTPMiddleware
 import re
 import math # Import math for ceiling division
@@ -38,14 +40,17 @@ import threading # Import threading for current_thread()
 from fastapi.middleware.cors import CORSMiddleware
 # --- End Import --- 
 
-# Use simple imports (assuming V3_main.py is run directly)
-from V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate
-from V3_ibkr_api import IBKRService, SyncIBKRService
-# Import the new Finviz fetch functions
-from V3_finviz_fetch import fetch_and_store_finviz_data, update_screener_from_finviz
-# --- Import Investing.com functions ---
-from V3_investingcom_fetch import fetch_and_store_investingcom_data, update_screener_from_investingcom
-# --- End Import ---
+# --- Standard Library Imports ---
+# ... (other imports)
+
+# --- Local Application Imports ---
+# Import necessary functions and classes from other modules
+from .V3_ibkr_api import IBKRService, IBKRError, SyncIBKRService # ADD SyncIBKRService
+from .V3_finviz_fetch import fetch_and_store_finviz_data, update_screener_from_finviz # Corrected import
+# from .V3_yahoo_api import YahooFinanceAPI, YahooError # Assuming Yahoo API integration
+from .V3_investingcom_fetch import fetch_and_store_investingcom_data, update_screener_from_investingcom # Corrected import
+from .V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate, add_or_update_exchange_rate_conid # Import new DB function AND SQLiteRepository
+# --- End Local Application Imports ---
 
 # Configure logging
 logging.basicConfig(
@@ -224,7 +229,32 @@ def run_sync_ibkr_snapshot_job(repository: SQLiteRepository, loop: AbstractEvent
     Fetches conids, gets snapshot data, updates screener and exchange rates.
     Uses the passed repository instance directly.
     """
-    logger.info("Starting synchronous IBKR snapshot job...")
+    job_id = "ibkr_sync_snapshot"
+    logger.info(f"Starting synchronous job: {job_id}...")
+
+    # Ensure the passed repository is not None
+    if repository is None:
+        logger.error(f"Snapshot Job ({job_id}): Received None for repository instance. Cannot proceed.")
+        return
+
+    # --- ADD Check is_active status (using run_coroutine_threadsafe) --- 
+    is_active = False # Default to inactive
+    try:
+        # We need to run the async check from this sync function using the provided loop
+        check_future = asyncio.run_coroutine_threadsafe(repository.get_job_is_active(job_id), loop)
+        # Wait for the result (add a reasonable timeout)
+        is_active = check_future.result(timeout=10) 
+        if not is_active:
+            logger.info(f"Job '{job_id}' is inactive in DB. Skipping execution.")
+            return
+    except asyncio.TimeoutError:
+         logger.error(f"Snapshot Job ({job_id}): Timeout checking active status. Skipping execution.")
+         return
+    except Exception as check_err:
+        logger.error(f"Snapshot Job ({job_id}): Error checking active status: {check_err}. Skipping execution.", exc_info=True)
+        return
+    # --- END Check --- 
+
     sync_ibkr_service = SyncIBKRService(base_url=ibkr_base_url)
     # REMOVED: repository = SQLiteRepository(database_url=db_path)
     
@@ -715,7 +745,7 @@ def interval_to_human(seconds: Optional[int]) -> str:
 # --- End Helper Function ---
 
 # --- Database Session Middleware --- 
-from V3_database import SQLiteRepository # Already imported
+from .V3_database import SQLiteRepository # Change to relative import
 
 class DBSessionMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -729,12 +759,24 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
 # --- NEW Dependency Function --- 
 def get_repository(request: Request) -> SQLiteRepository:
     """Dependency function to get the repository instance from app state."""
+    # --- Restore original implementation ---
     # Ensure the repository exists in state
     if not hasattr(request.app.state, 'repository') or request.app.state.repository is None:
         logger.error("CRITICAL: Repository not found in application state!")
         # Raise an internal server error because this is a configuration issue
-        raise HTTPException(status_code=500, detail="Internal server error: Repository not initialized.") 
+        raise HTTPException(status_code=500, detail="Internal server error: Repository not initialized.")
     return request.app.state.repository
+    # --- End original implementation ---
+# --- End Dependency Function ---
+
+# --- NEW Dependency Function for IBKR Service ---
+async def get_ibkr_service(request: Request) -> IBKRService:
+    """Dependency function to get the IBKRService instance from app state."""
+    if not hasattr(request.app.state, 'ibkr_service') or request.app.state.ibkr_service is None:
+        logger.error("CRITICAL: IBKRService not found in application state!")
+        raise HTTPException(status_code=500, detail="Internal server error: IBKRService not initialized.")
+    # Optional: Add a check here to ensure the service is connected/authenticated if needed
+    return request.app.state.ibkr_service
 # --- End Dependency Function ---
 
 # --- JSON Serializer Helper ---
@@ -744,6 +786,41 @@ def json_datetime_serializer(obj):
         return obj.isoformat()
     raise TypeError ("Type %s not serializable" % type(obj))
 # --- End Helper ---
+
+# --- Dependency for Database Session ---
+async def get_db(request: Request) -> AsyncSession:
+    """Dependency function to get the database session from request state."""
+    # Ensure the session exists in state (added by middleware)
+    if not hasattr(request.state, 'db_session') or request.state.db_session is None:
+        logger.error("CRITICAL: Database session not found in request state! Middleware might not be running.")
+        raise HTTPException(status_code=500, detail="Internal server error: Database session not available.")
+    return request.state.db_session
+# --- End Dependency ---
+
+# --- Pydantic Models for API ---
+
+class InstrumentSearchRequest(BaseModel):
+    identifier: str
+    status: str # Get the combined status/type field value
+
+class InstrumentSearchResponse(BaseModel):
+    contracts: List[Dict[str, Any]]
+
+# --- Pydantic Model for Add Instrument Form Data ---
+class AddInstrumentRequest(BaseModel):
+    identifier: str
+    status: str
+    conid: Optional[str] = None # Make conid optional initially, validate in endpoint
+    atr: Optional[str] = None        # Accept as string
+    atr_mult: Optional[str] = None   # Accept as string
+    risk: Optional[str] = None       # Accept as string
+    beta: Optional[str] = None       # Accept as string
+    sector: Optional[str] = None
+    industry: Optional[str] = None
+    comments: Optional[str] = None
+    # Add any other fields from the form if needed
+
+# --- End API Models ---
 
 def create_app():
     try: # <-- Add try block here
@@ -897,7 +974,21 @@ def create_app():
         
         async def scheduled_fetch_job():
             """Job function that the scheduler will call and notify clients."""
-            logger.info("Scheduler executing scheduled_fetch_job...")
+            job_id = "ibkr_fetch" # Define job ID for checks
+            logger.info(f"Scheduler executing {job_id}...")
+
+            # --- ADD Check is_active status --- 
+            try:
+                repository: SQLiteRepository = app.state.repository
+                is_active = await repository.get_job_is_active(job_id)
+                if not is_active:
+                    logger.info(f"Job '{job_id}' is inactive in DB. Skipping execution.")
+                    return
+            except Exception as check_err:
+                logger.error(f"Error checking active status for {job_id}: {check_err}. Skipping execution.", exc_info=True)
+                return
+            # --- END Check ---
+
             fetch_successful = False
             job_lock: asyncio.Lock = app.state.job_execution_lock
             
@@ -981,6 +1072,19 @@ def create_app():
             """Job function for fetching Finviz data and updating screener."""
             job_id = "finviz_data_fetch"
             logger.info(f"Scheduler executing {job_id}...")
+
+            # --- ADD Check is_active status --- 
+            try:
+                repository: SQLiteRepository = app.state.repository
+                is_active = await repository.get_job_is_active(job_id)
+                if not is_active:
+                    logger.info(f"Job '{job_id}' is inactive in DB. Skipping execution.")
+                    return
+            except Exception as check_err:
+                logger.error(f"Error checking active status for {job_id}: {check_err}. Skipping execution.", exc_info=True)
+                return
+            # --- END Check ---
+
             fetch_successful = False
             update_successful = False
             job_lock: asyncio.Lock = app.state.job_execution_lock
@@ -1035,6 +1139,19 @@ def create_app():
             """Job function for fetching Investing.com data and updating screener."""
             job_id = "investingcom_data_fetch"
             logger.info(f"Scheduler executing {job_id}...")
+
+            # --- ADD Check is_active status --- 
+            try:
+                repository: SQLiteRepository = app.state.repository
+                is_active = await repository.get_job_is_active(job_id)
+                if not is_active:
+                    logger.info(f"Job '{job_id}' is inactive in DB. Skipping execution.")
+                    return
+            except Exception as check_err:
+                logger.error(f"Error checking active status for {job_id}: {check_err}. Skipping execution.", exc_info=True)
+                return
+            # --- END Check ---
+
             fetch_successful = False
             update_successful = False
             job_lock: asyncio.Lock = app.state.job_execution_lock
@@ -1117,23 +1234,30 @@ def create_app():
                 manager: ConnectionManager = app.state.manager # Get manager from state
                 # --- End Get --- 
                  
-                # --- Schedule IBKR Job (Original Logic - Needs check too) --- 
+                # --- Schedule IBKR Job --- 
                 ibkr_db_job_id = 'ibkr_fetch' # ID used in DB config
                 current_interval = await repository.get_fetch_interval_seconds(default_interval=3600)
                 ibkr_is_active = await repository.get_job_is_active(ibkr_db_job_id, default_active=True) # Check DB
-                
-                if ibkr_is_active:
-                    logger.info(f"Job '{ibkr_db_job_id}' is active. Scheduling with interval: {current_interval} seconds.")
-                    # --- RE-ENABLED scheduling of the async job --- 
-                    scheduler.add_job(
-                        scheduled_fetch_job, 
-                        'interval', 
-                        seconds=current_interval, 
-                        id=ibkr_db_job_id, 
-                        replace_existing=True
-                    )
+
+                # Always add the job
+                if current_interval > 0:
+                    try:
+                        scheduler.add_job(
+                            scheduled_fetch_job, 
+                            'interval', 
+                            seconds=current_interval, 
+                            id=ibkr_db_job_id, 
+                            replace_existing=True
+                        )
+                        logger.info(f"Added job '{ibkr_db_job_id}' with interval: {current_interval} seconds.")
+                        # Pause it immediately if it's not active
+                        if not ibkr_is_active:
+                            scheduler.pause_job(ibkr_db_job_id)
+                            logger.info(f"Job '{ibkr_db_job_id}' is inactive in DB. Paused in scheduler.")
+                    except Exception as e:
+                         logger.error(f"Failed to add or pause job '{ibkr_db_job_id}': {e}", exc_info=True)
                 else:
-                    logger.info(f"Job '{ibkr_db_job_id}' is inactive. Not scheduling on startup.")
+                    logger.warning(f"Job '{ibkr_db_job_id}' has invalid interval ({current_interval}s). Not scheduling.")
                 # --- End Schedule IBKR Job --- 
 
                 # --- Schedule Finviz Job --- 
@@ -1141,20 +1265,26 @@ def create_app():
                 finviz_default_seconds = 86400 # Default to 1 day
                 finviz_interval_seconds = await repository.get_job_schedule_seconds(finviz_job_id, default_seconds=finviz_default_seconds)
                 finviz_is_active = await repository.get_job_is_active(finviz_job_id, default_active=True) # Check DB
-                # Ensure consistent indentation for this block
-                if finviz_is_active and finviz_interval_seconds > 0:
-                    scheduler.add_job(
-                        scheduled_finviz_job, 
-                        trigger='interval', 
-                        seconds=finviz_interval_seconds, 
-                        id=finviz_job_id, 
-                        replace_existing=True
-                    )
-                    logger.info(f"Scheduled active job '{finviz_job_id}' to run every {finviz_interval_seconds} seconds.")
-                elif not finviz_is_active:
-                    logger.info(f"Job '{finviz_job_id}' is inactive. Not scheduling on startup.")
-                else: # Interval <= 0
-                    logger.info(f"Job '{finviz_job_id}' interval is invalid ({finviz_interval_seconds}s). Not scheduling.")
+
+                # Always add the job if interval is valid
+                if finviz_interval_seconds > 0:
+                    try:
+                        scheduler.add_job(
+                            scheduled_finviz_job, 
+                            trigger='interval', 
+                            seconds=finviz_interval_seconds, 
+                            id=finviz_job_id, 
+                            replace_existing=True
+                        )
+                        logger.info(f"Added job '{finviz_job_id}' with interval: {finviz_interval_seconds} seconds.")
+                        # Pause it immediately if it's not active
+                        if not finviz_is_active:
+                            scheduler.pause_job(finviz_job_id)
+                            logger.info(f"Job '{finviz_job_id}' is inactive in DB. Paused in scheduler.")
+                    except Exception as e:
+                         logger.error(f"Failed to add or pause job '{finviz_job_id}': {e}", exc_info=True)
+                else:
+                    logger.warning(f"Job '{finviz_job_id}' has invalid interval ({finviz_interval_seconds}s). Not scheduling.")
                 # --- End Schedule Finviz Job ---
 
                 # --- Schedule Investing.com Job --- 
@@ -1163,45 +1293,70 @@ def create_app():
                 investingcom_interval_seconds = await repository.get_job_schedule_seconds(investingcom_job_id, default_seconds=investingcom_default_seconds)
                 investingcom_is_active = await repository.get_job_is_active(investingcom_job_id, default_active=True) # Check DB
                 
-                if investingcom_is_active and investingcom_interval_seconds > 0:
-                    scheduler.add_job(
-                        scheduled_investingcom_job, 
-                        trigger='interval',
-                        seconds=investingcom_interval_seconds,
-                        id=investingcom_job_id, # Ensure unique ID
-                        replace_existing=True
-                    )
-                    logger.info(f"Scheduled active job '{investingcom_job_id}' to run every {investingcom_interval_seconds} seconds.")
-                elif not investingcom_is_active:
-                     logger.info(f"Job '{investingcom_job_id}' is inactive. Not scheduling on startup.")
-                else: # Interval <= 0
-                    logger.info(f"Job '{investingcom_job_id}' interval is invalid ({investingcom_interval_seconds}s). Not scheduling.")
+                # Always add the job if interval is valid
+                if investingcom_interval_seconds > 0:
+                    try:
+                        scheduler.add_job(
+                            scheduled_investingcom_job, 
+                            trigger='interval',
+                            seconds=investingcom_interval_seconds,
+                            id=investingcom_job_id, # Ensure unique ID
+                            replace_existing=True
+                        )
+                        logger.info(f"Added job '{investingcom_job_id}' with interval: {investingcom_interval_seconds} seconds.")
+                        # Pause it immediately if it's not active
+                        if not investingcom_is_active:
+                            scheduler.pause_job(investingcom_job_id)
+                            logger.info(f"Job '{investingcom_job_id}' is inactive in DB. Paused in scheduler.")
+                    except Exception as e:
+                         logger.error(f"Failed to add or pause job '{investingcom_job_id}': {e}", exc_info=True)
+                else:
+                     logger.warning(f"Job '{investingcom_job_id}' has invalid interval ({investingcom_interval_seconds}s). Not scheduling.")
                 # --- End Schedule Investing.com Job --- 
                 
-                # --- Schedule Yahoo Job (Add check) --- 
+                # --- Schedule Yahoo Job --- 
                 yahoo_job_id = "yahoo_data_fetch"
                 yahoo_default_seconds = 86400 # Default to 1 day
                 yahoo_interval_seconds = await repository.get_job_schedule_seconds(yahoo_job_id, default_seconds=yahoo_default_seconds)
                 yahoo_is_active = await repository.get_job_is_active(yahoo_job_id, default_active=True) # Check DB
 
-                # Placeholder for the actual job function (assuming it exists)
-                # async def scheduled_yahoo_job(): 
-                #    logger.info("Running Yahoo job...")
-                #    pass
+                # Placeholder for the actual job function
+                async def scheduled_yahoo_job(): 
+                    # --- ADD Check is_active status (within job) --- 
+                    job_id_internal = "yahoo_data_fetch"
+                    try:
+                        repo_internal: SQLiteRepository = app.state.repository
+                        is_active_internal = await repo_internal.get_job_is_active(job_id_internal)
+                        if not is_active_internal:
+                            logger.info(f"Job '{job_id_internal}' is inactive in DB. Skipping execution (checked within job).")
+                            return
+                    except Exception as check_err_internal:
+                        logger.error(f"Error checking active status for {job_id_internal} within job: {check_err_internal}. Skipping execution.", exc_info=True)
+                        return
+                    # --- END Check ---
+                    logger.info(f"Running {job_id_internal} job...")
+                    # TODO: Implement actual Yahoo data fetching logic here
+                    pass
                 
-                if yahoo_is_active and yahoo_interval_seconds > 0:
-                    # scheduler.add_job(
-                    #     scheduled_yahoo_job, # Replace with actual function name
-                    #     trigger='interval',
-                    #     seconds=yahoo_interval_seconds,
-                    #     id=yahoo_job_id,
-                    #     replace_existing=True
-                    # )
-                    logger.info(f"Scheduled active job '{yahoo_job_id}' to run every {yahoo_interval_seconds} seconds. (Function needs implementation)")
-                elif not yahoo_is_active:
-                     logger.info(f"Job '{yahoo_job_id}' is inactive. Not scheduling on startup.")
-                else: # Interval <= 0
-                    logger.info(f"Job '{yahoo_job_id}' interval is invalid ({yahoo_interval_seconds}s). Not scheduling.")
+                # Always add the job if interval is valid
+                if yahoo_interval_seconds > 0:
+                    try:
+                        scheduler.add_job(
+                            scheduled_yahoo_job, # Use the placeholder function
+                            trigger='interval',
+                            seconds=yahoo_interval_seconds,
+                            id=yahoo_job_id,
+                            replace_existing=True
+                        )
+                        logger.info(f"Added job '{yahoo_job_id}' with interval: {yahoo_interval_seconds} seconds.")
+                        # Pause it immediately if it's not active
+                        if not yahoo_is_active:
+                            scheduler.pause_job(yahoo_job_id)
+                            logger.info(f"Job '{yahoo_job_id}' is inactive in DB. Paused in scheduler.")
+                    except Exception as e:
+                         logger.error(f"Failed to add or pause job '{yahoo_job_id}': {e}", exc_info=True)
+                else:
+                    logger.warning(f"Job '{yahoo_job_id}' has invalid interval ({yahoo_interval_seconds}s). Not scheduling.")
                 # --- End Schedule Yahoo Job --- 
 
                 # --- Schedule NEW Sync IBKR Snapshot Job --- 
@@ -1221,36 +1376,40 @@ def create_app():
                     try:
                         await repository.save_job_config(default_sync_job_data)
                         logger.info(f"Successfully created default job config for '{sync_snapshot_job_id}'.")
+                        sync_interval_seconds = 60 # Use default since we just created it
+                        sync_is_active = True     # Use default since we just created it
                     except Exception as create_err:
                          logger.error(f"Failed to create default job config for '{sync_snapshot_job_id}': {create_err}")
+                         sync_interval_seconds = 0 # Prevent scheduling on error
+                         sync_is_active = False    # Prevent scheduling on error
+                else:
+                    # Config exists, read interval and status
+                    sync_default_seconds = 60 # Default to 60 seconds if not configured
+                    sync_interval_seconds = await repository.get_job_schedule_seconds(sync_snapshot_job_id, default_seconds=sync_default_seconds)
+                    sync_is_active = await repository.get_job_is_active(sync_snapshot_job_id, default_active=True) 
                 # --- End ensure config --- 
                 
-                # --- Fetch interval from DB config --- 
-                sync_default_seconds = 60 # Default to 60 seconds if not configured
-                sync_interval_seconds = await repository.get_job_schedule_seconds(sync_snapshot_job_id, default_seconds=sync_default_seconds)
-                # --- End fetch interval ---
-                
-                # Read active status from DB (config should exist now)
-                sync_is_active = await repository.get_job_is_active(sync_snapshot_job_id, default_active=True) 
-                
-                if sync_is_active and sync_interval_seconds > 0:
-                    # Read the base URL directly inside the function to avoid scope issues
-                    ibkr_base_url_for_job = os.environ.get("IBKR_BASE_URL", "https://localhost:5000/v1/api/")
-                    scheduler.add_job(
-                        run_sync_ibkr_snapshot_job, 
-                        trigger='interval',
-                        seconds=sync_interval_seconds, # Use fetched interval
-                        id=sync_snapshot_job_id, # Ensure unique ID
-                        replace_existing=True,
-                        # Pass the repository instance, loop, manager, and base URL
-                        args=[app.state.repository, loop, manager, ibkr_base_url_for_job] # Use repository instance
-                        # executor='default' # Explicitly using default (ThreadPoolExecutor) might be good
-                    )
-                    logger.info(f"Scheduled active job '{sync_snapshot_job_id}' to run every {sync_interval_seconds} seconds.")
-                elif not sync_is_active:
-                     logger.info(f"Job '{sync_snapshot_job_id}' is inactive. Not scheduling on startup.")
-                else: # Interval <= 0
-                    logger.info(f"Job '{sync_snapshot_job_id}' interval is invalid ({sync_interval_seconds}s). Not scheduling.")
+                # Always add the job if interval is valid
+                if sync_interval_seconds > 0:
+                    try:
+                        ibkr_base_url_for_job = os.environ.get("IBKR_BASE_URL", "https://localhost:5000/v1/api/")
+                        scheduler.add_job(
+                            run_sync_ibkr_snapshot_job, 
+                            trigger='interval',
+                            seconds=sync_interval_seconds,
+                            id=sync_snapshot_job_id,
+                            replace_existing=True,
+                            args=[app.state.repository, loop, manager, ibkr_base_url_for_job]
+                        )
+                        logger.info(f"Added job '{sync_snapshot_job_id}' with interval: {sync_interval_seconds} seconds.")
+                        # Pause it immediately if it's not active
+                        if not sync_is_active:
+                            scheduler.pause_job(sync_snapshot_job_id)
+                            logger.info(f"Job '{sync_snapshot_job_id}' is inactive in DB. Paused in scheduler.")
+                    except Exception as e:
+                         logger.error(f"Failed to add or pause job '{sync_snapshot_job_id}': {e}", exc_info=True)
+                else:
+                    logger.warning(f"Job '{sync_snapshot_job_id}' has invalid interval ({sync_interval_seconds}s). Not scheduling.")
                 # --- End Schedule NEW Sync Job --- 
 
                 # --- ADD Simple Test Job ---
@@ -2178,6 +2337,302 @@ def create_app():
                 logger.error(f"Error deleting ticker {ticker}: {e}", exc_info=True)
                 raise HTTPException(status_code=500, detail=f"Error deleting ticker {ticker}")
         # --- End Delete Ticker Endpoint ---
+
+        # --- NEW Endpoint to Find Instruments (for Add Ticker Page) ---
+        @app.post("/find_instruments", response_model=InstrumentSearchResponse)
+        async def find_instruments_for_conid_selection(
+            request: InstrumentSearchRequest, # Now uses model from outer scope
+            ibkr_service: IBKRService = Depends(get_ibkr_service) # Inject IBKRService
+        ):
+            """Receives identifier and status, determines secType, searches IBKR, returns contracts."""
+            identifier = request.identifier
+            status_type = request.status # e.g., 'currency', 'indicator', 'monitored'
+            logger.info(f"Received request to find instruments for identifier: {identifier}, status/type: {status_type}")
+
+            # Determine secType based on status_type
+            sec_type: str
+            if status_type == 'currency':
+                sec_type = 'CASH'
+            elif status_type == 'indicator':
+                sec_type = 'IND'
+            else: # Default to Stock for candidate, monitored, portfolio
+                sec_type = 'STK'
+            
+            logger.info(f"Determined secType: {sec_type} for status/type: {status_type}")
+
+            try:
+                # Ensure service is connected (might need a connect/check method)
+                # For now, assume the service is managed by the app lifecycle or connect on demand
+                # --- Need to ensure the service is actually connected --- 
+                # Simple check (can be improved with explicit connect/disconnect in service)
+                if not ibkr_service.session or ibkr_service.session.closed:
+                    logger.info("IBKRService session not active, attempting to connect...")
+                    await ibkr_service.connect() # Assumes connect handles auth
+                    if not ibkr_service.session or ibkr_service.session.closed:
+                        raise HTTPException(status_code=503, detail="Failed to connect to IBKR service.")
+                # --- End connection check --- 
+                
+                found_contracts = await ibkr_service.search_contracts(
+                    symbol=identifier,
+                    sec_type=sec_type
+                )
+                logger.info(f"IBKR search returned {len(found_contracts)} contracts for {identifier} ({sec_type})")
+                return InstrumentSearchResponse(contracts=found_contracts)
+
+            except HTTPException as http_exc:
+                # Re-raise HTTP exceptions (like connection failure)
+                raise http_exc 
+            except Exception as e:
+                logger.error(f"Error searching contracts via IBKRService for {identifier}: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Error searching for instrument: {str(e)}")
+        # --- End Find Instruments Endpoint ---
+
+        # --- NEW: Endpoint to Add Instrument --- 
+        @app.post("/add_instrument") # Removed default status_code to set it based on DB result
+        async def add_instrument(
+            request_model: AddInstrumentRequest, # Rename to avoid conflict with Request object
+            request: Request, # Keep original Request object for dependency calls
+            db: AsyncSession = Depends(get_db),
+            repository: SQLiteRepository = Depends(get_repository) # Add repository dependency here
+        ):
+            """Receives instrument data from the form and saves it to the appropriate table."""
+            logger.info(f"[/add_instrument] Received request: Status={request_model.status}, Identifier={request_model.identifier}, ConID={request_model.conid}")
+            
+            if request_model.status == "currency":
+                # --- Handle Currency Case ---
+                if not request_model.conid:
+                    logger.warning(f"[/add_instrument] ConID is required for currency type, but not provided for {request_model.identifier}. Aborting.")
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ConID must be provided for currency types.")
+                if not request_model.identifier:
+                     logger.warning(f"[/add_instrument] Identifier (currency code) is required. Aborting.")
+                     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Identifier (currency code) is required.")
+
+                try:
+                    # Use the db session injected directly
+                    result = await add_or_update_exchange_rate_conid(
+                        session=db,
+                        currency=request_model.identifier,
+                        conid=request_model.conid
+                    )
+
+                    status_code = status.HTTP_200_OK # Default OK
+                    db_status = result.get("status")
+                    if db_status == "inserted":
+                        status_code = status.HTTP_201_CREATED
+                    elif db_status == "error":
+                        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+                    elif db_status == "conflict":
+                         status_code = status.HTTP_409_CONFLICT # Use 409 for conflict
+
+                    return JSONResponse(
+                        content=result, 
+                        status_code=status_code
+                    )
+
+                except Exception as e:
+                    logger.error(f"[/add_instrument] Error processing currency {request_model.identifier}: {e}", exc_info=True)
+                    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Internal server error processing currency.")
+
+            elif request_model.status in ["candidate", "monitored", "portfolio", "indicator"]:
+                # --- Handle Screener Case --- 
+                logger.info(f"Attempting to add/update screener entry for {request_model.identifier} ({request_model.status})")
+                
+                # --- DIAGNOSTIC: Try importing and instantiating repository inside --- 
+                try:
+                    from .V3_database import SQLiteRepository # Use relative import
+                    # Assuming DATABASE_URL is accessible or defined globally/in config
+                    # You might need to fetch DATABASE_URL from app state or config if not global
+                    temp_repo = SQLiteRepository(database_url=request.app.state.repository.database_url) # Use existing URL
+                    logger.info(f"Diagnostic: temp_repo has method? {hasattr(temp_repo, 'add_or_update_screener_entry')}")
+                    # Use the app state repository for the actual call for now, but log check
+                    repository_to_use = repository # Keep using the injected one for the actual call
+                except Exception as import_err:
+                    logger.error(f"Diagnostic: Failed to import/instantiate repository inside endpoint: {import_err}")
+                    repository_to_use = repository # Fallback to injected one
+                # --- END DIAGNOSTIC --- 
+
+                # Check if conid is provided for non-currency types
+                if not request_model.conid:
+                    logger.warning(f"[/add_instrument] ConID missing for screener type {request_model.status}, identifier {request_model.identifier}. Aborting.")
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ConID must be provided.")
+                 
+                # --- Prepare data dictionary and convert numeric strings --- 
+                data_to_save = request_model.dict()
+                numeric_fields_to_convert = {
+                    'atr': float, 'atr_mult': float, # Treat atr_mult as float initially for flexible conversion
+                    'risk': float, 'beta': float
+                }
+                for field, target_type in numeric_fields_to_convert.items():
+                    str_value = data_to_save.get(field)
+                    if str_value is None or str_value == '':
+                        data_to_save[field] = None # Set to None if empty string or None
+                    else:
+                        try:
+                            converted_value = target_type(str_value)
+                            if field == 'atr_mult':
+                                data_to_save[field] = int(converted_value) if converted_value.is_integer() else converted_value
+                            else:
+                                data_to_save[field] = converted_value
+                        except (ValueError, TypeError):
+                            logger.warning(f"[/add_instrument] Could not convert {field}='{str_value}' to {target_type.__name__}. Setting to None.")
+                            data_to_save[field] = None
+                # --- End data preparation --- 
+
+                # --- Prepare data for database: Map 'identifier' to 'ticker' and remove 'identifier' ---
+                if 'identifier' in data_to_save:
+                    data_to_save['ticker'] = data_to_save.pop('identifier') # Use pop to get value and remove key
+
+                # Ensure 'ticker' key exists if somehow missed (e.g., if input was 'ticker' directly)
+                if 'ticker' not in data_to_save:
+                     # Handle case where 'ticker' might be missing entirely? Should not happen with validation.
+                     logger.error("CRITICAL: 'ticker' key is missing from data_to_save before DB call.")
+                     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing ticker identifier.")
+                # --- End data preparation for DB ---
+
+                try:
+                    # --- Add Diagnostics ---
+                    logger.info(f"DIAGNOSTIC: Type of repository object: {type(repository)}")
+                    # --- ADD: Print the file path of the class --- 
+                    import inspect
+                    try:
+                        repo_file = inspect.getfile(repository.__class__)
+                        logger.info(f"DIAGNOSTIC: Repository class defined in: {repo_file}")
+                    except TypeError:
+                        logger.warning("DIAGNOSTIC: Could not determine file for repository class (likely built-in or dynamically generated).")
+                    # --- END ADD --- 
+                    logger.info(f"DIAGNOSTIC: Attributes of repository object: {dir(repository)}")
+                    # --- End Diagnostics ---
+                    
+                    # --- ADD FINAL CHECK --- 
+                    logger.info(f"FINAL CHECK before call: dir(repository) = {dir(repository)}")
+                    # --- END FINAL CHECK ---
+
+                    # Use the repository instance injected via the function signature (or temp_repo for testing)
+                    # Sticking to the injected `repository` for the actual call for now
+                    
+                    # --- Call the updated DB method and capture the result --- 
+                    db_result = await repository.add_or_update_screener_ticker(**data_to_save)
+                    logger.info(f"Screener DB operation result for ticker '{data_to_save.get('ticker')}': {db_result}")
+
+                    # --- Determine HTTP status based on DB result --- 
+                    response_status_code = status.HTTP_200_OK # Default to OK
+                    if db_result.get("status") == "inserted":
+                        response_status_code = status.HTTP_201_CREATED
+                    elif db_result.get("status") == "error":
+                        # Keep 500 for internal DB errors
+                        response_status_code = status.HTTP_500_INTERNAL_SERVER_ERROR 
+                    # Add other mappings if needed (e.g., 409 for skipped/conflict?)
+                    elif db_result.get("status") == "skipped":
+                         response_status_code = status.HTTP_200_OK # Or maybe 409 Conflict?
+                         
+                    # Return the result dict from the DB method directly
+                    return JSONResponse(content=db_result, status_code=response_status_code)
+
+                except Exception as e:
+                    # This catches errors *before* or *during* the call to the DB method
+                    # (like the diagnostic checks, or unexpected errors)
+                    # The DB method itself now returns error status, so this block
+                    # handles broader endpoint errors.
+                    identifier_for_log = request_model.identifier if hasattr(request_model, 'identifier') else data_to_save.get('ticker', 'unknown')
+                    logger.error(f"Error in /add_instrument endpoint before/during DB call for {identifier_for_log}: {e}", exc_info=True)
+                    # Return a generic 500 error
+                    return JSONResponse(
+                        content={"status": "error", "message": f"Internal server error processing request for {identifier_for_log}"},
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+                    # Removed: raise HTTPException(...)
+
+            else:
+                # --- Handle Unknown Status ---
+                logger.warning(f"[/add_instrument] Received unknown status type: {request_model.status}")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid status type: {request_model.status}")
+
+        # --- NEW Route for Add Ticker Page ---
+        @app.get("/add_ticker", name="get_add_ticker_page", response_class=HTMLResponse)
+        async def get_add_ticker_page(request: Request):
+            """Serves the page for adding new tickers/instruments."""
+            logger.info("Rendering add_ticker page")
+            # Basic context, can add more if needed (e.g., initial form values)
+            context = {"request": request}
+            return request.app.state.templates.TemplateResponse(
+                "add_ticker.html", context
+            )
+        # --- End Add Ticker Page Route ---
+
+        @app.get("/config", name="get_config_page", response_class=HTMLResponse)
+        async def get_config_page(request: Request):
+            """Display the configuration page."""
+            message = request.query_params.get('message')
+            message_type = request.query_params.get('message_type', 'info')
+            repository: SQLiteRepository = request.app.state.repository
+            try:
+                # Fetch ALL interval seconds
+                current_interval = await repository.get_fetch_interval_seconds(default_interval=3600) # IBKR Fetch
+                ibkr_snapshot_seconds = await repository.get_job_schedule_seconds('ibkr_sync_snapshot')
+                finviz_seconds = await repository.get_job_schedule_seconds('finviz_data_fetch')
+                yahoo_seconds = await repository.get_job_schedule_seconds('yahoo_data_fetch')
+                investingcom_seconds = await repository.get_job_schedule_seconds('investingcom_data_fetch')
+                
+                # Fetch ALL active statuses
+                ibkr_active = await repository.get_job_is_active('ibkr_fetch')
+                ibkr_snapshot_active = await repository.get_job_is_active('ibkr_sync_snapshot')
+                finviz_active = await repository.get_job_is_active('finviz_data_fetch')
+                yahoo_active = await repository.get_job_is_active('yahoo_data_fetch')
+                investingcom_active = await repository.get_job_is_active('investingcom_data_fetch')
+                
+                # Fetch other data
+                exchange_rates = await get_exchange_rates(request.state.db_session) 
+                portfolio_rules = await repository.get_all_portfolio_rules()
+                portfolio_rules_json = json.dumps(portfolio_rules, default=str) # Keep JSON for JS
+
+                # CORRECTED context dictionary
+                context = {
+                    "request": request,
+                    "message": message,
+                    "message_type": message_type,
+                    # Scheduler Intervals
+                    "current_interval": current_interval,
+                    "ibkr_snapshot_schedule_seconds": ibkr_snapshot_seconds,
+                    "finviz_schedule_seconds": finviz_seconds,
+                    "yahoo_schedule_seconds": yahoo_seconds,
+                    "investingcom_schedule_seconds": investingcom_seconds,
+                    # Scheduler Statuses
+                    "ibkr_is_active": ibkr_active,
+                    "ibkr_snapshot_is_active": ibkr_snapshot_active,
+                    "finviz_is_active": finviz_active,
+                    "yahoo_is_active": yahoo_active,
+                    "investingcom_is_active": investingcom_active,
+                    # Other Data
+                    "exchange_rates": exchange_rates,
+                    "portfolio_rules": portfolio_rules, # Pass the list for Jinja
+                    "portfolio_rules_json": portfolio_rules_json # Pass JSON string for JS
+                }
+                return request.app.state.templates.TemplateResponse("config.html", context)
+            except Exception as e:
+                logger.error(f"Error loading config page: {e}", exc_info=True)
+                # CORRECTED defaults in the except block
+                return request.app.state.templates.TemplateResponse("config.html", {
+                    "request": request, 
+                    "message": "Error loading configuration data.", # Display error message
+                    "message_type": "danger",
+                    # Default Intervals
+                    "current_interval": 3600, 
+                    "ibkr_snapshot_schedule_seconds": 0, 
+                    "finviz_schedule_seconds": 0,
+                    "yahoo_schedule_seconds": 0,
+                    "investingcom_schedule_seconds": 0,
+                    # Default Statuses (assume active on error?)
+                    "ibkr_is_active": True, 
+                    "ibkr_snapshot_is_active": True,
+                    "finviz_is_active": True,
+                    "yahoo_is_active": True,
+                    "investingcom_is_active": True,
+                     # Default Other Data
+                    "exchange_rates": {},
+                    "portfolio_rules": [], 
+                    "portfolio_rules_json": "[]", 
+                    "error": "Failed to load configuration." # Keep original error for logging? 
+                 })
 
         # --- Move return app to the end of the main try block --- 
         logger.info("FastAPI app instance created and configured successfully.")

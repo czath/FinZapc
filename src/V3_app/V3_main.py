@@ -8,13 +8,14 @@ import logging
 import uvicorn
 import inspect
 import traceback
-# Use simple imports as V3_main.py is run directly
-from V3_web import create_app, add_websocket_route
+# Use relative imports when running as a module
+from .V3_web import create_app, add_websocket_route
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-# Use simple import
-from V3_database import update_exchange_rate
+# Use relative import
+# from .V3_database import SQLiteRepository # <-- Comment out specific class import
+from .V3_database import update_exchange_rate
 
 # Configure logging
 logging.basicConfig(

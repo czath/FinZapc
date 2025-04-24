@@ -196,6 +196,9 @@
                   <a class="nav-link {% if request.url.path == url_for('get_tracker_page') %}active{% endif %}" href="{{ url_for('get_tracker_page') }}">Tracker</a>
                 </li>
                 <li class="nav-item">
+                  <a class="nav-link" href="{{ url_for('get_add_ticker_page') }}">Add Ticker</a>
+                </li>
+                <li class="nav-item">
                   <a class="nav-link {% if request.url.path == url_for('get_config_page') %}active{% endif %}" href="{{ url_for('get_config_page') }}">Settings</a>
                 </li>
               </ul>
