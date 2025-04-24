@@ -744,60 +744,62 @@ class IBKRService:
     # --- End Get ConID ---
 
     # --- NEW Search Contracts Method ---
-    async def search_contracts(self, symbol: str, sec_type: str) -> List[Dict[str, Any]]:
-        """Searches for contracts matching a symbol and security type.
+    async def search_contracts(self, symbol: str, sec_type: str, name: bool = False) -> List[Dict[str, Any]]:
+        """Searches for contracts matching a symbol/name and security type.
 
         Args:
-            symbol: The ticker symbol or currency code (e.g., "AAPL", "USD").
+            symbol: The ticker symbol or currency code or name to search for.
             sec_type: The security type (e.g., "STK", "CASH", "IND").
+            name: If True, search by instrument name/description; otherwise, search by symbol. Defaults to False.
 
         Returns:
             A list of dictionaries, each representing a found contract with details.
             Returns an empty list if no contracts are found or an error occurs.
         """
         if not self.session or self.session.closed:
-            logger.error("SearchContracts: Cannot search, no active REST session.")
+            logger.error(f"SearchContracts: Cannot search, no active REST session for {symbol} (name={name}).")
             return []
 
         search_url = f"{self.base_url}/iserver/secdef/search"
-        # For currency, the symbol might need formatting (e.g., EUR.USD)
-        # Let's handle this in the backend endpoint for now based on sec_type
-        # For STK/IND, use the symbol directly
+        
+        # Handle currency formatting if searching by symbol
         payload_symbol = symbol.upper()
-        if sec_type == 'CASH' and len(symbol) == 3: # Assume single currency means EUR base
+        if not name and sec_type == 'CASH' and len(symbol) == 3: 
             payload_symbol = f"EUR.{symbol.upper()}"
-            logger.info(f"SearchContracts: Detected CASH secType, formatted symbol to {payload_symbol}")
+            logger.info(f"SearchContracts: Detected CASH secType (symbol search), formatted symbol to {payload_symbol}")
         
         payload = {
             "symbol": payload_symbol, 
             "secType": sec_type,
+            "name": name,
             "delayed": False # Request non-delayed data if possible
         }
         logger.info(f"SearchContracts: Searching for contracts with payload: {payload}")
 
         processed_contracts = []
+        seen_conids = set() # NEW: Set to track processed conids
         try:
             async with self.session.post(search_url, json=payload) as response:
-                logger.info(f"SearchContracts: Response Status: {response.status}")
+                logger.info(f"SearchContracts: Response Status for {symbol} (name={name}): {response.status}")
                 if response.status == 200:
                     results = await response.json()
-                    logger.info(f"SearchContracts: Received {len(results)} results for {symbol} ({sec_type}).")
+                    logger.info(f"SearchContracts: Received {len(results)} results for {symbol} ({sec_type}, name={name}).")
                     # logger.debug(f"SearchContracts Raw Results: {results}") # Optional: Can be verbose
                     
                     if not results or not isinstance(results, list):
-                        logger.warning(f"SearchContracts: No contracts found or invalid format for {symbol} ({sec_type}).")
+                        logger.warning(f"SearchContracts: No contracts found or invalid format for {symbol} ({sec_type}, name={name}).")
                         return []
 
                     # Log the raw response for debugging
-                    logger.info(f"Attempting to log raw response for '{symbol}'")
+                    logger.info(f"Attempting to log raw response for '{symbol}' (name={name})")
                     # Use print() for direct debugging output, bypassing logging framework
                     try:
                         raw_json_str = json.dumps(results, indent=2) # Add indent for readability
-                        print(f"--- RAW IBKR RESPONSE for {symbol} ---")
+                        print(f"--- RAW IBKR RESPONSE for {symbol} (name={name}) ---")
                         print(raw_json_str)
-                        print(f"--- END RAW IBKR RESPONSE for {symbol} ---")
+                        print(f"--- END RAW IBKR RESPONSE for {symbol} (name={name}) ---")
                     except Exception as print_err:
-                        print(f"*** ERROR trying to print raw results for {symbol}: {print_err} ***")
+                        print(f"*** ERROR trying to print raw results for {symbol} (name={name}): {print_err} ***")
                         print(f"*** Raw results variable type: {type(results)} ***")
                         # Avoid printing the raw results if dumps failed, might be huge/problematic
 
@@ -806,27 +808,54 @@ class IBKRService:
                         try:
                             # Extract fields required for the UI
                             conid = contract_data.get('conid')
+                            # --- ADD De-duplication Check --- 
+                            if conid is not None:
+                                try:
+                                    int_conid = int(conid) # Convert early for check
+                                    if int_conid in seen_conids:
+                                        logger.info(f"SearchContracts: Skipping duplicate conid {int_conid}")
+                                        continue # Skip this duplicate item
+                                    # If not seen, add to set after successful processing below
+                                except (ValueError, TypeError):
+                                    logger.warning(f"SearchContracts: Could not convert conid '{conid}' to int for duplicate check. Skipping item: {contract_data}")
+                                    continue # Skip if conid is not convertible
+                            # --- END De-duplication Check ---
+                            
                             company_name = contract_data.get('companyName')
                             symbol = contract_data.get('symbol')
                             # Use companyHeader as the primary description source for UI
                             description = contract_data.get('companyHeader')
 
-                            # --- Extract secType from the FIRST section --- 
-                            first_sec_type = 'N/A' # Default
+                            # --- MODIFIED: Extract secType with fallback --- 
+                            actual_sec_type = 'N/A' # Default
                             sections = contract_data.get('sections')
                             if isinstance(sections, list) and sections and isinstance(sections[0], dict):
-                                first_sec_type = sections[0].get('secType', 'N/A')
-                            else:
-                                # Fallback for structures without sections or non-dict first section
-                                logger.warning(f"SearchContracts: Could not extract secType from first section for conid {conid}. Sections: {sections}")
-                                # Optionally fallback to top-level secType if needed, but sticking to user request for now
-                                # first_sec_type = contract_data.get('secType', 'N/A') 
-                            # --- End First secType Extraction ---
+                                actual_sec_type = sections[0].get('secType', 'N/A')
+                                logger.debug(f"SearchContracts: Extracted secType '{actual_sec_type}' from sections for conid {conid}.")
+                            
+                            # Fallback to top-level secType if not found in sections or sections is empty
+                            if actual_sec_type == 'N/A':
+                                top_level_sec_type = contract_data.get('secType')
+                                if top_level_sec_type:
+                                    actual_sec_type = top_level_sec_type
+                                    logger.debug(f"SearchContracts: Extracted secType '{actual_sec_type}' from top level for conid {conid}.")
+                                else:
+                                    logger.warning(f"SearchContracts: Could not extract secType from sections or top level for conid {conid}. Sections: {sections}, Top-level keys: {list(contract_data.keys())}")
+                            # --- END MODIFICATION ---
 
                             # Add fallbacks for key display fields if they are missing
                             if not conid:
                                 logger.warning(f"SearchContracts: Skipping result due to missing conid: {contract_data}")
                                 continue # Skip if no conid
+                            
+                            # --- Convert ConID to int here (ensure it's done before adding) ---
+                            try:
+                                final_conid = int(conid)
+                            except (ValueError, TypeError):
+                                 logger.warning(f"SearchContracts: Could not convert valid conid '{conid}' to integer before adding. Skipping item: {contract_data}")
+                                 continue
+                            # --- End Conversion ---
+                            
                             symbol = symbol or 'N/A'
                             company_name = company_name or 'N/A'
                             description = description or company_name or symbol # Fallback description chain
@@ -837,37 +866,39 @@ class IBKRService:
 
                             # --- Filter based on requested sec_type --- 
                             requested_sec_type = sec_type # Original argument passed to function
-                            if first_sec_type != requested_sec_type:
-                                logger.info(f"SearchContracts: Skipping conid {conid} ({description}) - Actual type '{first_sec_type}' != Requested type '{requested_sec_type}'")
+                            # Use the determined actual_sec_type for comparison
+                            if actual_sec_type != requested_sec_type:
+                                logger.info(f"SearchContracts: Skipping conid {conid} ({description}) - Actual type '{actual_sec_type}' != Requested type '{requested_sec_type}'")
                                 continue # Skip this contract
                             # --- End Filter --- 
                                  
                             processed_contracts.append({
-                                'conid': int(conid),
+                                'conid': final_conid, # Use the integer conid
                                 'symbol': symbol,
                                 'companyName': company_name, 
                                 'description': description, # This is companyHeader or fallback
-                                'secType': first_sec_type,   # Use the first secType found
+                                'secType': actual_sec_type,   # Use the determined actual secType
                                 'exchange': exchange,
                                 'currency': currency
                             })
+                            seen_conids.add(final_conid) # NEW: Add successfully processed conid to set
                         except Exception as item_proc_err:
                             logger.error(f"SearchContracts: Error processing individual contract item {contract_data}: {item_proc_err}", exc_info=True)
                             continue # Skip this item
                             
-                    logger.info(f"SearchContracts: Successfully processed {len(processed_contracts)} contracts for {symbol} ({sec_type}).")
+                    logger.info(f"SearchContracts: Successfully processed {len(processed_contracts)} contracts for {symbol} ({sec_type}, name={name}).")
                     return processed_contracts
                 
                 else:
                     error_text = await response.text()
-                    logger.error(f"SearchContracts: Failed API call for {symbol} ({sec_type}): {response.status} - {error_text}")
+                    logger.error(f"SearchContracts: Failed API call for {symbol} ({sec_type}, name={name}): {response.status} - {error_text}")
                     return [] # Return empty list on API error
 
         except aiohttp.ClientError as e:
-            logger.error(f"SearchContracts: Network error for {symbol} ({sec_type}): {e}")
+            logger.error(f"SearchContracts: Network error for {symbol} ({sec_type}, name={name}): {e}")
             return []
         except Exception as e:
-            logger.error(f"SearchContracts: Unexpected error for {symbol} ({sec_type}): {e}", exc_info=True)
+            logger.error(f"SearchContracts: Unexpected error for {symbol} ({sec_type}, name={name}): {e}", exc_info=True)
             return []
     # --- End Search Contracts Method ---
 

@@ -546,6 +546,7 @@ async def get_db(request: Request) -> AsyncSession:
 class InstrumentSearchRequest(BaseModel):
     identifier: str
     status: str # Get the combined status/type field value
+    name: bool = False # NEW: Flag for name vs symbol search, defaults to False
 
 class InstrumentSearchResponse(BaseModel):
     contracts: List[Dict[str, Any]]
@@ -2125,7 +2126,8 @@ def create_app():
             """Receives identifier and status, determines secType, searches IBKR, returns contracts."""
             identifier = request.identifier
             status_type = request.status # e.g., 'currency', 'indicator', 'monitored'
-            logger.info(f"Received request to find instruments for identifier: {identifier}, status/type: {status_type}")
+            search_by_name = request.name # NEW: Get the name flag
+            logger.info(f"Received request to find instruments for identifier: {identifier}, status/type: {status_type}, search_by_name: {search_by_name}")
 
             # Determine secType based on status_type
             sec_type: str
@@ -2152,9 +2154,10 @@ def create_app():
                 
                 found_contracts = await ibkr_service.search_contracts(
                     symbol=identifier,
-                    sec_type=sec_type
+                    sec_type=sec_type,
+                    name=search_by_name # NEW: Pass the name flag
                 )
-                logger.info(f"IBKR search returned {len(found_contracts)} contracts for {identifier} ({sec_type})")
+                logger.info(f"IBKR search returned {len(found_contracts)} contracts for {identifier} ({sec_type}, name={search_by_name})")
                 return InstrumentSearchResponse(contracts=found_contracts)
 
             except HTTPException as http_exc:

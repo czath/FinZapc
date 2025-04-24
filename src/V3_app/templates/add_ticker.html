@@ -66,7 +66,7 @@
                     {# --- Row 1: Core Identifier, Type, ConID --- #}
                     <div class="row g-3 mb-3">
                         <div class="col-md-4"> {# Adjusted width #}
-                            <label for="identifier" class="form-label">Identifier (Ticker/Currency)</label>
+                            <label for="identifier" class="form-label">Identifier (Name/Ticker/Currency)</label>
                             <input type="text" class="form-control form-control-sm" id="identifier" name="identifier" required 
                                    
                                    data-bs-toggle="tooltip" 
@@ -364,7 +364,7 @@
                         const searchResponse = await fetch('/find_instruments', { 
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ identifier: identifier, status: statusValue }),
+                            body: JSON.stringify({ identifier: identifier, status: statusValue, name: true }),
                         });
 
                         if (!searchResponse.ok) {
@@ -443,16 +443,37 @@
                         return;
                     }
                     const selectedConid = selectedRadio.value;
+                    const contractDetailsJson = selectedRadio.getAttribute('data-contract-details');
+                    let contractDetails = {};
+                    try {
+                        contractDetails = JSON.parse(contractDetailsJson || '{}');
+                    } catch (e) {
+                        console.error("Error parsing contract details JSON:", e);
+                        // Handle error - maybe show an alert?
+                    }
+                    const selectedSymbol = contractDetails.symbol || ''; // Get the symbol
+
                     conidSelectionError.style.display = 'none';
                     
                     // Add selected conid to original form data (still useful for backend)
                     originalFormData['conid'] = selectedConid;
+                    
                     // --- Populate the read-only display field --- 
                     const conidDisplayField = document.getElementById('conidDisplay');
                     if (conidDisplayField) {
                         conidDisplayField.value = selectedConid;
                     }
                     // --- End populate display field --- 
+
+                    // --- NEW: Update the main identifier field with the selected symbol ---
+                    const identifierField = document.getElementById('identifier');
+                    if (identifierField && selectedSymbol) {
+                        identifierField.value = selectedSymbol; 
+                        console.log(`Updated identifier field to: ${selectedSymbol}`);
+                        // Trigger input event manually if other listeners depend on it
+                        // identifierField.dispatchEvent(new Event('input')); 
+                    }
+                    // --- END NEW --- 
 
                     selectConidModal.hide(); // Hide modal after selection
                     addButton.style.display = 'inline-block'; // Show the Add Instrument button
