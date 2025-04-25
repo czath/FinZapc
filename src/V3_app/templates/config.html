@@ -1,368 +1,52 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Configuration - Financial App V3</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Bootstrap Toggle CSS -->
-    {# <link href="https://cdn.jsdelivr.net/npm/bootstrap5-toggle@5.0.4/css/bootstrap5-toggle.min.css" rel="stylesheet"> #}
-    <!-- DataTables CSS -->
-    <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
-    <!-- Include Bootstrap Icons (optional, if using icons) -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+{% extends "base.html" %}
+
+{% block title %}Configuration - Financial App V3{% endblock %}
+
+{% block head_extra %}
     <style>
-        /* Theme Variables */
-        :root {
-            --bs-body-bg: #ffffff;
-            --bs-body-color: #212529;
-            --bs-secondary-bg: #f8f9fa;
-            --bs-tertiary-bg: #e9ecef;
-            --bs-border-color: #dee2e6;
-            --bs-heading-color: #212529;
-            --bs-link-color: #0d6efd;
-            --bs-link-hover-color: #0a58ca;
-            --bs-emphasis-color: #000;
-            --bs-nav-link-color: #6c757d;
-            --bs-nav-link-hover-color: #495057;
-            --bs-navbar-color: rgba(0, 0, 0, 0.55);
-            --bs-navbar-hover-color: rgba(0, 0, 0, 0.7);
-            --bs-navbar-active-color: rgba(0, 0, 0, 0.9);
-            --bs-card-bg: #ffffff;
-            --bs-card-border-color: rgba(0, 0, 0, 0.175);
-            --bs-card-cap-bg: rgba(0, 0, 0, 0.03);
-            --bs-list-group-bg: #ffffff;
-            --bs-list-group-border-color: rgba(0, 0, 0, 0.125);
-            --bs-table-bg: transparent;
-            --bs-table-striped-bg: rgba(0, 0, 0, 0.05);
-            --bs-table-hover-bg: rgba(0, 0, 0, 0.075);
-            --bs-table-border-color: #dee2e6;
-            --bs-table-color: #212529;
-            --bs-modal-content-bg: #ffffff;
-            --bs-modal-header-border-color: #dee2e6;
-            --bs-modal-footer-border-color: #dee2e6;
-            --bs-input-bg: #ffffff;
-            --bs-input-color: #212529;
-            --bs-input-border-color: #ced4da;
-            --bs-input-focus-border-color: #86b7fe;
-            --bs-input-placeholder-color: #6c757d;
-            --bs-form-select-bg: #ffffff;
-            --bs-form-select-border-color: #ced4da;
-            --bs-form-select-color: #212529;
-            --bs-form-check-input-bg: #ffffff;
-            --bs-form-check-input-border: 1px solid rgba(0, 0, 0, 0.25);
-            --dt-row-selected: var(--bs-primary);
-            --dt-row-selected-text: white;
-            --dt-row-striped: var(--bs-table-striped-bg);
-            --dt-row-hover: var(--bs-table-hover-bg);
-            --dt-column-ordering: var(--bs-primary);
-        }
+        /* --- REMOVED Duplicated Theme CSS --- */
 
-        [data-theme="dark"] {
-            --bs-body-bg: #212529;
-            --bs-body-color: #dee2e6;
-            --bs-secondary-bg: #343a40;
-            --bs-tertiary-bg: #495057;
-            --bs-border-color: #495057;
-            --bs-heading-color: #ffffff;
-            --bs-link-color: #6ea8fe;
-            --bs-link-hover-color: #8bb9fe;
-            --bs-emphasis-color: #fff;
-            --bs-nav-link-color: #adb5bd;
-            --bs-nav-link-hover-color: #dee2e6;
-            --bs-navbar-color: rgba(255, 255, 255, 0.55);
-            --bs-navbar-hover-color: rgba(255, 255, 255, 0.75);
-            --bs-navbar-active-color: #ffffff;
-            --bs-card-bg: #343a40;
-            --bs-card-border-color: rgba(255, 255, 255, 0.125);
-            --bs-card-cap-bg: rgba(255, 255, 255, 0.03);
-            --bs-list-group-bg: #343a40;
-            --bs-list-group-border-color: rgba(255, 255, 255, 0.125);
-            --bs-table-bg: transparent;
-            --bs-table-striped-bg: rgba(255, 255, 255, 0.05);
-            --bs-table-hover-bg: rgba(255, 255, 255, 0.075);
-            --bs-table-border-color: #495057;
-            --bs-table-color: #dee2e6;
-            --bs-modal-content-bg: #343a40;
-            --bs-modal-header-border-color: #495057;
-            --bs-modal-footer-border-color: #495057;
-            --bs-input-bg: #343a40;
-            --bs-input-color: #dee2e6;
-            --bs-input-border-color: #6c757d;
-            --bs-input-focus-border-color: #5c9ded;
-            --bs-input-placeholder-color: #adb5bd;
-            --bs-form-select-bg: #343a40;
-            --bs-form-select-border-color: #6c757d;
-            --bs-form-select-color: #dee2e6;
-            --bs-form-check-input-bg: #343a40;
-            --bs-form-check-input-border: 1px solid rgba(255, 255, 255, 0.25);
-            --dt-row-selected: #0d6efd; /* Keep Bootstrap primary blue */
-            --dt-row-selected-text: white;
-            --dt-row-striped: rgba(255, 255, 255, 0.05);
-            --dt-row-hover: rgba(255, 255, 255, 0.075);
-            --dt-column-ordering: #6ea8fe; /* Lighter blue for dark mode */
-        }
-
-        body {
-            background-color: var(--bs-body-bg);
-            color: var(--bs-body-color);
-        }
-        .navbar-light {
-            background-color: var(--bs-secondary-bg) !important;
-            color: var(--bs-navbar-color) !important;
-        }
-        .navbar-light .navbar-brand, .navbar-light .nav-link {
-            color: var(--bs-navbar-color) !important;
-        }
-        .navbar-light .nav-link:hover, .navbar-light .navbar-brand:hover {
-            color: var(--bs-navbar-hover-color) !important;
-        }
-        .navbar-light .nav-link.active {
-            color: var(--bs-navbar-active-color) !important;
-        }
-        .card {
-            background-color: var(--bs-card-bg);
-            border-color: var(--bs-card-border-color);
-        }
-        .card-header {
-            background-color: var(--bs-card-cap-bg);
-            color: var(--bs-heading-color);
-            border-bottom-color: var(--bs-card-border-color);
-        }
-        .table {
-            color: var(--bs-table-color);
-            border-color: var(--bs-table-border-color);
-            --bs-table-bg: var(--bs-table-bg);
-            --bs-table-striped-bg: var(--bs-table-striped-bg);
-            --bs-table-hover-bg: var(--bs-table-hover-bg);
-        }
-        .table-striped > tbody > tr:nth-of-type(odd) > * {
-            --bs-table-accent-bg: var(--bs-table-striped-bg);
-        }
-        .table-hover > tbody > tr:hover > * {
-            --bs-table-accent-bg: var(--bs-table-hover-bg);
-        }
-        .modal-content {
-            background-color: var(--bs-modal-content-bg);
-            color: var(--bs-body-color);
-        }
-        .modal-header { border-bottom-color: var(--bs-modal-header-border-color); }
-        .modal-footer { border-top-color: var(--bs-modal-footer-border-color); }
-        .form-control, .form-select {
-            background-color: var(--bs-input-bg);
-            color: var(--bs-input-color);
-            border-color: var(--bs-input-border-color);
-        }
-        .form-control::placeholder { color: var(--bs-input-placeholder-color); }
-        .form-control:focus, .form-select:focus {
-            border-color: var(--bs-input-focus-border-color);
-            box-shadow: 0 0 0 0.25rem rgba(var(--bs-link-color-rgb), .25);
-        }
-        .form-check-input {
-            background-color: var(--bs-form-check-input-bg);
-            border: var(--bs-form-check-input-border);
-        }
-        .form-check-input:checked {
-            background-color: var(--bs-link-color);
-            border-color: var(--bs-link-color);
-        }
-        .btn-close { filter: var(--bs-body-color) == #fff ? invert(1) brightness(2) : none; }
-        .alert {
-            background-color: var(--bs-tertiary-bg);
-            border-color: var(--bs-border-color);
-            color: var(--bs-body-color);
-        }
-        .nav-tabs .nav-link {
-            color: var(--bs-nav-link-color);
-            border-color: transparent transparent var(--bs-border-color) transparent;
-        }
-        .nav-tabs .nav-link.active {
-            color: var(--bs-link-color);
-            border-color: var(--bs-border-color) var(--bs-border-color) var(--bs-body-bg) var(--bs-border-color);
-        }
-        .nav-tabs .nav-link.active:after { display: none; } /* Remove underline effect if using borders */
-        .list-group-item {
-            background-color: var(--bs-list-group-bg);
-            border-color: var(--bs-list-group-border-color);
-            color: var(--bs-body-color);
-        }
-        .text-muted { color: var(--bs-nav-link-color) !important; } /* Ensure muted text adapts */
-
-        /* DataTables specific overrides */
-        .dataTables_wrapper .dataTables_length label,
-        .dataTables_wrapper .dataTables_filter label,
-        .dataTables_wrapper .dataTables_info {
-            color: var(--bs-body-color) !important;
-        }
-        .dataTables_wrapper .form-control,
-        .dataTables_wrapper .form-select {
-             background-color: var(--bs-input-bg) !important;
-             color: var(--bs-input-color) !important;
-             border-color: var(--bs-input-border-color) !important;
-        }
-        .page-item .page-link {
-            background-color: var(--bs-tertiary-bg);
-            color: var(--bs-link-color);
-            border-color: var(--bs-border-color);
-        }
-        .page-item.active .page-link {
-            background-color: var(--bs-link-color);
-            border-color: var(--bs-link-color);
-            color: var(--bs-body-bg);
-        }
-        .page-item.disabled .page-link {
-            background-color: var(--bs-tertiary-bg);
-            border-color: var(--bs-border-color);
-            color: var(--bs-nav-link-color);
-        }
-
-        /* Custom styles */
+        /* Custom styles specific to this config page */
         .card-header {
             font-weight: bold;
         }
-        /* Style for toggle */
-        .toggle-group label {
-            margin-bottom: 0; /* Align toggle better */
-        }
-        .toggle.ios, .toggle-on.ios, .toggle-off.ios { border-radius: 20px; }
-        .toggle.ios .toggle-handle { border-radius: 20px; }
+        /* Style for toggle (original bootstrap-toggle, maybe remove if using BS5 switches?) */
+        /* .toggle-group label { margin-bottom: 0; } */
+        /* .toggle.ios, .toggle-on.ios, .toggle-off.ios { border-radius: 20px; } */
+        /* .toggle.ios .toggle-handle { border-radius: 20px; } */
+        
+        /* General alignment */
         td, th {
              vertical-align: middle;
         }
         
-        /* Ensure toggles in the table have enough width */
-        #rulesTable .toggle {
-            min-width: 75px; /* Adjust as needed */
-            vertical-align: middle; /* Align toggle with text/buttons */
+        /* Ensure standard Bootstrap switches in tables are aligned */
+        #rulesTable .form-switch .form-check-input {
+            /* Adjust margin if needed */ 
+        }
+        #rulesTable .toggle { /* Style for original bootstrap-toggle */
+            min-width: 75px; 
+            vertical-align: middle; 
         }
         
-        /* Styles from index.html for consistent tabs */
-        .nav-tabs {
-            margin-bottom: 1.5rem;
-            border-bottom: 2px solid #dee2e6;
-        }
-        .nav-tabs .nav-link {
-            border: none;
-            color: #6c757d;
-            padding: 1rem 1.5rem;
-            font-weight: 500;
-            position: relative;
-        }
-        .nav-tabs .nav-link.active {
-            color: #0d6efd;
-            background: none;
-            border: none;
-        }
-        .nav-tabs .nav-link.active:after {
-            content: '';
-            position: absolute;
-            bottom: -2px;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: #0d6efd;
-        }
+        /* --- REMOVED Custom Tab Styles --- */
+        
         .tab-content {
-            padding: 1rem 0;
+            padding: 1rem 0; /* Consistent padding */
         }
 
-        /* Theme Toggle Button Styles */
-        .theme-toggle {
-             cursor: pointer;
-             font-size: 1.25rem;
-             margin-left: 10px;
-             background: none;
-             border: none;
-             padding: 0.375rem 0.75rem;
-             color: var(--bs-navbar-color);
-             line-height: inherit;
-        }
-        .theme-toggle:hover {
-            color: var(--bs-navbar-hover-color);
-        }
-        .theme-toggle .bi-sun-fill, .theme-toggle .bi-moon-fill {
-            vertical-align: middle;
-        }
+        /* --- REMOVED Duplicated Theme Toggle CSS --- */
     </style>
-</head>
-<body data-bs-theme="light">
-    <div class="container mt-5">
+{% endblock %}
 
-        {# --- Navigation Bar --- #}
-        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
-          <div class="container-fluid">
-            <a class="navbar-brand" href="{{ url_for('read_root') }}">FinZapc V1.2</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-              <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-              <ul class="navbar-nav ms-auto align-items-center"> {# Use ms-auto and align-items-center #}
-                <li class="nav-item">
-                  <a class="nav-link {% if request.url.path == url_for('read_root') %}active{% endif %}" aria-current="page" href="{{ url_for('read_root') }}">Dashboard</a>
-                </li>
-                <li class="nav-item">
-                  <a class="nav-link {% if request.url.path == url_for('get_tracker_page') %}active{% endif %}" href="{{ url_for('get_tracker_page') }}">Tracker</a>
-                </li>
-                <li class="nav-item">
-                  <a class="nav-link" href="{{ url_for('get_add_ticker_page') }}">Add Ticker</a>
-                </li>
-                <li class="nav-item">
-                  <a class="nav-link {% if request.url.path == url_for('get_config_page') %}active{% endif %}" href="{{ url_for('get_config_page') }}">Settings</a>
-                </li>
-                {# --- Theme Toggle Button --- #}
-                <li class="nav-item">
-                     <button id="theme-toggle-button" class="theme-toggle btn nav-link" title="Toggle light/dark theme">
-                         <i class="bi bi-sun-fill"></i> <!-- Default: Sun Icon -->
-                     </button>
-                </li>
-                {# --- End Theme Toggle Button --- #}
-              </ul>
-            </div>
-          </div>
-        </nav>
-        {# --- End Navigation Bar --- #}
+{% block content %}
+    <div class="container mt-4">
+
+        {# --- REMOVED Navigation Bar (Provided by base.html) --- #}
 
         <h1 class="mb-4">Application Configuration</h1>
 
-        <!-- Alert Message Box -->
-        <div class="alert alert-dismissible fade show" role="alert" id="alertMessage" style="display: none;">
-            <!-- Content added by JS -->
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-
-        {# Populate the alert box if message exists on load from redirect #}
-        {% if request.query_params.get('message') %}
-            <script>
-              document.addEventListener('DOMContentLoaded', function() {
-                  // Ensure Jinja output is treated as a JS string literal
-                  const initialMessage = `{{ request.query_params.get('message')|tojson|safe }}`;
-                  const initialType = `{{ request.query_params.get('message_type')|default('info', true)|tojson|safe }}`;
-                  // Parse the JSON string received from Jinja
-                  try {
-                      const parsedMessage = JSON.parse(initialMessage);
-                      const parsedType = JSON.parse(initialType);
-                      showAlert(parsedMessage, parsedType);
-                      
-                      // --- Clean the URL after showing the message ---
-                      // Check if history API is supported
-                      if (window.history.replaceState) {
-                          const url = new URL(window.location.href);
-                          url.searchParams.delete('message');
-                          url.searchParams.delete('message_type');
-                          // Replace the current history entry with the cleaned URL
-                          window.history.replaceState({}, '', url.toString());
-                          console.log("Cleaned message params from URL");
-                      }
-                      // --- End URL cleaning ---
-                      
-                  } catch (e) {
-                      console.error("Error parsing initial message/type from query params:", e);
-                      // Fallback: show the raw string if parsing fails (e.g., not valid JSON)
-                      showAlert(initialMessage, 'warning'); 
-                  }
-              });
-            </script>
-        {% endif %}
+        {# --- REMOVED Alert Message Box and Initial Population Script (Use global #alert-placeholder and showAlert) --- #}
 
         <!-- Tab Navigation -->
         <ul class="nav nav-tabs mb-3" id="configTab" role="tablist">
@@ -389,11 +73,10 @@
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <span>IB fetch - account data</span>
                              <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" role="switch" 
+                                <input class="form-check-input job-active-toggle" type="checkbox" role="switch" 
                                        id="ibkr-active-switch" 
                                        data-job-id="ibkr_fetch" 
                                        {% if ibkr_is_active %}checked{% endif %} 
-                                       onchange="updateJobStatus(this)" {# Inline onchange #}
                                        data-bs-toggle="tooltip" data-bs-placement="top" 
                                        title="Enable/Disable scheduled data pull from IBKR">
                                 <label class="form-check-label" for="ibkr-active-switch"><small>Active</small></label>
@@ -405,19 +88,20 @@
                             </p>
                             <div class="input-group mb-3">
                                 <input type="text" class="form-control" 
-                                       id="ibkr-schedule-input" {# Input ID for JS #}
+                                       id="ibkr-schedule-input" 
                                        placeholder="e.g., 1 hour, 900" 
                                        aria-label="IBKR pull interval"
                                        value="{{ interval_to_human(current_interval) }}">
-                                <button class="btn btn-outline-secondary" type="button" 
-                                        onclick="updateGenericSchedule('ibkr_fetch', 'ibkr-schedule-input')" {# Inline onclick #}
+                                <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
+                                        data-job-id="ibkr_fetch" 
+                                        data-input-id="ibkr-schedule-input"
                                         data-bs-toggle="tooltip" data-bs-placement="top" 
                                         title="Update IBKR pull interval">
                                     Update
                                 </button>
                             </div>
-                            <small class="text-muted">Current interval: <span id="current-ibkr-interval">{{ interval_to_human(current_interval) }}</span></small>
-                            <small class="text-muted d-block">Ensure IB gateway is started by bin\run.bat root\conf.yaml and user is authenticated using https://localhost:5000/</small>
+                            <small class="text-muted">Current interval: <span id="current-ibkr_fetch-interval">{{ interval_to_human(current_interval) }}</span></small>
+                            <small class="text-muted d-block">Ensure IB gateway is started by bin\\run.bat root\\conf.yaml and user is authenticated using https://localhost:5000/</small>
                         </div>
                     </div>
                 </div>
@@ -429,11 +113,10 @@
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <span>IB fetch - market data</span>
                              <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" role="switch" 
-                                       id="ibkr-snapshot-active-switch" {# Unique ID #}
+                                <input class="form-check-input job-active-toggle" type="checkbox" role="switch" 
+                                       id="ibkr-snapshot-active-switch" 
                                        data-job-id="ibkr_sync_snapshot" 
                                        {% if ibkr_snapshot_is_active %}checked{% endif %} 
-                                       onchange="updateJobStatus(this)" {# Inline onchange #}
                                        data-bs-toggle="tooltip" data-bs-placement="top" 
                                        title="Enable/Disable scheduled market data snapshot pull">
                                 <label class="form-check-label" for="ibkr-snapshot-active-switch"><small>Active</small></label>
@@ -445,19 +128,20 @@
                             </p>
                             <div class="input-group mb-3">
                                 <input type="text" class="form-control" 
-                                       id="ibkr-snapshot-schedule-input" {# Unique Input ID for JS #}
+                                       id="ibkr-snapshot-schedule-input" 
                                        placeholder="e.g., 1 minute, 60" 
                                        aria-label="IBKR snapshot interval"
                                        value="{{ interval_to_human(ibkr_snapshot_schedule_seconds) }}">
-                                <button class="btn btn-outline-secondary" type="button" 
-                                        onclick="updateGenericSchedule('ibkr_sync_snapshot', 'ibkr-snapshot-schedule-input')" {# Inline onclick #}
+                                <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
+                                        data-job-id="ibkr_sync_snapshot" 
+                                        data-input-id="ibkr-snapshot-schedule-input"
                                         data-bs-toggle="tooltip" data-bs-placement="top" 
                                         title="Update IBKR snapshot interval">
                                     Update
                                 </button>
                             </div>
-                            <small class="text-muted">Current interval: <span id="current-ibkr_sync_snapshot-interval">{{ interval_to_human(ibkr_snapshot_schedule_seconds) }}</span></small> {# Unique span ID #}
-                            <small class="text-muted d-block">Ensure IB gateway is started by bin\run.bat root\conf.yaml and user is authenticated using https://localhost:5000/</small> {# Added Instruction #}
+                            <small class="text-muted">Current interval: <span id="current-ibkr_sync_snapshot-interval">{{ interval_to_human(ibkr_snapshot_schedule_seconds) }}</span></small>
+                            <small class="text-muted d-block">Ensure IB gateway is started by bin\\run.bat root\\conf.yaml and user is authenticated using https://localhost:5000/</small>
                         </div>
                     </div>
                 </div>
@@ -469,11 +153,10 @@
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <span>FinViz Pull Interval</span>
                              <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" role="switch" 
+                                <input class="form-check-input job-active-toggle" type="checkbox" role="switch" 
                                        id="finviz-active-switch" 
                                        data-job-id="finviz_data_fetch" 
                                        {% if finviz_is_active %}checked{% endif %} 
-                                       onchange="updateJobStatus(this)"
                                        data-bs-toggle="tooltip" data-bs-placement="top" 
                                        title="Enable/Disable scheduled data pull from FinViz">
                                 <label class="form-check-label" for="finviz-active-switch"><small>Active</small></label>
@@ -489,14 +172,15 @@
                                        placeholder="e.g., 1 day, 6 hours, 900"
                                        aria-label="FinViz pull interval"
                                        value="{{ interval_to_human(finviz_schedule_seconds) }}">
-                                <button class="btn btn-outline-secondary" type="button" 
-                                        onclick="updateGenericSchedule('finviz_data_fetch', 'finviz-schedule-input')"
+                                <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
+                                        data-job-id="finviz_data_fetch" 
+                                        data-input-id="finviz-schedule-input"
                                         data-bs-toggle="tooltip" data-bs-placement="top" 
                                         title="Update FinViz pull interval">
                                     Update
                                 </button>
                             </div>
-                            <small class="text-muted">Current interval: <span id="current-finviz-interval">{{ interval_to_human(finviz_schedule_seconds) }}</span></small>
+                            <small class="text-muted">Current interval: <span id="current-finviz_data_fetch-interval">{{ interval_to_human(finviz_schedule_seconds) }}</span></small>
                         </div>
                     </div>
                 </div>
@@ -508,11 +192,10 @@
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <span>Yahoo Pull Interval</span>
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" role="switch" 
+                                <input class="form-check-input job-active-toggle" type="checkbox" role="switch" 
                                        id="yahoo-active-switch" 
                                        data-job-id="yahoo_data_fetch" 
                                        {% if yahoo_is_active %}checked{% endif %} 
-                                       onchange="updateJobStatus(this)"
                                        data-bs-toggle="tooltip" data-bs-placement="top" 
                                        title="Enable/Disable scheduled data pull from Yahoo Finance">
                                 <label class="form-check-label" for="yahoo-active-switch"><small>Active</small></label>
@@ -528,14 +211,15 @@
                                        placeholder="e.g., 1 day, 6 hours, 900"
                                        aria-label="Yahoo pull interval"
                                        value="{{ interval_to_human(yahoo_schedule_seconds) }}">
-                                <button class="btn btn-outline-secondary" type="button" 
-                                        onclick="updateGenericSchedule('yahoo_data_fetch', 'yahoo-schedule-input')"
+                                <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
+                                        data-job-id="yahoo_data_fetch" 
+                                        data-input-id="yahoo-schedule-input"
                                         data-bs-toggle="tooltip" data-bs-placement="top" 
                                         title="Update Yahoo pull interval">
                                     Update
                                 </button>
                             </div>
-                             <small class="text-muted">Current interval: <span id="current-yahoo-interval">{{ interval_to_human(yahoo_schedule_seconds) }}</span></small>
+                             <small class="text-muted">Current interval: <span id="current-yahoo_data_fetch-interval">{{ interval_to_human(yahoo_schedule_seconds) }}</span></small>
                         </div>
                     </div>
                 </div>
@@ -547,11 +231,10 @@
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <span>Investing.com Pull Interval</span>
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" role="switch" 
+                                <input class="form-check-input job-active-toggle" type="checkbox" role="switch" 
                                        id="investingcom-active-switch" 
                                        data-job-id="investingcom_data_fetch"
                                        {% if investingcom_is_active %}checked{% endif %} 
-                                       onchange="updateJobStatus(this)"
                                        data-bs-toggle="tooltip" data-bs-placement="top" 
                                        title="Enable/Disable scheduled data pull from Investing.com">
                                 <label class="form-check-label" for="investingcom-active-switch">
@@ -569,14 +252,15 @@
                                        placeholder="e.g., 1 day, 6 hours, 900"
                                        aria-label="Investing.com pull interval"
                                        value="{{ interval_to_human(investingcom_schedule_seconds) }}">
-                                <button class="btn btn-outline-secondary" type="button" 
-                                        onclick="updateGenericSchedule('investingcom_data_fetch', 'investingcom-schedule-input')"
+                                <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
+                                        data-job-id="investingcom_data_fetch" 
+                                        data-input-id="investingcom-schedule-input"
                                         data-bs-toggle="tooltip" data-bs-placement="top" 
                                         title="Update Investing.com pull interval">
                                     Update
                                 </button>
                             </div>
-                            <small class="text-muted">Current interval: <span id="current-investingcom-interval">{{ interval_to_human(investingcom_schedule_seconds) }}</span></small>
+                            <small class="text-muted">Current interval: <span id="current-investingcom_data_fetch-interval">{{ interval_to_human(investingcom_schedule_seconds) }}</span></small>
                         </div>
                     </div>
                 </div>
@@ -590,7 +274,7 @@
                     <div class="card-header">Exchange Rates (vs EURO)</div>
                     <div class="card-body">
                         <form method="post" id="exchangeRateForm">
-                            {% if exchange_rates %}
+                        {% if exchange_rates %}
                             <table class="table table-sm table-striped">
                                 <thead>
                                     <tr>
@@ -612,9 +296,9 @@
                             </table>
                             {# REMOVE the update button as nothing is editable #}
                             {# <button type="submit" class="btn btn-primary btn-sm mt-2">Update Rates</button> #}
-                            {% else %}
-                             <p>No exchange rates found.</p>
-                            {% endif %}
+                        {% else %}
+                         <p>No exchange rates found.</p>
+                        {% endif %}
                         </form>
                         <small class="text-muted mt-2 d-block">Rates are updated periodically.</small> {# Updated message #}
                     </div>
@@ -626,25 +310,27 @@
                 <div class="card mb-4">
                     <div class="card-header">Portfolio Rules</div>
                     <div class="card-body">
-                        <button type="button" class="btn btn-success btn-sm mb-3" data-bs-toggle="modal" data-bs-target="#ruleModal" onclick="prepareAddRuleModal()">
+                        <button type="button" class="btn btn-success btn-sm mb-3 add-rule-btn" data-bs-toggle="modal" data-bs-target="#ruleModal">
                             <i class="bi bi-plus-circle"></i> Add New Rule
                         </button>
-                        <table class="table table-sm table-striped table-bordered w-100" id="rulesTable">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Rule Name</th>
-                                    <th>Min Value</th>
-                                    <th>Max Value</th>
-                                    <th>Description</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="rulesTableBody">
-                                {# REMOVE Jinja loop - DataTables will populate this #}
-                            </tbody>
-                        </table>
+                        <div class="table-responsive">
+                            <table class="table table-sm w-100" id="rulesTable">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Rule Name</th>
+                                        <th>Min Value</th>
+                                        <th>Max Value</th>
+                                        <th>Description</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="rulesTableBody">
+                                    {# DataTables populates this #}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -653,7 +339,7 @@
 
     </div>
 
-    <!-- Rule Add/Edit Modal (Keep outside tab content) -->
+    <!-- Rule Add/Edit Modal -->
     <div class="modal fade" id="ruleModal" tabindex="-1" aria-labelledby="ruleModalLabel" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -710,16 +396,9 @@
             </div>
         </div>
     </div>
+{% endblock %} {# End Content Block #}
 
-
-    <!-- Scripts remain the same -->
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    {# <script src="https://cdn.jsdelivr.net/npm/bootstrap5-toggle@5.0.4/js/bootstrap5-toggle.jquery.min.js"></script> #}
-    <!-- DataTables JS -->
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-
+{% block scripts %}
     {# Embed initial rules data as JSON #}
     <script type="application/json" id="initial-rules-data">
         {{ portfolio_rules_json | safe }}
@@ -727,53 +406,154 @@
 
     {% raw %}
     <script>
-        // --- Theme Toggle Logic ---
-        const themeToggleButton = document.getElementById('theme-toggle-button');
-        const htmlElement = document.documentElement; // Target the <html> element
-        const bodyElement = document.body; // Target body for bootstrap theme attribute
-
-        // Function to set the theme
-        function setTheme(theme) {
-            htmlElement.setAttribute('data-theme', theme);
-            bodyElement.setAttribute('data-bs-theme', theme);
-            localStorage.setItem('theme', theme);
-
-            if (theme === 'dark') {
-                themeToggleButton.innerHTML = '<i class="bi bi-moon-fill"></i>';
-            } else {
-                themeToggleButton.innerHTML = '<i class="bi bi-sun-fill"></i>';
-            }
-            console.log(`Theme set to: ${theme}`);
-        }
-
-        const savedTheme = localStorage.getItem('theme') || 'light';
-        setTheme(savedTheme);
-
-        themeToggleButton.addEventListener('click', () => {
-            const currentTheme = htmlElement.getAttribute('data-theme') || 'light';
-            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-            setTheme(newTheme);
-        });
-        // --- End Theme Toggle Logic ---
-
-        // Store rule names for client-side use if needed
-        const VALID_RULE_NAMES = [
-            'Portfolio Leverage', 'Portfolio Beta', 'Position Size (% NAV)', 'Position Risk',
-            'Sector 1 Allocation',
-            'Sector 2 Allocation',
-            'Sector 3 Allocation',
-            'Sector 4 Allocation',
-            'Sector 5 Allocation',
-            'Sector 6 Allocation',
-            'Sector 7 Allocation',
-            'Sector 8 Allocation',
-            'Sector 9 Allocation',
-            'Sector 10 Allocation',
-            'Sector 11 Allocation'
-        ];
+        // Global variable for DataTables instance
+        var rulesDataTable = null; 
 
         // --- Initialize Toggles and Event Handlers ---
-        $(document).ready(function() {
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log("[DEBUG Config] DOM loaded.");
+            
+            // Initialize tooltips
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+
+            // Initialize DataTables
+            initializeRulesTable();
+
+            // --- Event Listeners using Delegation ---
+            const schedulerPane = document.getElementById('scheduler-pane');
+            const rulesTableBody = document.getElementById('rulesTableBody'); 
+            const rulesPane = document.getElementById('rules-pane'); // Parent of add button
+            const ruleForm = document.getElementById('ruleForm');
+            const ruleModal = document.getElementById('ruleModal');
+            const isActiveSwitch = document.getElementById('isActiveSwitch');
+
+            // Listener for Job Status Toggles
+            if (schedulerPane) {
+                schedulerPane.addEventListener('change', function(e) {
+                    if (e.target && e.target.classList.contains('job-active-toggle')) {
+                        const jobId = e.target.dataset.jobId;
+                        if (jobId) {
+                            console.log(`[UI Action] Job toggle changed: ${jobId}, Active: ${e.target.checked}`);
+                            updateJobActiveStatus(jobId, e.target.checked); // Use updated function name
+                        }
+                    }
+                });
+            }
+
+            // Listener for Schedule Update Buttons
+            if (schedulerPane) {
+                schedulerPane.addEventListener('click', function(e) {
+                    // Use matches() for cleaner check
+                    if (e.target && e.target.matches('button.schedule-update-btn')) {
+                        const jobId = e.target.dataset.jobId;
+                        const inputId = e.target.dataset.inputId;
+                        if (jobId && inputId) {
+                            updateGenericSchedule(jobId, inputId);
+                        }
+                    }
+                });
+            }
+
+            // Listener for Rule Status Toggles within DataTable body
+            // Use jQuery delegation since DataTable manages the tbody content
+            if (rulesTableBody) {
+                $(rulesTableBody).on('change', '.rule-active-toggle', function() {
+                    const ruleId = $(this).data('rule-id');
+                    const isActive = $(this).prop('checked');
+                    console.log(`[UI Action] Rule toggle changed: ${ruleId}, Active: ${isActive}`);
+                    updateRuleActiveStatus(ruleId, isActive);
+                });
+            }
+
+            // Listener for Add Rule Button click
+            if (rulesPane) { // Listen on a static parent
+                rulesPane.addEventListener('click', function(e) {
+                     if (e.target && e.target.matches('button.add-rule-btn')) {
+                        prepareAddRuleModal();
+                     }
+                 });
+            }
+
+            // Listener for Rule Form Submission
+             if (ruleForm) {
+                 ruleForm.addEventListener('submit', handleRuleSubmit);
+             }
+
+             // Listener for Modal Hidden event (to reset form)
+             if (ruleModal) {
+                 ruleModal.addEventListener('hidden.bs.modal', resetRuleForm);
+             }
+             
+             // Listener for modal switch change to sync hidden field
+             if (isActiveSwitch) {
+                 isActiveSwitch.addEventListener('change', function() {
+                    document.getElementById('isActiveHidden').value = this.checked ? 'true' : 'false';
+                 });
+             }
+
+             // Listener for Edit/Delete buttons in DataTable body
+             // Use jQuery delegation since DataTable manages the tbody content
+             if (rulesTableBody) {
+                 $(rulesTableBody).on('click', 'button', function(e) {
+                     const button = $(this);
+                     const row = button.closest('tr');
+                     const rowData = rulesDataTable.row(row).data();
+
+                     if (!rowData) {
+                         console.error("Could not get row data for button click.");
+                         showAlert("Action failed: Could not identify rule.", "danger");
+                         return;
+                     }
+                     
+                     const ruleId = rowData[0]; // Get ID from data array
+
+                     if (button.hasClass('btn-edit')) {
+                         console.log(`[UI Action] Edit button clicked for rule ID: ${ruleId}`);
+                         // Reconstruct rule object from row data array
+                         const rule = {
+                             id: rowData[0],
+                             rule_name: rowData[1],
+                             min_value: rowData[2],
+                             max_value: rowData[3],
+                             description: rowData[4],
+                             is_active: rowData[5] === 'Active' // Convert status string back to boolean
+                         };
+                         prepareEditRuleModal(rule); // Pass the reconstructed object
+                         
+                     } else if (button.hasClass('btn-delete')) {
+                         console.log(`[UI Action] Delete button clicked for rule ID: ${ruleId}`);
+                         deleteRule(ruleId); // Pass only the ID
+                     }
+                 });
+            }
+
+            // --- Theme Change Listener --- 
+            window.addEventListener('themeChanged', function(e) {
+                console.log('[Config] Theme changed event received:', e.detail.theme);
+                const theme = e.detail.theme;
+                const tableElement = document.querySelector('#rulesTable');
+                if (tableElement) {
+                    if (theme === 'dark') {
+                        tableElement.classList.add('table-dark');
+                    } else {
+                        tableElement.classList.remove('table-dark');
+                    }
+                }
+            });
+            // Apply initial theme class to table on load
+            if (document.documentElement.getAttribute('data-theme') === 'dark') {
+                document.querySelector('#rulesTable')?.classList.add('table-dark');
+            }
+            // --- End Theme Change Listener --- 
+
+            console.log("[DEBUG Config] DOMContentLoaded listeners set up.");
+        }); // --- End DOMContentLoaded ---
+
+        // --- DataTable Initialization --- 
+        function initializeRulesTable() {
             // Parse initial data
             let initialRulesData = [];
             const rawJsonElement = document.getElementById('initial-rules-data');
@@ -793,7 +573,7 @@
             setTimeout(function() {
                 console.log("Initializing DataTables...");
                 // --- UNCOMMENT AND UPDATE DATATABLES INIT ---
-                var table = $('#rulesTable').DataTable({
+                rulesDataTable = $('#rulesTable').DataTable({
                     data: initialTableData, // Use parsed initial data
                     columns: [ // Define columns explicitly
                          { data: 0, title: "ID" }, 
@@ -857,156 +637,38 @@
                         // } // End if/else
                     },
                     initComplete: function(settings, json) {
-                        console.log('DataTables initComplete: Refreshing all toggles...');
-                        // Find ALL toggle checkboxes in the table and refresh their state
-                        // $('#rulesTable .rule-active-toggle').bootstrapToggle(); // REMOVE THIS LINE - Not needed for standard BS5 switches
+                        console.log('[DEBUG Config] DataTables initComplete.');
+                        // Apply initial theme class (redundant with DOMContentLoaded one, but safe)
+                        if (document.documentElement.getAttribute('data-theme') === 'dark') {
+                            $('#rulesTable').addClass('table-dark');
+                        }
+                        addTableFilters(this.api());
                     }
                 }); // End DataTable Init
                 console.log("DataTables Initialized.");
                 
                 // Add filters after init
-                addTableFilters(table);
+                addTableFilters(rulesDataTable);
 
                 // REMOVE explicit call for initial draw - Rely on createdRow
                 // initializeToggles();
 
             }, 0); // End setTimeout wrapper for DT init
-
-            $('#ruleModal').on('hidden.bs.modal', function () {
-                resetRuleForm();
-            });
-
-             // Sync hidden input with the display switch in the modal
-            $('#isActiveSwitch').on('change', function() {
-                $('#isActiveHidden').val($(this).prop('checked') ? 'true' : 'false');
-            });
-            
-            // --- KEEP the delegated event handler for toggle changes --- 
-            $('#rulesTableBody').off('change', '.rule-active-toggle').on('change', '.rule-active-toggle', function() {
-                console.log("Rule Active Toggle changed!"); // Updated log message
-                const ruleId = $(this).data('rule-id');
-                const isActive = $(this).prop('checked');
-                 updateRuleActiveStatus(ruleId, isActive);
-            });
-            // --- End delegated event handler ---
-            
-            // --- Re-add event listener for Exchange Rate form submission ---
-            const exchangeRateForm = document.getElementById('exchangeRateForm');
-            if (exchangeRateForm) {
-                exchangeRateForm.addEventListener('submit', async function(event) {
-                    event.preventDefault(); // Prevent traditional form submission
-                    console.log("Exchange rate form submitted via fetch.");
-
-                    const form = event.target;
-                    const formData = new FormData(form);
-                    const data = Object.fromEntries(formData.entries());
-                    
-                    // Convert rates to floats
-                    data.usd_rate = parseFloat(data.usd_rate);
-                    data.gbp_rate = parseFloat(data.gbp_rate);
-
-                    // Basic validation (check if numbers are valid)
-                    if (isNaN(data.usd_rate) || isNaN(data.gbp_rate)) {
-                        showAlert('Please enter valid numbers for exchange rates.', 'warning');
-                        return;
-                    }
-
-                    const url = '/config/rates/update'; // Use the JSON endpoint URL
-
-                    try {
-                        const response = await fetch(url, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json', // Ensure JSON
-                                'Accept': 'application/json'
-                            },
-                            body: JSON.stringify(data) // Send as JSON
-                        });
-
-                        const result = await response.json();
-
-                        if (!response.ok) {
-                            throw new Error(result.detail || result.error || `Request failed with status ${response.status}`);
-                        }
-
-                        showAlert(result.message || 'Exchange rates updated successfully!', 'success');
-                        
-                    } catch (error) {
-                        console.error("Error updating exchange rates:", error);
-                        showAlert(`Error updating rates: ${error.message}`, 'danger');
-                    }
-                });
-            }
-            // --- End Exchange Rate form listener ---
-            
-            // --- Generic Schedule Form Listener (for Finviz, Yahoo) ---
-            function addGenericScheduleListener(formId, jobId) {
-                const form = document.getElementById(formId);
-                if (!form) return;
-
-                form.addEventListener('submit', async function(event) {
-                    event.preventDefault();
-                    const scheduleInput = form.querySelector('input[type="text"]');
-                    const scheduleValue = scheduleInput.value.trim();
-
-                    if (!scheduleValue) {
-                        showAlert('Schedule cannot be empty.', 'warning');
-                        return;
-                    }
-
-                    const url = '/config/schedule/generic_update'; // NEW endpoint
-                    const data = { job_id: jobId, schedule: scheduleValue };
-
-                    try {
-                        const response = await fetch(url, { 
-                            method: 'POST', 
-                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                            body: JSON.stringify(data)
-                        });
-                        const result = await response.json();
-                        if (!response.ok) { throw new Error(result.detail || `Request failed: ${response.status}`); }
-                        
-                        showAlert(result.message || `Schedule updated for ${jobId}!`, 'success');
-                        // Update input to show the processed seconds value
-                        if (result.schedule_seconds !== undefined) {
-                           scheduleInput.value = result.schedule_seconds;
-                        }
-                    } catch (error) {
-                        console.error(`Error updating ${jobId}:`, error);
-                        showAlert(`Error updating ${jobId} schedule: ${error.message}`, 'danger');
-                    }
-                });
-            }
-
-            addGenericScheduleListener('finvizScheduleForm', 'finviz_data_fetch');
-            addGenericScheduleListener('yahooScheduleForm', 'yahoo_data_fetch');
-            
-            // Initialize ALL job toggles on page load - REMOVE bootstrapToggle() call
-            // $('.job-active-toggle').bootstrapToggle();
-
-            // Delegated event handler for job status toggle changes
-            $('#scheduler-pane').on('change', '.job-active-toggle', function() {
-                const jobId = $(this).data('job-id');
-                const isActive = $(this).prop('checked');
-                console.log(`Job toggle changed: ${jobId}, Active: ${isActive}`);
-                updateJobActiveStatus(jobId, isActive);
-            });
-            
-        });
-
-        // --- NEW Function to Add Filters ---
-        function addTableFilters(dataTableInstance) {
+        }
+        
+        // --- Add Filters to DataTable Header ---
+        function addTableFilters(dataTableApi) {
              console.log("Adding table filters...");
              // --- Dynamically create the filter row --- 
              var filterRow = $('<tr class="filter-row"></tr>');
-             dataTableInstance.columns().every(function() {
+             dataTableApi.columns().every(function() {
                  filterRow.append('<th></th>'); 
              });
              $('#rulesTable thead').append(filterRow);
              // --- End filter row creation ---
 
              // --- Add filter widgets --- 
-             dataTableInstance.columns().every(function() {
+             dataTableApi.columns().every(function() {
                  var column = this;
                  var columnIndex = column.index();
                  var filterCell = $('#rulesTable thead .filter-row th').eq(columnIndex);
@@ -1038,48 +700,6 @@
              console.log("Table filters added.");
         }
 
-        // --- Alert Function ---
-        function showAlert(message, type = 'info') {
-            let alertBox = document.getElementById('alertMessage');
-            const container = document.querySelector('.container.mt-5'); // Get the main container
-
-            // If the alertBox doesn't exist (was closed), recreate it
-            if (!alertBox && container) {
-                console.log("Alert box not found, recreating...");
-                alertBox = document.createElement('div');
-                alertBox.id = 'alertMessage';
-                // Add necessary classes dynamically
-                alertBox.className = 'alert alert-dismissible fade show'; 
-                alertBox.setAttribute('role', 'alert');
-                alertBox.style.display = 'none'; // Start hidden until populated
-                
-                // Prepend it to the container so it appears at the top
-                container.prepend(alertBox);
-            } else if (!container) {
-                 console.error("Main container .container.mt-5 not found! Cannot recreate alert.");
-                 // Fallback to standard alert if container is missing (shouldn't happen)
-                 alert(`${type.toUpperCase()}: ${message}`);
-                 return;
-            }
-
-            // Now proceed assuming alertBox exists (either found or created)
-            if (alertBox) {
-                const alertClass = type === 'danger' || type === 'error' ? 'alert-danger' :
-                                 type === 'success' ? 'alert-success' :
-                                 type === 'warning' ? 'alert-warning' : 'alert-info';
-                // Update class based on type, keeping base classes
-                alertBox.className = `alert ${alertClass} alert-dismissible fade show`; 
-                // Set content and add close button
-                alertBox.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>`;
-                // Make it visible
-                alertBox.style.display = 'block';
-            } else {
-                // This case should theoretically not be reached now if container exists
-                console.error("#alertMessage element could not be found or created!");
-                alert(`${type.toUpperCase()}: ${message}`);
-            }
-        }
-
         // --- Modal Handling ---
         function prepareAddRuleModal() {
             resetRuleForm();
@@ -1089,20 +709,7 @@
             $('#saveRuleButton').text('Add Rule');
         }
 
-        function prepareEditRuleModal(ruleJson) { // Expects JSON string (or already parsed object)
-            let rule = {};
-            if (typeof ruleJson === 'string') {
-                 try {
-                     rule = JSON.parse(ruleJson);
-                 } catch (e) {
-                     console.error("Error parsing rule JSON for modal:", e);
-                     showAlert("Error preparing edit form.", "danger");
-                     return;
-                 }
-            } else {
-                 rule = ruleJson; // Assume already an object
-            }
-            
+        function prepareEditRuleModal(rule) { // Expects parsed JS object
             resetRuleForm();
             $('#ruleModalLabel').text(`Edit Rule (ID: ${rule.id})`);
             
@@ -1135,8 +742,8 @@
             $('#isActiveHidden').val('true');
         }
 
-        // --- Form Submission (Using Fetch API for dynamic updates) ---
-        document.getElementById('ruleForm').addEventListener('submit', async function(event) {
+        // --- Rule Form Submission (using Fetch API) ---
+        async function handleRuleSubmit(event) {
             event.preventDefault(); // Stop traditional form submission
 
             const form = event.target;
@@ -1211,8 +818,7 @@
                 console.error("Error saving rule:", error);
                 showAlert(`Error: ${error.message}`, 'danger');
             }
-        });
-
+        }
 
         // --- Update Active Status via Fetch ---
         async function updateRuleActiveStatus(ruleId, isActive) {
@@ -1259,7 +865,7 @@
         }
 
         // --- Delete Rule via Fetch ---
-        async function deleteRule(buttonElement, ruleId) { // Accept button element
+        async function deleteRule(ruleId) { // Takes ID directly now
              if (!confirm(`Are you sure you want to delete Rule ID ${ruleId}? This cannot be undone.`)) {
                  return;
              }
@@ -1288,7 +894,7 @@
                  
                  // --- DataTables: Remove row using the button's parent row --- 
                  var table = $('#rulesTable').DataTable();
-                 var rowNode = $(buttonElement).closest('tr').get(0); // Get the DOM node
+                 var rowNode = $(`#rule-row-${ruleId}`).get(0); // Get the DOM node
                  if(rowNode) {
                      table.row(rowNode).remove().draw(false); // Use DOM node with DataTables API
                      console.log(`Row node for rule ${ruleId} removed.`);
@@ -1311,10 +917,8 @@
              }
         }
 
-        // --- Dynamic Table Updates --- 
-        // Removed addTableRow and updateTableRow as updateRulesTable handles redraw
-
-         function updateRulesTable(rules) {
+        // --- Update Rules Table (Replaces rows) --- 
+        function updateRulesTable(rules) {
              console.log("Updating rules table with new data...");
              var table = $('#rulesTable').DataTable();
              
@@ -1330,21 +934,23 @@
              console.log("Table redrawn.");
          }
 
-
         // Helper function to create array data for a DataTables row
         function createRowDataArray(rule) {
              const isActive = rule.is_active === true || rule.is_active === 1 || `${rule.is_active}`.toLowerCase() === 'true';
              const description = rule.description || '';
-             const ruleJsonString = JSON.stringify(rule).replace(/'/g, "\'");
+             const ruleJsonString = JSON.stringify(rule).replace(/'/g, "\\'");
 
-             // Create ONLY buttons HTML string here
+             // Create ONLY buttons HTML string here - REMOVE TEXT, ADD TOOLTIPS
              const buttonsHtml = `
                  <button class="btn btn-primary btn-sm btn-edit" 
-                         onclick='prepareEditRuleModal(${ruleJsonString})'>
-                     <i class="bi bi-pencil-square"></i> Edit
+                         onclick='prepareEditRuleModal(${ruleJsonString})' 
+                         title="Edit Rule">
+                     <i class="bi bi-pencil-square"></i>
                  </button>
-                 <button class="btn btn-danger btn-sm btn-delete" onclick="deleteRule(this, ${rule.id})">
-                      <i class="bi bi-trash"></i> Delete
+                 <button class="btn btn-danger btn-sm btn-delete" 
+                         onclick="deleteRule(${rule.id})" 
+                         title="Delete Rule">
+                      <i class="bi bi-trash"></i>
                  </button>
              `;
 
@@ -1401,15 +1007,11 @@
          }
 
         // --- NEW Function to Update Job Active Status via Fetch ---
-        async function updateJobStatus(toggleElement) {
-            const jobId = $(toggleElement).data('job-id');
-            const isActive = $(toggleElement).prop('checked');
-            console.log(`[UI Action] updateJobStatus called for job: ${jobId}, isActive: ${isActive}`);
-            
+        async function updateJobActiveStatus(jobId, isActive) { // Renamed from updateJobStatus
             const url = '/config/schedule/update_status';
             const data = { job_id: jobId, is_active: isActive };
 
-            console.log(`Sending status update for ${jobId}:`, data);
+            console.log(`[DEBUG Config] Sending job status update for ${jobId}:`, JSON.stringify(data));
 
             try {
                 const response = await fetch(url, {
@@ -1417,21 +1019,17 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(data)
                 });
-
                 const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.detail || `Request failed: ${response.status}`);
-                }
-
+                if (!response.ok) throw new Error(result.detail || `Request failed: ${response.status}`);
+                
                 showAlert(result.message || `Job ${jobId} status updated.`, 'success');
-                // TODO: Consider adding logic to visually disable/enable the interval input based on status?
                 
             } catch (error) {
-                console.error(`Error updating status for ${jobId}:`, error);
+                console.error(`[DEBUG Config] Error updating status for ${jobId}:`, error);
                 showAlert(`Error updating ${jobId} status: ${error.message}`, 'danger');
-                // Revert toggle on error? Requires fetching current state or more complex handling.
-                // For now, just shows error. Reload might be needed to see DB state.
+                // Revert toggle visually?
+                const toggleInput = document.getElementById(`${jobId.replace('_','-')}-active-switch`);
+                if (toggleInput) toggleInput.checked = !isActive;
             }
         }
 
@@ -1511,6 +1109,4 @@
 
     </script>
     {% endraw %}
-
-</body>
-</html> 
+{% endblock %} {# End Scripts Block #}

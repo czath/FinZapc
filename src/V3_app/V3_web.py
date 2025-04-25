@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.base import JobLookupError # <-- ADD THIS LINE
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response # ADDED for setting cookies indirectly via response
 import json
 from pydantic import BaseModel, Field, ValidationError
 from collections import Counter
@@ -657,6 +657,21 @@ def create_app():
         # Revert: Templates setup?
         templates = Jinja2Templates(directory=os.path.join(current_dir, "templates"))
         app.state.templates = templates # Store templates
+
+        # --- Define Theme Context Processor Function ---
+        # (No decorator needed here)
+        async def theme_processor(request: Request) -> Dict[str, str]:
+            """Reads theme cookie and returns it for template context."""
+            current_theme = request.cookies.get("theme_preference", "light") # Default to 'light'
+            if current_theme not in ['light', 'dark']:
+                current_theme = 'light'
+            return {"current_theme": current_theme}
+        
+        # --- Add Processor to Template Globals --- 
+        templates.env.globals['theme_processor'] = theme_processor 
+        # Note: Jinja calls this function when rendering. We pass the function itself.
+        logger.info("Theme processor function added to template globals.")
+        # --- End Adding Processor ---
 
         # Revert: Helper function
         templates.env.globals['interval_to_human'] = interval_to_human
@@ -2521,7 +2536,20 @@ def create_app():
                     "error": "Failed to load configuration." # Keep original error for logging? 
                  })
 
-        # --- Move return app to the end of the main try block --- 
+        # --- NEW Analytics Page Route ---
+        @app.get("/analytics", response_class=HTMLResponse, name="get_analytics_page")
+        async def get_analytics_page(request: Request):
+            logger.info("Serving analytics page.")
+            try:
+                # In the future, fetch any data needed for the analytics page here
+                context = {"request": request}
+                return request.app.state.templates.TemplateResponse("analytics.html", context)
+            except Exception as e:
+                logger.exception("Error rendering analytics page", exc_info=True)
+                # Handle error appropriately, maybe redirect or show an error page
+                raise HTTPException(status_code=500, detail="Internal Server Error rendering analytics page.")
+        # --- END Analytics Page Route ---
+
         logger.info("FastAPI app instance created and configured successfully.")
         return app 
         # --- End Correct Indentation / End of try block ---

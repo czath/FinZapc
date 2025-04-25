@@ -1,360 +1,52 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
+{% extends "base.html" %}
+
+{% block meta %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ticker Tracker - Financial App V3</title>
     <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    {# REMOVED Bootstrap core CSS - Provided by base.html #}
+    {# REMOVED DataTables core CSS - Provided by base.html #}
     <!-- ADD DataTables Buttons CSS -->
     <link href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css" rel="stylesheet">
-    <!-- Include Bootstrap Icons -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    {# REMOVED Bootstrap Icons CSS - Provided by base.html #}
     <!-- REMOVE FixedHeader CSS -->
     <!-- <link href="https://cdn.datatables.net/fixedheader/4.0.1/css/fixedHeader.bootstrap5.min.css" rel="stylesheet"> -->
     <!-- REMOVE ColReorder CSS -->
     <!-- <link href="https://cdn.datatables.net/colreorder/2.0.3/css/colReorder.bootstrap5.min.css" rel="stylesheet"> -->
     <!-- Ensure style.css exists at src/V3_app/static/css/style.css -->
     <link rel="stylesheet" href="/static/css/style.css"> <!-- Assuming your common styles are here -->
+{% endblock %}
+
+{% block head_extra %}
     <style>
-        /* Theme Variables */
-        :root {
-            --bs-body-bg: #ffffff;
-            --bs-body-color: #212529;
-            --bs-secondary-bg: #f8f9fa;
-            --bs-tertiary-bg: #e9ecef;
-            --bs-border-color: #dee2e6;
-            --bs-heading-color: #212529;
-            --bs-link-color: #0d6efd;
-            --bs-link-hover-color: #0a58ca;
-            --bs-emphasis-color: #000;
-            --bs-nav-link-color: #6c757d;
-            --bs-nav-link-hover-color: #495057;
-            --bs-navbar-color: rgba(0, 0, 0, 0.55);
-            --bs-navbar-hover-color: rgba(0, 0, 0, 0.7);
-            --bs-navbar-active-color: rgba(0, 0, 0, 0.9);
-            --bs-card-bg: #ffffff;
-            --bs-card-border-color: rgba(0, 0, 0, 0.175);
-            --bs-card-cap-bg: rgba(0, 0, 0, 0.03);
-            --bs-list-group-bg: #ffffff;
-            --bs-list-group-border-color: rgba(0, 0, 0, 0.125);
-            --bs-table-bg: transparent;
-            --bs-table-striped-bg: rgba(0, 0, 0, 0.05);
-            --bs-table-hover-bg: rgba(0, 0, 0, 0.075);
-            --bs-table-border-color: #dee2e6;
-            --bs-table-color: #212529;
-            --bs-modal-content-bg: #ffffff;
-            --bs-modal-header-border-color: #dee2e6;
-            --bs-modal-footer-border-color: #dee2e6;
-            --bs-input-bg: #ffffff;
-            --bs-input-color: #212529;
-            --bs-input-border-color: #ced4da;
-            --bs-input-focus-border-color: #86b7fe;
-            --bs-input-placeholder-color: #6c757d;
-            --bs-form-select-bg: #ffffff;
-            --bs-form-select-border-color: #ced4da;
-            --bs-form-select-color: #212529;
-            --bs-form-check-input-bg: #ffffff;
-            --bs-form-check-input-border: 1px solid rgba(0, 0, 0, 0.25);
-            --dt-row-selected: var(--bs-primary);
-            --dt-row-selected-text: white;
-            --dt-row-striped: var(--bs-table-striped-bg);
-            --dt-row-hover: var(--bs-table-hover-bg);
-            --dt-column-ordering: var(--bs-primary);
-            --dt-search-label-color: var(--bs-body-color);
-            --dt-length-label-color: var(--bs-body-color);
-            --dt-info-color: var(--bs-body-color);
-            --dt-input-bg: var(--bs-input-bg);
-            --dt-input-color: var(--bs-input-color);
-            --dt-input-border: var(--bs-input-border-color);
-            --dt-paging-button-bg: var(--bs-tertiary-bg);
-            --dt-paging-button-color: var(--bs-link-color);
-            --dt-paging-button-border: var(--bs-border-color);
-            --dt-paging-active-bg: var(--bs-link-color);
-            --dt-paging-active-color: white;
-            --dt-paging-disabled-bg: var(--bs-tertiary-bg);
-            --dt-paging-disabled-color: var(--bs-nav-link-color);
-            --dt-button-bg: var(--bs-secondary-bg);
-            --dt-button-color: var(--bs-body-color);
-            --dt-button-border: var(--bs-border-color);
-            --dt-button-hover-bg: var(--bs-tertiary-bg);
-            --dt-button-hover-border: var(--bs-border-color);
-            --dt-button-collection-bg: var(--bs-body-bg);
-            --dt-button-collection-color: var(--bs-body-color);
-        }
-
-        [data-theme="dark"] {
-            --bs-body-bg: #212529;
-            --bs-body-color: #dee2e6;
-            --bs-secondary-bg: #343a40;
-            --bs-tertiary-bg: #495057;
-            --bs-border-color: #495057;
-            --bs-heading-color: #ffffff;
-            --bs-link-color: #6ea8fe;
-            --bs-link-hover-color: #8bb9fe;
-            --bs-emphasis-color: #fff;
-            --bs-nav-link-color: #adb5bd;
-            --bs-nav-link-hover-color: #dee2e6;
-            --bs-navbar-color: rgba(255, 255, 255, 0.55);
-            --bs-navbar-hover-color: rgba(255, 255, 255, 0.75);
-            --bs-navbar-active-color: #ffffff;
-            --bs-card-bg: #343a40;
-            --bs-card-border-color: rgba(255, 255, 255, 0.125);
-            --bs-card-cap-bg: rgba(255, 255, 255, 0.03);
-            --bs-list-group-bg: #343a40;
-            --bs-list-group-border-color: rgba(255, 255, 255, 0.125);
-            --bs-table-bg: transparent;
-            --bs-table-striped-bg: rgba(255, 255, 255, 0.05);
-            --bs-table-hover-bg: rgba(255, 255, 255, 0.075);
-            --bs-table-border-color: #495057;
-            --bs-table-color: #dee2e6;
-            --bs-modal-content-bg: #343a40;
-            --bs-modal-header-border-color: #495057;
-            --bs-modal-footer-border-color: #495057;
-            --bs-input-bg: #343a40;
-            --bs-input-color: #dee2e6;
-            --bs-input-border-color: #6c757d;
-            --bs-input-focus-border-color: #5c9ded;
-            --bs-input-placeholder-color: #adb5bd;
-            --bs-form-select-bg: #343a40;
-            --bs-form-select-border-color: #6c757d;
-            --bs-form-select-color: #dee2e6;
-            --bs-form-check-input-bg: #343a40;
-            --bs-form-check-input-border: 1px solid rgba(255, 255, 255, 0.25);
-            --dt-row-selected: #0d6efd; /* Keep Bootstrap primary blue */
-            --dt-row-selected-text: white;
-            --dt-row-striped: rgba(255, 255, 255, 0.05);
-            --dt-row-hover: rgba(255, 255, 255, 0.075);
-            --dt-column-ordering: #6ea8fe; /* Lighter blue for dark mode */
-            --dt-search-label-color: var(--bs-body-color);
-            --dt-length-label-color: var(--bs-body-color);
-            --dt-info-color: var(--bs-body-color);
-            --dt-input-bg: var(--bs-input-bg);
-            --dt-input-color: var(--bs-input-color);
-            --dt-input-border: var(--bs-input-border-color);
-            --dt-paging-button-bg: var(--bs-tertiary-bg);
-            --dt-paging-button-color: var(--bs-link-color);
-            --dt-paging-button-border: var(--bs-border-color);
-            --dt-paging-active-bg: var(--bs-link-color);
-            --dt-paging-active-color: var(--bs-body-bg);
-            --dt-paging-disabled-bg: var(--bs-tertiary-bg);
-            --dt-paging-disabled-color: var(--bs-nav-link-color);
-            --dt-button-bg: var(--bs-secondary-bg);
-            --dt-button-color: var(--bs-body-color);
-            --dt-button-border: var(--bs-border-color);
-            --dt-button-hover-bg: var(--bs-tertiary-bg);
-            --dt-button-hover-border: var(--bs-border-color);
-            --dt-button-collection-bg: var(--bs-body-bg);
-            --dt-button-collection-color: var(--bs-body-color);
-        }
-
-        body {
-            background-color: var(--bs-body-bg);
-            color: var(--bs-body-color);
-        }
-        .navbar-light {
-            background-color: var(--bs-secondary-bg) !important;
-            color: var(--bs-navbar-color) !important;
-        }
-        .navbar-light .navbar-brand, .navbar-light .nav-link {
-            color: var(--bs-navbar-color) !important;
-        }
-        .navbar-light .nav-link:hover, .navbar-light .navbar-brand:hover {
-            color: var(--bs-navbar-hover-color) !important;
-        }
-        .navbar-light .nav-link.active {
-            color: var(--bs-navbar-active-color) !important;
-        }
-        .card {
-            background-color: var(--bs-card-bg);
-            border-color: var(--bs-card-border-color);
-        }
-        .card-header {
-            background-color: var(--bs-card-cap-bg);
-            color: var(--bs-heading-color);
-            border-bottom-color: var(--bs-card-border-color);
-        }
-        .table {
-            color: var(--bs-table-color);
-            border-color: var(--bs-table-border-color);
-            --bs-table-bg: var(--bs-table-bg);
-            --bs-table-striped-bg: var(--bs-table-striped-bg);
-            --bs-table-hover-bg: var(--bs-table-hover-bg);
-        }
-        .table-striped > tbody > tr:nth-of-type(odd) > * {
-            --bs-table-accent-bg: var(--bs-table-striped-bg);
-        }
-        .table-hover > tbody > tr:hover > * {
-            --bs-table-accent-bg: var(--bs-table-hover-bg);
-        }
-        .modal-content {
-            background-color: var(--bs-modal-content-bg);
-            color: var(--bs-body-color);
-        }
-        .modal-header { border-bottom-color: var(--bs-modal-header-border-color); }
-        .modal-footer { border-top-color: var(--bs-modal-footer-border-color); }
-        .form-control, .form-select {
-            background-color: var(--bs-input-bg);
-            color: var(--bs-input-color);
-            border-color: var(--bs-input-border-color);
-        }
-        .form-control::placeholder { color: var(--bs-input-placeholder-color); }
-        .form-control:focus, .form-select:focus {
-            border-color: var(--bs-input-focus-border-color);
-            box-shadow: 0 0 0 0.25rem rgba(var(--bs-link-color-rgb), .25);
-        }
-        .form-check-input {
-            background-color: var(--bs-form-check-input-bg);
-            border: var(--bs-form-check-input-border);
-        }
-        .form-check-input:checked {
-            background-color: var(--bs-link-color);
-            border-color: var(--bs-link-color);
-        }
-        .btn-close { filter: var(--bs-body-color) == #fff ? invert(1) brightness(2) : none; }
-        .alert {
-            background-color: var(--bs-tertiary-bg);
-            border-color: var(--bs-border-color);
-            color: var(--bs-body-color);
-        }
-        .list-group-item {
-            background-color: var(--bs-list-group-bg);
-            border-color: var(--bs-list-group-border-color);
-            color: var(--bs-body-color);
-        }
-        .text-muted { color: var(--bs-nav-link-color) !important; }
-
-        /* DataTables specific overrides */
-        .dataTables_wrapper .dataTables_length label,
-        .dataTables_wrapper .dataTables_filter label,
-        .dataTables_wrapper .dataTables_info {
-            color: var(--dt-search-label-color) !important;
-        }
-        .dataTables_wrapper .form-control,
-        .dataTables_wrapper .form-select {
-             background-color: var(--dt-input-bg) !important;
-             color: var(--dt-input-color) !important;
-             border-color: var(--dt-input-border) !important;
-        }
-        .page-item .page-link {
-            background-color: var(--dt-paging-button-bg);
-            color: var(--dt-paging-button-color);
-            border-color: var(--dt-paging-button-border);
-        }
-        .page-item.active .page-link {
-            background-color: var(--dt-paging-active-bg);
-            border-color: var(--dt-paging-active-bg);
-            color: var(--dt-paging-active-color);
-        }
-        .page-item.disabled .page-link {
-            background-color: var(--dt-paging-disabled-bg);
-            border-color: var(--dt-paging-disabled-bg);
-            color: var(--dt-paging-disabled-color);
-        }
-        div.dt-buttons .btn {
-            background-color: var(--dt-button-bg) !important;
-            color: var(--dt-button-color) !important;
-            border-color: var(--dt-button-border) !important;
-        }
-        div.dt-buttons .btn:hover {
-            background-color: var(--dt-button-hover-bg) !important;
-            border-color: var(--dt-button-hover-border) !important;
-        }
-        div.dt-button-collection .dt-button {
-            background-color: var(--dt-button-collection-bg) !important;
-            color: var(--dt-button-collection-color) !important;
-        }
-        div.dt-button-collection .dt-button:hover,
-        div.dt-button-collection .dt-button.active {
-            background-color: var(--bs-link-color) !important;
-            color: white !important;
-        }
-
-        /* Existing styles */
+        /* Page-specific styles for tracker.html */
         .indicator-green, .indicator-red {
             display: inline-block;
-            width: 12px; /* Adjusted size */
-            height: 12px; /* Adjusted size */
-            border-radius: 50%;
-            margin-right: 5px;
+            width: 12px; 
+            height: 12px;
+            border-radius: 50%; 
+            margin-right: 5px; 
             vertical-align: middle;
         }
         .indicator-green { background-color: green; }
         .indicator-red { background-color: red; }
-
-        /* Style for dirty rows (optional) */
-        tr.row-dirty td {
-            /* background-color: #fffacd; */ /* Example: Light yellow */
-            font-style: italic; /* Example */
-        }
-
-        .action-buttons button, .action-buttons select {
-            margin-right: 5px;
-        }
-        .status-select {
-             width: 150px; /* Adjust as needed */
-        }
-        .acc-select {
-            width: 120px; /* Adjust as needed */
-        }
-        .table th, .table td {
-            vertical-align: middle;
-        }
-
-        /* Add tooltip style to make sure they're visible */
-        .tooltip {
-            z-index: 1076; /* Ensure tooltips appear above other elements, including DataTables filters */
-        }
-        /* Style for cells populated from live position data */
-        .live-data-source {
-            color: orange;
-            font-style: italic; /* Keep italics for consistency */
-        }
-        /* Style for negative difference in Max Pos */
-        .neg-diff {
-            color: red;
-            /* font-weight: bold; */ /* REMOVED: make it bold */
-        }
-        /* Custom orange text color */
-        .text-orange {
-            color: orange;
-        }
-        /* CSS to hide the cloned filter row in the scroll header REMOVED */
-        /*
-        .dataTables_scrollHeadInner .filter-row {
-            display: none;
-        }
-        */
-
-        /* Reduce font size and padding for table cells */
-        #tickerTable th, #tickerTable td {
-            font-size: 0.8em; /* Adjust value as needed */
-            padding-top: 0.25rem; /* Reduce vertical padding */
-            padding-bottom: 0.25rem; /* Reduce vertical padding */
-        }
-
-        /* Right-align numeric columns */
-        .numeric {
-            text-align: right !important;
-        }
-
-        /* Make position indicator clickable */
-        .position-indicator {
-            cursor: pointer;
-        }
-
-        /* Highlight row on hover - Added via JS */
-        .row-hover-highlight td {
-            background-color: #ffffcc !important; /* Light yellow background, target TD for specificity */
-        }
-
-        /* Highlight row on hover */
-        /* // REMOVED: Using JS approach instead
-        #tickerTable tbody tr:hover {
-            background-color: lightblue !important; // More obvious color + important
-        }
-        */
+        tr.row-dirty td { font-style: italic; }
+        .action-buttons button, .action-buttons select { margin-right: 5px; }
+        .status-select { width: 150px; }
+        .acc-select { width: 120px; }
+        .table th, .table td { vertical-align: middle; }
+        .tooltip { z-index: 1076; }
+        .live-data-source { color: orange; font-style: italic; }
+        .neg-diff { color: red; }
+        .text-orange { color: orange; }
+        #tickerTable th, #tickerTable td { font-size: 0.8em; padding-top: 0.25rem; padding-bottom: 0.25rem; }
+        /* ADDED: Force table width */
+        #tickerTable { width: 100% !important; }
+        .numeric { text-align: right !important; }
+        .position-indicator { cursor: pointer; }
+        .row-hover-highlight td { background-color: #ffffcc !important; }
+        .comments-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     </style>
     <!-- ADD Custom CSS for DataTables Buttons Dropdown Text -->
     <style>
@@ -390,46 +82,15 @@
         .theme-toggle .bi-sun-fill, .theme-toggle .bi-moon-fill {
             vertical-align: middle;
         }
+        /* Add space between Search and Buttons */
+        div.dataTables_wrapper div.row:first-child > div.col-md-6 .dt-buttons {
+            margin-left: 1rem; /* Adjust value as needed */
+        }
     </style>
-</head>
-<body data-bs-theme="light">
-    <div class="container-fluid mt-5">
+{% endblock %}
 
-        {# --- Navigation Bar --- #}
-        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
-          <div class="container-fluid">
-            <a class="navbar-brand" href="{{ url_for('read_root') }}">FinZapc V1.2</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-              <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-              <ul class="navbar-nav ms-auto align-items-center"> {# Use ms-auto and align-items-center #}
-                <li class="nav-item">
-                  <a class="nav-link {% if request.url.path == url_for('read_root') %}active{% endif %}" aria-current="page" href="{{ url_for('read_root') }}">Dashboard</a>
-                </li>
-                <li class="nav-item">
-                  <a class="nav-link {% if request.url.path == url_for('get_tracker_page') %}active{% endif %}" href="{{ url_for('get_tracker_page') }}">Tracker</a>
-                </li>
-                {# --- Add link to the new page --- #}
-                <li class="nav-item">
-                  <a class="nav-link" href="{{ url_for('get_add_ticker_page') }}">Add Ticker</a> {# Assume route name is 'get_add_ticker_page' #}
-                </li>
-                {# --- End Add link --- #}
-                <li class="nav-item">
-                  <a class="nav-link {% if request.url.path == url_for('get_config_page') %}active{% endif %}" href="{{ url_for('get_config_page') }}">Settings</a>
-                </li>
-                {# --- Theme Toggle Button --- #}
-                <li class="nav-item">
-                     <button id="theme-toggle-button" class="theme-toggle btn nav-link" title="Toggle light/dark theme">
-                         <i class="bi bi-sun-fill"></i> <!-- Default: Sun Icon -->
-                     </button>
-                </li>
-                {# --- End Theme Toggle Button --- #}
-              </ul>
-            </div>
-          </div>
-        </nav>
-        {# --- End Navigation Bar --- #}
+{% block content %}
+    <div class="container-fluid mt-5">
 
         <h1 class="mb-4">Monitor</h1>
 
@@ -517,7 +178,7 @@
                     
                     <!-- ADD Bootstrap Responsive Wrapper -->
                     <div class="table-responsive">
-                        <table class="table table-striped table-bordered" id="tickerTable">
+                        <table class="table" id="tickerTable">
                             <thead>
                                 <!-- Row 1: Column Headers -->
                                 <tr>
@@ -730,12 +391,12 @@
     </script>
     {# --- End Embed JSON --- #}
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script> -->
-    <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
-    <!-- <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script> -->
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+{% endblock %}
+
+{% block scripts %}
+    {# REMOVED Bootstrap Bundle JS - Provided by base.html #}
+    {# REMOVED jQuery - Provided by base.html #}
+    {# REMOVED DataTables Core JS - Provided by base.html #}
     <!-- ADD colResizable JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/colresizable/1.6.0/colResizable-1.6.min.js"></script>
     <!-- ADD DataTables Buttons JS -->
@@ -748,7 +409,7 @@
     <!-- <script src="https://cdn.datatables.net/colreorder/2.0.3/js/dataTables.colReorder.min.js"></script> -->
 
     <script>
-        // --- Embed and Parse Data from Backend --- 
+        // --- Embed and Parse Data from Backend ---
         let allAccounts = [];
         let exchangeRates = {};
 
@@ -845,7 +506,26 @@
                 // Restore and adjust columnDefs and initComplete 
                 columnDefs: [
                     // Indices < 4 remain the same (Ticker, Name, Status, Acc)
-                    { targets: [0,1], orderable: true, searchable: true }, // Ticker, Name
+                    { 
+                        targets: 0, 
+                        orderable: true, 
+                        searchable: true,
+                        // ADD RENDER FUNCTION TO PRESERVE ORIGINAL HTML FOR DISPLAY
+                        render: function(data, type, row) {
+                            if (type === 'display') {
+                                // Return the original HTML content rendered by Jinja
+                                return data; 
+                            }
+                            // For sorting/filtering, extract the ticker from the <strong> tag
+                            try {
+                                const match = data.match(/<strong>(.*?)<\/strong>/);
+                                return match ? match[1] : data; 
+                            } catch (e) {
+                                return data; // Fallback
+                            }
+                        } 
+                    }, // Ticker (End column 0 definition)
+                    { targets: 1, orderable: true, searchable: true }, // Name
                     // --- REVERT: Restore simple type definition for Status column (index 2) ---
                     { targets: 2, type: 'string' }, // Status (Reverted)
                     // --- END REVERT ---
@@ -1186,34 +866,7 @@
 
         // --- Function Definitions --- 
 
-        // --- Theme Toggle Logic ---
-        const themeToggleButton = document.getElementById('theme-toggle-button');
-        const htmlElement = document.documentElement; // Target the <html> element
-        const bodyElement = document.body; // Target body for bootstrap theme attribute
-
-        // Function to set the theme
-        function setTheme(theme) {
-            htmlElement.setAttribute('data-theme', theme);
-            bodyElement.setAttribute('data-bs-theme', theme);
-            localStorage.setItem('theme', theme);
-
-            if (theme === 'dark') {
-                themeToggleButton.innerHTML = '<i class="bi bi-moon-fill"></i>';
-            } else {
-                themeToggleButton.innerHTML = '<i class="bi bi-sun-fill"></i>';
-            }
-            console.log(`Theme set to: ${theme}`);
-        }
-
-        const savedTheme = localStorage.getItem('theme') || 'light';
-        setTheme(savedTheme);
-
-        themeToggleButton.addEventListener('click', () => {
-            const currentTheme = htmlElement.getAttribute('data-theme') || 'light';
-            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-            setTheme(newTheme);
-        });
-        // --- End Theme Toggle Logic ---
+       
 
         function showAlert(message, type = 'info') {
             const alertBox = document.getElementById('alertMessage');
@@ -1764,5 +1417,4 @@
             });
         });
     </script>
-</body>
-</html> 
+{% endblock %} 
