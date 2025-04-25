@@ -116,6 +116,34 @@ def get_full_screener_data_sync(db_path: str) -> Dict[str, Dict[str, Any]]:
         return {}
 # --- End Sync Screener Helper ---
 
+# --- NEW Sync DB Helper for Single Ticker Screener Data ---
+def get_screener_data_for_ticker_sync(db_path: str, ticker: str) -> Optional[Dict[str, Any]]:
+    """Fetches relevant fields for a single ticker from the screener table using sqlite3.
+       Returns a dictionary for the ticker or None if not found or error.
+    """
+    result_dict = None
+    try:
+        # logger.debug(f"[Sync Job] Connecting to DB sync for single ticker screener data: {db_path}") # Keep commented
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row # Return rows as dict-like objects
+            cursor = conn.cursor()
+            # Select relevant fields from the screener table
+            cursor.execute("SELECT ticker, conid, company, beta, sector, industry FROM screener WHERE ticker = ?", (ticker,))
+            row = cursor.fetchone()
+            if row:
+                result_dict = dict(row)
+                # logger.debug(f"[Sync Job] Fetched data for ticker {ticker}: {result_dict}") # Keep commented
+            # else: # Keep commented
+                # logger.debug(f"[Sync Job] Ticker {ticker} not found in screener.")
+        return result_dict
+    except sqlite3.Error as e:
+        logger.error(f"[Sync Job] DB error fetching single screener data for {ticker}: {e}")
+        return None # Return None on error
+    except Exception as e:
+        logger.error(f"[Sync Job] Unexpected error fetching single screener data for {ticker}: {e}")
+        return None
+# --- End Sync Single Ticker Helper ---
+
 # --- Sync DB Helper for Updating Single Screener Field ---
 # Renamed from update_screener_field_sync to _update_screener_single_field_sync
 def _update_screener_single_field_sync(db_path: str, ticker: str, field_name: str, value: Any) -> bool:
@@ -273,7 +301,15 @@ def run_sync_ibkr_snapshot_job(repository: SQLiteRepository, loop: AbstractEvent
                             continue # Skip to the next item in snapshot_data
                         # --- END Check --- 
                         
-                        # --- Prepare updates - Common fields first --- 
+                        # --- Fetch Current Screener Data ---
+                        current_screener_data = get_screener_data_for_ticker_sync(db_path, ticker)
+                        if not current_screener_data:
+                            logger.warning(f"[Sync Snapshot Job] Could not fetch current screener data for {ticker}. Skipping conditional updates, but will attempt price/change.")
+                            # Set to empty dict to avoid errors in checks below, allows price/change update
+                            current_screener_data = {}
+                        # --- End Fetch Current Data ---
+
+                        # --- Prepare updates - Common fields first (Unconditional) --- 
                         updates_for_ticker = {}
                         if price is not None: # Price is already extracted above
                             updates_for_ticker['price'] = price
@@ -288,37 +324,64 @@ def run_sync_ibkr_snapshot_job(repository: SQLiteRepository, loop: AbstractEvent
                                  logger.warning(f"[Sync Snapshot Job] Could not convert daychange '{daychange_str}' to float for {ticker} (conid: {item_conid}).")
                         # --- End Common fields --- 
                         
-                        # --- Extract and Add Other Fields (for both STK and IND) --- 
-                        company_name = item.get(snapshot_fields_map["company_name"]) # 7051
-                        sector = item.get(snapshot_fields_map["sector_from_industry"]) # 7280
-                        industry = item.get(snapshot_fields_map["industry_from_category"]) # 7281
-                        beta_str = item.get(snapshot_fields_map["beta"]) # 7718
-                        beta = None
-                        if beta_str is not None:
-                            try:
-                                beta = float(beta_str)
-                            except (ValueError, TypeError):
-                                logger.warning(f"[Sync Snapshot Job] Could not convert beta '{beta_str}' to float for {ticker} (conid: {item_conid}).")
+                        # --- Extract and Add Other Fields (Conditional Update) --- 
+                        company_name_snap = item.get(snapshot_fields_map["company_name"]) # 7051
+                        sector_snap = item.get(snapshot_fields_map["sector_from_industry"]) # 7280
+                        industry_snap = item.get(snapshot_fields_map["industry_from_category"]) # 7281
+                        beta_str_snap = item.get(snapshot_fields_map["beta"]) # 7718
                         
-                        # Add to updates if they exist
-                        if company_name is not None:
-                            updates_for_ticker['Company'] = str(company_name) # Ensure string
-                        if sector is not None:
-                             updates_for_ticker['sector'] = str(sector)
-                        if industry is not None:
-                             updates_for_ticker['industry'] = str(industry)
-                        if beta is not None:
-                            updates_for_ticker['beta'] = beta
-                        # --- End Other Fields --- 
+                        beta_snap = None
+                        if beta_str_snap is not None:
+                            try:
+                                beta_snap = float(beta_str_snap)
+                            except (ValueError, TypeError):
+                                logger.warning(f"[Sync Snapshot Job] Could not convert snapshot beta '{beta_str_snap}' to float for {ticker} (conid: {item_conid}).")
+
+                        # Helper function to check if current DB value is considered empty/invalid
+                        def is_db_value_empty(value):
+                           return value is None or value == ''
+
+                        # Add Company conditionally
+                        current_company = current_screener_data.get('company')
+                        if company_name_snap is not None and is_db_value_empty(current_company):
+                            updates_for_ticker['Company'] = str(company_name_snap) # Ensure string
+                            logger.debug(f"[Sync Snapshot Job] Adding Company '{company_name_snap}' for {ticker} (DB was empty/None).")
+                        elif company_name_snap is not None:
+                             logger.debug(f"[Sync Snapshot Job] Skipping Company update for {ticker} (DB already has value: '{current_company}'). Snapshot value: '{company_name_snap}'.")
+
+                        # Add Sector conditionally
+                        current_sector = current_screener_data.get('sector')
+                        if sector_snap is not None and is_db_value_empty(current_sector):
+                             updates_for_ticker['sector'] = str(sector_snap)
+                             logger.debug(f"[Sync Snapshot Job] Adding Sector '{sector_snap}' for {ticker} (DB was empty/None).")
+                        elif sector_snap is not None:
+                              logger.debug(f"[Sync Snapshot Job] Skipping Sector update for {ticker} (DB already has value: '{current_sector}'). Snapshot value: '{sector_snap}'.")
+
+                        # Add Industry conditionally
+                        current_industry = current_screener_data.get('industry')
+                        if industry_snap is not None and is_db_value_empty(current_industry):
+                             updates_for_ticker['industry'] = str(industry_snap)
+                             logger.debug(f"[Sync Snapshot Job] Adding Industry '{industry_snap}' for {ticker} (DB was empty/None).")
+                        elif industry_snap is not None:
+                             logger.debug(f"[Sync Snapshot Job] Skipping Industry update for {ticker} (DB already has value: '{current_industry}'). Snapshot value: '{industry_snap}'.")
+
+                        # Add Beta unconditionally (if valid snapshot value exists)
+                        # current_beta = current_screener_data.get('beta') # No longer need to fetch current beta for the check
+                        if beta_snap is not None:
+                            updates_for_ticker['beta'] = beta_snap
+                            # Adjust log message to reflect unconditional update
+                            logger.debug(f"[Sync Snapshot Job] Adding Beta '{beta_snap}' for {ticker} from snapshot.") 
+                        # --- End Conditional/Unconditional Other Fields ---
                                 
                         # Proceed with update if any fields were collected
                         if updates_for_ticker:
-                            logger.debug(f"[Sync Snapshot Job] Updating screener for {ticker} ({actual_sec_type}): {updates_for_ticker}")
+                            logger.debug(f"[Sync Snapshot Job] Updating screener for {ticker} ({actual_sec_type}) with fields: {list(updates_for_ticker.keys())}")
+                            # logger.debug(f"Full updates dict: {updates_for_ticker}") # Optional verbose logging
                             success = update_screener_multi_fields_sync(db_path, ticker, updates_for_ticker)
                             if not success:
                                 logger.error(f"[Sync Snapshot Job] Failed to update screener for {ticker}.")
                         else:
-                            logger.debug(f"[Sync Snapshot Job] No valid fields extracted from snapshot for stock {ticker} (conid: {item_conid}).")
+                            logger.debug(f"[Sync Snapshot Job] No applicable updates found for stock {ticker} (conid: {item_conid}) after checking current DB values.")
                     
                     elif item_type == 'fx':
                         currency = identifier
@@ -717,6 +780,44 @@ def create_app():
                 logger.error(f"Error during initial data fetch: {str(e)}")
                 logger.exception("Initial data fetch failed:")
         
+        # --- NEW: Initial Finviz Fetch Function ---
+        async def run_initial_finviz_fetch():
+            """Background task to fetch Finviz data on startup."""
+            await asyncio.sleep(6) # Slightly offset from IBKR fetch
+            logger.info("Starting initial Finviz data fetch on application startup...")
+            finviz_job_id = 'finviz_data_fetch' # CORRECTED job ID to match DB/Scheduler
+            try:
+                # Need to import these at the top of V3_web.py if not already done
+                from .V3_finviz_fetch import fetch_and_store_finviz_data, update_screener_from_finviz
+                
+                repository: SQLiteRepository = app.state.repository
+                # Check if the finviz job is active before running
+                is_active = await repository.get_job_is_active(finviz_job_id, default_active=False) # Default to False if not found
+
+                if is_active:
+                    logger.info(f"Job '{finviz_job_id}' is active. Proceeding with initial Finviz data fetch and update.")
+                    # Acquire lock? Consider if necessary/shared with other fetches
+                    # For now, assume it runs independently or locking is handled within functions
+                    
+                    logger.info(f"Running fetch_and_store_finviz_data for '{finviz_job_id}'...")
+                    await fetch_and_store_finviz_data(repository)
+                    logger.info(f"fetch_and_store_finviz_data completed for '{finviz_job_id}'.")
+                    
+                    logger.info(f"Running update_screener_from_finviz for '{finviz_job_id}'...")
+                    await update_screener_from_finviz(repository)
+                    logger.info(f"update_screener_from_finviz completed for '{finviz_job_id}'.")
+
+                    logger.info(f"Initial Finviz data fetch and update completed successfully for '{finviz_job_id}'.")
+                else:
+                    logger.info(f"Job '{finviz_job_id}' is inactive. Skipping initial Finviz data fetch.")
+
+            except ImportError as imp_err:
+                 logger.error(f"CRITICAL: Failed to import Finviz functions for initial fetch: {imp_err}. Ensure V3_finviz_fetch.py exists and is accessible.", exc_info=True)
+            except Exception as e:
+                logger.error(f"Error during initial Finviz data fetch for '{finviz_job_id}': {str(e)}")
+                logger.exception(f"Initial Finviz data fetch failed for '{finviz_job_id}':")
+        # --- END NEW Finviz Fetch Function ---
+
         async def scheduled_fetch_job():
             """Job function that the scheduler will call and notify clients."""
             job_id = "ibkr_fetch" # Define job ID for checks
@@ -1220,6 +1321,11 @@ def create_app():
             logger.info("Application startup: Scheduling initial data fetch.")
             asyncio.create_task(run_initial_fetch()) 
             # --- End Initial Fetch Scheduling ---
+
+            # --- NEW: Schedule Initial Finviz Fetch ---
+            logger.info("Application startup: Scheduling initial Finviz data fetch.")
+            asyncio.create_task(run_initial_finviz_fetch())
+            # --- END NEW Finviz Fetch ---
 
         @app.on_event("shutdown")
         async def shutdown_event():

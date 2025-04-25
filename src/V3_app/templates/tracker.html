@@ -9,6 +9,8 @@
     <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     <!-- ADD DataTables Buttons CSS -->
     <link href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css" rel="stylesheet">
+    <!-- Include Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <!-- REMOVE FixedHeader CSS -->
     <!-- <link href="https://cdn.datatables.net/fixedheader/4.0.1/css/fixedHeader.bootstrap5.min.css" rel="stylesheet"> -->
     <!-- REMOVE ColReorder CSS -->
@@ -16,6 +18,260 @@
     <!-- Ensure style.css exists at src/V3_app/static/css/style.css -->
     <link rel="stylesheet" href="/static/css/style.css"> <!-- Assuming your common styles are here -->
     <style>
+        /* Theme Variables */
+        :root {
+            --bs-body-bg: #ffffff;
+            --bs-body-color: #212529;
+            --bs-secondary-bg: #f8f9fa;
+            --bs-tertiary-bg: #e9ecef;
+            --bs-border-color: #dee2e6;
+            --bs-heading-color: #212529;
+            --bs-link-color: #0d6efd;
+            --bs-link-hover-color: #0a58ca;
+            --bs-emphasis-color: #000;
+            --bs-nav-link-color: #6c757d;
+            --bs-nav-link-hover-color: #495057;
+            --bs-navbar-color: rgba(0, 0, 0, 0.55);
+            --bs-navbar-hover-color: rgba(0, 0, 0, 0.7);
+            --bs-navbar-active-color: rgba(0, 0, 0, 0.9);
+            --bs-card-bg: #ffffff;
+            --bs-card-border-color: rgba(0, 0, 0, 0.175);
+            --bs-card-cap-bg: rgba(0, 0, 0, 0.03);
+            --bs-list-group-bg: #ffffff;
+            --bs-list-group-border-color: rgba(0, 0, 0, 0.125);
+            --bs-table-bg: transparent;
+            --bs-table-striped-bg: rgba(0, 0, 0, 0.05);
+            --bs-table-hover-bg: rgba(0, 0, 0, 0.075);
+            --bs-table-border-color: #dee2e6;
+            --bs-table-color: #212529;
+            --bs-modal-content-bg: #ffffff;
+            --bs-modal-header-border-color: #dee2e6;
+            --bs-modal-footer-border-color: #dee2e6;
+            --bs-input-bg: #ffffff;
+            --bs-input-color: #212529;
+            --bs-input-border-color: #ced4da;
+            --bs-input-focus-border-color: #86b7fe;
+            --bs-input-placeholder-color: #6c757d;
+            --bs-form-select-bg: #ffffff;
+            --bs-form-select-border-color: #ced4da;
+            --bs-form-select-color: #212529;
+            --bs-form-check-input-bg: #ffffff;
+            --bs-form-check-input-border: 1px solid rgba(0, 0, 0, 0.25);
+            --dt-row-selected: var(--bs-primary);
+            --dt-row-selected-text: white;
+            --dt-row-striped: var(--bs-table-striped-bg);
+            --dt-row-hover: var(--bs-table-hover-bg);
+            --dt-column-ordering: var(--bs-primary);
+            --dt-search-label-color: var(--bs-body-color);
+            --dt-length-label-color: var(--bs-body-color);
+            --dt-info-color: var(--bs-body-color);
+            --dt-input-bg: var(--bs-input-bg);
+            --dt-input-color: var(--bs-input-color);
+            --dt-input-border: var(--bs-input-border-color);
+            --dt-paging-button-bg: var(--bs-tertiary-bg);
+            --dt-paging-button-color: var(--bs-link-color);
+            --dt-paging-button-border: var(--bs-border-color);
+            --dt-paging-active-bg: var(--bs-link-color);
+            --dt-paging-active-color: white;
+            --dt-paging-disabled-bg: var(--bs-tertiary-bg);
+            --dt-paging-disabled-color: var(--bs-nav-link-color);
+            --dt-button-bg: var(--bs-secondary-bg);
+            --dt-button-color: var(--bs-body-color);
+            --dt-button-border: var(--bs-border-color);
+            --dt-button-hover-bg: var(--bs-tertiary-bg);
+            --dt-button-hover-border: var(--bs-border-color);
+            --dt-button-collection-bg: var(--bs-body-bg);
+            --dt-button-collection-color: var(--bs-body-color);
+        }
+
+        [data-theme="dark"] {
+            --bs-body-bg: #212529;
+            --bs-body-color: #dee2e6;
+            --bs-secondary-bg: #343a40;
+            --bs-tertiary-bg: #495057;
+            --bs-border-color: #495057;
+            --bs-heading-color: #ffffff;
+            --bs-link-color: #6ea8fe;
+            --bs-link-hover-color: #8bb9fe;
+            --bs-emphasis-color: #fff;
+            --bs-nav-link-color: #adb5bd;
+            --bs-nav-link-hover-color: #dee2e6;
+            --bs-navbar-color: rgba(255, 255, 255, 0.55);
+            --bs-navbar-hover-color: rgba(255, 255, 255, 0.75);
+            --bs-navbar-active-color: #ffffff;
+            --bs-card-bg: #343a40;
+            --bs-card-border-color: rgba(255, 255, 255, 0.125);
+            --bs-card-cap-bg: rgba(255, 255, 255, 0.03);
+            --bs-list-group-bg: #343a40;
+            --bs-list-group-border-color: rgba(255, 255, 255, 0.125);
+            --bs-table-bg: transparent;
+            --bs-table-striped-bg: rgba(255, 255, 255, 0.05);
+            --bs-table-hover-bg: rgba(255, 255, 255, 0.075);
+            --bs-table-border-color: #495057;
+            --bs-table-color: #dee2e6;
+            --bs-modal-content-bg: #343a40;
+            --bs-modal-header-border-color: #495057;
+            --bs-modal-footer-border-color: #495057;
+            --bs-input-bg: #343a40;
+            --bs-input-color: #dee2e6;
+            --bs-input-border-color: #6c757d;
+            --bs-input-focus-border-color: #5c9ded;
+            --bs-input-placeholder-color: #adb5bd;
+            --bs-form-select-bg: #343a40;
+            --bs-form-select-border-color: #6c757d;
+            --bs-form-select-color: #dee2e6;
+            --bs-form-check-input-bg: #343a40;
+            --bs-form-check-input-border: 1px solid rgba(255, 255, 255, 0.25);
+            --dt-row-selected: #0d6efd; /* Keep Bootstrap primary blue */
+            --dt-row-selected-text: white;
+            --dt-row-striped: rgba(255, 255, 255, 0.05);
+            --dt-row-hover: rgba(255, 255, 255, 0.075);
+            --dt-column-ordering: #6ea8fe; /* Lighter blue for dark mode */
+            --dt-search-label-color: var(--bs-body-color);
+            --dt-length-label-color: var(--bs-body-color);
+            --dt-info-color: var(--bs-body-color);
+            --dt-input-bg: var(--bs-input-bg);
+            --dt-input-color: var(--bs-input-color);
+            --dt-input-border: var(--bs-input-border-color);
+            --dt-paging-button-bg: var(--bs-tertiary-bg);
+            --dt-paging-button-color: var(--bs-link-color);
+            --dt-paging-button-border: var(--bs-border-color);
+            --dt-paging-active-bg: var(--bs-link-color);
+            --dt-paging-active-color: var(--bs-body-bg);
+            --dt-paging-disabled-bg: var(--bs-tertiary-bg);
+            --dt-paging-disabled-color: var(--bs-nav-link-color);
+            --dt-button-bg: var(--bs-secondary-bg);
+            --dt-button-color: var(--bs-body-color);
+            --dt-button-border: var(--bs-border-color);
+            --dt-button-hover-bg: var(--bs-tertiary-bg);
+            --dt-button-hover-border: var(--bs-border-color);
+            --dt-button-collection-bg: var(--bs-body-bg);
+            --dt-button-collection-color: var(--bs-body-color);
+        }
+
+        body {
+            background-color: var(--bs-body-bg);
+            color: var(--bs-body-color);
+        }
+        .navbar-light {
+            background-color: var(--bs-secondary-bg) !important;
+            color: var(--bs-navbar-color) !important;
+        }
+        .navbar-light .navbar-brand, .navbar-light .nav-link {
+            color: var(--bs-navbar-color) !important;
+        }
+        .navbar-light .nav-link:hover, .navbar-light .navbar-brand:hover {
+            color: var(--bs-navbar-hover-color) !important;
+        }
+        .navbar-light .nav-link.active {
+            color: var(--bs-navbar-active-color) !important;
+        }
+        .card {
+            background-color: var(--bs-card-bg);
+            border-color: var(--bs-card-border-color);
+        }
+        .card-header {
+            background-color: var(--bs-card-cap-bg);
+            color: var(--bs-heading-color);
+            border-bottom-color: var(--bs-card-border-color);
+        }
+        .table {
+            color: var(--bs-table-color);
+            border-color: var(--bs-table-border-color);
+            --bs-table-bg: var(--bs-table-bg);
+            --bs-table-striped-bg: var(--bs-table-striped-bg);
+            --bs-table-hover-bg: var(--bs-table-hover-bg);
+        }
+        .table-striped > tbody > tr:nth-of-type(odd) > * {
+            --bs-table-accent-bg: var(--bs-table-striped-bg);
+        }
+        .table-hover > tbody > tr:hover > * {
+            --bs-table-accent-bg: var(--bs-table-hover-bg);
+        }
+        .modal-content {
+            background-color: var(--bs-modal-content-bg);
+            color: var(--bs-body-color);
+        }
+        .modal-header { border-bottom-color: var(--bs-modal-header-border-color); }
+        .modal-footer { border-top-color: var(--bs-modal-footer-border-color); }
+        .form-control, .form-select {
+            background-color: var(--bs-input-bg);
+            color: var(--bs-input-color);
+            border-color: var(--bs-input-border-color);
+        }
+        .form-control::placeholder { color: var(--bs-input-placeholder-color); }
+        .form-control:focus, .form-select:focus {
+            border-color: var(--bs-input-focus-border-color);
+            box-shadow: 0 0 0 0.25rem rgba(var(--bs-link-color-rgb), .25);
+        }
+        .form-check-input {
+            background-color: var(--bs-form-check-input-bg);
+            border: var(--bs-form-check-input-border);
+        }
+        .form-check-input:checked {
+            background-color: var(--bs-link-color);
+            border-color: var(--bs-link-color);
+        }
+        .btn-close { filter: var(--bs-body-color) == #fff ? invert(1) brightness(2) : none; }
+        .alert {
+            background-color: var(--bs-tertiary-bg);
+            border-color: var(--bs-border-color);
+            color: var(--bs-body-color);
+        }
+        .list-group-item {
+            background-color: var(--bs-list-group-bg);
+            border-color: var(--bs-list-group-border-color);
+            color: var(--bs-body-color);
+        }
+        .text-muted { color: var(--bs-nav-link-color) !important; }
+
+        /* DataTables specific overrides */
+        .dataTables_wrapper .dataTables_length label,
+        .dataTables_wrapper .dataTables_filter label,
+        .dataTables_wrapper .dataTables_info {
+            color: var(--dt-search-label-color) !important;
+        }
+        .dataTables_wrapper .form-control,
+        .dataTables_wrapper .form-select {
+             background-color: var(--dt-input-bg) !important;
+             color: var(--dt-input-color) !important;
+             border-color: var(--dt-input-border) !important;
+        }
+        .page-item .page-link {
+            background-color: var(--dt-paging-button-bg);
+            color: var(--dt-paging-button-color);
+            border-color: var(--dt-paging-button-border);
+        }
+        .page-item.active .page-link {
+            background-color: var(--dt-paging-active-bg);
+            border-color: var(--dt-paging-active-bg);
+            color: var(--dt-paging-active-color);
+        }
+        .page-item.disabled .page-link {
+            background-color: var(--dt-paging-disabled-bg);
+            border-color: var(--dt-paging-disabled-bg);
+            color: var(--dt-paging-disabled-color);
+        }
+        div.dt-buttons .btn {
+            background-color: var(--dt-button-bg) !important;
+            color: var(--dt-button-color) !important;
+            border-color: var(--dt-button-border) !important;
+        }
+        div.dt-buttons .btn:hover {
+            background-color: var(--dt-button-hover-bg) !important;
+            border-color: var(--dt-button-hover-border) !important;
+        }
+        div.dt-button-collection .dt-button {
+            background-color: var(--dt-button-collection-bg) !important;
+            color: var(--dt-button-collection-color) !important;
+        }
+        div.dt-button-collection .dt-button:hover,
+        div.dt-button-collection .dt-button.active {
+            background-color: var(--bs-link-color) !important;
+            color: white !important;
+        }
+
+        /* Existing styles */
         .indicator-green, .indicator-red {
             display: inline-block;
             width: 12px; /* Adjusted size */
@@ -52,7 +308,7 @@
         }
         /* Style for cells populated from live position data */
         .live-data-source {
-            color: orange; 
+            color: orange;
             font-style: italic; /* Keep italics for consistency */
         }
         /* Style for negative difference in Max Pos */
@@ -70,7 +326,7 @@
             display: none;
         }
         */
-       
+
         /* Reduce font size and padding for table cells */
         #tickerTable th, #tickerTable td {
             font-size: 0.8em; /* Adjust value as needed */
@@ -80,7 +336,7 @@
 
         /* Right-align numeric columns */
         .numeric {
-            text-align: right !important; 
+            text-align: right !important;
         }
 
         /* Make position indicator clickable */
@@ -94,10 +350,10 @@
         }
 
         /* Highlight row on hover */
-        /* // REMOVED: Using JS approach instead 
+        /* // REMOVED: Using JS approach instead
         #tickerTable tbody tr:hover {
-            background-color: lightblue !important; // More obvious color + important 
-        } 
+            background-color: lightblue !important; // More obvious color + important
+        }
         */
     </style>
     <!-- ADD Custom CSS for DataTables Buttons Dropdown Text -->
@@ -108,18 +364,35 @@
         }
         /* Ensure the button itself has a clear background */
         .dt-button-collection .dt-button {
-            background-color: #fff !important; 
+            background-color: #fff !important;
             color: #212529 !important; /* Set button default text color just in case */
         }
         /* Style for active/selected items */
         .dt-button-collection .dt-button.active span,
         .dt-button-collection .dt-button.active {
-            color: #fff !important; 
+            color: #fff !important;
             background-color: #0d6efd !important; /* Bootstrap primary blue */
+        }
+        /* Theme Toggle Button Styles */
+        .theme-toggle {
+             cursor: pointer;
+             font-size: 1.25rem;
+             margin-left: 10px;
+             background: none;
+             border: none;
+             padding: 0.375rem 0.75rem;
+             color: var(--bs-navbar-color);
+             line-height: inherit;
+        }
+        .theme-toggle:hover {
+            color: var(--bs-navbar-hover-color);
+        }
+        .theme-toggle .bi-sun-fill, .theme-toggle .bi-moon-fill {
+            vertical-align: middle;
         }
     </style>
 </head>
-<body>
+<body data-bs-theme="light">
     <div class="container-fluid mt-5">
 
         {# --- Navigation Bar --- #}
@@ -130,7 +403,7 @@
               <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-              <ul class="navbar-nav ms-auto">
+              <ul class="navbar-nav ms-auto align-items-center"> {# Use ms-auto and align-items-center #}
                 <li class="nav-item">
                   <a class="nav-link {% if request.url.path == url_for('read_root') %}active{% endif %}" aria-current="page" href="{{ url_for('read_root') }}">Dashboard</a>
                 </li>
@@ -145,6 +418,13 @@
                 <li class="nav-item">
                   <a class="nav-link {% if request.url.path == url_for('get_config_page') %}active{% endif %}" href="{{ url_for('get_config_page') }}">Settings</a>
                 </li>
+                {# --- Theme Toggle Button --- #}
+                <li class="nav-item">
+                     <button id="theme-toggle-button" class="theme-toggle btn nav-link" title="Toggle light/dark theme">
+                         <i class="bi bi-sun-fill"></i> <!-- Default: Sun Icon -->
+                     </button>
+                </li>
+                {# --- End Theme Toggle Button --- #}
               </ul>
             </div>
           </div>
@@ -416,8 +696,12 @@
                                     {# Adjust indices #}
                                     <td contenteditable="true" data-field="comments" class="editable comments-cell">{{ item.comments | default('', true) }}</td>
                                     <td class="action-buttons"> {# Actions #}
-                                        <button class="btn btn-success btn-sm btn-update" style="display: none;" onclick="updateRow(this)">Update</button> <!-- Keep this for editable fields -->
-                                        <button class="btn btn-danger btn-sm" onclick="deleteTicker('{{ item.ticker }}')">Delete</button>
+                                        <button class="btn btn-success btn-sm btn-update" style="display: none;" onclick="updateRow(this)" data-bs-toggle="tooltip" data-bs-placement="top" title="Update">
+                                            <i class="bi bi-check-lg"></i>
+                                        </button> 
+                                        <button class="btn btn-danger btn-sm" onclick="deleteTicker('{{ item.ticker }}')" data-bs-toggle="tooltip" data-bs-placement="top" title="Delete">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
                                     </td>
                                     {# Add new data cell - Apply strftime format #}
                                     <td>{{ item.updated_at.strftime('%Y-%m-%d %H:%M:%S') if item.updated_at else '' }}</td>
@@ -757,53 +1041,105 @@
                 const cell = $(this);
                 const row = cell.closest('tr');
                 const ticker = row.data('ticker');
+                const statusSelect = row.find('.status-select');
+                const status = statusSelect.length ? statusSelect.val() : null;
 
-                if (ticker && livePositionsByTicker[ticker]) {
-                    const positionData = livePositionsByTicker[ticker];
-                    // --- START: Modify Popup Content ---
-                    let contentHtml = '<div style="min-width: 200px;">'; // Adjusted min-width slightly
+                let popoverTitle = '';
+                let popoverContentHtml = '';
+                let shouldShowPopover = false;
 
-                    // Explicitly select and display the desired fields
-                    const mktValue = positionData.marketValue || 'N/A';
-                    const navPercent = positionData.valuePercentage || 'N/A'; 
-                    const pnlPercent = positionData.pnlPercentage || 'N/A'; 
+                // Only show popups for portfolio items
+                if (status === 'portfolio') {
+                    if (ticker && livePositionsByTicker[ticker]) {
+                        // --- Existing Logic for LIVE positions ---
+                        const positionData = livePositionsByTicker[ticker];
+                        popoverTitle = 'Live Position Details';
+                        popoverContentHtml = '<div style="min-width: 200px;">'; 
 
-                    // --- START: Add PnL Formatting ---
-                    let pnlDisplayValue = pnlPercent; // Default to the original string
-                    try {
-                        // Attempt to parse the number (remove % if present)
-                        const pnlNum = parseFloat(pnlPercent.toString().replace('%',''));
-                        if (!isNaN(pnlNum)) { // Check if parsing was successful
-                            if (pnlNum > 0) {
-                                pnlDisplayValue = `<span class="text-success">${pnlPercent}</span>`;
-                            } else if (pnlNum < 0) {
-                                pnlDisplayValue = `<span class="text-danger">${pnlPercent}</span>`;
-                            } 
-                            // If pnlNum is 0, it uses the default color (no class)
+                        const mktValue = positionData.marketValue || 'N/A';
+                        const navPercent = positionData.valuePercentage || 'N/A'; 
+                        const pnlPercent = positionData.pnlPercentage || 'N/A'; 
+
+                        let pnlDisplayValue = pnlPercent; 
+                        try {
+                            const pnlNum = parseFloat(pnlPercent.toString().replace('%',''));
+                            if (!isNaN(pnlNum)) { 
+                                if (pnlNum > 0) {
+                                    pnlDisplayValue = `<span class="text-success">${pnlPercent}</span>`;
+                                } else if (pnlNum < 0) {
+                                    pnlDisplayValue = `<span class="text-danger">${pnlPercent}</span>`;
+                                } 
+                            }
+                        } catch (e) {
+                            console.warn(`Could not parse Live PnL Percentage for formatting: ${pnlPercent}`, e);
                         }
-                    } catch (e) {
-                        // Ignore parsing errors, just display the original string
-                        console.warn(`Could not parse PnL Percentage for formatting: ${pnlPercent}`, e);
+
+                        popoverContentHtml += `<strong>Market Value:</strong> ${mktValue}<br>`;
+                        popoverContentHtml += `<strong>% NAV:</strong> ${navPercent}<br>`;
+                        popoverContentHtml += `<strong>% PnL:</strong> ${pnlDisplayValue}`; 
+
+                        popoverContentHtml += '</div>';
+                        shouldShowPopover = true;
+                        // --- End Existing Logic ---
+                    } else if (ticker) {
+                        // --- NEW Logic for CALCULATED portfolio positions (Not in live data) ---
+                        console.debug(`Ticker ${ticker} is portfolio but not in live data. Calculating popup content.`);
+                        
+                        // Get data from table cells
+                        const priceText = row.find('td:eq(14)').text().trim();
+                        const openPosText = row.find('td:eq(13)').text().trim().replace(/,/g, ''); // Remove commas
+                        const costBaseText = row.find('td:eq(16)').text().trim();
+
+                        const price = parseFloat(priceText);
+                        const openPos = parseInt(openPosText, 10);
+                        const costBase = parseFloat(costBaseText);
+
+                        let calcMarketValue = 'N/A';
+                        let calcPnlPercent = 'N/A';
+                        let pnlDisplayValue = 'N/A';
+
+                        if (!isNaN(price) && !isNaN(openPos)) {
+                            calcMarketValue = (price * openPos).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        } else {
+                             console.warn(`[Calc Popup ${ticker}] Invalid input for Market Value: Price='${priceText}', OpenPos='${openPosText}'`);
+                        }
+
+                        if (!isNaN(price) && !isNaN(costBase) && costBase !== 0) {
+                            const pnlNum = ((price - costBase) / costBase) * 100;
+                            calcPnlPercent = pnlNum.toFixed(2) + '%'; 
+                            
+                            if (pnlNum > 0) {
+                                pnlDisplayValue = `<span class="text-success">${calcPnlPercent}</span>`;
+                            } else if (pnlNum < 0) {
+                                pnlDisplayValue = `<span class="text-danger">${calcPnlPercent}</span>`;
+                            } else {
+                                pnlDisplayValue = calcPnlPercent; // No color if zero
+                            }
+                        } else {
+                             console.warn(`[Calc Popup ${ticker}] Invalid input for PnL %: Price='${priceText}', CostBase='${costBaseText}'`);
+                             // pnlDisplayValue remains 'N/A'
+                        }
+
+                        popoverTitle = 'Calculated Position Details';
+                        popoverContentHtml = '<div style="min-width: 200px;">'; 
+                        popoverContentHtml += `<strong>Market Value:</strong> ${calcMarketValue}<br>`;
+                        popoverContentHtml += `<strong>% PnL:</strong> ${pnlDisplayValue}`; 
+                        popoverContentHtml += '</div>';
+                        shouldShowPopover = true;
+                        // --- End NEW Logic ---
                     }
-                    // --- END: Add PnL Formatting ---
+                } // End if status === 'portfolio'
 
-                    contentHtml += `<strong>Market Value:</strong> ${mktValue}<br>`;
-                    contentHtml += `<strong>% NAV:</strong> ${navPercent}<br>`;
-                    contentHtml += `<strong>% PnL:</strong> ${pnlDisplayValue}`; // Use the formatted value
-
-                    contentHtml += '</div>';
-                    // --- END: Modify Popup Content ---
-
-                    // Initialize and show popover manually
+                // Initialize and show popover if needed
+                if (shouldShowPopover) {
                     cell.popover({
                         trigger: 'manual',
                         html: true,
-                        title: 'Live Position Details',
+                        title: popoverTitle,
                         placement: 'right',
-                        content: contentHtml,
+                        content: popoverContentHtml,
                         container: 'body' // Attach to body to avoid table clipping issues
                     }).popover('show');
-                     // Add a class to indicate the popover is active (optional)
                     cell.addClass('popover-active'); 
                 }
             }).on('mouseleave', 'td:first-child', function() {
@@ -849,6 +1185,35 @@
         }); // End document.ready function
 
         // --- Function Definitions --- 
+
+        // --- Theme Toggle Logic ---
+        const themeToggleButton = document.getElementById('theme-toggle-button');
+        const htmlElement = document.documentElement; // Target the <html> element
+        const bodyElement = document.body; // Target body for bootstrap theme attribute
+
+        // Function to set the theme
+        function setTheme(theme) {
+            htmlElement.setAttribute('data-theme', theme);
+            bodyElement.setAttribute('data-bs-theme', theme);
+            localStorage.setItem('theme', theme);
+
+            if (theme === 'dark') {
+                themeToggleButton.innerHTML = '<i class="bi bi-moon-fill"></i>';
+            } else {
+                themeToggleButton.innerHTML = '<i class="bi bi-sun-fill"></i>';
+            }
+            console.log(`Theme set to: ${theme}`);
+        }
+
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        setTheme(savedTheme);
+
+        themeToggleButton.addEventListener('click', () => {
+            const currentTheme = htmlElement.getAttribute('data-theme') || 'light';
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            setTheme(newTheme);
+        });
+        // --- End Theme Toggle Logic ---
 
         function showAlert(message, type = 'info') {
             const alertBox = document.getElementById('alertMessage');

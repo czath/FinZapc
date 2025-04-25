@@ -6,13 +6,186 @@
     <title>Add New Ticker - Financial App V3</title>
     <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Include Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <!-- Ensure style.css exists at src/V3_app/static/css/style.css -->
-    <link rel="stylesheet" href="/static/css/style.css"> 
+    <link rel="stylesheet" href="/static/css/style.css">
     <style>
-        /* Add specific styles if needed */
+        /* Theme Variables */
+        :root {
+            --bs-body-bg: #ffffff;
+            --bs-body-color: #212529;
+            --bs-secondary-bg: #f8f9fa;
+            --bs-tertiary-bg: #e9ecef;
+            --bs-border-color: #dee2e6;
+            --bs-heading-color: #212529;
+            --bs-link-color: #0d6efd;
+            --bs-link-hover-color: #0a58ca;
+            --bs-emphasis-color: #000;
+            --bs-nav-link-color: #6c757d;
+            --bs-nav-link-hover-color: #495057;
+            --bs-navbar-color: rgba(0, 0, 0, 0.55);
+            --bs-navbar-hover-color: rgba(0, 0, 0, 0.7);
+            --bs-navbar-active-color: rgba(0, 0, 0, 0.9);
+            --bs-card-bg: #ffffff;
+            --bs-card-border-color: rgba(0, 0, 0, 0.175);
+            --bs-card-cap-bg: rgba(0, 0, 0, 0.03);
+            --bs-list-group-bg: #ffffff;
+            --bs-list-group-border-color: rgba(0, 0, 0, 0.125);
+            --bs-table-bg: transparent;
+            --bs-table-striped-bg: rgba(0, 0, 0, 0.05);
+            --bs-table-hover-bg: rgba(0, 0, 0, 0.075);
+            --bs-table-border-color: #dee2e6;
+            --bs-table-color: #212529;
+            --bs-modal-content-bg: #ffffff;
+            --bs-modal-header-border-color: #dee2e6;
+            --bs-modal-footer-border-color: #dee2e6;
+            --bs-input-bg: #ffffff;
+            --bs-input-color: #212529;
+            --bs-input-border-color: #ced4da;
+            --bs-input-focus-border-color: #86b7fe;
+            --bs-input-placeholder-color: #6c757d;
+            --bs-form-select-bg: #ffffff;
+            --bs-form-select-border-color: #ced4da;
+            --bs-form-select-color: #212529;
+            --bs-form-check-input-bg: #ffffff;
+            --bs-form-check-input-border: 1px solid rgba(0, 0, 0, 0.25);
+        }
+
+        [data-theme="dark"] {
+            --bs-body-bg: #212529;
+            --bs-body-color: #dee2e6;
+            --bs-secondary-bg: #343a40;
+            --bs-tertiary-bg: #495057;
+            --bs-border-color: #495057;
+            --bs-heading-color: #ffffff;
+            --bs-link-color: #6ea8fe;
+            --bs-link-hover-color: #8bb9fe;
+            --bs-emphasis-color: #fff;
+            --bs-nav-link-color: #adb5bd;
+            --bs-nav-link-hover-color: #dee2e6;
+            --bs-navbar-color: rgba(255, 255, 255, 0.55);
+            --bs-navbar-hover-color: rgba(255, 255, 255, 0.75);
+            --bs-navbar-active-color: #ffffff;
+            --bs-card-bg: #343a40;
+            --bs-card-border-color: rgba(255, 255, 255, 0.125);
+            --bs-card-cap-bg: rgba(255, 255, 255, 0.03);
+            --bs-list-group-bg: #343a40;
+            --bs-list-group-border-color: rgba(255, 255, 255, 0.125);
+            --bs-table-bg: transparent;
+            --bs-table-striped-bg: rgba(255, 255, 255, 0.05);
+            --bs-table-hover-bg: rgba(255, 255, 255, 0.075);
+            --bs-table-border-color: #495057;
+            --bs-table-color: #dee2e6;
+            --bs-modal-content-bg: #343a40;
+            --bs-modal-header-border-color: #495057;
+            --bs-modal-footer-border-color: #495057;
+            --bs-input-bg: #343a40;
+            --bs-input-color: #dee2e6;
+            --bs-input-border-color: #6c757d;
+            --bs-input-focus-border-color: #5c9ded;
+            --bs-input-placeholder-color: #adb5bd;
+            --bs-form-select-bg: #343a40;
+            --bs-form-select-border-color: #6c757d;
+            --bs-form-select-color: #dee2e6;
+            --bs-form-check-input-bg: #343a40;
+            --bs-form-check-input-border: 1px solid rgba(255, 255, 255, 0.25);
+        }
+
+        /* Ensure body uses the variables */
+        body {
+            background-color: var(--bs-body-bg);
+            color: var(--bs-body-color);
+        }
+        /* Specific component overrides */
+        .navbar-light {
+            background-color: var(--bs-secondary-bg) !important;
+            color: var(--bs-navbar-color) !important;
+        }
+        .navbar-light .navbar-brand, .navbar-light .nav-link {
+            color: var(--bs-navbar-color) !important;
+        }
+        .navbar-light .nav-link:hover, .navbar-light .navbar-brand:hover {
+            color: var(--bs-navbar-hover-color) !important;
+        }
+        .navbar-light .nav-link.active {
+            color: var(--bs-navbar-active-color) !important;
+        }
+        .card {
+            background-color: var(--bs-card-bg);
+            border-color: var(--bs-card-border-color);
+        }
+        .card-header {
+            background-color: var(--bs-card-cap-bg);
+            color: var(--bs-heading-color);
+            border-bottom-color: var(--bs-card-border-color);
+        }
+        .table {
+            color: var(--bs-table-color);
+            border-color: var(--bs-table-border-color);
+        }
+        .table-striped > tbody > tr:nth-of-type(odd) > * {
+            --bs-table-accent-bg: var(--bs-table-striped-bg);
+        }
+        .table-hover > tbody > tr:hover > * {
+            --bs-table-accent-bg: var(--bs-table-hover-bg);
+        }
+        .modal-content {
+            background-color: var(--bs-modal-content-bg);
+            color: var(--bs-body-color);
+        }
+        .modal-header { border-bottom-color: var(--bs-modal-header-border-color); }
+        .modal-footer { border-top-color: var(--bs-modal-footer-border-color); }
+        .form-control, .form-select {
+            background-color: var(--bs-input-bg);
+            color: var(--bs-input-color);
+            border-color: var(--bs-input-border-color);
+        }
+        .form-control::placeholder { color: var(--bs-input-placeholder-color); }
+        .form-control:focus, .form-select:focus {
+            border-color: var(--bs-input-focus-border-color);
+            box-shadow: 0 0 0 0.25rem rgba(var(--bs-link-color-rgb), .25); /* Adjust shadow if needed */
+        }
+        .form-check-input {
+            background-color: var(--bs-form-check-input-bg);
+            border: var(--bs-form-check-input-border);
+        }
+        .form-check-input:checked {
+            background-color: var(--bs-link-color);
+            border-color: var(--bs-link-color);
+        }
+        .btn-close {
+            filter: var(--bs-body-color) == #fff ? invert(1) brightness(2) : none;
+        }
+        .alert {
+            background-color: var(--bs-tertiary-bg);
+            border-color: var(--bs-border-color);
+            color: var(--bs-body-color);
+        }
+        .alert-success { background-color: #198754; color: white; } /* Example override */
+        .alert-danger { background-color: #dc3545; color: white; } /* Example override */
+        .alert-warning { background-color: #ffc107; color: black; } /* Example override */
+        .alert-info { background-color: #0dcaf0; color: black; } /* Example override */
+
+        .theme-toggle {
+             cursor: pointer;
+             font-size: 1.25rem; /* Adjust size as needed */
+             margin-left: 10px; /* Space from other nav items */
+             background: none;
+             border: none;
+             padding: 0.375rem 0.75rem; /* Adjust padding similar to nav-link */
+             color: var(--bs-navbar-color); /* Use navbar color variable */
+             line-height: inherit; /* Ensure vertical alignment */
+        }
+        .theme-toggle:hover {
+            color: var(--bs-navbar-hover-color); /* Use navbar hover color */
+        }
+        .theme-toggle .bi-sun-fill, .theme-toggle .bi-moon-fill {
+            vertical-align: middle; /* Align icon better */
+        }
     </style>
 </head>
-<body>
+<body data-bs-theme="light"> {# Add data-bs-theme for bootstrap components #}
     <div class="container mt-5">
 
         {# --- Navigation Bar (Copied from tracker.html) --- #}
@@ -23,7 +196,7 @@
               <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-              <ul class="navbar-nav ms-auto">
+              <ul class="navbar-nav ms-auto align-items-center"> {# Use ms-auto and align-items-center #}
                 <li class="nav-item">
                   <a class="nav-link {% if request.url.path == url_for('read_root') %}active{% endif %}" aria-current="page" href="{{ url_for('read_root') }}">Dashboard</a>
                 </li>
@@ -38,6 +211,13 @@
                 <li class="nav-item">
                   <a class="nav-link {% if request.url.path == url_for('get_config_page') %}active{% endif %}" href="{{ url_for('get_config_page') }}">Settings</a>
                 </li>
+                {# --- Theme Toggle Button --- #}
+                <li class="nav-item">
+                     <button id="theme-toggle-button" class="theme-toggle btn nav-link" title="Toggle light/dark theme">
+                         <i class="bi bi-sun-fill"></i> <!-- Default: Sun Icon -->
+                     </button>
+                </li>
+                {# --- End Theme Toggle Button --- #}
               </ul>
             </div>
           </div>
@@ -200,7 +380,41 @@
     <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
 
     <script>
-        // --- Updated Alert Function --- 
+        // --- Theme Toggle Logic ---
+        const themeToggleButton = document.getElementById('theme-toggle-button');
+        const htmlElement = document.documentElement; // Target the <html> element
+        const bodyElement = document.body; // Target body for bootstrap theme attribute
+
+        // Function to set the theme
+        function setTheme(theme) {
+            htmlElement.setAttribute('data-theme', theme); // Set theme on <html> for CSS variables
+            bodyElement.setAttribute('data-bs-theme', theme); // Set theme on <body> for Bootstrap components
+            localStorage.setItem('theme', theme); // Save preference
+
+            // Update button icon
+            if (theme === 'dark') {
+                themeToggleButton.innerHTML = '<i class="bi bi-moon-fill"></i>';
+            } else {
+                themeToggleButton.innerHTML = '<i class="bi bi-sun-fill"></i>';
+            }
+            console.log(`Theme set to: ${theme}`);
+        }
+
+        // Get saved theme from localStorage or default to 'light'
+        const savedTheme = localStorage.getItem('theme') || 'light';
+
+        // Apply the saved theme on initial load
+        setTheme(savedTheme);
+
+        // Add event listener for the toggle button
+        themeToggleButton.addEventListener('click', () => {
+            const currentTheme = htmlElement.getAttribute('data-theme') || 'light';
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            setTheme(newTheme);
+        });
+        // --- End Theme Toggle Logic ---
+
+        // --- Updated Alert Function ---
         function showAlert(message, type = 'info') {
             const alertContainer = document.getElementById('alertContainer'); 
             if (!alertContainer) {
