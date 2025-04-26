@@ -5,17 +5,950 @@
 {% block head_extra %}
     {# Add any page-specific CSS or meta tags here if needed later #}
     <style>
-        /* Add page-specific styles here */
+        /* Style for filter rows */
+        .filter-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            border: 1px solid var(--bs-border-color-translucent);
+            border-radius: 0.25rem;
+        }
+        .filter-row select,
+        .filter-row input {
+            margin-right: 0.5rem;
+        }
+        /* Style for output area */
+        #processed-finviz-output {
+            background-color: var(--bs-body-bg); /* Use CSS var for theme adapt */
+            border: 1px solid var(--bs-border-color); /* Use CSS var for theme adapt */
+            color: var(--bs-body-color); /* Ensure text color matches theme */
+            padding: 15px;
+            margin-top: 15px;
+            max-height: 600px; /* Increased height */
+            overflow-y: auto;
+            white-space: pre-wrap; /* Allow wrapping */
+            word-wrap: break-word; /* Break long words/strings */
+            font-family: monospace; /* Good for JSON */
+            font-size: 0.85rem;
+        }
     </style>
 {% endblock %}
 
 {% block content %}
     {# Analytics Page Content #}
     <h1>Analytics Page</h1>
-    <p>This is the placeholder for the Analytics content.</p>
-    <!-- Add analytics-specific content here later -->
+    <p>This section allows triggering background tasks and processing stored data.</p>
+
+    {# --- Finviz Fetch Trigger --- #}
+    <div class="my-3 p-3 border rounded bg-body-tertiary">
+        <h5>Finviz Raw Data Fetch</h5>
+        <p class="small text-muted">Trigger a background task to fetch the latest raw data from Finviz for tickers in the screener.</p>
+        <button id="run-finviz-btn" class="btn btn-primary me-2">Run Finviz Fetch Now</button>
+        <span id="finviz-status" class="ms-2"></span> {# Area to show status messages for the fetch job #}
+    </div>
+    {# --- End Finviz Fetch --- #}
+
+    {# --- Finviz Data Processing, Filtering & Configuration --- #}
+    <div class="my-3 p-3 border rounded bg-body-tertiary">
+        <h5>Process, Filter & Configure Finviz Data</h5>
+        
+        {# Processing Button (outside tabs) #}
+        <div class="mb-3 pb-3 border-bottom">
+            <p class="small text-muted">Load and process the raw Finviz data currently stored in the database.</p>
+            <button id="process-finviz-data-btn" class="btn btn-secondary me-2">Load Data from DB</button>
+            <span id="process-finviz-status" class="ms-2"></span> {# Status for the processing action #}
+        </div>
+
+        {# --- Tab Navigation --- #}
+        <ul class="nav nav-tabs mt-3" id="analyticsTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="filter-tab" data-bs-toggle="tab" data-bs-target="#filter-tab-pane" type="button" role="tab" aria-controls="filter-tab-pane" aria-selected="true">Filters & Output</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="config-tab" data-bs-toggle="tab" data-bs-target="#config-tab-pane" type="button" role="tab" aria-controls="config-tab-pane" aria-selected="false">Field Configuration</button>
+            </li>
+        </ul>
+        {# --- End Tab Navigation --- #}
+
+        {# --- Tab Content --- #}
+        <div class="tab-content pt-3" id="analyticsTabsContent">
+            
+            {# --- Filters & Output Tab Pane --- #}
+            <div class="tab-pane fade show active" id="filter-tab-pane" role="tabpanel" aria-labelledby="filter-tab" tabindex="0">
+                
+                {# Filter Controls #}
+                <div class="mb-3">
+                    <h6>Filter Criteria:</h6>
+                    <div id="filter-controls-container"> 
+                        <!-- Filter rows will be added here dynamically -->
+                    </div>
+                    <button id="add-filter-btn" class="btn btn-sm btn-outline-success me-2">+ Add Filter</button>
+                    <button id="apply-filters-btn" class="btn btn-sm btn-primary me-2">Apply Filters</button>
+                    <button id="reset-filters-btn" class="btn btn-sm btn-outline-danger">Reset Filters</button>
+                </div>
+                
+                {# Display area for processed output #}
+                <div id="processed-finviz-output-container" class="mt-3">
+                    <h6>Filtered Output:</h6> <span id="filter-results-count" class="ms-2 small text-muted"></span>
+                    <pre id="processed-finviz-output"></pre> 
+                </div>
+
+            </div>
+            {# --- End Filters & Output Tab Pane --- #}
+
+            {# --- Field Configuration Tab Pane --- #}
+            <div class="tab-pane fade" id="config-tab-pane" role="tabpanel" aria-labelledby="config-tab" tabindex="0">
+                
+                {# Container for Field Weights & Toggles #}
+                <div class="mb-3">
+                    <h6>Field Configuration (Weights & Enabled Status):</h6>
+                    <div id="field-config-container" style="max-height: 400px; overflow-y: auto;"> <!-- Increased height slightly -->
+                        <!-- Field config rows will be added here dynamically -->
+                        <p class="text-muted small">Load data to configure fields.</p>
+                    </div>
+                    <!-- Optional: Add a "Save Weights/Toggles" or "Reset Weights/Toggles" button here later -->
+                </div>
+
+            </div>
+            {# --- End Field Configuration Tab Pane --- #}
+
+        </div>
+        {# --- End Tab Content --- #}
+
+    </div>
+    {# --- END Finviz Data Processing, Filtering & Configuration --- #}
+
+    <!-- Add other analytics-specific content here later -->
 {% endblock %}
 
 {% block scripts %}
     {# Add any page-specific JavaScript here if needed later #}
+    <script>
+        document.addEventListener('DOMContentLoaded', function() { // No longer needs to be async
+            // --- Global variables ---
+            let fullProcessedData = []; 
+            let currentFilters = [];    
+            let fieldWeights = {};      // {fieldName: weight (0-100)}
+            let availableFields = [];   
+            let fieldMetadata = {};     
+            let fieldEnabledStatus = {}; // {fieldName: true/false}
+            
+            const FILTER_STORAGE_KEY = 'finvizAnalyticsFilters';
+            const WEIGHT_STORAGE_KEY = 'finvizAnalyticsFieldWeights';
+            const FIELD_ENABLED_STORAGE_KEY = 'finvizAnalyticsFieldEnabled'; // New key
+
+            // --- Element References ---
+            const finvizButton = document.getElementById('run-finviz-btn');
+            const finvizStatus = document.getElementById('finviz-status');
+            const processButton = document.getElementById('process-finviz-data-btn');
+            const processStatus = document.getElementById('process-finviz-status');
+            const outputArea = document.getElementById('processed-finviz-output');
+            const filterControlsContainer = document.getElementById('filter-controls-container');
+            const addFilterBtn = document.getElementById('add-filter-btn');
+            const applyFiltersBtn = document.getElementById('apply-filters-btn');
+            const resetFiltersBtn = document.getElementById('reset-filters-btn');
+            const filterResultsCount = document.getElementById('filter-results-count');
+            const fieldWeightsContainer = document.getElementById('field-weights-container'); // Add later if needed
+            const fieldConfigContainer = document.getElementById('field-config-container'); // Add later if needed
+
+            // --- Storage & State Functions ---
+            function loadFiltersFromStorage() {
+                console.log("Loading filters from localStorage...");
+                const savedFilters = localStorage.getItem(FILTER_STORAGE_KEY);
+                let loaded = [];
+                if (savedFilters) {
+                    try {
+                        loaded = JSON.parse(savedFilters);
+                        if (!Array.isArray(loaded)) loaded = [];
+                    } catch (e) {
+                        console.error("Error parsing saved filters:", e);
+                        loaded = [];
+                        localStorage.removeItem(FILTER_STORAGE_KEY); 
+                    }
+                } else {
+                    console.log("No saved filters found.");
+                }
+                
+                // Ensure structure (id, field, operator, value, comment)
+                currentFilters = loaded.map(f => ({
+                    id: f.id || Date.now(),
+                    field: f.field || '',
+                    operator: f.operator || '=',
+                    value: f.value !== undefined ? f.value : '',
+                    comment: f.comment || '' // Add comment field with default
+                }));
+
+                console.log("Processed loaded/default filters:", currentFilters);
+
+                // Add default blank filter if none loaded
+                if (currentFilters.length === 0) {
+                    currentFilters.push({ id: Date.now(), field: '', operator: '=', value: '', comment: '' }); // Add comment
+                    console.log("Added default blank filter.");
+                }
+            }
+
+            function saveFiltersToStorage() {
+                 if (!Array.isArray(currentFilters)) {
+                     console.error("Attempted to save non-array filters:", currentFilters);
+                     return;
+                 }
+                // Save id, field, operator, value, comment
+                const filtersToSave = currentFilters.map(f => ({
+                     id: f.id, 
+                     field: f.field,
+                     operator: f.operator,
+                     value: f.value,
+                     comment: f.comment // Add comment field
+                 }));
+                console.log("Saving filters to localStorage:", filtersToSave);
+                try {
+                     localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filtersToSave));
+                } catch (e) {
+                    console.error("Error saving filters to localStorage:", e);
+                }
+            }
+
+            function loadWeightsFromStorage() {
+                console.log("Loading weights from localStorage...");
+                const savedWeights = localStorage.getItem(WEIGHT_STORAGE_KEY);
+                let loaded = {}; // Load into temp object first
+                if (savedWeights) {
+                    try {
+                        loaded = JSON.parse(savedWeights);
+                        if (typeof loaded !== 'object' || loaded === null || Array.isArray(loaded)) {
+                            loaded = {}; // Reset if not a valid object
+                        }
+                    } catch (e) {
+                        console.error("Error parsing saved weights:", e);
+                        loaded = {};
+                        localStorage.removeItem(WEIGHT_STORAGE_KEY);
+                    }
+                } 
+                // Process loaded weights, ensuring they are numbers 0-100
+                const processedWeights = {};
+                for (const field in loaded) {
+                    if (loaded.hasOwnProperty(field)) {
+                        const weight = Number(loaded[field]);
+                        if (!isNaN(weight)) {
+                            processedWeights[field] = Math.max(0, Math.min(100, weight)); // Clamp 0-100
+                        } else {
+                            processedWeights[field] = 100; // Default if stored value invalid
+                        }
+                    }
+                }
+                fieldWeights = processedWeights;
+                console.log("Loaded field weights:", fieldWeights);
+            }
+
+            function saveWeightsToStorage() {
+                console.log("Saving weights to localStorage:", fieldWeights);
+                try {
+                    // Ensure weights are valid numbers before saving?
+                    // Or trust the input validation/clamping
+                    localStorage.setItem(WEIGHT_STORAGE_KEY, JSON.stringify(fieldWeights));
+                } catch (e) {
+                    console.error("Error saving weights to localStorage:", e);
+                }
+            }
+
+            // NEW function for enabled status
+            function loadEnabledStatusFromStorage() {
+                console.log("Loading enabled status from localStorage...");
+                const savedStatus = localStorage.getItem(FIELD_ENABLED_STORAGE_KEY);
+                if (savedStatus) {
+                    try {
+                        fieldEnabledStatus = JSON.parse(savedStatus);
+                        if (typeof fieldEnabledStatus !== 'object' || fieldEnabledStatus === null || Array.isArray(fieldEnabledStatus)) {
+                            fieldEnabledStatus = {}; // Reset if not valid object
+                        }
+                        // Ensure all values are boolean
+                        for (const field in fieldEnabledStatus) {
+                            if (fieldEnabledStatus.hasOwnProperty(field)) {
+                                fieldEnabledStatus[field] = Boolean(fieldEnabledStatus[field]);
+                            }
+                        }
+                        console.log("Loaded field enabled status:", fieldEnabledStatus);
+                    } catch (e) {
+                        console.error("Error parsing saved enabled status:", e);
+                        fieldEnabledStatus = {};
+                        localStorage.removeItem(FIELD_ENABLED_STORAGE_KEY);
+                    }
+                } else {
+                    fieldEnabledStatus = {}; // Initialize empty if nothing saved
+                    console.log("No saved enabled status found.");
+                }
+            }
+            
+            // NEW function for enabled status
+            function saveEnabledStatusToStorage() {
+                 console.log("Saving enabled status to localStorage:", fieldEnabledStatus);
+                 try {
+                    localStorage.setItem(FIELD_ENABLED_STORAGE_KEY, JSON.stringify(fieldEnabledStatus));
+                 } catch (e) {
+                    console.error("Error saving enabled status to localStorage:", e);
+                 }
+            }
+
+            // --- Helper to update value input based on field metadata ---
+            function updateValueInputUI(index, fieldName, inputWrapper, hintSpan) {
+                const metadata = fieldMetadata[fieldName];
+                inputWrapper.innerHTML = ''; // Clear previous input/select
+                hintSpan.textContent = '';
+                let currentInput = null;
+
+                // Define a common handler for updating the filter state
+                const updateFilterValue = (newValue) => {
+                    currentFilters[index].value = newValue;
+                };
+
+                if (metadata && metadata.type === 'text' && metadata.uniqueValues && metadata.uniqueValues.length > 0) {
+                    // --- Create Multi-Select --- 
+                    hintSpan.textContent = `(${metadata.uniqueValues.length} unique values)`;
+                    const select = document.createElement('select');
+                    select.multiple = true;
+                    select.className = 'form-select form-select-sm w-100'; 
+                    select.size = Math.min(metadata.uniqueValues.length, 4); 
+                    
+                    metadata.uniqueValues.forEach(val => {
+                        const option = document.createElement('option');
+                        option.value = val;
+                        option.textContent = val;
+                        // Check if current filter value (which might be an array) includes this option
+                        if (Array.isArray(currentFilters[index].value) && currentFilters[index].value.includes(val)) {
+                            option.selected = true;
+                        }
+                        select.appendChild(option);
+                    });
+
+                    select.addEventListener('change', (e) => {
+                        const selectedValues = Array.from(e.target.selectedOptions).map(opt => opt.value);
+                        updateFilterValue(selectedValues); // Update state with array
+                    });
+                    
+                    inputWrapper.appendChild(select);
+                    currentInput = select;
+
+                } else {
+                     // --- Create Text/Number Input --- 
+                    const input = document.createElement('input');
+                    const datalistId = `datalist-${currentFilters[index].id}`;
+                    input.className = 'form-control form-control-sm';
+                    input.placeholder = 'Value';
+                    // Ensure value is treated as a string for text input
+                    input.value = Array.isArray(currentFilters[index].value) 
+                                    ? '' // Clear if switching from multi-select
+                                    : (currentFilters[index].value !== null && currentFilters[index].value !== undefined ? String(currentFilters[index].value) : '');
+                    
+                    if (metadata && metadata.type === 'numeric') {
+                        hintSpan.textContent = `(Range: ${metadata.min} - ${metadata.max})`;
+                        input.type = 'number';
+                        input.step = 'any';
+                    } else {
+                        input.type = 'text';
+                        // Add datalist only if simple text and no unique values provided
+                        // (If uniqueValues existed, we would have created a select)
+                        // input.setAttribute('list', datalistId);
+                        // const datalist = document.getElementById(datalistId) || document.createElement('datalist');
+                        // datalist.id = datalistId;
+                        // // Populate datalist if needed (currently not)
+                        // inputWrapper.appendChild(datalist); // Append datalist if using
+                    }
+                     if (metadata && metadata.type === 'empty') {
+                         hintSpan.textContent = '(No values found in data)';
+                     }
+                     
+                    // Use 'input' event for text/number fields
+                    input.addEventListener('input', (e) => {
+                         updateFilterValue(e.target.value); // Update state with string value
+                    });
+
+                    inputWrapper.appendChild(input);
+                    currentInput = input;
+                }
+                
+                // Hide/Show based on operator (applies to the wrapper now)
+                const operator = currentFilters[index].operator;
+                inputWrapper.style.display = (operator === 'exists' || operator === 'notExists') ? 'none' : '';
+                hintSpan.style.display = (operator === 'exists' || operator === 'notExists') ? 'none' : '';
+            }
+
+            function renderFilterUI() {
+                console.log("Rendering filter UI. Available fields:", availableFields, "Enabled Status:", fieldEnabledStatus);
+                filterControlsContainer.innerHTML = ''; // Clear existing rows
+                
+                // Filter available fields based on enabled status
+                const enabledFields = availableFields.filter(field => fieldEnabledStatus[field] === true);
+                console.log("Rendering filters using enabled fields:", enabledFields);
+
+                if (!currentFilters || currentFilters.length === 0) {
+                    filterControlsContainer.innerHTML = '<p class="text-muted small mb-0">No filters defined. Click \'+\' Add Filter.\'</p>';
+                    return;
+                }
+
+                const operators = [
+                    { value: '=', text: '=' }, 
+                    { value: '>', text: '>' }, 
+                    { value: '<', text: '<' }, 
+                    { value: '>=', text: '>=' }, 
+                    { value: '<=', text: '<=' }, 
+                    { value: '!=', text: '!=' }, 
+                    { value: 'contains', text: 'contains' },
+                    { value: 'startsWith', text: 'starts with' },
+                    { value: 'endsWith', text: 'ends with' },
+                    { value: 'exists', text: 'exists (non-empty)'}, // Check if field exists and is not null/empty/None
+                    { value: 'notExists', text: 'does not exist / empty'} // Check if field is missing or null/empty/None
+                ];
+
+                currentFilters.forEach((filter, index) => {
+                    const filterId = filter.id;
+                    const row = document.createElement('div');
+                    // Use d-flex for the main row container
+                    row.className = 'filter-row-container mb-2'; // Container for row + hint
+                    row.dataset.filterId = filterId;
+
+                    const filterRowDiv = document.createElement('div');
+                    filterRowDiv.className = 'd-flex align-items-center filter-row'; // Flexbox for controls + comment + remove
+
+                    // Field Select (fixed width)
+                    const fieldSelect = document.createElement('select');
+                    fieldSelect.className = 'form-select form-select-sm me-2 w-auto'; 
+                    fieldSelect.title = 'Select Field';
+                    fieldSelect.innerHTML = '<option value="">-- Field --</option>';
+                    // Use ONLY enabled fields for the dropdown
+                    enabledFields.forEach(fieldName => {
+                        const option = document.createElement('option');
+                        option.value = fieldName;
+                        option.textContent = fieldName;
+                        if (filter.field === fieldName) option.selected = true;
+                        fieldSelect.appendChild(option);
+                    });
+                    // If the currently selected filter field is no longer enabled, reset it
+                    if (filter.field && !enabledFields.includes(filter.field)) {
+                         console.log(`Filter field '${filter.field}' is no longer enabled, resetting filter row ${index}.`);
+                         filter.field = '';
+                         filter.value = ''; // Reset value too
+                         // Might need to save here? Or wait for Apply
+                         // saveFiltersToStorage(); // Let's wait for Apply/Remove
+                    }
+                    filterRowDiv.appendChild(fieldSelect);
+
+                    // Operator Select (fixed width)
+                    const operatorSelect = document.createElement('select');
+                    operatorSelect.className = 'form-select form-select-sm me-2 w-auto';
+                    operatorSelect.title = 'Select Operator';
+                    operators.forEach(op => {
+                        const option = document.createElement('option');
+                        option.value = op.value;
+                        option.textContent = op.text;
+                        if (filter.operator === op.value) option.selected = true;
+                        operatorSelect.appendChild(option);
+                    });
+                     filterRowDiv.appendChild(operatorSelect);
+
+                    // Value Input Wrapper
+                    const valueWrapper = document.createElement('div');
+                    // Limit growth and set max-width
+                    valueWrapper.className = 'value-input-wrapper me-2'; 
+                    valueWrapper.style.flexGrow = '0'; // Don't allow growth
+                    valueWrapper.style.flexShrink = '0'; // Don't allow shrinking either?
+                    valueWrapper.style.maxWidth = '250px'; // Set max width to 250px
+                    valueWrapper.style.width = '250px'; // Also set width for consistency?
+                    filterRowDiv.appendChild(valueWrapper);
+
+                    // Comment Input 
+                    const commentInput = document.createElement('input');
+                    // Allow comment to grow now
+                    commentInput.className = 'form-control form-control-sm ms-2 me-2 flex-grow-1'; 
+                    commentInput.style.flexGrow = '1'; // Allow comment to take remaining space
+                    commentInput.style.flexShrink = '1'; // Allow shrinking
+                    commentInput.style.maxWidth = ''; // Remove previous max width
+                    commentInput.placeholder = 'Comment';
+                    commentInput.value = filter.comment || '';
+                    commentInput.title = 'Filter Comment';
+                    filterRowDiv.appendChild(commentInput);
+
+                    // Hint Span 
+                    const hintSpan = document.createElement('span');
+                    hintSpan.className = 'value-hint small text-muted d-block ms-1'; 
+
+                    // Remove Button
+                    const removeBtn = document.createElement('button');
+                    removeBtn.textContent = '×';
+                    // Keep ms-auto to push it right
+                    removeBtn.className = 'btn btn-sm btn-outline-danger ms-auto'; 
+                    removeBtn.title = 'Remove this filter';
+                    removeBtn.style.flexGrow = '0'; // Don't allow button to grow
+                    removeBtn.style.flexShrink = '0'; // Don't allow button to shrink
+                    removeBtn.addEventListener('click', () => {
+                         const indexToRemove = currentFilters.findIndex(f => f.id === filterId);
+                         if (indexToRemove > -1) {
+                             currentFilters.splice(indexToRemove, 1);
+                             saveFiltersToStorage(); 
+                             renderFilterUI(); 
+                         }
+                     });
+                    filterRowDiv.appendChild(removeBtn);
+
+                    // --- Event Listeners --- 
+                    fieldSelect.addEventListener('change', (e) => {
+                        currentFilters[index].field = e.target.value;
+                        // Pass index, field name, wrapper div, hint span
+                        updateValueInputUI(index, e.target.value, valueWrapper, hintSpan); 
+                    });
+                     operatorSelect.addEventListener('change', (e) => {
+                         currentFilters[index].operator = e.target.value;
+                         // Update visibility of the wrapper and hint
+                         const op = e.target.value;
+                         valueWrapper.style.display = (op === 'exists' || op === 'notExists') ? 'none' : '';
+                         hintSpan.style.display = (op === 'exists' || op === 'notExists') ? 'none' : '';
+                    });
+                     // Note: valueInput listener is now added *inside* updateValueInputUI
+                     commentInput.addEventListener('input', (e) => {
+                        currentFilters[index].comment = e.target.value;
+                    });
+                    
+                    // Initial UI update for value input based on loaded field
+                    updateValueInputUI(index, filter.field, valueWrapper, hintSpan);
+
+                    // Append main row and hint to the container
+                    row.appendChild(filterRowDiv);
+                    row.appendChild(hintSpan); 
+                    filterControlsContainer.appendChild(row);
+                });
+            }
+            
+            // Rename renderWeightUI placeholder and implement
+            function renderFieldConfigUI() {
+                console.log("Rendering Field Config UI (Weights & Toggles)");
+                if (!fieldConfigContainer) return;
+                
+                fieldConfigContainer.innerHTML = ''; // Clear previous content
+
+                if (!availableFields || availableFields.length === 0) {
+                    fieldConfigContainer.innerHTML = '<p class="text-muted small">Load data first to configure fields.</p>';
+                    return;
+                }
+
+                availableFields.forEach(field => {
+                    const isEnabled = fieldEnabledStatus[field] === true; // Default to true if undefined? No, handled by init.
+                    const currentWeight = fieldWeights[field] !== undefined ? fieldWeights[field] : 100; // Default 100
+
+                    const row = document.createElement('div');
+                    row.className = 'd-flex align-items-center mb-2 p-2 border-bottom'; // Row styling
+                    if (!isEnabled) {
+                        row.style.opacity = '0.6'; // Dim disabled fields
+                    }
+
+                    // Field Name Label
+                    const label = document.createElement('label');
+                    label.textContent = field;
+                    label.className = 'me-auto fw-bold'; // Push others right, make bold
+                    label.style.minWidth = '150px'; // Give label some space
+                    label.title = field; // Show full name on hover if needed
+
+                    // Enabled Checkbox
+                    const enabledWrapper = document.createElement('div');
+                    enabledWrapper.className = 'form-check form-switch me-3';
+                    const enabledCheckbox = document.createElement('input');
+                    enabledCheckbox.type = 'checkbox';
+                    enabledCheckbox.className = 'form-check-input';
+                    enabledCheckbox.checked = isEnabled;
+                    enabledCheckbox.id = `enable-${field.replace(/\W/g, '_')}`; // Create safe ID
+                    enabledCheckbox.title = isEnabled ? 'Disable this field' : 'Enable this field';
+                    enabledCheckbox.addEventListener('change', (e) => {
+                        const newStatus = e.target.checked;
+                        fieldEnabledStatus[field] = newStatus;
+                        saveEnabledStatusToStorage();
+                        // Dim/undim row immediately
+                        row.style.opacity = newStatus ? '1' : '0.6'; 
+                        // Re-render filters as available fields changed
+                        renderFilterUI(); 
+                    });
+                    enabledWrapper.appendChild(enabledCheckbox);
+                    const enabledLabel = document.createElement('label'); // Optional label for switch
+                    enabledLabel.className = 'form-check-label small';
+                    enabledLabel.htmlFor = enabledCheckbox.id;
+                    enabledLabel.textContent = 'Enabled';
+                    enabledWrapper.appendChild(enabledLabel);
+
+                    // Weight Input
+                    const weightWrapper = document.createElement('div');
+                    weightWrapper.className = 'd-flex align-items-center';
+                    const weightInput = document.createElement('input');
+                    weightInput.type = 'number';
+                    weightInput.min = 0;
+                    weightInput.max = 100;
+                    weightInput.step = 1;
+                    weightInput.className = 'form-control form-control-sm';
+                    weightInput.style.width = '80px'; // Fixed width for weight input
+                    weightInput.value = currentWeight;
+                    weightInput.title = `Weight for ${field} (0-100)`;
+                    weightInput.disabled = !isEnabled; // Disable weight if field is disabled
+                    weightInput.addEventListener('input', (e) => {
+                        let weight = parseInt(e.target.value, 10);
+                        if (isNaN(weight)) {
+                             weight = 100; // Default if invalid input
+                        } else {
+                             weight = Math.max(0, Math.min(100, weight)); // Clamp value
+                        }
+                        fieldWeights[field] = weight;
+                        // Save immediately on input change? Or add a save button?
+                        // Saving immediately for simplicity now.
+                        saveWeightsToStorage();
+                        // Update the input value in case it was clamped
+                        e.target.value = weight;
+                    });
+                    weightWrapper.appendChild(weightInput);
+                    const weightLabel = document.createElement('span');
+                    weightLabel.className = 'ms-1 small';
+                    weightLabel.textContent = '%';
+                    weightWrapper.appendChild(weightLabel);
+
+                    // Append elements to row
+                    row.appendChild(label);
+                    row.appendChild(enabledWrapper);
+                    row.appendChild(weightWrapper);
+
+                    fieldConfigContainer.appendChild(row);
+                });
+            }
+            
+            // --- ADD BACK applyFilters function definition ---
+            function applyFilters() {
+                console.log("Applying filters:", currentFilters);
+                console.log("Data to filter:", fullProcessedData);
+                
+                if (!fullProcessedData || fullProcessedData.length === 0) {
+                    outputArea.textContent = 'No data loaded to filter.';
+                    filterResultsCount.textContent = '(0 records)';
+                    return;
+                }
+
+                const activeFilters = currentFilters.filter(f => f.field && f.field !== '' && f.operator); // Also ensure operator exists
+
+                if (activeFilters.length === 0) {
+                    outputArea.textContent = JSON.stringify(fullProcessedData, null, 2);
+                    filterResultsCount.textContent = `Showing all ${fullProcessedData.length} records.`;
+                    return;
+                }
+
+                 const filteredData = fullProcessedData.filter(item => {
+                     if (!item || !item.processed_data) return false;
+
+                     for (const filter of activeFilters) {
+                         const itemValue = item.processed_data[filter.field];
+                         const filterValue = filter.value; 
+                         const operator = filter.operator;
+
+                         if (Array.isArray(filterValue)) {
+                            const itemValueStr = String(itemValue);
+                            if (operator === '=') {
+                                if (!filterValue.includes(itemValueStr)) return false;
+                            } else if (operator === '!=') {
+                                if (filterValue.includes(itemValueStr)) return false;
+                            } else {
+                                console.warn(`Operator '${operator}' not supported for multi-select field '${filter.field}'. Filter skipped.`);
+                                return false;
+                            }
+                            continue; 
+                         } 
+
+                         const filterValueStr = String(filterValue || ''); 
+                         const valueExists = !(itemValue === null || itemValue === undefined || String(itemValue).trim() === '' || String(itemValue).trim() === '-');
+                         
+                         if (operator === 'exists') {
+                             if (!valueExists) return false;
+                             continue; 
+                         }
+                         if (operator === 'notExists') {
+                             if (valueExists) return false;
+                             continue; 
+                         }
+                         
+                         if (!valueExists) {
+                            if ((operator === '=' || operator === '!=') && (filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined')) {
+                                const isItemEmpty = !valueExists;
+                                const isFilterEmpty = filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined';
+                                if (operator === '=' && isItemEmpty !== isFilterEmpty) return false; 
+                                if (operator === '!=' && isItemEmpty === isFilterEmpty) return false;
+                                continue;
+                            } else {
+                                 return false; 
+                            }
+                         }
+
+                         const itemValueStr = String(itemValue).toLowerCase(); 
+                         const filterValueLower = filterValueStr.toLowerCase();
+                         const itemNum = parseFloat(itemValue);
+                         const filterNum = parseFloat(filterValueStr);
+                         let numericComparisonDone = false;
+
+                         if (!isNaN(itemNum) && !isNaN(filterNum)) {
+                            numericComparisonDone = true;
+                            switch (operator) {
+                                case '=': if (!(itemNum === filterNum)) return false; break;
+                                case '>': if (!(itemNum > filterNum)) return false; break;
+                                case '<': if (!(itemNum < filterNum)) return false; break;
+                                case '>=': if (!(itemNum >= filterNum)) return false; break;
+                                case '<=': if (!(itemNum <= filterNum)) return false; break;
+                                case '!=': if (!(itemNum !== filterNum)) return false; break;
+                                default: numericComparisonDone = false; 
+                            }
+                         } else if (operator === '=' || operator === '!=') { 
+                             numericComparisonDone = false; 
+                         } else {
+                             if (['>', '<', '>=', '<='].includes(operator)) {
+                                 console.warn(`Cannot perform numeric comparison for operator '${operator}' on non-numeric values: Field='${filter.field}', Item='${itemValue}', Filter='${filterValueStr}'`);
+                                 return false; 
+                             }
+                         }
+
+                         if (!numericComparisonDone) {
+                            switch(operator) {
+                                case '=': if (!(itemValueStr === filterValueLower)) return false; break;
+                                case '!=': if (!(itemValueStr !== filterValueLower)) return false; break;
+                                case 'contains': if (!itemValueStr.includes(filterValueLower)) return false; break;
+                                case 'startsWith': if (!itemValueStr.startsWith(filterValueLower)) return false; break;
+                                case 'endsWith': if (!itemValueStr.endsWith(filterValueLower)) return false; break;
+                            }
+                         }
+                     }
+                     return true; 
+                 });
+
+                 // --- Transform data for display (remove disabled fields) --- 
+                 const dataForDisplay = filteredData.map(item => {
+                     const displayItem = {
+                         ticker: item.ticker,
+                         processed_data: {},
+                         error: item.error
+                     };
+                     if (item.processed_data) {
+                         for (const field in item.processed_data) {
+                             // Only include the field if it exists and is explicitly enabled
+                             if (item.processed_data.hasOwnProperty(field) && fieldEnabledStatus[field] === true) {
+                                 displayItem.processed_data[field] = item.processed_data[field];
+                             }
+                         }
+                     }
+                     return displayItem;
+                 });
+                 // --- End Transformation --- 
+
+                 // Display results using the transformed data
+                 outputArea.textContent = JSON.stringify(dataForDisplay, null, 2);
+                 filterResultsCount.textContent = `Showing ${filteredData.length} matching records (out of ${fullProcessedData.length}).`; // Count based on filtered records
+            }
+            // --- END applyFilters definition ---
+
+            // Update processLoadedDataAndUpdateState to call the renamed renderer
+             function processLoadedDataAndUpdateState() {
+                 if (!fullProcessedData || fullProcessedData.length === 0) {
+                     availableFields = [];
+                     fieldMetadata = {}; // Clear metadata if no data
+                     fieldWeights = {}; // Also clear weights? Keep loaded ones for now.
+                     fieldEnabledStatus = {}; // Also clear enabled status
+                     // Re-render empty UIs
+                     renderFieldConfigUI();
+                     renderFilterUI();
+                     return;
+                 }
+                 
+                 // --- Discover Fields --- 
+                 const discoveredFields = new Set();
+                 fullProcessedData.forEach(item => {
+                     if (item && item.processed_data) {
+                         Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
+                     }
+                 });
+                 availableFields = [...discoveredFields].sort();
+                 console.log("Discovered fields:", availableFields);
+
+                 // --- Calculate Metadata --- 
+                 const newFieldMetadata = {};
+                 const MAX_UNIQUE_TEXT_VALUES = 100; // Limit for text dropdowns
+                 availableFields.forEach(field => {
+                    const values = [];
+                    let numericCount = 0;
+                    let nonNullCount = 0;
+                    let min = Infinity;
+                    let max = -Infinity;
+                    const uniqueTextValues = new Set();
+
+                    fullProcessedData.forEach(item => {
+                        if (item && item.processed_data && item.processed_data.hasOwnProperty(field)) {
+                             const value = item.processed_data[field];
+                             // Consider value valid if not null, undefined, or placeholder '-' 
+                             if (value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-') {
+                                 values.push(value);
+                                 nonNullCount++;
+                                 const num = Number(value);
+                                 if (!isNaN(num)) {
+                                     numericCount++;
+                                     if (num < min) min = num;
+                                     if (num > max) max = num;
+                                 } else {
+                                     // Collect unique non-numeric strings (up to a limit)
+                                     if (uniqueTextValues.size < MAX_UNIQUE_TEXT_VALUES) {
+                                          uniqueTextValues.add(String(value)); // Store as string
+                                     }
+                                 }
+                             }
+                        }
+                    });
+
+                    if (nonNullCount === 0) {
+                        newFieldMetadata[field] = { type: 'empty' }; // Field exists but no valid values
+                    } else if (numericCount / nonNullCount >= 0.8) { // Heuristic: >= 80% numeric?
+                        newFieldMetadata[field] = { type: 'numeric', min: min, max: max };
+                    } else {
+                        newFieldMetadata[field] = { type: 'text', uniqueValues: [...uniqueTextValues].sort() };
+                    }
+                 });
+                 fieldMetadata = newFieldMetadata; // Update global metadata
+                 console.log("Calculated field metadata:", fieldMetadata);
+
+                 // --- Initialize Weights & Enabled Status for New Fields --- 
+                 let weightsChanged = false;
+                 let statusChanged = false;
+                 availableFields.forEach(field => {
+                     // Default weight 100 if not present
+                     if (!(field in fieldWeights)) {
+                         fieldWeights[field] = 100; 
+                         weightsChanged = true;
+                         console.log(`Initialized weight for new field '${field}' to 100.`);
+                     }
+                     // Default enabled status true if not present
+                     if (!(field in fieldEnabledStatus)) {
+                         fieldEnabledStatus[field] = true;
+                         statusChanged = true;
+                         console.log(`Initialized enabled status for new field '${field}' to true.`);
+                     }
+                 });
+                 
+                 // Clean up: Remove weights/status for fields no longer available (optional)
+                 // Could also keep them in case they reappear later
+                 Object.keys(fieldWeights).forEach(field => {
+                    if (!availableFields.includes(field)) {
+                        // delete fieldWeights[field]; weightsChanged = true;
+                    }
+                 });
+                 Object.keys(fieldEnabledStatus).forEach(field => {
+                     if (!availableFields.includes(field)) {
+                         // delete fieldEnabledStatus[field]; statusChanged = true;
+                     }
+                 });
+                 
+                 // Save if defaults were added
+                 if (weightsChanged) saveWeightsToStorage();
+                 if (statusChanged) saveEnabledStatusToStorage();
+                 
+                 // --- Re-render UIs --- 
+                 renderFieldConfigUI(); // Use the implemented function name
+                 renderFilterUI();
+             }
+
+            // Add Filter Button Listener (Updated)
+             if (addFilterBtn) {
+                 addFilterBtn.addEventListener('click', () => {
+                     console.log("Add Filter clicked");
+                     // Add a new blank filter object including comment
+                     currentFilters.push({ id: Date.now(), field: '', operator: '=', value: '', comment: '' }); 
+                     saveFiltersToStorage();
+                     renderFilterUI();
+                 });
+             }
+
+            // Apply Filters Button Listener (Updated)
+            if (applyFiltersBtn) {
+                applyFiltersBtn.addEventListener('click', () => {
+                    console.log("Apply Filters clicked - Current Filter State:", JSON.parse(JSON.stringify(currentFilters)));
+                    // NOTE: The `currentFilters` array should already be up-to-date 
+                    // due to the 'change'/'input' listeners on the select/input fields.
+                    // We just need to save this state before applying.
+                    saveFiltersToStorage(); 
+                    applyFilters(); // Apply the filters using the current state
+                });
+            }
+
+            // Reset Filters Button Listener (Updated)
+            if (resetFiltersBtn) {
+                resetFiltersBtn.addEventListener('click', () => {
+                     console.log("Reset Filters clicked");
+                     // Reset filters to a single blank one including comment
+                     currentFilters = [{ id: Date.now(), field: '', operator: '=', value: '', comment: '' }]; 
+                     saveFiltersToStorage(); 
+                     renderFilterUI(); 
+                     applyFilters(); 
+                });
+            }
+
+            // Processing Button Listener (Updated)
+            if (processButton && processStatus && outputArea) {
+                processButton.addEventListener('click', async function() {
+                    processButton.disabled = true;
+                    processStatus.textContent = 'Processing data...';
+                    processStatus.className = 'ms-2 text-info';
+                    outputArea.textContent = ''; // Clear previous output
+
+                    try {
+                        // Step 1: Call the endpoint to process and store data
+                        const processResponse = await fetch('/api/analytics/process-finviz', {
+                            method: 'POST',
+                            headers: { 'Accept': 'application/json' }
+                        });
+
+                        const processResult = await processResponse.json();
+
+                        if (!processResponse.ok) {
+                            const errorDetail = processResult.detail || `Processing failed with status ${processResponse.status} - ${processResponse.statusText}`;
+                            throw new Error(errorDetail);
+                        }
+                        
+                        processStatus.textContent = processResult.message || 'Processing request successful.';
+                        processStatus.className = 'ms-2 text-success';
+
+                        // Step 2: Call the endpoint to get the processed data
+                        const getResponse = await fetch('/api/analytics/get-processed-finviz', {
+                            method: 'GET',
+                            headers: { 'Accept': 'application/json' }
+                        });
+                        
+                        if (!getResponse.ok) {
+                             // ... (existing error handling for getResponse) ...
+                        }
+
+                        const processedData = await getResponse.json();
+                        fullProcessedData = processedData; 
+                        
+                        // Step 3: Process loaded data (extract fields, init weights)
+                        processLoadedDataAndUpdateState();
+                        
+                        // Step 4: Display initial unfiltered data (or apply loaded filters)
+                        applyFilters(); 
+                        
+                    } catch (error) {
+                        console.error('Error during Finviz data processing/fetching:', error);
+                        outputArea.textContent = `An error occurred. Check console for details. \nError: ${error.message}`;
+                        processStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
+                        processStatus.className = 'ms-2 text-danger';
+                        fullProcessedData = [];
+                        availableFields = []; 
+                    } finally {
+                         processButton.disabled = false; 
+                    }
+                });
+            }
+            
+            // Update Initial Load section to call renamed renderer
+            // --- Initial Load --- 
+            loadFiltersFromStorage();
+            loadWeightsFromStorage(); 
+            loadEnabledStatusFromStorage();
+            renderFilterUI(); 
+            renderFieldConfigUI(); // Use the implemented function name
+
+        });
+    </script>
 {% endblock %} 

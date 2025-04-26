@@ -52,6 +52,14 @@ from .V3_investingcom_fetch import fetch_and_store_investingcom_data, update_scr
 from .V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate, add_or_update_exchange_rate_conid, update_screener_multi_fields_sync, get_screener_tickers_and_conids_sync, get_exchange_rates_and_conids_sync # Import new DB function AND SQLiteRepository
 # --- End Local Application Imports ---
 
+# --- Import V3_ibkr_monitor (Keep existing imports) ---
+# ... existing imports ...
+from .V3_database import SQLiteRepository # Ensure get_db is imported if not already
+# --- ADD Import for IBKR Monitor and potentially analytics --- 
+from .V3_ibkr_monitor import register_ibkr_monitor # Use alias to avoid name clash
+# ADD Analytics import <<<<< ADD THIS LINE
+from .V3_analytics import preprocess_finviz_data # Import the new preprocessing function
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, # Ensure level is INFO
@@ -61,6 +69,10 @@ logger = logging.getLogger(__name__)
 
 # Create scheduler instance
 scheduler = AsyncIOScheduler()
+
+# --- ADD In-Memory Cache for Processed Finviz Data ---
+processed_finviz_data_cache: List[Dict[str, Any]] = []
+# --- END In-Memory Cache ---
 
 # --- NEW Sync DB Helper --- 
 def get_tickers_from_db_sync(db_path: str) -> List[str]:
@@ -2550,6 +2562,58 @@ def create_app():
                 raise HTTPException(status_code=500, detail="Internal Server Error rendering analytics page.")
         # --- END Analytics Page Route ---
 
+        # --- Existing route additions (like add_websocket_route) ---
+        # ... (potentially add_websocket_route call here) ...
+
+        # --- NEW Analytics Routes --- 
+        
+        @app.post("/api/analytics/process-finviz", 
+                  status_code=status.HTTP_200_OK, 
+                  summary="Process Raw Finviz Data",
+                  tags=["Analytics"])
+        async def process_finviz_endpoint(repository: SQLiteRepository = Depends(get_repository)):
+            """Triggers processing of raw Finviz data and stores it in memory."""
+            global processed_finviz_data_cache # Access the global cache variable
+            logger.info("Received request to process raw Finviz data.")
+            try:
+                # 1. Fetch raw data
+                raw_data = await repository.get_all_finviz_raw_data()
+                if not raw_data:
+                    logger.warning("No raw Finviz data found in the database to process.")
+                    processed_finviz_data_cache = [] # Clear cache if no data
+                    return {"message": "No raw Finviz data found to process."}
+                
+                # 2. Preprocess data using the function from V3_analytics
+                logger.info(f"Processing {len(raw_data)} raw Finviz entries...")
+                processed_data = preprocess_finviz_data(raw_data)
+                logger.info(f"Preprocessing complete. {len(processed_data)} entries resulted.")
+                
+                # 3. Store results in the in-memory cache
+                processed_finviz_data_cache = processed_data
+                logger.info("Processed Finviz data stored in memory cache.")
+                
+                return {"message": f"Successfully processed {len(processed_data)} Finviz entries and stored in memory."}
+                
+            except Exception as e:
+                logger.error(f"Error during Finviz data processing: {e}", exc_info=True)
+                # Decide if cache should be cleared on error
+                # processed_finviz_data_cache = [] 
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+                                    detail=f"Failed to process Finviz data: {str(e)}")
+
+        @app.get("/api/analytics/get-processed-finviz", 
+                 summary="Get Processed Finviz Data from Memory",
+                 tags=["Analytics"])
+        async def get_processed_finviz_endpoint():
+            """Retrieves the currently stored processed Finviz data from memory cache."""
+            global processed_finviz_data_cache # Access the global cache variable
+            logger.info(f"Received request to get processed Finviz data from cache. Returning {len(processed_finviz_data_cache)} items.")
+            # Simply return the current content of the cache as JSON
+            # Note: No explicit response_model for potentially large/varied data
+            return JSONResponse(content=processed_finviz_data_cache)
+
+        # --- END NEW Analytics Routes ---
+        
         logger.info("FastAPI app instance created and configured successfully.")
         return app 
         # --- End Correct Indentation / End of try block ---
