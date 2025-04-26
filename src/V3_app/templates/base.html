@@ -346,6 +346,13 @@
              <li class="nav-item">
               <a class="nav-link {% if request.url.path == url_for('get_config_page') %}active{% endif %}" href="{{ url_for('get_config_page') }}">Settings</a>
             </li>
+            {# --- IBKR Connection Status --- #}
+            <li class="nav-item d-flex align-items-center ms-lg-2"> {# Use flex alignment and margin #}
+                <span id="ibkr-connection-status" class="navbar-text small" title="IBKR Gateway Connection Status">
+                    <!-- Initial state empty, JS will populate icon -->
+                </span>
+            </li>
+            {# --- End IBKR Connection Status --- #}
             {# --- Theme Toggle Button --- #}
             <li class="nav-item">
                  <button id="theme-toggle-button" class="theme-toggle btn nav-link" title="Toggle light/dark theme">
@@ -483,6 +490,212 @@
             }
         }
     </script>
+
+    {# --- IBKR Connection Status WebSocket --- #}
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            const statusElement = document.getElementById('ibkr-connection-status');
+            const storageKey = 'ibkrStatusPayload'; // Key for sessionStorage
+            let socket = null;
+            let reconnectDelay = 5000; // Start with 5 seconds reconnect delay
+            const maxReconnectDelay = 60000; // Max delay 1 minute
+
+            // Function to update UI based on status code
+            function updateStatusUI(statusCode) {
+                if (!statusElement) return;
+                
+                // Determine HTML content for popover
+                let popoverContentHTML = "<h6>Other Error</h6>An unexpected issue occurred."; 
+                let iconClass = 'bi-exclamation-octagon-fill';
+                let textClass = 'text-danger'; // Default to danger for errors
+
+                switch (statusCode) {
+                    case 'INITIALIZING':
+                        popoverContentHTML = "Checking connection status...";
+                        iconClass = 'bi-arrow-repeat';
+                        textClass = 'text-warning';
+                        break;
+                    case 'CONNECTED':
+                        popoverContentHTML = "<h6>Connected</h6>IBKR Gateway connection is active.";
+                        iconClass = 'bi-check-circle-fill';
+                        textClass = 'text-success';
+                        break;
+                    case 'DISCONNECTED_GW_ERROR':
+                    case 'ERROR_TIMEOUT':
+                    case 'ERROR_NETWORK':
+                        popoverContentHTML = "<h6>Gateway Not Reachable</h6>Ensure IB Gateway is started (e.g., using <code>bin\\run.bat root\\conf.yaml</code>) and user is authenticated via <a href='https://localhost:5000/' target='_blank' rel='noopener noreferrer'>https://localhost:5000/</a>.";
+                        iconClass = 'bi-wifi-off'; // Use Wifi Off icon
+                        textClass = 'text-danger';
+                        break;
+                    case 'DISCONNECTED_NO_AUTH':
+                    case 'ERROR_API_AUTH':
+                        popoverContentHTML = "<h6>Authentication Failed</h6>User should be authenticated using <a href='https://localhost:5000/' target='_blank' rel='noopener noreferrer'>https://localhost:5000/</a>.";
+                        iconClass = 'bi-lock-fill'; // Use Lock icon
+                        textClass = 'text-danger';
+                        break;
+                    case 'DISCONNECTED_UNKNOWN':
+                        popoverContentHTML = "<h6>Gateway Disconnected</h6>Reason unknown.";
+                        // Keep default icon/color for Other Error
+                        break;
+                    case 'ERROR_INVALID_RESPONSE':
+                        popoverContentHTML = "<h6>Invalid Gateway Response</h6>Received malformed data.";
+                        // displayStatus, iconClass, textClass already set to defaults for "Other Error"
+                        break;
+                    case 'ERROR_UNKNOWN':
+                        popoverContentHTML = "<h6>Unknown Error</h6>An unexpected client-side error occurred.";
+                        break;
+                    default:
+                        // Handle ERROR_API_OTHER_{code} and any truly unknown codes
+                        if (typeof statusCode === 'string' && statusCode.startsWith('ERROR_API_OTHER')) {
+                            const code = statusCode.split('_').pop();
+                            popoverContentHTML = `<h6>API Error (${code})</h6>Gateway reported an error.`;
+                            // Keep default "Other Error" message and styling
+                        } else if (statusCode !== 'INITIALIZING' && statusCode !== 'CONNECTED') {
+                            // If it's not initializing, connected, or a known error type, treat as Other Error
+                            console.warn("Unknown status code received:", statusCode);
+                            popoverContentHTML = `<h6>Unknown Status</h6>Code: ${statusCode}`; // Keep default icon/color
+                        } // else: Initializing/Connected already handled
+                        break; // End of default case
+
+                    // Add case for WebSocket disconnection itself
+                    case 'WS_DISCONNECTED':
+                        popoverContentHTML = "<h6>WebSocket Closed</h6>Connection to server lost. Retrying...";
+                        iconClass = 'bi-plug-fill'; // Disconnected plug icon
+                        textClass = 'text-danger';
+                        break;
+                }
+                
+                // --- Popover Logic --- 
+                // Clear existing content first to ensure icon update
+                statusElement.innerHTML = ''; 
+                // Create or get the icon element
+                let iconElement = statusElement.querySelector('i.bi');
+                if (!iconElement) {
+                    iconElement = document.createElement('i');
+                    statusElement.appendChild(iconElement);
+                }
+                // Update icon class
+                iconElement.className = `bi ${iconClass}`; 
+                
+                // Get existing popover instance or create a new one
+                let popoverInstance = bootstrap.Popover.getInstance(iconElement);
+                
+                if (!popoverInstance) {
+                    // Initialize popover if it doesn't exist
+                    popoverInstance = new bootstrap.Popover(iconElement, {
+                        content: popoverContentHTML,
+                        trigger: 'hover',
+                        placement: 'bottom',
+                        html: true,
+                        customClass: 'ibkr-status-popover' // Optional custom class for styling
+                    });
+                    console.log("Popover initialized for", iconElement);
+                } else {
+                    // Update content of existing popover
+                    popoverInstance.setContent({ '.popover-body': popoverContentHTML });
+                    console.log("Popover content updated");
+                }
+                // --- End Popover Logic ---
+
+                statusElement.className = `navbar-text small ${textClass}`; // Update text color class
+            }
+
+            // Try to load and display cached status immediately
+            const initialPayload = sessionStorage.getItem(storageKey);
+            let displayedInitialStatus = false;
+            if (initialPayload && statusElement) {
+                try {
+                    const initialMessage = JSON.parse(initialPayload);
+                    if (initialMessage.type === 'ibkr_status') {
+                        console.log('Loaded initial IBKR status from sessionStorage:', initialMessage.status);
+                        updateStatusUI(initialMessage.status);
+                        displayedInitialStatus = true; // Mark that we displayed cached status
+                    } else {
+                        // Fallback if type mismatch - Show loading icon
+                        statusElement.innerHTML = '<i class="bi bi-arrow-repeat" title="Loading..."></i>'; 
+                        statusElement.className = 'navbar-text small text-warning';
+                    }
+                } catch (e) {
+                    console.error('Failed to parse initial status from sessionStorage:', e);
+                    // Fallback on parse error - Show loading icon
+                    statusElement.innerHTML = '<i class="bi bi-arrow-repeat" title="Loading..."></i>'; 
+                    statusElement.className = 'navbar-text small text-warning'; // Set class here too
+                }
+            } else if (statusElement) {
+                // Default loading state if nothing in storage and cache wasn't displayed
+                // Default loading state - Show loading icon
+                statusElement.innerHTML = '<i class="bi bi-arrow-repeat" title="Loading..."></i>';
+                statusElement.className = 'navbar-text small text-warning'; // Set default class if no cache
+            }
+
+            function connectWebSocket() {
+                // Use wss:// if the main page is served over https, ws:// otherwise
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${wsProtocol}//${window.location.host}/ws/ibkr_status`; // Connect to the new status endpoint
+                console.log(`Attempting to connect WebSocket to: ${wsUrl}`);
+                
+                socket = new WebSocket(wsUrl);
+
+                socket.onopen = function(event) {
+                    console.log('WebSocket connection established.');
+                    if (statusElement) {
+                        // If we didn't show cached status, show awaiting message now
+                        if (!displayedInitialStatus) {
+                            // Show awaiting icon (hourglass)
+                            statusElement.innerHTML = '<i class="bi bi-hourglass-split" title="Awaiting Status..."></i>'; 
+                        }
+                        // Status will update when first message received from backend
+                        statusElement.className = 'navbar-text small text-muted';
+                    }
+                    reconnectDelay = 5000; // Reset delay on successful connection
+                };
+
+                socket.onmessage = function(event) {
+                    console.log('WebSocket message received:', event.data);
+                    // Always store the latest raw payload
+                    sessionStorage.setItem(storageKey, event.data);
+
+                    try {
+                        const message = JSON.parse(event.data);
+                        if (message.type === 'ibkr_status' && statusElement) {
+                            // Use the new UI update function
+                            updateStatusUI(message.status);
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse WebSocket message or update status:', e);
+                        if (statusElement) {
+                            // Show parse error icon
+                            statusElement.innerHTML = '<i class="bi bi-exclamation-triangle-fill" title="Parse Error"></i>';
+                            statusElement.className = 'navbar-text small text-danger';
+                        }
+                    }
+                };
+
+                socket.onerror = function(event) {
+                    console.error('WebSocket error observed:', event);
+                    // Use updateStatusUI to handle the display (optional: define a WS_ERROR code?)
+                    // For now, just log error, onclose will handle visual update
+                };
+
+                socket.onclose = function(event) {
+                    console.log(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}. Attempting reconnect in ${reconnectDelay / 1000}s.`);
+                    // Update UI to show a disconnected state (using a specific code if desired)
+                    // Let's use a pseudo-code for WS disconnect for clarity
+                    updateStatusUI('WS_DISCONNECTED'); // We need to add this case to updateStatusUI
+
+                    socket = null; // Ensure socket is nullified
+                    // Schedule reconnect with exponential backoff
+                    setTimeout(connectWebSocket, reconnectDelay);
+                    // Increase delay for next time, capped at max delay
+                    reconnectDelay = Math.min(reconnectDelay * 2, maxReconnectDelay); 
+                };
+            }
+
+            // Initial connection attempt
+            connectWebSocket();
+        });
+    </script>
+    {# --- End IBKR Connection Status WebSocket --- #}
 
     {% block scripts %}
     {# Page specific scripts go here #}

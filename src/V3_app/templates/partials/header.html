@@ -1,0 +1,38 @@
+{# --- Navigation Bar (Centralized) --- #}
+<nav class="navbar navbar-expand-lg fixed-top"> 
+    <div class="container-fluid">
+    <a class="navbar-brand" href="{{ url_for('read_root') }}">Financial App</a> {# Updated Brand #}
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNav">
+        {# Use ms-auto to push items to the right #}
+        <ul class="navbar-nav ms-auto align-items-center">
+        <li class="nav-item">
+            {# Check request.url.path for active state #}
+            <a class="nav-link {% if request.url.path == url_for('read_root') %}active{% endif %}" aria-current="page" href="{{ url_for('read_root') }}">Dashboard</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if request.url.path == url_for('get_tracker_page') %}active{% endif %}" href="{{ url_for('get_tracker_page') }}">Tracker</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if request.url.path == url_for('get_analytics_page') %}active{% endif %}" href="{{ url_for('get_analytics_page') }}">Analytics</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if request.url.path == url_for('get_add_ticker_page') %}active{% endif %}" href="{{ url_for('get_add_ticker_page') }}">Add Instrument</a>
+        </li>
+            <li class="nav-item">
+            <a class="nav-link {% if request.url.path == url_for('get_config_page') %}active{% endif %}" href="{{ url_for('get_config_page') }}">Settings</a>
+        </li>
+        {# --- Theme Toggle Button --- #}
+        <li class="nav-item">
+                <button id="theme-toggle-button" class="theme-toggle btn nav-link" title="Toggle light/dark theme">
+                    <i class="bi bi-sun-fill"></i> <!-- Default: Sun Icon -->
+                </button>
+        </li>
+        {# --- End Theme Toggle Button --- #}
+        </ul>
+    </div>
+    </div>
+</nav>
+{# --- End Navigation Bar --- #} 

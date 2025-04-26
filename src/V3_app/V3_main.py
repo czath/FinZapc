@@ -16,6 +16,9 @@ from sqlalchemy.orm import Session
 # Use relative import
 # from .V3_database import SQLiteRepository # <-- Comment out specific class import
 from .V3_database import update_exchange_rate
+# --- ADD Import for IBKR Monitor --- 
+from .V3_ibkr_monitor import register_ibkr_monitor
+# --- END Import ---
 
 # Configure logging
 logging.basicConfig(
@@ -41,10 +44,18 @@ def main():
 
         # Run the server using regular call instead of string syntax for now
         if app is not None:
-            # --- Register WebSocket route AFTER app creation --- 
-            add_websocket_route(app)
-            logger.info("WebSocket route added.")
-            # --- End Register ---
+            # --- Register IBKR Status Monitor --- 
+            register_ibkr_monitor(app)
+            # --- End IBKR Monitor Register --- 
+            
+            # --- Register original WebSocket route (if still needed) --- 
+            # If the add_websocket_route (adding /ws/status) is still required 
+            # for other purposes, uncomment the lines below. 
+            # Otherwise, keep them commented or remove if /ws/status is unused.
+            # add_websocket_route(app)
+            # logger.info("Original WebSocket route (/ws/status) added.")
+            # --- End Original WebSocket --- 
+
             uvicorn.run(
                 app,
                 host="0.0.0.0",
