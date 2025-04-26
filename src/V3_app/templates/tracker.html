@@ -45,8 +45,12 @@
         #tickerTable { width: 100% !important; }
         .numeric { text-align: right !important; }
         .position-indicator { cursor: pointer; }
-        .row-hover-highlight td { background-color: #ffffcc !important; }
+        .row-hover-highlight td { background-color: #cce5ff !important; }
         .comments-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        /* Ensure contrast for highlighted row text in dark mode */
+        [data-bs-theme="dark"] .row-hover-highlight td {
+            color: #000000 !important; /* Black text for dark mode highlight */
+        }
     </style>
     <!-- ADD Custom CSS for DataTables Buttons Dropdown Text -->
     <style>

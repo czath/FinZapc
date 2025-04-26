@@ -126,7 +126,11 @@
         }
         /* Row hover highlight - Added via JS */
         .row-hover-highlight td {
-            background-color: #ffffcc !important; /* Light yellow */
+            background-color: #cce5ff !important; /* Light blue */
+        }
+        /* Ensure contrast for highlighted row text in dark mode */
+        [data-bs-theme="dark"] .row-hover-highlight td {
+            color: #000000 !important; /* Black text for dark mode highlight */
         }
     </style>
 {% endblock %}
@@ -161,8 +165,10 @@
                     {% for account in accounts %}
                     <div class="col" id="account-col-{{ account.account_id }}">
                         <div class="card h-100 shadow-sm">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">{{ account.account_id }}</h5>
+                            </div>
                             <div class="card-body">
-                                <h5 class="card-title">{{ account.account_id }}</h5>
                                 <ul class="list-group list-group-flush">
                                     <li class="list-group-item">Net Liquidation: {{ account.net_liquidation }}</li>
                                     <li class="list-group-item">Total Cash: {{ account.total_cash }} <span class="text-muted">{{ account.total_cash_percentage }}</span></li>
@@ -205,73 +211,77 @@
             <div class="tab-pane fade" id="positions" role="tabpanel" aria-labelledby="positions-tab">
                 {% for account in accounts %}
                 {% if account.positions %}
-                <div class="account-section">
-                    <h2 class="h3 mb-4">Positions - Account: {{ account.account_id }}</h2>
-                    <!-- Combined Summary Placeholder -->
-                    <div class="combined-summary mb-2 text-muted"
-                         id="combined-summary-{{ account.account_id }}"
-                         tabindex="0"
-                         style="cursor: pointer;"
-                         data-net-liquidation="{{ account.net_liquidation | default(0, true) }}">
-                        <small>Summary: Calculating...</small>
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="h3 mb-0">Positions - Account: {{ account.account_id }}</h2>
                     </div>
-                    <div class="table-responsive">
-                        <table class="table position-table" id="positions-{{ account.account_id }}">
-                            <thead>
-                                <tr> <!-- Header Row -->
-                                    <th>Ticker</th>
-                                    <th>Position</th>
-                                    <th>Mkt Price</th>
-                                    <th>Mkt Value</th>
-                                    <th>Mkt Value (EUR)</th>
-                                    <th>% NAV</th>
-                                    <th>Avg Cost</th>
-                                    <th>Unreal PNL</th>
-                                    <th>PNL %</th>
-                                    <th>Sector</th>
-                                    <th>Group</th>
-                                    <th>Sec Type</th>
-                                    <th>Currency</th>
-                                    <th>Last Update</th>
-                                </tr>
-                                <tr class="filter-row"> <!-- Filter Row -->
-                                    <th></th> <!-- Ticker -->
-                                    <th></th> <!-- Position -->
-                                    <th></th> <!-- Mkt Price -->
-                                    <th></th> <!-- Mkt Value -->
-                                    <th></th> <!-- Mkt Value (EUR) -->
-                                    <th></th> <!-- % NAV -->
-                                    <th></th> <!-- Avg Cost -->
-                                    <th></th> <!-- Unreal PNL -->
-                                    <th></th> <!-- PNL % -->
-                                    <th></th> <!-- Sector Filter -->
-                                    <th></th> <!-- Group -->
-                                    <th></th> <!-- Sec Type -->
-                                    <th></th> <!-- Currency Filter -->
-                                    <th></th> <!-- Last Update -->
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for pos in account.positions %}
-                                <tr data-ticker="{{ pos.ticker }}" data-account="{{ pos.account_id }}">
-                                    <td><strong>{{ pos.ticker }}</strong></td>
-                                    <td class="numeric">{{ pos.position }}</td>
-                                    <td class="numeric">{{ pos.mkt_price_display }}</td>
-                                    <td class="numeric">{{ pos.mkt_value_display }}</td>
-                                    <td class="numeric">{{ pos.value_eur }}</td>
-                                    <td class="numeric">{{ pos.value_percentage }}</td>
-                                    <td class="numeric">{{ pos.avg_cost_display }}</td>
-                                    <td class="numeric {{ pos.unrealized_pnl_class }}">{{ pos.unrealized_pnl_display }}</td>
-                                    <td class="numeric {{ pos.pnl_percentage_class }}">{{ pos.pnl_percentage_display }}</td>
-                                    <td>{{ pos.sector }}</td>
-                                    <td>{{ pos.group }}</td>
-                                    <td>{{ pos.sec_type }}</td>
-                                    <td>{{ pos.currency }}</td>
-                                    <td>{{ pos.last_update.split('T')[0] ~ ' ' ~ pos.last_update.split('T')[1].split('.')[0] if pos.last_update and 'T' in pos.last_update else pos.last_update or 'N/A' }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                    <div class="card-body">
+                        <!-- Combined Summary Placeholder -->
+                        <div class="combined-summary mb-2 text-muted"
+                             id="combined-summary-{{ account.account_id }}"
+                             tabindex="0"
+                             style="cursor: pointer;"
+                             data-net-liquidation="{{ account.net_liquidation | default(0, true) }}">
+                            <small>Summary: Calculating...</small>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table position-table" id="positions-{{ account.account_id }}">
+                                <thead>
+                                    <tr> <!-- Header Row -->
+                                        <th>Ticker</th>
+                                        <th>Position</th>
+                                        <th>Mkt Price</th>
+                                        <th>Mkt Value</th>
+                                        <th>Mkt Value (EUR)</th>
+                                        <th>% NAV</th>
+                                        <th>Avg Cost</th>
+                                        <th>Unreal PNL</th>
+                                        <th>PNL %</th>
+                                        <th>Sector</th>
+                                        <th>Group</th>
+                                        <th>Sec Type</th>
+                                        <th>Currency</th>
+                                        <th>Last Update</th>
+                                    </tr>
+                                    <tr class="filter-row"> <!-- Filter Row -->
+                                        <th></th> <!-- Ticker -->
+                                        <th></th> <!-- Position -->
+                                        <th></th> <!-- Mkt Price -->
+                                        <th></th> <!-- Mkt Value -->
+                                        <th></th> <!-- Mkt Value (EUR) -->
+                                        <th></th> <!-- % NAV -->
+                                        <th></th> <!-- Avg Cost -->
+                                        <th></th> <!-- Unreal PNL -->
+                                        <th></th> <!-- PNL % -->
+                                        <th></th> <!-- Sector Filter -->
+                                        <th></th> <!-- Group -->
+                                        <th></th> <!-- Sec Type -->
+                                        <th></th> <!-- Currency Filter -->
+                                        <th></th> <!-- Last Update -->
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for pos in account.positions %}
+                                    <tr data-ticker="{{ pos.ticker }}" data-account="{{ pos.account_id }}">
+                                        <td><strong>{{ pos.ticker }}</strong></td>
+                                        <td class="numeric">{{ pos.position }}</td>
+                                        <td class="numeric">{{ pos.mkt_price_display }}</td>
+                                        <td class="numeric">{{ pos.mkt_value_display }}</td>
+                                        <td class="numeric">{{ pos.value_eur }}</td>
+                                        <td class="numeric">{{ pos.value_percentage }}</td>
+                                        <td class="numeric">{{ pos.avg_cost_display }}</td>
+                                        <td class="numeric {{ pos.unrealized_pnl_class }}">{{ pos.unrealized_pnl_display }}</td>
+                                        <td class="numeric {{ pos.pnl_percentage_class }}">{{ pos.pnl_percentage_display }}</td>
+                                        <td>{{ pos.sector }}</td>
+                                        <td>{{ pos.group }}</td>
+                                        <td>{{ pos.sec_type }}</td>
+                                        <td>{{ pos.currency }}</td>
+                                        <td>{{ pos.last_update.split('T')[0] ~ ' ' ~ pos.last_update.split('T')[1].split('.')[0] if pos.last_update and 'T' in pos.last_update else pos.last_update or 'N/A' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
                 {% endif %}
@@ -282,9 +292,12 @@
             <div class="tab-pane fade" id="orders" role="tabpanel" aria-labelledby="orders-tab">
                 {% for account in accounts %}
                 {% if account.orders %}
-                <div class="account-section">
-                    <h2 class="h3 mb-4">Orders - Account: {{ account.account_id }}</h2>
-                    <div class="table-responsive">
+                <div class="card mb-4">
+                     <div class="card-header">
+                        <h2 class="h3 mb-0">Orders - Account: {{ account.account_id }}</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
                         <table class="table order-table">
                             <thead>
                                 <tr>
@@ -329,6 +342,7 @@
                                 {% endfor %}
                             </tbody>
                         </table>
+                    </div>
                     </div>
                 </div>
                 {% endif %}
@@ -1027,8 +1041,10 @@
             const newCardHtml = `
                 <div class="col" id="account-col-${account.account_id}">
                     <div class="card h-100 shadow-sm">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">${account.account_id || 'N/A'}</h5>
+                        </div>
                         <div class="card-body">
-                            <h5 class="card-title">${account.account_id || 'N/A'}</h5>
                             <ul class="list-group list-group-flush">
                                 <li class="list-group-item">Net Liquidation: ${formatDisplayValue(account.net_liquidation, 'EUR')}</li>
                                 <li class="list-group-item">Total Cash: ${formatDisplayValue(account.total_cash, 'EUR')} <span class="text-muted">${cashPercentStr}</span></li>
