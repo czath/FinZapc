@@ -507,7 +507,7 @@
                          showAlert("Action failed: Could not identify rule.", "danger");
                          return;
                      }
-                     
+
                      const ruleId = rowData[0]; // Get ID from data array
 
                      if (button.hasClass('btn-edit')) {
@@ -519,12 +519,14 @@
                              min_value: rowData[2],
                              max_value: rowData[3],
                              description: rowData[4],
-                             is_active: rowData[5] === 'Active' // Convert status string back to boolean
+                             // Get the raw status string ('Active'/'Inactive') and convert to boolean
+                             is_active: (rowData[5] === 'Active') 
                          };
                          prepareEditRuleModal(rule); // Pass the reconstructed object
-                         
+
                      } else if (button.hasClass('btn-delete')) {
                          console.log(`[UI Action] Delete button clicked for rule ID: ${ruleId}`);
+                         // Find the rule ID directly from the row data
                          deleteRule(ruleId); // Pass only the ID
                      }
                  });
@@ -712,21 +714,27 @@
         function prepareEditRuleModal(rule) { // Expects parsed JS object
             resetRuleForm();
             $('#ruleModalLabel').text(`Edit Rule (ID: ${rule.id})`);
-            
-            $('#ruleId').val(rule.id); 
+
+            $('#ruleId').val(rule.id);
             $('#ruleName').val(rule.rule_name);
             $('#minValue').val(rule.min_value);
             $('#maxValue').val(rule.max_value);
             $('#description').val(rule.description || '');
 
-            const isActive = rule.is_active === true || rule.is_active === 1 || `${rule.is_active}`.toLowerCase() === 'true';
+            // Ensure boolean comparison for is_active
+            const isActive = rule.is_active === true; 
              // REMOVE bootstrapToggle() calls
              $('#isActiveSwitch').prop('checked', isActive);
              $('#isActiveHidden').val(isActive ? 'true' : 'false');
 
             $('#saveRuleButton').text('Update Rule');
 
-            var ruleModal = new bootstrap.Modal(document.getElementById('ruleModal'));
+            // Get or create the modal instance safely
+            var ruleModalElement = document.getElementById('ruleModal');
+            var ruleModal = bootstrap.Modal.getInstance(ruleModalElement);
+            if (!ruleModal) {
+                ruleModal = new bootstrap.Modal(ruleModalElement);
+            }
             ruleModal.show();
         }
 
@@ -938,21 +946,22 @@
         function createRowDataArray(rule) {
              const isActive = rule.is_active === true || rule.is_active === 1 || `${rule.is_active}`.toLowerCase() === 'true';
              const description = rule.description || '';
-             const ruleJsonString = JSON.stringify(rule).replace(/'/g, "\\'");
+             // REMOVE ruleJsonString creation - no longer needed for inline onclick
 
              // Create ONLY buttons HTML string here - REMOVE TEXT, ADD TOOLTIPS
+             // Add data-rule-id attribute for easier identification if needed, although we get it from the row now
              const buttonsHtml = `
-                 <button class="btn btn-primary btn-sm btn-edit" 
-                         onclick='prepareEditRuleModal(${ruleJsonString})' 
+                 <button class="btn btn-primary btn-sm btn-edit"
+                         data-rule-id="${rule.id}"
                          title="Edit Rule">
                      <i class="bi bi-pencil-square"></i>
                  </button>
-                 <button class="btn btn-danger btn-sm btn-delete" 
-                         onclick="deleteRule(${rule.id})" 
+                 <button class="btn btn-danger btn-sm btn-delete"
+                         data-rule-id="${rule.id}"
                          title="Delete Rule">
                       <i class="bi bi-trash"></i>
                  </button>
-             `;
+             `; // NOTE: deleteRule is handled by the delegated listener now, so onclick is removed here too.
 
              return [
                  rule.id,
@@ -961,7 +970,7 @@
                  rule.max_value,
                  description,
                  isActive ? 'Active' : 'Inactive', // Return simple string for Status column
-                 buttonsHtml 
+                 buttonsHtml
              ];
          }
          
@@ -970,8 +979,8 @@
              // ... (keep for reference or remove if confident) ...
              const isActive = rule.is_active === true || rule.is_active === 1 || `${rule.is_active}`.toLowerCase() === 'true';
              const description = rule.description || ''; // Handle null
-             // Pass the raw JS object to prepareEditRuleModal
-             const ruleJsonString = JSON.stringify(rule).replace(/'/g, "\'"); // Basic escaping for the string itself
+             // REMOVE ruleJsonString creation
+             // REMOVE inline onclick handlers for edit/delete
 
              return `
                  <tr id="rule-row-${rule.id}" data-rule-id="${rule.id}">
@@ -981,30 +990,20 @@
                      <td class="max-value">${rule.max_value}</td>
                      <td class="description">${description}</td>
                      <td data-order="${isActive ? 'Active' : 'Inactive'}" data-filter="${isActive ? 'Active' : 'Inactive'}">
-                         <input type="checkbox"
-                                class="rule-active-toggle"
-                                data-rule-id="${rule.id}"
-                                data-rule-name="${rule.rule_name}"
-                                ${isActive ? 'checked' : ''}
-                                data-toggle="toggle"
-                                data-on="Active"
-                                data-off="Inactive"
-                                data-onstyle="success"
-                                data-offstyle="secondary"
-                                data-size="sm">
+                         {/* Switch HTML generation moved to DataTable column render function */}
+                         ${isActive ? 'Active' : 'Inactive'} {/* Placeholder */}
                      </td>
                      <td>
-                         <button class="btn btn-primary btn-sm btn-edit" 
-                                 onclick='prepareEditRuleModal(${ruleJsonString})'>
-                             <i class="bi bi-pencil-square"></i> Edit
+                         <button class="btn btn-primary btn-sm btn-edit" data-rule-id="${rule.id}" title="Edit Rule">
+                             <i class="bi bi-pencil-square"></i>
                          </button>
-                         <button class="btn btn-danger btn-sm btn-delete" onclick="deleteRule(${rule.id})">
-                              <i class="bi bi-trash"></i> Delete
+                         <button class="btn btn-danger btn-sm btn-delete" data-rule-id="${rule.id}" title="Delete Rule">
+                              <i class="bi bi-trash"></i>
                          </button>
                      </td>
                  </tr>
              `;
-         }
+          }
 
         // --- NEW Function to Update Job Active Status via Fetch ---
         async function updateJobActiveStatus(jobId, isActive) { // Renamed from updateJobStatus
