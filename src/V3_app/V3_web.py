@@ -1338,8 +1338,8 @@ def create_app():
             # --- End Initial Fetch Scheduling ---
 
             # --- NEW: Schedule Initial Finviz Fetch ---
-            logger.info("Application startup: Scheduling initial Finviz data fetch.")
-            asyncio.create_task(run_initial_finviz_fetch())
+            # logger.info("Application startup: Scheduling initial Finviz data fetch.") # REMOVE/COMMENT THIS
+            # asyncio.create_task(run_initial_finviz_fetch()) # REMOVE/COMMENT THIS
             # --- END NEW Finviz Fetch ---
 
         @app.on_event("shutdown")
