@@ -15,13 +15,13 @@ import logging
 import importlib # <-- ADD THIS LINE
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, WebSocketDisconnect, Body, Depends, status # ADD status
+from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, WebSocketDisconnect, Body, Depends, status, BackgroundTasks # ADDED BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.base import JobLookupError # <-- ADD THIS LINE
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response # ADDED for setting cookies indirectly via response
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response, StreamingResponse # ADDED for setting cookies indirectly via response and StreamingResponse
 import json
 from pydantic import BaseModel, Field, ValidationError
 from collections import Counter
@@ -36,6 +36,8 @@ import requests # ADDED for sync service
 import urllib3 # ADDED for sync service
 from asyncio import AbstractEventLoop # Specific import for type hint
 import threading # Import threading for current_thread()
+import uuid # <<< ADD THIS IMPORT
+from datetime import datetime # <<< ADD THIS IMPORT
 # --- Add CORS Middleware Import --- 
 from fastapi.middleware.cors import CORSMiddleware
 # --- End Import --- 
@@ -47,6 +49,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import necessary functions and classes from other modules
 from .V3_ibkr_api import IBKRService, IBKRError, SyncIBKRService # ADD SyncIBKRService
 from .V3_finviz_fetch import fetch_and_store_finviz_data, update_screener_from_finviz # Corrected import
+from .V3_finviz_fetch import fetch_and_store_analytics_finviz
 # from .V3_yahoo_api import YahooFinanceAPI, YahooError # Assuming Yahoo API integration
 from .V3_investingcom_fetch import fetch_and_store_investingcom_data, update_screener_from_investingcom # Corrected import
 from .V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate, add_or_update_exchange_rate_conid, update_screener_multi_fields_sync, get_screener_tickers_and_conids_sync, get_exchange_rates_and_conids_sync # Import new DB function AND SQLiteRepository
@@ -58,7 +61,7 @@ from .V3_database import SQLiteRepository # Ensure get_db is imported if not alr
 # --- ADD Import for IBKR Monitor and potentially analytics --- 
 from .V3_ibkr_monitor import register_ibkr_monitor # Use alias to avoid name clash
 # ADD Analytics import <<<<< ADD THIS LINE
-from .V3_analytics import preprocess_finviz_data # Import the new preprocessing function
+from .V3_analytics import preprocess_raw_analytics_data # CORRECTED Import
 
 # Configure logging
 logging.basicConfig(
@@ -66,6 +69,23 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# --- Global Job Status Tracking ---
+job_statuses: Dict[str, Dict[str, Any]] = {} # Stores {job_id: {"status": "running/completed/failed", "message": "...", "timestamp": ...}}
+job_status_lock = asyncio.Lock()
+# --- End Global Job Status Tracking ---
+
+# --- Global variable to store processed finviz data (replace with proper caching/DB later) ---
+# global_processed_finviz_data: List[Dict[str, Any]] = [] # OLD
+global_processed_analytics_data: List[Dict[str, Any]] = [] # NEW: Renamed global variable
+
+# --- Dependency to provide IBKRService instance ---
+def get_db_path() -> str:
+    # Determine the absolute path to the database file relative to V3_web.py
+    # Assuming V3_web.py is inside src/V3_app and the DB is in src/V3_app
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(current_dir, 'V3_database.db')
+    return db_path
 
 # Create scheduler instance
 scheduler = AsyncIOScheduler()
@@ -534,7 +554,11 @@ class JobStatusUpdatePayload(BaseModel):
     job_id: str
     is_active: bool
 
-# Payload for adding/updating Account via API
+# --- NEW Pydantic Model for Ticker List Payload ---
+class TickerListPayload(BaseModel):
+    tickers: List[str] = Field(..., min_items=1) # Require at least one ticker
+# --- END NEW Model ---
+
 class AccountPayload(BaseModel):
     account_id: str = Field(..., min_length=1)
     net_liquidation: float = 0.0
@@ -2567,53 +2591,274 @@ def create_app():
 
         # --- NEW Analytics Routes --- 
         
-        @app.post("/api/analytics/process-finviz", 
+        @app.post("/api/analytics/process-raw-data", # NEW: Renamed URL
                   status_code=status.HTTP_200_OK, 
-                  summary="Process Raw Finviz Data",
+                  summary="Process Raw Analytics Data", # NEW: Renamed Summary
                   tags=["Analytics"])
-        async def process_finviz_endpoint(repository: SQLiteRepository = Depends(get_repository)):
-            """Triggers processing of raw Finviz data and stores it in memory."""
-            global processed_finviz_data_cache # Access the global cache variable
-            logger.info("Received request to process raw Finviz data.")
+        async def process_analytics_data_endpoint(repository: SQLiteRepository = Depends(get_repository)): # NEW: Renamed Function
+            """
+            Processes all raw data stored in the analytics_raw table and stores the result in memory.
+            """
+            logger.info("Received request to process raw analytics data.") # NEW: Renamed Log
             try:
-                # 1. Fetch raw data
-                raw_data = await repository.get_all_finviz_raw_data()
-                if not raw_data:
-                    logger.warning("No raw Finviz data found in the database to process.")
-                    processed_finviz_data_cache = [] # Clear cache if no data
-                    return {"message": "No raw Finviz data found to process."}
+                # Step 1: Get the raw data from the DB
+                logger.info("Fetching all raw analytics data from DB...")
+                all_raw_data = await repository.get_all_analytics_raw_data()
+
+                if not all_raw_data:
+                    logger.warning("No raw analytics data found in the database.")
+                    global_processed_analytics_data.clear() # NEW: Use renamed global
+                    return {"message": "No raw analytics data found to process."}
+
+                logger.info(f"Fetched {len(all_raw_data)} raw records. Processing...")
+
+                # Step 2: Preprocess the data using the function from V3_analytics
+                processed_data = preprocess_raw_analytics_data(all_raw_data) # NEW: Call renamed function
+                logger.info(f"Successfully processed {len(processed_data)} records.")
+
+                # Step 3: Store the processed data in the global variable
+                global_processed_analytics_data.clear() # NEW: Use renamed global
+                global_processed_analytics_data.extend(processed_data) # NEW: Use renamed global
                 
-                # 2. Preprocess data using the function from V3_analytics
-                logger.info(f"Processing {len(raw_data)} raw Finviz entries...")
-                processed_data = preprocess_finviz_data(raw_data)
-                logger.info(f"Preprocessing complete. {len(processed_data)} entries resulted.")
+                logger.info("Processed analytics data stored in memory.") # NEW: Renamed Log
                 
-                # 3. Store results in the in-memory cache
-                processed_finviz_data_cache = processed_data
-                logger.info("Processed Finviz data stored in memory cache.")
-                
-                return {"message": f"Successfully processed {len(processed_data)} Finviz entries and stored in memory."}
-                
+                return {"message": f"Successfully processed {len(processed_data)} analytics entries and stored in memory."} # NEW: Renamed Message
+
             except Exception as e:
-                logger.error(f"Error during Finviz data processing: {e}", exc_info=True)
-                # Decide if cache should be cleared on error
-                # processed_finviz_data_cache = [] 
+                logger.error(f"Error processing raw analytics data: {e}", exc_info=True)
+                global_processed_analytics_data.clear() # NEW: Use renamed global
                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-                                    detail=f"Failed to process Finviz data: {str(e)}")
+                                    detail=f"An error occurred during data processing: {e}")
 
-        @app.get("/api/analytics/get-processed-finviz", 
-                 summary="Get Processed Finviz Data from Memory",
+        @app.get("/api/analytics/get-processed-data", # NEW: Renamed URL
+                 summary="Get Processed Analytics Data from Memory", # NEW: Renamed Summary
                  tags=["Analytics"])
-        async def get_processed_finviz_endpoint():
-            """Retrieves the currently stored processed Finviz data from memory cache."""
-            global processed_finviz_data_cache # Access the global cache variable
-            logger.info(f"Received request to get processed Finviz data from cache. Returning {len(processed_finviz_data_cache)} items.")
-            # Simply return the current content of the cache as JSON
-            # Note: No explicit response_model for potentially large/varied data
-            return JSONResponse(content=processed_finviz_data_cache)
+        async def get_processed_analytics_data_endpoint(): # NEW: Renamed Function
+            # Return the data stored in memory
+            logger.info(f"Returning {len(global_processed_analytics_data)} processed analytics records from memory.") # NEW: Renamed Log & Global
+            return global_processed_analytics_data # NEW: Return renamed global
 
-        # --- END NEW Analytics Routes ---
+        @app.post("/api/analytics/start-finviz-fetch-screener", 
+                  status_code=status.HTTP_202_ACCEPTED, # Use 202 Accepted for background tasks
+                  summary="Trigger Finviz Fetch for Analytics (Screener Tickers)",
+                  response_model=Dict[str, str], # <<< Define response model
+                  tags=["Analytics", "Data Import"])
+        async def trigger_finviz_fetch_screener_endpoint(
+            background_tasks: BackgroundTasks, 
+            repository: SQLiteRepository = Depends(get_repository)
+        ):
+            """Triggers a background task to fetch Finviz data for all tickers in the screener."""
+            logger.info("[API Analytics] Received request to trigger Finviz fetch for screener tickers.")
+            
+            # Generate unique Job ID
+            job_id = str(uuid.uuid4())
+            message = "Finviz fetch job for screener tickers triggered successfully."
+            
+            # Set initial status
+            async with job_status_lock:
+                job_statuses[job_id] = {
+                    "status": "running", 
+                    "message": "Job started...", 
+                    "timestamp": datetime.now()
+                }
+            
+            # Schedule the background task (will pass job_id in Step 3)
+            # For now, it schedules the existing function, but the wrapper will be added later
+            background_tasks.add_task(run_analytics_finviz_fetch, repository, job_id) # Pass job_id
+            
+            logger.info(f"[API Analytics] Scheduled background Finviz fetch (Screener). Job ID: {job_id}")
+            # Return the job ID along with the message
+            return {"message": message, "job_id": job_id}
+
+        # --- Helper function to run the analytics fetch in the background --- 
+        async def run_analytics_finviz_fetch(repository: SQLiteRepository, job_id: str): # <<< Add job_id
+             """Fetches screener tickers and runs the Finviz analytics fetch."""
+             logger.info(f"[Background Task - {job_id}] Starting analytics Finviz fetch for screener tickers.")
+             start_time = datetime.now()
+             status = "failed" # Default to failed
+             final_message = "An unexpected error occurred."
+             try:
+                 # 1. Get tickers from the screener table
+                 screened_tickers_data = await repository.get_all_screened_tickers()
+                 tickers = [item['ticker'] for item in screened_tickers_data if item.get('ticker')]
+                 
+                 if not tickers:
+                     logger.warning(f"[Background Task - {job_id}] No tickers found in screener for analytics fetch.")
+                     final_message = "No tickers found in screener table."
+                     status = "completed" # Consider this a success (no work to do)
+                 else:
+                     logger.info(f"[Background Task - {job_id}] Found {len(tickers)} tickers. Fetching Finviz data...")
+                     # 2. Call the fetch function
+                     # Modify fetch_and_store_analytics_finviz in Step 4 to return status dict
+                     result = await fetch_and_store_analytics_finviz(repository, tickers)
+                     # Update status based on result (from Step 4)
+                     status = result.get("status", "failed")
+                     final_message = result.get("message", "Fetch completed with unknown status.")
+                     logger.info(f"[Background Task - {job_id}] Finviz fetch completed. Status: {status}")
+                     
+             except Exception as e:
+                 logger.error(f"[Background Task - {job_id}] Error during analytics Finviz fetch: {e}", exc_info=True)
+                 final_message = f"Error during fetch: {e}"
+                 status = "failed"
+             finally:
+                 # Update the final job status using the lock
+                 end_time = datetime.now()
+                 duration = end_time - start_time
+                 logger.info(f"[Background Task - {job_id}] Finished in {duration}. Final Status: {status}")
+                 async with job_status_lock:
+                     job_statuses[job_id] = {
+                         "status": status,
+                         "message": final_message,
+                         "timestamp": end_time
+                     }
+                     logger.debug(f"[Background Task - {job_id}] Updated global job status.")
+        # --- End Helper --- 
+
+        @app.post("/api/analytics/start-finviz-fetch-upload",
+                  status_code=status.HTTP_202_ACCEPTED,
+                  summary="Trigger Finviz Fetch for Analytics (Uploaded Tickers)",
+                  response_model=Dict[str, str], # <<< Define response model
+                  tags=["Analytics", "Data Import"])
+        async def trigger_finviz_fetch_upload_endpoint(
+            payload: TickerListPayload, # Use the Pydantic model for the request body
+            background_tasks: BackgroundTasks,
+            repository: SQLiteRepository = Depends(get_repository)
+        ):
+            """Triggers a background task to fetch Finviz data for a provided list of tickers."""
+            tickers = payload.tickers
+            logger.info(f"[API Analytics] Received request to trigger Finviz fetch for {len(tickers)} uploaded tickers.")
+
+            # Generate unique Job ID
+            job_id = str(uuid.uuid4())
+            message = f"Finviz fetch job for {len(tickers)} uploaded tickers triggered successfully."
+
+            # Set initial status
+            async with job_status_lock:
+                job_statuses[job_id] = {
+                    "status": "running", 
+                    "message": "Job started...", 
+                    "timestamp": datetime.now()
+                }
+
+            # Schedule the background task (will pass job_id in Step 3)
+            background_tasks.add_task(run_analytics_finviz_fetch_list, repository, tickers, job_id) # Pass job_id
+
+            logger.info(f"[API Analytics] Scheduled background Finviz fetch (Upload). Job ID: {job_id}")
+            # Return the job ID along with the message
+            return {"message": message, "job_id": job_id}
         
+        # --- Helper function to run the list fetch in the background --- 
+        async def run_analytics_finviz_fetch_list(repository: SQLiteRepository, tickers: List[str], job_id: str): # <<< Add job_id
+            """Runs the Finviz analytics fetch for a specific list of tickers."""
+            logger.info(f"[Background Task - {job_id}] Starting analytics Finviz fetch for {len(tickers)} uploaded tickers.")
+            start_time = datetime.now()
+            status = "failed"
+            final_message = "An unexpected error occurred."
+            try:
+                if not tickers:
+                    logger.warning(f"[Background Task - {job_id}] No tickers provided in the list.")
+                    final_message = "No tickers provided."
+                    status = "completed"
+                else:
+                    # Call the fetch function
+                    # Modify fetch_and_store_analytics_finviz in Step 4 to return status dict
+                    result = await fetch_and_store_analytics_finviz(repository, tickers)
+                    # Update status based on result (from Step 4)
+                    status = result.get("status", "failed")
+                    final_message = result.get("message", "Fetch completed with unknown status.")
+                    logger.info(f"[Background Task - {job_id}] Finviz fetch for list completed. Status: {status}")
+                    
+            except Exception as e:
+                logger.error(f"[Background Task - {job_id}] Error during analytics Finviz fetch for list: {e}", exc_info=True)
+                final_message = f"Error during fetch: {e}"
+                status = "failed"
+            finally:
+                # Update the final job status using the lock
+                end_time = datetime.now()
+                duration = end_time - start_time
+                logger.info(f"[Background Task - {job_id}] Finished list fetch in {duration}. Final Status: {status}")
+                async with job_status_lock:
+                    job_statuses[job_id] = {
+                        "status": status,
+                        "message": final_message,
+                        "timestamp": end_time
+                    }
+                    logger.debug(f"[Background Task - {job_id}] Updated global job status for list fetch.")
+        # --- End Helper --- 
+
+        @app.get("/api/analytics/stream-job-status/{job_id}",
+                 summary="Stream Job Status Updates (SSE)",
+                 tags=["Analytics", "SSE"])
+        async def stream_job_status(request: Request, job_id: str):
+            """Server-Sent Events endpoint to stream status updates for a background job."""
+            logger.info(f"[SSE] Client connected for job_id: {job_id}")
+
+            async def event_generator():
+                try:
+                    last_status = None
+                    while True:
+                        # Check if client is still connected
+                        if await request.is_disconnected():
+                            logger.info(f"[SSE] Client disconnected for job_id: {job_id}")
+                            break
+
+                        # Check job status using the lock
+                        async with job_status_lock:
+                            current_job_info = job_statuses.get(job_id)
+                        
+                        if not current_job_info:
+                            logger.warning(f"[SSE] Job ID {job_id} not found in status tracking. Closing stream.")
+                            # Optionally send an error event before closing
+                            yield f"event: error\ndata: {json.dumps({'status': 'error', 'message': 'Job ID not found'})}\n\n"
+                            break
+                            
+                        current_status = current_job_info.get("status")
+
+                        # Only proceed if status exists
+                        if current_status:
+                            # Send update only if status is final (completed/failed)
+                            if current_status in ["completed", "failed", "partial_failure"]:
+                                logger.info(f"[SSE] Job {job_id} finished with status: {current_status}. Sending final update.")
+                                # Send the final status and message
+                                data_to_send = {
+                                    "status": current_status,
+                                    "message": current_job_info.get("message", "Job finished.")
+                                }
+                                yield f"data: {json.dumps(data_to_send)}\n\n"
+                                logger.debug(f"[SSE] Sent final data for {job_id}. Breaking loop.")
+                                break # Exit loop after sending final status
+                            # else: # Optional: send 'running' or other intermediate statuses if needed
+                            #     if current_status != last_status: # Send only on change
+                            #         logger.debug(f"[SSE] Job {job_id} status is {current_status}. Waiting...")
+                            #         # yield f"event: progress\ndata: {json.dumps({'status': current_status, 'message': 'In progress...'})}\n\n"
+                            #         last_status = current_status
+                        else:
+                            # Handle case where status key might be missing (shouldn't happen with current logic)
+                            logger.warning(f"[SSE] Status key missing for job_id {job_id}. Waiting...")
+
+                        # Wait before checking again
+                        await asyncio.sleep(1) # Poll every 1 second
+                        
+                except asyncio.CancelledError:
+                    logger.info(f"[SSE] Task cancelled for job_id: {job_id}")
+                    raise
+                except Exception as e:
+                    logger.error(f"[SSE] Error during event generation for job_id {job_id}: {e}", exc_info=True)
+                    # Optionally send an error event to the client
+                    try:
+                        yield f"event: error\ndata: {json.dumps({'status': 'error', 'message': f'SSE Error: {e}'})}\n\n"
+                    except Exception as send_err:
+                        logger.error(f"[SSE] Failed to send error event to client for job_id {job_id}: {send_err}")
+                finally:
+                     logger.info(f"[SSE] Closing event stream for job_id: {job_id}")
+
+            # Return the streaming response using the generator
+            return StreamingResponse(event_generator(), media_type="text/event-stream")
+        # --- End SSE Endpoint ---
+        
+        # ------ Helper for Sync Service Calls -------
+        # (Add this if needed for other sync tasks)
+
         logger.info("FastAPI app instance created and configured successfully.")
         return app 
         # --- End Correct Indentation / End of try block ---

@@ -206,6 +206,18 @@ class InvestingComRaw(Base):
     data_state = Column(String, nullable=True)
     timestamp = Column(DateTime, nullable=True) # Last successful update timestamp
 
+# --- NEW Analytics Raw Data Model ---
+class AnalyticsRawDataModel(Base):
+    __tablename__ = 'analytics_raw'
+
+    ticker = Column(String, primary_key=True, nullable=False)
+    source = Column(String, primary_key=True, nullable=False) # e.g., 'finviz', 'yahoo'
+    raw_data = Column(Text, nullable=True) # Stores the fetched data (e.g., comma-delimited string)
+    last_fetched_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+
+    # Composite primary key defined by setting primary_key=True on both columns
+# --- End Analytics Raw Data Model ---
+
 # Define the exchange_rates table
 metadata = MetaData()
 exchange_rates = Table(
@@ -222,7 +234,65 @@ class SQLiteRepository:
         """Initialize the repository with a database URL."""
         self.database_url = database_url
         self.engine = create_async_engine(database_url)
-        
+
+    # --- NEW Method to Get All Analytics Raw Data ---
+    async def get_all_analytics_raw_data(self) -> List[Dict[str, Any]]:
+        """Fetches all records (ticker, source, raw_data) from the analytics_raw table."""
+        logger.info("[DB] Fetching all data from analytics_raw table.")
+        try:
+            async with self.engine.connect() as conn:
+                stmt = select(
+                    AnalyticsRawDataModel.ticker, 
+                    AnalyticsRawDataModel.source, 
+                    AnalyticsRawDataModel.raw_data
+                )
+                result = await conn.execute(stmt)
+                rows = result.mappings().all()
+                logger.info(f"[DB] Fetched {len(rows)} records from analytics_raw.")
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"[DB] Error fetching from analytics_raw table: {e}", exc_info=True)
+            raise # Re-raise the exception after logging
+    # --- End Method to Get All Analytics Raw Data ---
+
+    # --- NEW Method for Analytics Raw Data Save/Update (Moved from end of file) ---
+    async def save_or_update_analytics_raw_data(self, ticker: str, source: str, raw_data: str) -> None:
+        """Saves or updates raw analytics data for a specific ticker and source."""
+        logger.info(f"[DB Analytics Raw] Saving/Updating data for ticker: {ticker}, source: {source}")
+        if not ticker or not source:
+            logger.error("[DB Analytics Raw] Ticker and Source cannot be empty.")
+            return
+        try:
+            async with self.engine.begin() as conn:
+                data_to_insert = {
+                    'ticker': ticker,
+                    'source': source,
+                    'raw_data': raw_data,
+                    'last_fetched_at': datetime.now()
+                }
+                # Use sqlite_insert for UPSERT functionality
+                stmt = sqlite_insert(AnalyticsRawDataModel).values(data_to_insert)
+                
+                # Define what to do on conflict (composite key: ticker, source)
+                # Update raw_data and last_fetched_at
+                update_dict = {
+                    'raw_data': stmt.excluded.raw_data, 
+                    'last_fetched_at': stmt.excluded.last_fetched_at
+                }
+                
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['ticker', 'source'], # Conflict on the composite primary key
+                    set_=update_dict
+                )
+                
+                await conn.execute(stmt)
+            logger.info(f"[DB Analytics Raw] Successfully saved/updated data for {ticker} from {source}")
+        except Exception as e:
+            logger.error(f"[DB Analytics Raw] Error saving/updating data for {ticker} from {source}: {e}", exc_info=True)
+            raise
+    # --- End Analytics Raw Data Save/Update ---
+
+    # --- Add Finviz Raw Data Save/Update ---    
     # --- Keep simple create_tables --- 
     async def create_tables(self) -> None:
          """Creates tables using Base.metadata."""
@@ -1219,6 +1289,43 @@ class SQLiteRepository:
             raise
     # --- End Method to Get All Finviz Raw Data ---
 
+    # --- NEW Method for Analytics Raw Data Save/Update ---
+    async def save_or_update_analytics_raw_data(self, ticker: str, source: str, raw_data: str) -> None:
+        """Saves or updates raw analytics data for a specific ticker and source."""
+        logger.info(f"[DB Analytics Raw] Saving/Updating data for ticker: {ticker}, source: {source}")
+        if not ticker or not source:
+            logger.error("[DB Analytics Raw] Ticker and Source cannot be empty.")
+            return
+        try:
+            async with self.engine.begin() as conn:
+                data_to_insert = {
+                    'ticker': ticker,
+                    'source': source,
+                    'raw_data': raw_data,
+                    'last_fetched_at': datetime.now()
+                }
+                # Use sqlite_insert for UPSERT functionality
+                stmt = sqlite_insert(AnalyticsRawDataModel).values(data_to_insert)
+                
+                # Define what to do on conflict (composite key: ticker, source)
+                # Update raw_data and last_fetched_at
+                update_dict = {
+                    'raw_data': stmt.excluded.raw_data, 
+                    'last_fetched_at': stmt.excluded.last_fetched_at
+                }
+                
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['ticker', 'source'], # Conflict on the composite primary key
+                    set_=update_dict
+                )
+                
+                await conn.execute(stmt)
+            logger.info(f"[DB Analytics Raw] Successfully saved/updated data for {ticker} from {source}")
+        except Exception as e:
+            logger.error(f"[DB Analytics Raw] Error saving/updating data for {ticker} from {source}: {e}", exc_info=True)
+            raise
+    # --- End Analytics Raw Data Save/Update ---
+
     # --- Add Finviz Raw Data Save/Update ---
     async def save_or_update_finviz_raw_data(self, ticker: str, raw_data: str) -> None:
         """Saves or updates raw Finviz data for a ticker."""
@@ -1944,3 +2051,4 @@ def update_screener_multi_fields_sync(db_path: str, ticker: str, updates: Dict[s
             
     return success
 # --- END NEW SYNC FUNCTION ---
+

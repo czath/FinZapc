@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import logging
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import asyncio
 import os
 
@@ -415,7 +415,70 @@ async def fetch_and_store_finviz_data(repository):
     except Exception as e:
         logger.error(f"An error occurred during the Finviz fetch process: {e}", exc_info=True)
 
-# --- Service class will be added below --- 
+# --- NEW Function for Analytics Finviz Fetch --- 
+async def fetch_and_store_analytics_finviz(repository, tickers: List[str]):
+    """
+    Fetches Finviz data for a given list of tickers and stores it 
+    in the analytics_raw table.
+
+    Args:
+        repository: An instance of the SQLiteRepository.
+        tickers: A list of ticker symbols to process.
+        
+    Returns:
+        A dictionary containing the status and a summary message. 
+        Example: {"status": "completed", "message": "Processed 10/12 tickers."}
+    """
+    logger.info(f"[Analytics Fetch] Starting Finviz data fetch for analytics_raw table for {len(tickers)} tickers.")
+    if not tickers:
+        logger.warning("[Analytics Fetch] No tickers provided for Finviz analytics fetch. Skipping.")
+        return {"status": "completed", "message": "No tickers provided."} # Return status dict
+
+    total_tickers = len(tickers)
+    processed_count = 0
+    failed_count = 0
+    source_name = "finviz" # Define source explicitly
+
+    for ticker in tickers:
+        logger.info(f"[Analytics Fetch] Processing {ticker} ({processed_count + failed_count + 1}/{total_tickers}) for {source_name} analytics.")
+        try:
+            # 1. Fetch data using existing function
+            # Note: get_stock_data handles ticker variations (e.g., BRK.B vs BRK-B)
+            finviz_data_dict = get_stock_data(ticker)
+
+            if finviz_data_dict:
+                # 2. Serialize the fetched data dictionary
+                raw_data_str = serialize_raw_data(finviz_data_dict)
+                
+                # 3. Store in the analytics_raw table
+                await repository.save_or_update_analytics_raw_data(ticker, source_name, raw_data_str)
+                processed_count += 1
+            else:
+                # Log failure if get_stock_data returned None after trying variations
+                logger.warning(f"[Analytics Fetch] Failed to fetch Finviz data for {ticker} (for analytics). Skipping database save.")
+                failed_count += 1
+                # Optionally: Save a record indicating failure?
+                # await repository.save_or_update_analytics_raw_data(ticker, source_name, "FETCH_FAILED")
+
+            # Optional small delay
+            # await asyncio.sleep(0.1) 
+
+        except Exception as e:
+            logger.error(f"[Analytics Fetch] Error processing ticker {ticker} for {source_name} analytics: {e}", exc_info=True)
+            failed_count += 1
+
+    logger.info(f"[Analytics Fetch] {source_name.capitalize()} data fetch for analytics completed.")
+    logger.info(f"[Analytics Fetch] Successfully processed: {processed_count}, Failed: {failed_count}")
+    
+    # Construct final message and status
+    final_status = "completed" if failed_count == 0 else "partial_failure"
+    if processed_count == 0 and failed_count > 0:
+        final_status = "failed"
+        
+    final_message = f"Processed {processed_count}/{total_tickers} tickers. Failures: {failed_count}."
+    
+    return {"status": final_status, "message": final_message} # Return status dict
+# --- END NEW Function --- 
 
 if __name__ == '__main__':
     # Import the repository (adjust path if necessary based on your structure)
@@ -454,6 +517,20 @@ if __name__ == '__main__':
         logger.info("Running screener update from Finviz raw data process...")
         await update_screener_from_finviz(repository)
         
+        # --- ADD TEST CODE FOR analytics_raw ---
+        # logger.info("--- Testing analytics_raw table save --- ")
+        # test_ticker = "TESTAAPL"
+        # test_source = "finviz"
+        # test_raw_data = "P/E=25,MarketCap=2T,Test=Value"
+        # await repository.save_or_update_analytics_raw_data(test_ticker, test_source, test_raw_data)
+        # # Test update
+        # test_raw_data_updated = "P/E=26,MarketCap=2.1T,Test=UpdatedValue,NewField=123"
+        # await repository.save_or_update_analytics_raw_data(test_ticker, test_source, test_raw_data_updated)
+        # # Test different source
+        # await repository.save_or_update_analytics_raw_data(test_ticker, "test_source", "Source=Test,Value=ABC")
+        # logger.info("--- Finished testing analytics_raw table save --- ")
+        # --- END TEST CODE ---
+
         logger.info("Test finished.")
 
     # Run the async main function

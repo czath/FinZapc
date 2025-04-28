@@ -7,89 +7,88 @@ def _parse_finviz_value(value_str: Optional[str]) -> Union[float, int, str, None
     """
     Attempts to parse a Finviz string value into a float, int, or handles
     common suffixes (K, M, B, T, %) and missing values ('-', 'N/A', '').
+    If parsing fails, the original string is returned.
     """
     if value_str is None or not isinstance(value_str, str):
         return None
 
-    value_str = value_str.strip()
+    original_value_str = value_str # Store original value
+    processed_value_str = value_str.strip()
+
     # Handle empty string explicitly after strip
-    if value_str in ('-', 'N/A', ''):
+    if processed_value_str in ('-', 'N/A', ''):
         return None
 
     try:
         # Percentage
-        if value_str.endswith('%'):
+        if processed_value_str.endswith('%'):
             # Return as the number before division by 100 for now, easier to display
             # Change to '/ 100.0' if decimal representation is preferred
-            return float(value_str[:-1])
+            return float(processed_value_str[:-1])
 
+        value_to_convert = processed_value_str # Start with the stripped string
         multiplier = 1
-        if value_str.endswith('K'):
+        if processed_value_str.endswith('K'):
             multiplier = 1_000
-            value_str = value_str[:-1]
-        elif value_str.endswith('M'):
+            value_to_convert = processed_value_str[:-1]
+        elif processed_value_str.endswith('M'):
             multiplier = 1_000_000
-            value_str = value_str[:-1]
-        elif value_str.endswith('B'):
+            value_to_convert = processed_value_str[:-1]
+        elif processed_value_str.endswith('B'):
             multiplier = 1_000_000_000
-            value_str = value_str[:-1]
-        elif value_str.endswith('T'): # Added Trillion
+            value_to_convert = processed_value_str[:-1]
+        elif processed_value_str.endswith('T'): # Added Trillion
              multiplier = 1_000_000_000_000
-             value_str = value_str[:-1]
+             value_to_convert = processed_value_str[:-1]
 
         # Try float conversion first (handles decimals), then int
         try:
-            num_val = float(value_str) * multiplier
+            num_val = float(value_to_convert) * multiplier
             # Return as int if it's effectively an integer
             if num_val == int(num_val):
                 return int(num_val)
             return num_val
         except ValueError:
-            # If float conversion fails, return original string (handles non-numeric data)
-            # Reconstruct original if suffix was removed
-            if multiplier > 1:
-                 original_suffix = ''
-                 if multiplier == 1_000: original_suffix = 'K'
-                 elif multiplier == 1_000_000: original_suffix = 'M'
-                 elif multiplier == 1_000_000_000: original_suffix = 'B'
-                 elif multiplier == 1_000_000_000_000: original_suffix = 'T'
-                 # Check if the original value string itself was numeric before adding suffix back
-                 try:
-                     float(value_str) # Can it be converted back to float?
-                     return value_str + original_suffix # Return string like "1.2T"
-                 except ValueError:
-                     # If the part before the suffix wasn't numeric, return that part only
-                     return value_str
-            return value_str # Return original string if simple float conversion failed
+            # If float conversion fails, return the original unmodified string
+            logger.debug(f"Could not convert '{value_to_convert}' (from '{original_value_str}') to float. Returning original string.")
+            return original_value_str
 
     except Exception as e:
-        logger.warning(f"Could not parse value '{value_str}': {e}")
-        return value_str # Return original string on unexpected error
+        logger.warning(f"Could not parse value '{original_value_str}': {e}")
+        return original_value_str # Return original string on unexpected error
 
-def preprocess_finviz_data(raw_finviz_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def preprocess_raw_analytics_data(raw_analytics_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Preprocesses raw Finviz data strings from the database into structured dictionaries.
-    Assumes format like: "key1=value1,key2=value2,key3=value3,..."
+    Preprocesses raw analytics data strings (e.g., from Finviz, potentially others)
+    from the database into structured dictionaries.
+    Input format assumes: [{'ticker': str, 'source': str, 'raw_data': str}, ...]
+    Raw data format assumes: "key1=value1,key2=value2,key3=value3,..."
 
     Args:
-        raw_finviz_entries: List of dicts, each {'ticker': str, 'raw_data': str}.
+        raw_analytics_entries: List of dicts, each containing 'ticker', 'source', 'raw_data'.
 
     Returns:
-        List of dicts, each {'ticker': str, 'processed_data': dict, 'error': Optional[str]}.
+        List of dicts, each {'ticker': str, 'source': str, 'processed_data': dict, 'error': Optional[str]}.
     """
     processed_list = []
-    for entry in raw_finviz_entries:
+    for entry in raw_analytics_entries:
         ticker = entry.get('ticker')
+        source = entry.get('source')
         raw_data = entry.get('raw_data')
-        processed_entry = {'ticker': ticker, 'processed_data': {}, 'error': None}
+        
+        processed_entry = {'ticker': ticker, 'source': source, 'processed_data': {}, 'error': None}
 
         if not ticker:
-            logger.warning("Skipping entry with missing ticker.")
+            logger.warning(f"Skipping entry with missing ticker (source: {source}).")
             processed_entry['error'] = "Missing ticker"
             processed_list.append(processed_entry)
             continue
+        
+        if not source:
+             logger.warning(f"Processing entry with missing source (ticker: {ticker}).")
 
         if not raw_data or not isinstance(raw_data, str):
+            logger.warning(f"Skipping entry for ticker {ticker} (source: {source}) due to missing or invalid raw_data.")
             processed_entry['error'] = "Missing or invalid raw_data"
             processed_list.append(processed_entry)
             continue
@@ -109,20 +108,20 @@ def preprocess_finviz_data(raw_finviz_entries: List[Dict[str, Any]]) -> List[Dic
                 key = parts[0].strip()
 
                 if not key: # Skip if key is empty
-                    logger.debug(f"Empty key found for ticker {ticker} in pair '{kv_pair_string}'")
+                    logger.debug(f"Empty key found for ticker {ticker} (source: {source}) in pair '{kv_pair_string}'")
                     continue
 
-                # Get value, handle case where '=' is missing or value is empty after '='
-                value_str = parts[1].strip() if len(parts) > 1 else ''
+                # Get value, handle case where '=' is missing or value is empty after '=' 
+                value_str = parts[1].strip() if len(parts) > 1 else '' 
 
-                # Parse the value string
+                # Parse the value string (using the existing Finviz parser for now)
                 parsed_value = _parse_finviz_value(value_str)
                 processed_fields[key] = parsed_value
 
             processed_entry['processed_data'] = processed_fields
 
         except Exception as e:
-            logger.error(f"Error processing raw data for ticker {ticker}: {e}", exc_info=True)
+            logger.error(f"Error processing raw data for ticker {ticker} (source: {source}): {e}", exc_info=True)
             processed_entry['error'] = f"Parsing failed: {e}"
 
         processed_list.append(processed_entry)
