@@ -245,13 +245,15 @@
                     </div>
                     {# --- END: Color By Selector --- #}
                     {# Add placeholder for potential chart type selector later #}
-                    <!-- <div class="col-md-4">
+                    <div class="col-md-4">
                         <label for="report-chart-type-selector" class="form-label">Chart Type:</label>
                         <select id="report-chart-type-selector" class="form-select form-select-sm">
-                            <option value="scatter" selected>Scatter Plot</option>
-                             Add other chart types here later 
+                            <option value="scatter" selected>Scatter</option>
+                            <option value="line">Line</option>
+                            <option value="bar">Bar</option>
+                             <!-- Add other chart types here later --> 
                         </select>
-                    </div> -->
+                    </div>
                 </div>
                 <div id="report-chart-container" style="position: relative; height:40vh; width:80vw">
                     <canvas id="report-chart-canvas"></canvas>
@@ -311,9 +313,9 @@
             const reportFieldSelector = document.getElementById('report-field-selector');
             const reportChartCanvas = document.getElementById('report-chart-canvas');
             const chartStatus = document.getElementById('chart-status');
-            const reportColorSelector = document.getElementById('report-color-selector'); // NEW
-            let reportChartInstance = null; // To hold the chart object
-            let filteredDataForChart = []; // Store data used for the current chart
+            const reportColorSelector = document.getElementById('report-color-selector');
+            const reportChartTypeSelector = document.getElementById('report-chart-type-selector'); // NEW
+            let reportChartInstance = null; 
 
             // --- File Handling Logic (Import Tab) ---
             function handleFile(file) {
@@ -1142,12 +1144,22 @@
 
                 if (activeFilters.length > 0) {
                      filteredData = fullProcessedData.filter(item => {
-                         if (!item || !item.processed_data) return false;
+                         if (!item) return false; // Removed || !item.processed_data check here, handle inside loop
 
                          for (const filter of activeFilters) {
-                             const itemValue = item.processed_data[filter.field];
+                             // --- Get item value based on field --- 
+                             let itemValue = null;
+                             if (filter.field === 'source') {
+                                 itemValue = item.source;
+                             } else if (item.processed_data) { // Check if processed_data exists before accessing
+                                itemValue = item.processed_data[filter.field];
+                             }
+                             // --- End Get item value ---
+
+                             // --- Get filter value and operator (Declared only once) --- 
                              const filterValue = filter.value;
                              const operator = filter.operator;
+                             // --- End Get value/operator --- 
 
                              // --- Multi-Select Handling ---
                              if (Array.isArray(filterValue)) {
@@ -1278,7 +1290,7 @@
 
                  // --- Update data used for chart and render --- 
                  filteredDataForChart = filteredData; // Store the data before transformation
-                 renderScatterPlot(); // Update chart when filters change
+                 renderChart(); // Update chart when filters change // RENAMED
                  // --- End Chart Update --- 
             }
             // --- END applyFilters definition ---
@@ -1359,17 +1371,27 @@
             }
             // --- END Populate Report Color Selector ---
 
-            // --- NEW: Render Scatter Plot --- 
-            function renderScatterPlot() {
-                console.log("Rendering scatter plot...");
-                if (!reportFieldSelector || !reportChartCanvas || !chartStatus || !reportColorSelector) { // Added color selector check
+            // --- RENAMED: Render Chart (previously Render Scatter Plot) --- 
+            function renderChart() {
+                console.log("Rendering chart..."); 
+                if (!reportFieldSelector || !reportChartCanvas || !chartStatus || !reportColorSelector || !reportChartTypeSelector) { 
                     console.error("Report tab elements not found.");
                     return;
                 }
 
+                // --- Declare variables at the top --- 
+                let plotData = []; 
+                const labels = []; 
+                const numericData = []; 
+                const pointBackgroundColors = [];
+                const pointBorderColors = [];
+                let nonNumericCount = 0;
+                // --- End variable declarations --- 
+
                 const selectedField = reportFieldSelector.value;
-                const colorField = reportColorSelector.value; // NEW: Get color field
-                console.log(`Selected Y-axis field: ${selectedField}, Color by field: ${colorField}`);
+                const colorField = reportColorSelector.value; 
+                const selectedChartType = reportChartTypeSelector.value; // NEW: Get chart type
+                console.log(`Selected Y-axis field: ${selectedField}, Color by field: ${colorField}, Chart Type: ${selectedChartType}`); // Updated log
 
                 chartStatus.textContent = ''; // Clear previous status
 
@@ -1392,19 +1414,16 @@
                     return;
                 }
 
-                // Color mapping logic
+                // Color mapping logic (remains the same)
                 const colorMap = {};
                 const predefinedColors = [
                     'rgba(255, 99, 132, 0.7)', 'rgba(54, 162, 235, 0.7)', 'rgba(255, 206, 86, 0.7)',
                     'rgba(75, 192, 192, 0.7)', 'rgba(153, 102, 255, 0.7)', 'rgba(255, 159, 64, 0.7)',
                     'rgba(199, 199, 199, 0.7)', 'rgba(83, 102, 255, 0.7)', 'rgba(40, 159, 64, 0.7)',
                     'rgba(210, 99, 132, 0.7)'
-                     // Add more colors if needed
                 ];
                 let colorIndex = 0;
-                const defaultColor = 'rgba(128, 128, 128, 0.6)'; // Default for missing color value
-
-                // Function to get or assign a color
+                const defaultColor = 'rgba(128, 128, 128, 0.6)';
                 const getColorForValue = (value) => {
                     if (value === null || value === undefined || value === '') return defaultColor;
                     const valueStr = String(value);
@@ -1415,55 +1434,85 @@
                     return colorMap[valueStr];
                 };
 
-                console.log(`Generating plot for field: ${selectedField} with ${filteredDataForChart.length} filtered records.`);
-
-                // Prepare data for scatter plot: { x: index, y: value, ticker: ticker, colorValue: colorValue }
-                const plotData = [];
-                const pointBackgroundColors = [];
-                const pointBorderColors = [];
-                let nonNumericCount = 0;
-
+                // Process data points
+                // REMOVED Re-initialization - Variables declared/initialized at top now
+                // plotData = []; 
+                // labels.length = 0; 
+                // numericData.length = 0; 
+                // pointBackgroundColors.length = 0;
+                // pointBorderColors.length = 0;
+                // nonNumericCount = 0; 
+                
                 filteredDataForChart.forEach((item, index) => {
                     let pointColor = defaultColor;
                     let colorValue = null;
 
-                    if (item && item.processed_data) {
+                    if (item) {
                         // Get Y-axis value
-                        if (item.processed_data.hasOwnProperty(selectedField)) {
-                            const rawYValue = item.processed_data[selectedField];
-                            const numericYValue = Number(rawYValue);
+                        let rawYValue = null;
+                        if (selectedField === 'source') {
+                            rawYValue = item.source;
+                        } else if (item.processed_data && item.processed_data.hasOwnProperty(selectedField)) {
+                            rawYValue = item.processed_data[selectedField];
+                        }
 
-                            if (!isNaN(numericYValue) && rawYValue !== null && rawYValue !== '') {
-                                // Get color field value if a color field is selected
-                                if (colorField && item.processed_data.hasOwnProperty(colorField)) {
+                        const numericYValue = Number(rawYValue);
+
+                        if (!isNaN(numericYValue) && rawYValue !== null && rawYValue !== '') {
+                            // Get color field value
+                            if (colorField) {
+                                if (colorField === 'source') {
+                                    colorValue = item.source;
+                                } else if (item.processed_data && item.processed_data.hasOwnProperty(colorField)) {
                                     colorValue = item.processed_data[colorField];
-                                    pointColor = getColorForValue(colorValue);
-                                } else if (!colorField) {
-                                    // Use a default single color if no color field selected
-                                    pointColor = predefinedColors[0]; 
                                 }
+                                pointColor = getColorForValue(colorValue);
+                            } else {
+                                pointColor = predefinedColors[0];
+                            }
 
-                                plotData.push({
+                            // Add data based on chart type
+                            if (selectedChartType === 'scatter' || selectedChartType === 'line') {
+                                // *** Create dataPoint object first ***
+                                const dataPoint = {
                                     x: index,
                                     y: numericYValue,
                                     ticker: item.ticker || 'N/A',
-                                    colorValue: colorValue // Store for potential tooltip use
-                                });
-                                pointBackgroundColors.push(pointColor);
-                                pointBorderColors.push(pointColor.replace('0.7', '1').replace('0.6', '1')); // Make border solid
-
-                            } else {
-                                nonNumericCount++; // Y-value is non-numeric
+                                    colorValue: colorValue
+                                };
+                                // *** Log before push ***
+                                console.log(`  [Loop Index ${index}] Preparing to push to plotData. plotData type: ${typeof plotData}`, dataPoint);
+                                // *** Wrap push in try...catch ***
+                                try {
+                                    plotData.push(dataPoint); // Push the object
+                                    // *** Log after successful push ***
+                                    console.log(`  [Loop Index ${index}] Pushed to plotData successfully.`); // LOG AFTER PUSH
+                                } catch (pushError) {
+                                    // *** Log error during push ***
+                                    console.error(`  [Loop Index ${index}] ERROR pushing to plotData!`, pushError, 'plotData:', plotData);
+                                }
+                            } else if (selectedChartType === 'bar') {
+                                labels.push(item.ticker || `Index ${index}`);
+                                numericData.push(numericYValue);
                             }
+                            // Log before pushing colors
+                            // REMOVED console.log(`  [Loop Index ${index}] Type: ${selectedChartType}, plotData exists: ${typeof plotData !== 'undefined'}, pointColor: ${pointColor}`);
+                            pointBackgroundColors.push(pointColor);
+                            pointBorderColors.push(pointColor.replace(/0\.\d+\)/, '1)')); // Make border solid more robustly
+
                         } else {
-                            nonNumericCount++; // Missing Y-value field
+                            nonNumericCount++; // Y-value is non-numeric
                         }
                     } else {
-                         nonNumericCount++; // Missing processed_data
+                         nonNumericCount++; // Missing item
                     }
                 });
 
-                if (plotData.length === 0) {
+                // Check if any valid data points were found for the selected type
+                // Defensive check: ensure plotData exists before accessing length
+                console.log('Type of plotData before hasData:', typeof plotData, 'Value:', plotData); // DEBUG LOG
+                const hasData = (selectedChartType === 'bar' ? numericData.length > 0 : (plotData ? plotData.length > 0 : false)); 
+                if (!hasData) {
                     chartStatus.textContent = `No numeric data found for field '${selectedField}' in the current filtered data.`;
                      if (reportChartInstance) {
                         reportChartInstance.destroy();
@@ -1473,7 +1522,7 @@
                 }
 
                 if (nonNumericCount > 0) {
-                    chartStatus.textContent = `Plotting ${plotData.length} numeric points. ${nonNumericCount} records were excluded due to missing or non-numeric values for '${selectedField}'.`;
+                    chartStatus.textContent = `Plotting ${hasData ? (selectedChartType === 'bar' ? numericData.length : plotData.length) : 0} points. ${nonNumericCount} records were excluded due to missing or non-numeric values for '${selectedField}'.`;
                 }
 
                 const ctx = reportChartCanvas.getContext('2d');
@@ -1483,19 +1532,43 @@
                     reportChartInstance.destroy();
                 }
 
-                // Create the scatter chart
-                reportChartInstance = new Chart(ctx, {
-                    type: 'scatter',
-                    data: {
+                // Determine data structure based on chart type
+                let chartDataConfig;
+                if (selectedChartType === 'scatter' || selectedChartType === 'line') {
+                    chartDataConfig = {
                         datasets: [{
-                            label: selectedField, // Use field name as dataset label (for legend/tooltip)
-                            data: plotData,
-                            backgroundColor: pointBackgroundColors, // Use generated color array
-                            borderColor: pointBorderColors, // Use generated color array
-                            pointRadius: 5,
-                            pointHoverRadius: 7
+                            label: selectedField,
+                            data: plotData, // Use {x, y, ...} data
+                            backgroundColor: pointBackgroundColors,
+                            borderColor: pointBorderColors,
+                            pointRadius: selectedChartType === 'scatter' ? 5 : 3, // Smaller points for line
+                            pointHoverRadius: selectedChartType === 'scatter' ? 7 : 5,
+                            borderWidth: selectedChartType === 'line' ? 2 : 1, // Thicker line for line charts
+                            fill: selectedChartType === 'line' ? false : undefined, // Don't fill under line chart
+                            tension: selectedChartType === 'line' ? 0.1 : undefined // Slight curve for line chart
                         }]
-                    },
+                    };
+                } else if (selectedChartType === 'bar') {
+                    chartDataConfig = {
+                        labels: labels, // Use ticker labels
+                        datasets: [{
+                            label: selectedField,
+                            data: numericData, // Use numeric array
+                            backgroundColor: pointBackgroundColors,
+                            borderColor: pointBorderColors,
+                            borderWidth: 1
+                        }]
+                    };
+                } else {
+                     console.error(`Unsupported chart type: ${selectedChartType}`);
+                     chartStatus.textContent = `Unsupported chart type selected: ${selectedChartType}`;
+                     return;
+                }
+
+                // Create the chart
+                reportChartInstance = new Chart(ctx, {
+                    type: selectedChartType, // Use selected type
+                    data: chartDataConfig, // Use the prepared config
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
@@ -1503,9 +1576,9 @@
                             x: {
                                 title: {
                                     display: true,
-                                    text: 'Record Index (in filtered list)'
+                                    text: selectedChartType === 'bar' ? 'Ticker / Record Index' : 'Record Index (in filtered list)' // Adjust x-axis label
                                 },
-                                type: 'linear', // Ensure x-axis is treated as linear
+                                type: selectedChartType === 'bar' ? 'category' : 'linear', // Use category for bar labels, linear otherwise
                                 position: 'bottom'
                             },
                             y: {
@@ -1523,17 +1596,24 @@
                             tooltip: {
                                 callbacks: {
                                     label: function(context) {
-                                        // context.raw should contain {x, y, ticker, colorValue}
-                                        const pointData = context.raw;
-                                        if (pointData) {
-                                            let label = `Ticker: ${pointData.ticker}`; 
-                                            label += `\n${context.dataset.label || 'Value'}: ${pointData.y}`;
-                                            if (colorField && pointData.colorValue !== null) {
-                                                label += `\n${colorField}: ${pointData.colorValue}`;
+                                        let label = '';
+                                        if (selectedChartType === 'bar') {
+                                            label = `${context.dataset.label || 'Value'}: ${context.parsed.y}`;
+                                            // Ticker is in context.label for bar charts
+                                            label = `Ticker: ${context.label}\n${label}`;
+                                        } else { 
+                                            // Scatter/Line: context.raw should contain {x, y, ticker, colorValue}
+                                            const pointData = context.raw;
+                                            if (pointData) {
+                                                label = `Ticker: ${pointData.ticker}`; 
+                                                label += `\n${context.dataset.label || 'Value'}: ${pointData.y}`;
+                                                if (colorField && pointData.colorValue !== null) {
+                                                    label += `\n${colorField}: ${pointData.colorValue}`;
+                                                }
                                             }
-                                            return label.split('\n'); // Return as array for multi-line tooltips
-                                        } 
-                                        return ''; // Default tooltip if raw data missing
+                                        }
+                                        // Return as array for multi-line tooltips if \n exists
+                                        return label.includes('\n') ? label.split('\n') : label;
                                     }
                                 }
                             }
@@ -1541,9 +1621,22 @@
                     }
                 });
 
-                console.log("Scatter plot rendered successfully.");
+                console.log(`Chart rendered successfully as ${selectedChartType}.`); // Updated log
+
+                console.log(`Generating ${selectedChartType} plot for field: ${selectedField} with ${filteredDataForChart.length} filtered records.`); // Updated log
+
+                // Prepare data for chart
+                // For Scatter/Line: [{ x: index, y: value, ticker: ticker, colorValue: colorValue }]
+                // For Bar: labels: [ticker1, ticker2,...], data: [value1, value2,...]
+                // Use let instead of const
+                // plotData = []; 
+                // labels = []; 
+                // numericData = []; 
+                // pointBackgroundColors = [];
+                // pointBorderColors = [];
+                // nonNumericCount = 0; 
             }
-            // --- END Render Scatter Plot --- 
+            // --- END Render Chart --- 
 
             // --- Data Loading & State Update (Preparation Tab) ---
              function processLoadedDataAndUpdateState() {
@@ -1562,17 +1655,18 @@
                      return;
                  }
 
-                 // --- Discover Fields ---
+                 // --- Discover Fields --- 
                  const discoveredFields = new Set();
                  fullProcessedData.forEach(item => {
                      if (item && item.processed_data) {
                          Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
                      }
                  });
+                 discoveredFields.add('source'); // --- ADD 'source' FIELD EXPLICITLY --- 
                  availableFields = [...discoveredFields].sort();
-                 console.log("Discovered fields:", availableFields);
+                 console.log("Discovered fields (including source):", availableFields);
 
-                 // --- Calculate Metadata ---
+                 // --- Calculate Metadata --- 
                  const newFieldMetadata = {};
                  const MAX_UNIQUE_TEXT_VALUES = 100; // Limit for text dropdowns
                  availableFields.forEach(field => {
@@ -1584,22 +1678,30 @@
                     const uniqueTextValues = new Set();
 
                     fullProcessedData.forEach(item => {
-                        if (item && item.processed_data && item.processed_data.hasOwnProperty(field)) {
-                             const value = item.processed_data[field];
-                             // Consider value valid if not null, undefined, or placeholder '-' or empty string
-                             if (value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-') {
-                                 values.push(value);
-                                 nonNullCount++;
-                                 const num = Number(value);
-                                 if (!isNaN(num)) {
-                                     numericCount++;
-                                     if (num < min) min = num;
-                                     if (num > max) max = num;
-                                 } else {
-                                     // Collect unique non-numeric strings (up to a limit)
-                                     if (uniqueTextValues.size < MAX_UNIQUE_TEXT_VALUES) {
-                                          uniqueTextValues.add(String(value)); // Store as string
-                                     }
+                        // --- Get value based on field (source vs processed_data) --- 
+                        let value = null;
+                        if (field === 'source') {
+                            if (item && item.source) {
+                                value = item.source;
+                            }
+                        } else if (item && item.processed_data && item.processed_data.hasOwnProperty(field)) {
+                             value = item.processed_data[field];
+                        }
+                        // --- End Get value ---
+                        
+                        // Consider value valid if not null, undefined, or placeholder '-' or empty string
+                        if (value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-') {
+                             values.push(value);
+                             nonNullCount++;
+                             const num = Number(value);
+                             if (!isNaN(num)) {
+                                 numericCount++;
+                                 if (num < min) min = num;
+                                 if (num > max) max = num;
+                             } else {
+                                 // Collect unique non-numeric strings (up to a limit)
+                                 if (uniqueTextValues.size < MAX_UNIQUE_TEXT_VALUES) {
+                                      uniqueTextValues.add(String(value)); // Store as string
                                  }
                              }
                         }
@@ -1819,15 +1921,19 @@
             // Optionally trigger the "Load Data from DB" automatically on page load?
             // processButton.click(); // Uncomment to auto-load data
             
-            // --- NEW: Add Event Listener for Report Field Selector ---
+            // --- Event Listener for Report Field Selector ---
             if (reportFieldSelector) {
-                reportFieldSelector.addEventListener('change', renderScatterPlot);
+                reportFieldSelector.addEventListener('change', renderChart); // RENAMED call
             }
-            // --- END Event Listener ---
             
-            // --- NEW: Add Event Listener for Report Color Selector ---
+            // --- Event Listener for Report Color Selector ---
             if (reportColorSelector) {
-                reportColorSelector.addEventListener('change', renderScatterPlot);
+                reportColorSelector.addEventListener('change', renderChart); // RENAMED call
+            }
+
+            // --- NEW: Add Event Listener for Report Chart Type Selector ---
+            if (reportChartTypeSelector) {
+                reportChartTypeSelector.addEventListener('change', renderChart);
             }
             // --- END Event Listener ---
 
