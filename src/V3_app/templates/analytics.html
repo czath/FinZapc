@@ -229,47 +229,59 @@
             
             {# --- Chart Controls & Display --- #}
             <div class="my-3 p-3 border rounded bg-body-tertiary">
-                <div class="row mb-3">
-                    {# --- NEW: X-axis Selector --- #}
-                    <div class="col-md-3">
-                        <label for="report-x-axis-selector" class="form-label">Select Field for X-axis:</label>
+                <div class="row mb-3 gy-2 gx-2 align-items-end"> <!-- Add gutters (gx-2, gy-2) and align items end -->
+                    <!-- X-axis Selector (Expands) -->
+                    <div class="col-md">
+                        <label for="report-x-axis-selector" class="form-label mb-1">X-axis:</label>
                         <select id="report-x-axis-selector" class="form-select form-select-sm">
-                            <option value="index">-- Record Index (Default) --</option>
+                            <option value="index" selected>-- Record Index (Default) --</option> {# Ensure selected #}
                             {# Options will be populated by JavaScript #}
                         </select>
                     </div>
-                    {# --- END: X-axis Selector --- #}
-                    <div class="col-md-3"> <!-- Adjusted column size -->
-                        <label for="report-field-selector" class="form-label">Select Field for Y-axis:</label>
+                    <!-- Swap Button (Fixed Width) -->
+                    <div class="col-auto">
+                        <button id="swap-axes-btn" class="btn btn-sm btn-outline-secondary" title="Swap X and Y axes">
+                            <i class="bi bi-arrow-left-right"></i>
+                        </button>
+                    </div>
+                    <!-- Y-axis Selector (Expands) -->
+                    <div class="col-md">
+                        <label for="report-field-selector" class="form-label mb-1">Y-axis:</label>
                         <select id="report-field-selector" class="form-select form-select-sm">
                             <option value="">-- Select Field --</option>
                             {# Options will be populated by JavaScript #}
                         </select>
                     </div>
-                    {# --- NEW: Color By Selector --- #}
-                    <div class="col-md-3"> <!-- Adjusted column size -->
-                        <label for="report-color-selector" class="form-label">Color Points By Field:</label>
+                    <!-- Color Selector (Fixed Width) -->
+                    <div class="col-md-2">
+                        <label for="report-color-selector" class="form-label mb-1">Color By:</label>
                         <select id="report-color-selector" class="form-select form-select-sm">
-                            <option value="">-- No Color Variation --</option>
+                            <option value="">-- None --</option> {# Simplified default text #}
                             {# Options will be populated by JavaScript #}
                         </select>
                     </div>
-                    {# --- END: Color By Selector --- #}
-                    {# Add placeholder for potential chart type selector later #}
-                    <div class="col-md-2"> <!-- Adjusted column size -->
-                        <label for="report-chart-type-selector" class="form-label">Chart Type:</label>
+                    <!-- Size Selector (Fixed Width) -->
+                    <div class="col-md-2">
+                        <label for="report-size-selector" class="form-label mb-1">Size By:</label>
+                        <select id="report-size-selector" class="form-select form-select-sm" disabled>
+                            <option value="">-- Bubble Only --</option> {# Simplified default text #}
+                            {# Options will be populated by JavaScript #}
+                        </select>
+                    </div>
+                    <!-- Chart Type Selector (Fixed Width) -->
+                    <div class="col-md-2">
+                        <label for="report-chart-type-selector" class="form-label mb-1">Type:</label>
                         <select id="report-chart-type-selector" class="form-select form-select-sm">
                             <option value="scatter" selected>Scatter</option>
                             <option value="line">Line</option>
                             <option value="bar">Bar</option>
-                             <!-- Add other chart types here later --> 
+                            <option value="bubble">Bubble</option>
                         </select>
                     </div>
-                    {# --- NEW: Reset Button --- #}
-                    <div class="col-md-1 d-flex align-items-end"> <!-- Use flexbox to align button at bottom -->
-                        <button id="reset-chart-btn" class="btn btn-sm btn-outline-secondary w-100" title="Reset Chart View">Reset</button>
+                    <!-- Reset Button (Fixed Width) -->
+                    <div class="col-auto">
+                        <button id="reset-chart-btn" class="btn btn-sm btn-outline-secondary" title="Reset Zoom/Pan">Reset View</button> {# Changed title and text #}
                     </div>
-                    {# --- END: Reset Button --- #}
                 </div>
                 <div id="report-chart-container" style="position: relative; height:40vh; width:80vw">
                     <canvas id="report-chart-canvas"></canvas>
@@ -333,8 +345,10 @@
             const reportColorSelector = document.getElementById('report-color-selector');
             const reportChartTypeSelector = document.getElementById('report-chart-type-selector'); // NEW
             let reportChartInstance = null;
+            const reportSizeSelector = document.getElementById('report-size-selector'); // NEW Size selector
             const resetChartBtn = document.getElementById('reset-chart-btn'); // NEW Reset button
             let filteredDataForChart = []; // Holds the data currently used by the chart
+            const swapAxesBtn = document.getElementById('swap-axes-btn'); // NEW Swap button
 
             // --- File Handling Logic (Import Tab) ---
             function handleFile(file) {
@@ -1323,7 +1337,9 @@
                 const previousXValue = reportXAxisSelector.value; // Remember selection for X
                 reportFieldSelector.innerHTML = '<option value="">-- Select Y Field --</option>'; // Clear and add default
                 // Add default index option first
-                reportXAxisSelector.innerHTML = '<option value="index">-- Record Index (Default) --</option>';
+                reportXAxisSelector.innerHTML = '<option value="index" selected>-- Record Index (Default) --</option>'; // Make default selected initially
+                // Add default option for Size selector
+                reportSizeSelector.innerHTML = '<option value="">-- Select Field (Bubble Only) --</option>';
 
                 if (!availableFields || availableFields.length === 0) {
                     console.log("No available fields to populate report selectors.");
@@ -1338,7 +1354,7 @@
                 const numericFields = enabledFields.filter(field => fieldMetadata[field]?.type === 'numeric' || field === 'index'); // Treat 'index' as numeric conceptually
                 console.log("Numeric fields identified for selectors:", numericFields);
                 
-                // Populate both X and Y selectors with *all* enabled fields for flexibility
+                // Populate X, Y, and Size selectors
                 enabledFields.forEach(field => {
                     // Y-axis option
                     const optionY = document.createElement('option');
@@ -1351,6 +1367,15 @@
                     optionX.value = field;
                     optionX.textContent = field;
                     reportXAxisSelector.appendChild(optionX);
+
+                    // Size-axis option (Only add numeric fields)
+                    // Check if the field type is numeric according to metadata
+                    if (fieldMetadata[field]?.type === 'numeric') {
+                        const optionSize = document.createElement('option');
+                        optionSize.value = field;
+                        optionSize.textContent = field;
+                        reportSizeSelector.appendChild(optionSize);
+                    }
                 });
 
                 // Try to restore previous selections (if they weren't the default index)
@@ -1363,6 +1388,14 @@
                 } else {
                     // Otherwise, ensure the default 'index' option is selected
                     reportXAxisSelector.value = 'index';
+                }
+
+                // Restore Size selector if possible
+                const previousSizeValue = reportSizeSelector.value;
+                if (previousSizeValue && fieldMetadata[previousSizeValue]?.type === 'numeric' && enabledFields.includes(previousSizeValue)) {
+                    reportSizeSelector.value = previousSizeValue;
+                } else {
+                    reportSizeSelector.value = ""; // Reset if previous not valid/numeric/enabled
                 }
 
                 // If previous Y selection is no longer valid, reset chart
@@ -1440,7 +1473,7 @@
             // --- RENAMED: Render Chart (previously Render Scatter Plot) --- 
             function renderChart() {
                 console.log("Rendering chart..."); 
-                if (!reportFieldSelector || !reportXAxisSelector || !reportChartCanvas || !chartStatus || !reportColorSelector || !reportChartTypeSelector) { // Added X-axis selector check
+                if (!reportFieldSelector || !reportXAxisSelector || !reportChartCanvas || !chartStatus || !reportColorSelector || !reportSizeSelector || !reportChartTypeSelector) { // Added Size selector check
                     console.error("Report tab elements not found.");
                     return;
                 }
@@ -1451,17 +1484,29 @@
                 const numericData = []; 
                 const pointBackgroundColors = [];
                 const pointBorderColors = [];
-                let nonNumericXCount = 0; // Track non-numeric X
+                let nonNumericXCount = 0; // Track non-numeric X (only if X field is selected)
                 let nonNumericYCount = 0; // Track non-numeric Y
+                let nonNumericSizeCount = 0; // Track non-numeric/non-positive Size
                 let missingItemCount = 0; // Track missing items
                 // --- End variable declarations --- 
+
+                // Helper function to get value from item
+                const getValue = (item, field) => {
+                    if (!item) return null;
+                    if (field === 'source') return item.source;
+                    if (item.processed_data && item.processed_data.hasOwnProperty(field)) {
+                        return item.processed_data[field];
+                    }
+                    return null; // Field not found
+                };
 
                 const selectedYField = reportFieldSelector.value;
                 const selectedXField = reportXAxisSelector.value; // NEW: Get X-axis field
                 const colorField = reportColorSelector.value; 
-                const selectedChartType = reportChartTypeSelector.value; // NEW: Get chart type
+                const sizeField = reportSizeSelector.value; // NEW: Get size field
+                const selectedChartType = reportChartTypeSelector.value;
                 const useIndexAsX = (!selectedXField || selectedXField === 'index'); // Check if default X is used
-                console.log(`Selected X-axis: ${useIndexAsX ? 'Record Index (Default)' : selectedXField}, Y-axis: ${selectedYField}, Color by: ${colorField}, Chart Type: ${selectedChartType}`); // Updated log
+                console.log(`Selected X:${useIndexAsX ? 'Index' : selectedXField}, Y:${selectedYField}, Color:${colorField || '-'}, Size:${sizeField || '-'}, Type:${selectedChartType}`);
 
                 chartStatus.textContent = ''; // Clear previous status
 
@@ -1475,9 +1520,23 @@
                 }
                 // --- End Disable X-axis ---
 
-                // Need Y field selected for all chart types now (X is optional/defaults)
+                // --- Enable/Disable Size selector based on chart type ---
+                reportSizeSelector.disabled = (selectedChartType !== 'bubble');
+                // --- End Enable/Disable Size ---
+
+                // Need Y field selected for all chart types
                 if (!selectedYField) {
                     chartStatus.textContent = 'Please select a field for the Y axis.';
+                    if (reportChartInstance) {
+                        reportChartInstance.destroy();
+                        reportChartInstance = null;
+                    }
+                    return;
+                }
+
+                // Need Size field selected *only* for bubble charts
+                if (selectedChartType === 'bubble' && !sizeField) {
+                    chartStatus.textContent = 'Please select a field for Bubble Size.';
                     if (reportChartInstance) {
                         reportChartInstance.destroy();
                         reportChartInstance = null;
@@ -1493,6 +1552,35 @@
                     }
                     return;
                 }
+
+                // --- Pre-calculate min/max for size scaling (Bubble only) ---
+                let minSize = Infinity;
+                let maxSize = -Infinity;
+                if (selectedChartType === 'bubble' && sizeField) {
+                    filteredDataForChart.forEach(item => {
+                        if (item) {
+                            const sizeValue = getValue(item, sizeField);
+                            const numericSize = Number(sizeValue);
+                            // Consider only positive numeric values for size scaling
+                            if (!isNaN(numericSize) && numericSize > 0) {
+                                if (numericSize < minSize) minSize = numericSize;
+                                if (numericSize > maxSize) maxSize = numericSize;
+                            }
+                        }
+                    });
+                    // Handle case where no valid positive sizes found
+                    if (minSize === Infinity || maxSize === -Infinity) {
+                        console.warn(`No valid positive numeric data found for size field '${sizeField}'. Bubbles will have default size.`);
+                        // Set defaults to prevent division by zero later
+                        minSize = 1;
+                        maxSize = 1;
+                    } else if (minSize === maxSize) {
+                         // If all valid sizes are the same, adjust slightly for scaling formula
+                         minSize = maxSize / 2;
+                    }
+                    console.log(`[Bubble Scaling] Min Size: ${minSize}, Max Size: ${maxSize} for field '${sizeField}'`);
+                }
+                // --- End Pre-calculation ---
 
                 // Color mapping logic (remains the same)
                 const colorMap = {};
@@ -1514,20 +1602,11 @@
                     return colorMap[valueStr];
                 };
                 
-                // Helper function to get value from item
-                const getValue = (item, field) => {
-                    if (!item) return null;
-                    if (field === 'source') return item.source;
-                    if (item.processed_data && item.processed_data.hasOwnProperty(field)) {
-                        return item.processed_data[field];
-                    }
-                    return null; // Field not found
-                };
-
                 // Process data points
                 // Reset counts
                 nonNumericXCount = 0;
                 nonNumericYCount = 0;
+                nonNumericSizeCount = 0; // Reset size count too
                 missingItemCount = 0;
                 
                 filteredDataForChart.forEach((item, index) => {
@@ -1545,7 +1624,7 @@
                         let numericXValue = null;
                         let isXNumeric = false;
                         // Determine X value based on selection or default index
-                        if (selectedChartType === 'scatter' || selectedChartType === 'line') {
+                        if (selectedChartType === 'scatter' || selectedChartType === 'line' || selectedChartType === 'bubble') { // Include bubble
                             if (useIndexAsX) {
                                 // Use the loop index as the X value
                                 numericXValue = index;
@@ -1568,6 +1647,18 @@
                         } else if (selectedChartType === 'bar') {
                             isValidPoint = isYNumeric; // Only Y needs to be numeric for bar
                             if (!isYNumeric) nonNumericYCount++;
+                        } else if (selectedChartType === 'bubble') {
+                            // Bubble needs valid X, Y, and Size
+                            const rawSizeValue = getValue(item, sizeField);
+                            const numericSizeValue = Number(rawSizeValue);
+                            const isSizeNumericPositive = !isNaN(numericSizeValue) && numericSizeValue > 0;
+
+                            isValidPoint = isXNumeric && isYNumeric && isSizeNumericPositive;
+
+                            // Increment specific counts for bubble exclusions
+                            if (!isXNumeric) nonNumericXCount++;
+                            if (!isYNumeric) nonNumericYCount++;
+                            if (!isSizeNumericPositive) nonNumericSizeCount++;
                         }
 
                         if (isValidPoint) {
@@ -1595,6 +1686,29 @@
                                 numericData.push(numericYValue); // Y is the bar height
                                 // Bar colors are pushed later, need to store color value
                                 // We'll handle this by iterating over labels/numericData later
+                            } else if (selectedChartType === 'bubble') {
+                                const rawSizeValue = getValue(item, sizeField);
+                                const numericSizeValue = Number(rawSizeValue);
+                                // Scale radius (ensure min/max are valid)
+                                const minRadius = 5;
+                                const maxRadius = 30;
+                                let radius = minRadius; // Default size if scaling fails
+                                if (maxSize > minSize) { // Avoid division by zero
+                                    radius = minRadius + ((numericSizeValue - minSize) / (maxSize - minSize)) * (maxRadius - minRadius);
+                                }
+                                radius = Math.max(minRadius, radius); // Ensure minimum radius
+
+                                const dataPoint = {
+                                    x: numericXValue,
+                                    y: numericYValue,
+                                    r: radius, // Calculated radius
+                                    ticker: item.ticker || 'N/A',
+                                    colorValue: colorValue,
+                                    originalX: rawXValue,
+                                    originalY: rawYValue,
+                                    originalSize: rawSizeValue // Store original size value for tooltip
+                                };
+                                plotData.push(dataPoint);
                             }
 
                             // Push colors (only needed for scatter/line here, bar handled later)
@@ -1635,7 +1749,7 @@
 
                 // Check if any valid data points were found for the selected type
                 console.log('Type of plotData before hasData:', typeof plotData, 'Value:', plotData); // DEBUG LOG
-                const hasData = (selectedChartType === 'bar' ? numericData.length > 0 : (plotData ? plotData.length > 0 : false)); 
+                const hasData = (selectedChartType === 'bar' ? numericData.length > 0 : (plotData && plotData.length > 0)); // Simplified check
                 if (!hasData) {
                     chartStatus.textContent = `No valid numeric data found for the selected axes (${selectedXField ? 'X:'+selectedXField+', ' : ''}Y:${selectedYField}) in the current filtered data.`;
                      if (reportChartInstance) {
@@ -1655,6 +1769,9 @@
                 }
                  if (nonNumericYCount > 0) { // Relevant for all types
                      excludedMessages.push(`${nonNumericYCount} non-numeric Y values ('${selectedYField}')`);
+                 }
+                 if (selectedChartType === 'bubble' && nonNumericSizeCount > 0) {
+                     excludedMessages.push(`${nonNumericSizeCount} invalid Size values ('${sizeField}')`);
                  }
 
                 const plottedCount = hasData ? (selectedChartType === 'bar' ? numericData.length : plotData.length) : 0;
@@ -1715,6 +1832,24 @@
                          },
                          type: 'category', // Categorical axis
                          position: 'bottom'
+                    };
+                } else if (selectedChartType === 'bubble') {
+                    chartDataConfig = {
+                        datasets: [{
+                            label: `${selectedYField} vs ${selectedXField}`,
+                            data: plotData,
+                            backgroundColor: pointBackgroundColors,
+                            borderColor: pointBorderColors,
+                            borderWidth: 1
+                        }]
+                    };
+                    xAxisConfig = {
+                        title: {
+                            display: true,
+                            text: useIndexAsX ? 'Record Index' : selectedXField
+                        },
+                        type: 'linear',
+                        position: 'bottom'
                     };
                 } else {
                      console.error(`Unsupported chart type: ${selectedChartType}`);
@@ -1784,6 +1919,11 @@
                                             // Add color field info if available
                                             if (colorField && pointData.colorValue !== null && pointData.colorValue !== undefined) {
                                                 labelLines.push(`${colorField}: ${pointData.colorValue}`);
+                                            }
+
+                                            // Add size field info for bubble charts
+                                            if (chartType === 'bubble' && sizeField && pointData.originalSize !== null && pointData.originalSize !== undefined) {
+                                                labelLines.push(`${sizeField} (Size): ${pointData.originalSize}`);
                                             }
                                         } else {
                                              // Fallback if pointData isn't available (shouldn't happen often)
@@ -2163,32 +2303,71 @@
             // --- NEW: Add Event Listener for Reset Chart Button ---
             if (resetChartBtn) {
                 resetChartBtn.addEventListener('click', () => {
-                    console.log("Reset Chart button clicked");
-                    // Reset selectors to defaults
-                    if(reportXAxisSelector) reportXAxisSelector.value = 'index';
-                    if(reportFieldSelector) reportFieldSelector.value = '';
-                    if(reportChartTypeSelector) reportChartTypeSelector.value = 'scatter';
-
-                    // Reset color selector - find actual case of 'name' if it exists
-                    if(reportColorSelector) {
-                        // Find the option matching 'name' case-insensitively
-                        const nameOption = Array.from(reportColorSelector.options).find(opt => opt.value.toLowerCase() === 'name');
-                        if (nameOption) {
-                            // If found, set value to the actual case from the option
-                            reportColorSelector.value = nameOption.value;
-                            console.log(`[Reset Button] Setting color selector to actual case: ${nameOption.value}`);
-                        } else {
-                            // Otherwise, set to empty default
-                            reportColorSelector.value = '';
-                            console.log("[Reset Button] 'name' option not found, setting color selector to empty.");
-                        }
+                    console.log("Reset View button clicked");
+                    if (reportChartInstance) {
+                        reportChartInstance.resetZoom();
+                        console.log("Chart zoom/pan reset.");
+                    } else {
+                        console.log("No chart instance found to reset zoom.");
                     }
+                });
+            }
+            // --- END Reset Button Listener ---
+
+            // --- NEW: Add Event Listener for Report Size Selector ---
+            if (reportSizeSelector) {
+                reportSizeSelector.addEventListener('change', renderChart);
+            }
+            // --- END Size Selector Listener ---
+
+            // --- NEW: Add Event Listener for Swap Axes Button ---
+            if (swapAxesBtn && reportXAxisSelector && reportFieldSelector) { // Ensure all elements exist
+                swapAxesBtn.addEventListener('click', () => {
+                    console.log("Swap Axes button clicked");
+                    const currentX = reportXAxisSelector.value;
+                    const currentY = reportFieldSelector.value;
+
+                    // --- Validation ---
+                    // 1. Don't swap if Y is not selected
+                    if (!currentY) {
+                        console.log("[Swap Axes] Cannot swap: Y-axis not selected.");
+                        return;
+                    }
+                    // 2. Check if Y value exists in X options
+                    const yOptionInX = Array.from(reportXAxisSelector.options).some(opt => opt.value === currentY);
+                    if (!yOptionInX) {
+                        console.log(`[Swap Axes] Cannot swap: Y-axis value '${currentY}' not found in X-axis options.`);
+                        return;
+                    }
+
+                    let newX = currentY;
+                    let newY = currentX;
+
+                    // --- Handle special 'index' case for X ---
+                    if (currentX === 'index') {
+                        // Allow swapping Y -> X, but keep Y as is (don't put 'index' in Y)
+                        newY = currentY; // Y remains unchanged
+                        console.log("[Swap Axes] X is index. Swapping Y->X only.");
+                    } else {
+                        // 3. Normal case: Check if X value exists in Y options
+                        const xOptionInY = Array.from(reportFieldSelector.options).some(opt => opt.value === currentX);
+                        if (!xOptionInY) {
+                            console.log(`[Swap Axes] Cannot swap: X-axis value '${currentX}' not found in Y-axis options.`);
+                            return;
+                        }
+                        // If all checks pass for normal swap, newX and newY are already set correctly
+                        console.log("[Swap Axes] Performing full swap.");
+                    }
+
+                    // Apply the new values
+                    reportXAxisSelector.value = newX;
+                    reportFieldSelector.value = newY;
 
                     // Re-render the chart
                     renderChart();
                 });
             }
-            // --- END Reset Button Listener ---
+            // --- END Swap Axes Button Listener ---
 
         });
     </script>
