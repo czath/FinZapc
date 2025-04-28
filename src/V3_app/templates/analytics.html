@@ -63,25 +63,28 @@
     <h1>Analytics</h1>
     <p>import, process, filter, configure, and report on financial data.</p>
 
-    {# --- Main Tab Navigation --- #}
-    <ul class="nav nav-tabs mt-3" id="mainAnalyticsTabs" role="tablist">
+    {# --- Main Workflow Tabs --- #}
+    <ul class="nav nav-tabs mt-3" id="mainWorkflowTabs" role="tablist">
         <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="data-import-tab" data-bs-toggle="tab" data-bs-target="#data-import-tab-pane" type="button" role="tab" aria-controls="data-import-tab-pane" aria-selected="true">Data Import</button>
+            <button class="nav-link active" id="fetch-tab" data-bs-toggle="tab" data-bs-target="#fetch-tab-pane" type="button" role="tab" aria-controls="fetch-tab-pane" aria-selected="true"><i class="bi bi-cloud-arrow-down me-1"></i>Fetch</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="data-prep-tab" data-bs-toggle="tab" data-bs-target="#data-prep-tab-pane" type="button" role="tab" aria-controls="data-prep-tab-pane" aria-selected="false">Data Preparation</button>
+            <button class="nav-link" id="stage-prepare-tab" data-bs-toggle="tab" data-bs-target="#stage-prepare-tab-pane" type="button" role="tab" aria-controls="stage-prepare-tab-pane" aria-selected="false"><i class="bi bi-filter-square me-1"></i>Stage & Prepare</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="data-report-tab" data-bs-toggle="tab" data-bs-target="#data-report-tab-pane" type="button" role="tab" aria-controls="data-report-tab-pane" aria-selected="false">Analysis & Reports</button>
+            <button class="nav-link" id="transform-tab" data-bs-toggle="tab" data-bs-target="#transform-tab-pane" type="button" role="tab" aria-controls="transform-tab-pane" aria-selected="false"><i class="bi bi-gear me-1"></i>Transform</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="analyze-present-tab" data-bs-toggle="tab" data-bs-target="#analyze-present-tab-pane" type="button" role="tab" aria-controls="analyze-present-tab-pane" aria-selected="false"><i class="bi bi-bar-chart-line me-1"></i>Analyze & Present</button>
         </li>
     </ul>
-    {# --- End Main Tab Navigation --- #}
+    {# --- End Main Workflow Tabs --- #}
 
     {# --- Main Tab Content --- #}
-    <div class="tab-content pt-3" id="mainAnalyticsTabsContent">
+    <div class="tab-content pt-3" id="mainWorkflowTabsContent">
 
         {# --- Data Import Tab Pane --- #}
-        <div class="tab-pane fade show active" id="data-import-tab-pane" role="tabpanel" aria-labelledby="data-import-tab" tabindex="0">
+        <div class="tab-pane fade show active" id="fetch-tab-pane" role="tabpanel" aria-labelledby="fetch-tab" tabindex="0">
             <h5>Data Import Sources</h5>
             <p>Import raw data from external sources.</p>
 
@@ -143,7 +146,7 @@
         {# --- End Data Import Tab Pane --- #}
 
         {# --- Data Preparation Tab Pane --- #}
-        <div class="tab-pane fade" id="data-prep-tab-pane" role="tabpanel" aria-labelledby="data-prep-tab" tabindex="0">
+        <div class="tab-pane fade" id="stage-prepare-tab-pane" role="tabpanel" aria-labelledby="stage-prepare-tab" tabindex="0">
             <h5>Data Preparation Steps</h5>
             <p>Process, clean, filter, and configure the imported data.</p>
 
@@ -222,9 +225,19 @@
         </div>
         {# --- End Data Preparation Tab Pane --- #}
 
+        {# --- NEW Transform Tab Pane --- #}
+        <div class="tab-pane fade" id="transform-tab-pane" role="tabpanel" aria-labelledby="transform-tab" tabindex="0">
+            <h5>Data Transformation</h5>
+            <p>Apply transformations, calculations, or feature engineering to the prepared data.</p>
+            <div class="my-3 p-3 border rounded bg-body-tertiary">
+                <p class="text-muted"><i>(Transformation features will be added here later)</i></p>
+            </div>
+        </div>
+        {# --- End Transform Tab Pane --- #}
+
         {# --- Data Report Tab Pane --- #}
-        <div class="tab-pane fade" id="data-report-tab-pane" role="tabpanel" aria-labelledby="data-report-tab" tabindex="0">
-            <h5>Data Reporting</h5>
+        <div class="tab-pane fade" id="analyze-present-tab-pane" role="tabpanel" aria-labelledby="analyze-present-tab" tabindex="0">
+            <h5>Analyze & Present Data</h5>
             <p>Generate reports, visualizations, or summaries based on the prepared data.</p>
             
             {# --- Chart Controls & Display --- #}
