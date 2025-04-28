@@ -6,6 +6,8 @@
     {# Add any page-specific CSS or meta tags here if needed later #}
     {# --- Add Chart.js CDN --- #}
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    {# --- Add Zoom Plugin CDN --- #}
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     {# --- End Chart.js CDN --- #}
     <style>
         /* Style for filter rows */
@@ -1589,37 +1591,96 @@
                             }
                         },
                         plugins: {
+                            // --- Temporarily comment out other plugins --- 
+                            // Un-comment legend
                             legend: {
                                 display: true, // Ensure legend is displayed
                                 position: 'top',
                             },
+                            // Restore tooltip block, but simplify callback
                             tooltip: {
                                 callbacks: {
                                     label: function(context) {
+                                        // --- Restore Bar Chart Logic --- 
+                                        console.log("Tooltip callback executed (Step 3 - Full)");
                                         let label = '';
-                                        if (selectedChartType === 'bar') {
+                                        const chartType = context.chart.config.type;
+                                        
+                                        if (chartType === 'bar') {
                                             label = `${context.dataset.label || 'Value'}: ${context.parsed.y}`;
-                                            // Ticker is in context.label for bar charts
-                                            label = `Ticker: ${context.label}\n${label}`;
-                                        } else { 
-                                            // Scatter/Line: context.raw should contain {x, y, ticker, colorValue}
-                                            const pointData = context.raw;
-                                            if (pointData) {
-                                                label = `Ticker: ${pointData.ticker}`; 
-                                                label += `\n${context.dataset.label || 'Value'}: ${pointData.y}`;
-                                                if (colorField && pointData.colorValue !== null) {
-                                                    label += `\n${colorField}: ${pointData.colorValue}`;
+                                            // Ticker should be in context.label for bar charts based on our data prep
+                                            label = `Ticker: ${context.label || 'N/A'}\n${label}`;
+                                            
+                                            // --- Add color field logic for bar charts --- 
+                                            if (colorField) {
+                                                const dataIndex = context.dataIndex;
+                                                const item = filteredDataForChart[dataIndex]; // Get original item
+                                                if (item) {
+                                                    let colorValue = null;
+                                                    if (colorField === 'source') {
+                                                        colorValue = item.source;
+                                                    } else if (item.processed_data && item.processed_data.hasOwnProperty(colorField)) {
+                                                        colorValue = item.processed_data[colorField];
+                                                    }
+                                                    if (colorValue !== null && colorValue !== undefined) {
+                                                         label += `\n${colorField}: ${colorValue}`;
+                                                    }
                                                 }
                                             }
+                                            // --- End color field logic --- 
+                                        } else { 
+                                            // Scatter/Line logic (existing - should be correct)
+                                            const pointData = context.raw;
+                                            label = `${context.dataset.label || 'Value'}: ${context.formattedValue}`;
+                                            if (pointData && pointData.ticker) {
+                                                label = `Ticker: ${pointData.ticker}\n${label}`; // Prepend ticker
+                                            }
+                                            // Add color field info if available
+                                            if (colorField && pointData && pointData.colorValue !== null && pointData.colorValue !== undefined) {
+                                                label += `\n${colorField}: ${pointData.colorValue}`;
+                                            }
                                         }
-                                        // Return as array for multi-line tooltips if \n exists
-                                        return label.includes('\n') ? label.split('\n') : label;
+                                        
+                                        return label.includes('\n') ? label.split('\n') : label; // Keep split for multi-line
+                                        // --- End Restore --- 
                                     }
                                 }
+                            },
+                            // --- End Temporarily comment out --- -> This comment is now incorrect, remove/update
+                            // --- Add Zoom/Pan Configuration --- 
+                            zoom: {
+                                pan: {
+                                    enabled: true,
+                                    mode: 'xy', // Allow panning on both axes
+                                    threshold: 5, // Minimum drag distance to trigger pan
+                                    overscroll: true, // Explicitly set overscroll mode
+                                },
+                                zoom: {
+                                    wheel: {
+                                        enabled: true, // Enable zooming via mouse wheel
+                                    },
+                                    pinch: {
+                                        enabled: true // Enable zooming via pinch gesture (requires Hammer.js for touch)
+                                    },
+                                    drag: {
+                                         enabled: true, // Enable zooming via drag selection 
+                                         modifierKey: 'shift', // Optional: Require Shift key for drag zoom
+                                    },
+                                    mode: 'xy', // Allow zooming on both axes
+                                }
                             }
+                            // --- End Zoom/Pan Configuration --- 
                         }
                     }
                 });
+
+                // Force an update after initial render - might help plugin init
+                if (reportChartInstance) {
+                    reportChartInstance.update(); 
+                    // Trigger resize event after update
+                    window.dispatchEvent(new Event('resize')); 
+                    console.log("Forced chart update and dispatched resize event.");
+                }
 
                 console.log(`Chart rendered successfully as ${selectedChartType}.`); // Updated log
 
@@ -1915,6 +1976,16 @@
             loadFiltersFromStorage();
             loadWeightsFromStorage();
             loadEnabledStatusFromStorage();
+
+            // --- Register Chart.js Plugins --- 
+            if (window.ChartZoom) { // Check if plugin loaded
+                Chart.register(window.ChartZoom);
+                console.log("Chartjs zoom plugin registered.");
+            } else {
+                console.warn("Chartjs zoom plugin (ChartZoom) not found. Zoom/pan disabled.");
+            }
+            // --- End Plugin Registration --- 
+
             // Initial render based on loaded state (data is empty initially)
             renderFilterUI(); // Render Prep tab UI elements
             renderFieldConfigUI();
