@@ -32,92 +32,181 @@
             font-family: monospace; /* Good for JSON */
             font-size: 0.85rem;
         }
+        /* Style for drag-and-drop area */
+        #drop-zone {
+            border: 2px dashed var(--bs-secondary-color);
+            border-radius: 0.375rem; /* Match Bootstrap's default border radius */
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            background-color: var(--bs-tertiary-bg);
+            transition: border-color 0.3s ease, background-color 0.3s ease;
+        }
+        #drop-zone.dragover {
+            border-color: var(--bs-primary);
+            background-color: var(--bs-primary-bg-subtle);
+        }
+        #drop-zone p {
+            margin-bottom: 0;
+            color: var(--bs-secondary-color);
+        }
     </style>
 {% endblock %}
 
 {% block content %}
     {# Analytics Page Content #}
-    <h1>Analytics Page</h1>
-    <p>This section allows triggering background tasks and processing stored data.</p>
+    <h1>Analytics</h1>
+    <p>import, process, filter, configure, and report on financial data.</p>
 
-    {# --- Finviz Fetch Trigger --- #}
-    <div class="my-3 p-3 border rounded bg-body-tertiary">
-        <h5>Finviz Raw Data Fetch</h5>
-        <p class="small text-muted">Trigger a background task to fetch the latest raw data from Finviz for tickers in the screener.</p>
-        <button id="run-finviz-btn" class="btn btn-primary me-2">Run Finviz Fetch Now</button>
-        <span id="finviz-status" class="ms-2"></span> {# Area to show status messages for the fetch job #}
-    </div>
-    {# --- End Finviz Fetch --- #}
+    {# --- Main Tab Navigation --- #}
+    <ul class="nav nav-tabs mt-3" id="mainAnalyticsTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="data-import-tab" data-bs-toggle="tab" data-bs-target="#data-import-tab-pane" type="button" role="tab" aria-controls="data-import-tab-pane" aria-selected="true">Data Import</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="data-prep-tab" data-bs-toggle="tab" data-bs-target="#data-prep-tab-pane" type="button" role="tab" aria-controls="data-prep-tab-pane" aria-selected="false">Data Preparation</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="data-report-tab" data-bs-toggle="tab" data-bs-target="#data-report-tab-pane" type="button" role="tab" aria-controls="data-report-tab-pane" aria-selected="false">Analysis & Reports</button>
+        </li>
+    </ul>
+    {# --- End Main Tab Navigation --- #}
 
-    {# --- Finviz Data Processing, Filtering & Configuration --- #}
-    <div class="my-3 p-3 border rounded bg-body-tertiary">
-        <h5>Process, Filter & Configure Finviz Data</h5>
-        
-        {# Processing Button (outside tabs) #}
-        <div class="mb-3 pb-3 border-bottom">
-            <p class="small text-muted">Load and process the raw Finviz data currently stored in the database.</p>
-            <button id="process-finviz-data-btn" class="btn btn-secondary me-2">Load Data from DB</button>
-            <span id="process-finviz-status" class="ms-2"></span> {# Status for the processing action #}
-        </div>
+    {# --- Main Tab Content --- #}
+    <div class="tab-content pt-3" id="mainAnalyticsTabsContent">
 
-        {# --- Tab Navigation --- #}
-        <ul class="nav nav-tabs mt-3" id="analyticsTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="filter-tab" data-bs-toggle="tab" data-bs-target="#filter-tab-pane" type="button" role="tab" aria-controls="filter-tab-pane" aria-selected="true">Filters & Output</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="config-tab" data-bs-toggle="tab" data-bs-target="#config-tab-pane" type="button" role="tab" aria-controls="config-tab-pane" aria-selected="false">Field Configuration</button>
-            </li>
-        </ul>
-        {# --- End Tab Navigation --- #}
+        {# --- Data Import Tab Pane --- #}
+        <div class="tab-pane fade show active" id="data-import-tab-pane" role="tabpanel" aria-labelledby="data-import-tab" tabindex="0">
+            <h5>Data Import Sources</h5>
+            <p>Import raw data from external sources like Finviz.</p>
 
-        {# --- Tab Content --- #}
-        <div class="tab-content pt-3" id="analyticsTabsContent">
-            
-            {# --- Filters & Output Tab Pane --- #}
-            <div class="tab-pane fade show active" id="filter-tab-pane" role="tabpanel" aria-labelledby="filter-tab" tabindex="0">
-                
-                {# Filter Controls #}
-                <div class="mb-3">
-                    <h6>Filter Criteria:</h6>
-                    <div id="filter-controls-container"> 
-                        <!-- Filter rows will be added here dynamically -->
-                    </div>
-                    <button id="add-filter-btn" class="btn btn-sm btn-outline-success me-2">+ Add Filter</button>
-                    <button id="apply-filters-btn" class="btn btn-sm btn-primary me-2">Apply Filters</button>
-                    <button id="reset-filters-btn" class="btn btn-sm btn-outline-danger">Reset Filters</button>
-                </div>
-                
-                {# Display area for processed output #}
-                <div id="processed-finviz-output-container" class="mt-3">
-                    <h6>Filtered Output:</h6> <span id="filter-results-count" class="ms-2 small text-muted"></span>
-                    <pre id="processed-finviz-output"></pre> 
-                </div>
-
+            {# --- 1. Finviz Fetch for Screened Tickers --- #}
+            <div class="my-3 p-3 border rounded bg-body-tertiary">
+                <h6>Option 1: Finviz Fetch for Screened Tickers</h6>
+                <p class="small text-muted">Trigger a background task to fetch the latest raw data from Finviz for tickers currently in the <strong>screener database table</strong>.</p>
+                <button id="run-finviz-btn" class="btn btn-primary me-2">Finviz fetch for Screened Tickers</button>
+                <span id="finviz-status" class="ms-2"></span> {# Area to show status messages for the fetch job #}
             </div>
-            {# --- End Filters & Output Tab Pane --- #}
+            {# --- End Finviz Fetch for Screened Tickers --- #}
 
-            {# --- Field Configuration Tab Pane --- #}
-            <div class="tab-pane fade" id="config-tab-pane" role="tabpanel" aria-labelledby="config-tab" tabindex="0">
-                
-                {# Container for Field Weights & Toggles #}
-                <div class="mb-3">
-                    <h6>Field Configuration (Weights & Enabled Status):</h6>
-                    <div id="field-config-container" style="max-height: 400px; overflow-y: auto;"> <!-- Increased height slightly -->
-                        <!-- Field config rows will be added here dynamically -->
-                        <p class="text-muted small">Load data to configure fields.</p>
-                    </div>
-                    <!-- Optional: Add a "Save Weights/Toggles" or "Reset Weights/Toggles" button here later -->
+            {# --- 2. Finviz Fetch from Uploaded Ticker List --- #}
+            <div class="my-3 p-3 border rounded bg-body-tertiary">
+                <h6>Option 2: Finviz Fetch from Uploaded Ticker List</h6>
+                <p class="small text-muted">Upload a text file (.txt) containing a list of tickers (one per line) to fetch data for.</p>
+
+                {# Hidden File Input #}
+                <input type="file" id="ticker-file-input" accept=".txt" style="display: none;">
+
+                {# Drag and Drop Zone #}
+                <div id="drop-zone" class="mb-3">
+                    <p>Drag & drop ticker file here (.txt only), or click to select</p>
                 </div>
 
+                {# File Info & Action Area #}
+                <div id="file-info-area" class="mb-2 small">
+                    <!-- Info about the uploaded file will appear here -->
+                    <span id="file-info-text" class="text-muted">No file selected.</span>
+                </div>
+                <button id="run-finviz-upload-btn" class="btn btn-primary me-2" disabled>Fetch Finviz Data for Uploaded Tickers</button>
+                <span id="finviz-upload-status" class="ms-2"></span> {# Status for the upload fetch job #}
             </div>
-            {# --- End Field Configuration Tab Pane --- #}
+            {# --- End Finviz Fetch from Uploaded Ticker List --- #}
+
+            {# Add other import steps here later #}
 
         </div>
-        {# --- End Tab Content --- #}
+        {# --- End Data Import Tab Pane --- #}
+
+        {# --- Data Preparation Tab Pane --- #}
+        <div class="tab-pane fade" id="data-prep-tab-pane" role="tabpanel" aria-labelledby="data-prep-tab" tabindex="0">
+            <h5>Data Preparation Steps</h5>
+            <p>Process, clean, filter, and configure the imported data.</p>
+
+            {# --- Finviz Data Processing, Filtering & Configuration --- #}
+            <div class="my-3 p-3 border rounded bg-body-tertiary">
+                <h6>Process, Filter & Configure Finviz Data</h6>
+
+                {# Processing Button (outside sub-tabs) #}
+                <div class="mb-3 pb-3 border-bottom">
+                    <p class="small text-muted">Load and process the raw Finviz data currently stored in the database.</p>
+                    <button id="process-finviz-data-btn" class="btn btn-secondary me-2">Load Data from DB</button>
+                    <span id="process-finviz-status" class="ms-2"></span> {# Status for the processing action #}
+                </div>
+
+                {# --- Sub-Tab Navigation for Prep Steps --- #}
+                <ul class="nav nav-tabs mt-3" id="prepStepsTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="filter-subtab" data-bs-toggle="tab" data-bs-target="#filter-subtab-pane" type="button" role="tab" aria-controls="filter-subtab-pane" aria-selected="true">Filters & Output</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="config-subtab" data-bs-toggle="tab" data-bs-target="#config-subtab-pane" type="button" role="tab" aria-controls="config-subtab-pane" aria-selected="false">Field Configuration</button>
+                    </li>
+                </ul>
+                {# --- End Sub-Tab Navigation --- #}
+
+                {# --- Sub-Tab Content --- #}
+                <div class="tab-content pt-3" id="prepStepsTabsContent">
+
+                    {# --- Filters & Output Sub-Tab Pane --- #}
+                    <div class="tab-pane fade show active" id="filter-subtab-pane" role="tabpanel" aria-labelledby="filter-subtab" tabindex="0">
+
+                        {# Filter Controls #}
+                        <div class="mb-3">
+                            <h6>Filter Criteria:</h6>
+                            <div id="filter-controls-container">
+                                <!-- Filter rows will be added here dynamically -->
+                            </div>
+                            <button id="add-filter-btn" class="btn btn-sm btn-outline-success me-2">+ Add Filter</button>
+                            <button id="apply-filters-btn" class="btn btn-sm btn-primary me-2">Apply Filters</button>
+                            <button id="reset-filters-btn" class="btn btn-sm btn-outline-danger">Reset Filters</button>
+                        </div>
+
+                        {# Display area for processed output #}
+                        <div id="processed-finviz-output-container" class="mt-3">
+                            <h6>Filtered Output:</h6> <span id="filter-results-count" class="ms-2 small text-muted"></span>
+                            <pre id="processed-finviz-output"></pre>
+                        </div>
+
+                    </div>
+                    {# --- End Filters & Output Sub-Tab Pane --- #}
+
+                    {# --- Field Configuration Sub-Tab Pane --- #}
+                    <div class="tab-pane fade" id="config-subtab-pane" role="tabpanel" aria-labelledby="config-subtab" tabindex="0">
+
+                        {# Container for Field Weights & Toggles #}
+                        <div class="mb-3">
+                            <h6>Field Configuration (Weights & Enabled Status):</h6>
+                            <div id="field-config-container" style="max-height: 400px; overflow-y: auto;"> <!-- Increased height slightly -->
+                                <!-- Field config rows will be added here dynamically -->
+                                <p class="text-muted small">Load data to configure fields.</p>
+                            </div>
+                            <!-- Optional: Add a "Save Weights/Toggles" or "Reset Weights/Toggles" button here later -->
+                        </div>
+
+                    </div>
+                    {# --- End Field Configuration Sub-Tab Pane --- #}
+
+                </div>
+                {# --- End Sub-Tab Content --- #}
+
+            </div>
+            {# --- END Finviz Data Processing, Filtering & Configuration --- #}
+
+            {# Add other prep steps here later #}
+
+        </div>
+        {# --- End Data Preparation Tab Pane --- #}
+
+        {# --- Data Report Tab Pane --- #}
+        <div class="tab-pane fade" id="data-report-tab-pane" role="tabpanel" aria-labelledby="data-report-tab" tabindex="0">
+            <h5>Data Reporting</h5>
+            <p>Generate reports, visualizations, or summaries based on the prepared data.</p>
+            <p class="text-muted small"><i>(Reporting features will be added here later)</i></p>
+        </div>
+        {# --- End Data Report Tab Pane --- #}
 
     </div>
-    {# --- END Finviz Data Processing, Filtering & Configuration --- #}
+    {# --- End Main Tab Content --- #}
 
     <!-- Add other analytics-specific content here later -->
 {% endblock %}
@@ -127,20 +216,29 @@
     <script>
         document.addEventListener('DOMContentLoaded', function() { // No longer needs to be async
             // --- Global variables ---
-            let fullProcessedData = []; 
-            let currentFilters = [];    
+            let fullProcessedData = [];
+            let currentFilters = [];
             let fieldWeights = {};      // {fieldName: weight (0-100)}
-            let availableFields = [];   
-            let fieldMetadata = {};     
+            let availableFields = [];
+            let fieldMetadata = {};
             let fieldEnabledStatus = {}; // {fieldName: true/false}
-            
+            let uploadedTickers = []; // To store tickers from uploaded file
+
             const FILTER_STORAGE_KEY = 'finvizAnalyticsFilters';
             const WEIGHT_STORAGE_KEY = 'finvizAnalyticsFieldWeights';
             const FIELD_ENABLED_STORAGE_KEY = 'finvizAnalyticsFieldEnabled'; // New key
 
             // --- Element References ---
+            // Import Tab
             const finvizButton = document.getElementById('run-finviz-btn');
             const finvizStatus = document.getElementById('finviz-status');
+            const dropZone = document.getElementById('drop-zone');
+            const tickerFileInput = document.getElementById('ticker-file-input');
+            const fileInfoText = document.getElementById('file-info-text');
+            const runFinvizUploadBtn = document.getElementById('run-finviz-upload-btn');
+            const finvizUploadStatus = document.getElementById('finviz-upload-status');
+
+            // Preparation Tab
             const processButton = document.getElementById('process-finviz-data-btn');
             const processStatus = document.getElementById('process-finviz-status');
             const outputArea = document.getElementById('processed-finviz-output');
@@ -149,10 +247,198 @@
             const applyFiltersBtn = document.getElementById('apply-filters-btn');
             const resetFiltersBtn = document.getElementById('reset-filters-btn');
             const filterResultsCount = document.getElementById('filter-results-count');
-            const fieldWeightsContainer = document.getElementById('field-weights-container'); // Add later if needed
-            const fieldConfigContainer = document.getElementById('field-config-container'); // Add later if needed
+            const fieldConfigContainer = document.getElementById('field-config-container');
 
-            // --- Storage & State Functions ---
+            // --- File Handling Logic (Import Tab) ---
+            function handleFile(file) {
+                if (!file) {
+                    fileInfoText.textContent = 'No file selected.';
+                    fileInfoText.className = 'text-muted';
+                    runFinvizUploadBtn.disabled = true;
+                    uploadedTickers = [];
+                    return;
+                }
+
+                if (!file.name.endsWith('.txt')) {
+                    fileInfoText.textContent = 'Invalid file type. Please upload a .txt file.';
+                    fileInfoText.className = 'text-danger';
+                    runFinvizUploadBtn.disabled = true;
+                    uploadedTickers = [];
+                    tickerFileInput.value = ''; // Reset file input
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const content = event.target.result;
+                    // Split by lines, trim whitespace, filter out empty lines
+                    const lines = content.split(/\r?\n/);
+                    uploadedTickers = lines
+                        .map(line => line.trim().toUpperCase()) // Trim and convert to uppercase
+                        .filter(line => line.length > 0 && line.length <= 10); // Filter empty lines and basic length check
+
+                    if (uploadedTickers.length > 0) {
+                        fileInfoText.textContent = `File: ${file.name} (${uploadedTickers.length} tickers found)`;
+                        fileInfoText.className = 'text-success';
+                        runFinvizUploadBtn.disabled = false;
+                        finvizUploadStatus.textContent = ''; // Clear previous status
+                        console.log("Tickers from file:", uploadedTickers);
+                    } else {
+                        fileInfoText.textContent = `File: ${file.name} - No valid tickers found.`;
+                        fileInfoText.className = 'text-warning';
+                        runFinvizUploadBtn.disabled = true;
+                        uploadedTickers = [];
+                    }
+                };
+                reader.onerror = function(event) {
+                    console.error("File reading error:", event);
+                    fileInfoText.textContent = 'Error reading file.';
+                    fileInfoText.className = 'text-danger';
+                    runFinvizUploadBtn.disabled = true;
+                    uploadedTickers = [];
+                };
+                reader.readAsText(file);
+            }
+
+            if (dropZone && tickerFileInput) {
+                // Click drop zone triggers file input
+                dropZone.addEventListener('click', () => tickerFileInput.click());
+
+                // Drag events
+                dropZone.addEventListener('dragover', (event) => {
+                    event.preventDefault(); // Prevent default browser behavior
+                    dropZone.classList.add('dragover');
+                });
+                dropZone.addEventListener('dragleave', (event) => {
+                    dropZone.classList.remove('dragover');
+                });
+                dropZone.addEventListener('drop', (event) => {
+                    event.preventDefault(); // Prevent default browser behavior
+                    dropZone.classList.remove('dragover');
+                    if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+                        const file = event.dataTransfer.files[0];
+                        tickerFileInput.files = event.dataTransfer.files; // Assign files to input for consistency
+                        handleFile(file);
+                        event.dataTransfer.clearData();
+                    }
+                });
+
+                // File input change event
+                tickerFileInput.addEventListener('change', (event) => {
+                    if (event.target.files && event.target.files.length > 0) {
+                        handleFile(event.target.files[0]);
+                    }
+                });
+            }
+
+            // --- Button Listeners (Import Tab) ---
+            // 1. Fetch for Screened Tickers
+            if (finvizButton && finvizStatus) {
+                finvizButton.addEventListener('click', async function() {
+                    finvizButton.disabled = true;
+                    finvizStatus.textContent = 'Starting fetch job...';
+                    finvizStatus.className = 'ms-2 text-info';
+
+                    try {
+                        console.log("Calling /api/analytics/trigger-finviz-fetch endpoint...");
+                        const response = await fetch('/api/analytics/trigger-finviz-fetch', {
+                            method: 'POST',
+                            headers: { 'Accept': 'application/json' }
+                        });
+                        const result = await response.json();
+
+                        if (!response.ok) {
+                            const errorDetail = result.detail || `Fetch trigger failed with status ${response.status} - ${response.statusText}`;
+                            console.error("Error response from trigger-finviz-fetch:", result);
+                            throw new Error(errorDetail);
+                        }
+
+                        console.log("Fetch job triggered successfully:", result);
+                        finvizStatus.textContent = result.message || 'Fetch job triggered successfully.';
+                        finvizStatus.className = 'ms-2 text-success';
+                        // Maybe add polling or SSE later to check job status
+
+                    } catch (error) {
+                        console.error('Error triggering Finviz fetch for screened tickers:', error);
+                        finvizStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
+                        finvizStatus.className = 'ms-2 text-danger';
+                    } finally {
+                        // Re-enable button after a short delay to prevent spamming
+                        setTimeout(() => { finvizButton.disabled = false; }, 2000);
+                    }
+                });
+            }
+
+            // 2. Fetch for Uploaded Tickers
+            if (runFinvizUploadBtn && finvizUploadStatus) {
+                runFinvizUploadBtn.addEventListener('click', async function() {
+                    if (uploadedTickers.length === 0) {
+                        finvizUploadStatus.textContent = 'No tickers loaded from file.';
+                        finvizUploadStatus.className = 'ms-2 text-warning';
+                        return;
+                    }
+
+                    runFinvizUploadBtn.disabled = true;
+                    finvizUploadStatus.textContent = `Starting fetch job for ${uploadedTickers.length} tickers...`;
+                    finvizUploadStatus.className = 'ms-2 text-info';
+
+                    try {
+                        console.log("Calling NEW endpoint /api/analytics/trigger-finviz-fetch-list with tickers:", uploadedTickers);
+
+                        // ************************************************************
+                        // TODO: Implement backend endpoint and actual fetch call here
+                        // ************************************************************
+
+                        // Placeholder for actual API call
+                        await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network delay
+                        const mockResponse = { ok: true }; // Simulate success
+                        const mockResult = { message: `Fetch job for ${uploadedTickers.length} tickers triggered successfully. (Placeholder)` };
+                        // Placeholder end
+
+                        // Replace with actual fetch call:
+                        /*
+                        const response = await fetch('/api/analytics/trigger-finviz-fetch-list', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify({ tickers: uploadedTickers })
+                        });
+                        const result = await response.json();
+
+                        if (!response.ok) {
+                            const errorDetail = result.detail || `Fetch trigger failed with status ${response.status} - ${response.statusText}`;
+                            console.error("Error response from trigger-finviz-fetch-list:", result);
+                            throw new Error(errorDetail);
+                        }
+                        console.log("Fetch job triggered successfully:", result);
+                        finvizUploadStatus.textContent = result.message || 'Fetch job triggered successfully.';
+                        finvizUploadStatus.className = 'ms-2 text-success';
+                        */
+
+                        // Using Mock result for now
+                        if (!mockResponse.ok) {
+                             const errorDetail = mockResult.detail || `Fetch trigger failed (Placeholder)`;
+                             throw new Error(errorDetail);
+                        }
+                        console.log("Fetch job triggered successfully (Placeholder):", mockResult);
+                        finvizUploadStatus.textContent = mockResult.message;
+                        finvizUploadStatus.className = 'ms-2 text-success';
+
+
+                    } catch (error) {
+                        console.error('Error triggering Finviz fetch for uploaded tickers:', error);
+                        finvizUploadStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
+                        finvizUploadStatus.className = 'ms-2 text-danger';
+                    } finally {
+                        // Re-enable button after a short delay
+                        setTimeout(() => { runFinvizUploadBtn.disabled = false; }, 2000);
+                    }
+                });
+            }
+
+            // --- Storage & State Functions (Preparation Tab) ---
             function loadFiltersFromStorage() {
                 console.log("Loading filters from localStorage...");
                 const savedFilters = localStorage.getItem(FILTER_STORAGE_KEY);
@@ -164,15 +450,15 @@
                     } catch (e) {
                         console.error("Error parsing saved filters:", e);
                         loaded = [];
-                        localStorage.removeItem(FILTER_STORAGE_KEY); 
+                        localStorage.removeItem(FILTER_STORAGE_KEY);
                     }
                 } else {
                     console.log("No saved filters found.");
                 }
-                
+
                 // Ensure structure (id, field, operator, value, comment)
                 currentFilters = loaded.map(f => ({
-                    id: f.id || Date.now(),
+                    id: f.id || Date.now() + Math.random(), // Add random for better uniqueness if needed
                     field: f.field || '',
                     operator: f.operator || '=',
                     value: f.value !== undefined ? f.value : '',
@@ -183,7 +469,7 @@
 
                 // Add default blank filter if none loaded
                 if (currentFilters.length === 0) {
-                    currentFilters.push({ id: Date.now(), field: '', operator: '=', value: '', comment: '' }); // Add comment
+                    currentFilters.push({ id: Date.now() + Math.random(), field: '', operator: '=', value: '', comment: '' }); // Add comment
                     console.log("Added default blank filter.");
                 }
             }
@@ -195,7 +481,7 @@
                  }
                 // Save id, field, operator, value, comment
                 const filtersToSave = currentFilters.map(f => ({
-                     id: f.id, 
+                     id: f.id,
                      field: f.field,
                      operator: f.operator,
                      value: f.value,
@@ -224,7 +510,7 @@
                         loaded = {};
                         localStorage.removeItem(WEIGHT_STORAGE_KEY);
                     }
-                } 
+                }
                 // Process loaded weights, ensuring they are numbers 0-100
                 const processedWeights = {};
                 for (const field in loaded) {
@@ -279,7 +565,7 @@
                     console.log("No saved enabled status found.");
                 }
             }
-            
+
             // NEW function for enabled status
             function saveEnabledStatusToStorage() {
                  console.log("Saving enabled status to localStorage:", fieldEnabledStatus);
@@ -290,7 +576,7 @@
                  }
             }
 
-            // --- Helper to update value input based on field metadata ---
+            // --- Helper to update value input based on field metadata (Preparation Tab) ---
             function updateValueInputUI(index, fieldName, inputWrapper, hintSpan) {
                 const metadata = fieldMetadata[fieldName];
                 inputWrapper.innerHTML = ''; // Clear previous input/select
@@ -299,23 +585,25 @@
 
                 // Define a common handler for updating the filter state
                 const updateFilterValue = (newValue) => {
-                    currentFilters[index].value = newValue;
+                    if (currentFilters[index]) { // Ensure filter still exists
+                        currentFilters[index].value = newValue;
+                    }
                 };
 
                 if (metadata && metadata.type === 'text' && metadata.uniqueValues && metadata.uniqueValues.length > 0) {
-                    // --- Create Multi-Select --- 
+                    // --- Create Multi-Select ---
                     hintSpan.textContent = `(${metadata.uniqueValues.length} unique values)`;
                     const select = document.createElement('select');
                     select.multiple = true;
-                    select.className = 'form-select form-select-sm w-100'; 
-                    select.size = Math.min(metadata.uniqueValues.length, 4); 
-                    
+                    select.className = 'form-select form-select-sm w-100';
+                    select.size = Math.min(metadata.uniqueValues.length, 4);
+
                     metadata.uniqueValues.forEach(val => {
                         const option = document.createElement('option');
                         option.value = val;
                         option.textContent = val;
                         // Check if current filter value (which might be an array) includes this option
-                        if (Array.isArray(currentFilters[index].value) && currentFilters[index].value.includes(val)) {
+                        if (currentFilters[index] && Array.isArray(currentFilters[index].value) && currentFilters[index].value.includes(val)) {
                             option.selected = true;
                         }
                         select.appendChild(option);
@@ -325,21 +613,27 @@
                         const selectedValues = Array.from(e.target.selectedOptions).map(opt => opt.value);
                         updateFilterValue(selectedValues); // Update state with array
                     });
-                    
+
                     inputWrapper.appendChild(select);
                     currentInput = select;
 
                 } else {
-                     // --- Create Text/Number Input --- 
+                     // --- Create Text/Number Input ---
                     const input = document.createElement('input');
-                    const datalistId = `datalist-${currentFilters[index].id}`;
+                    // const datalistId = `datalist-${currentFilters[index].id}`; // Datalist currently disabled
                     input.className = 'form-control form-control-sm';
                     input.placeholder = 'Value';
                     // Ensure value is treated as a string for text input
-                    input.value = Array.isArray(currentFilters[index].value) 
-                                    ? '' // Clear if switching from multi-select
-                                    : (currentFilters[index].value !== null && currentFilters[index].value !== undefined ? String(currentFilters[index].value) : '');
-                    
+                    let initialValue = '';
+                    if (currentFilters[index]) {
+                        const filterVal = currentFilters[index].value;
+                        initialValue = Array.isArray(filterVal)
+                                        ? '' // Clear if switching from multi-select
+                                        : (filterVal !== null && filterVal !== undefined ? String(filterVal) : '');
+                    }
+                    input.value = initialValue;
+
+
                     if (metadata && metadata.type === 'numeric') {
                         hintSpan.textContent = `(Range: ${metadata.min} - ${metadata.max})`;
                         input.type = 'number';
@@ -347,17 +641,15 @@
                     } else {
                         input.type = 'text';
                         // Add datalist only if simple text and no unique values provided
-                        // (If uniqueValues existed, we would have created a select)
                         // input.setAttribute('list', datalistId);
                         // const datalist = document.getElementById(datalistId) || document.createElement('datalist');
                         // datalist.id = datalistId;
-                        // // Populate datalist if needed (currently not)
                         // inputWrapper.appendChild(datalist); // Append datalist if using
                     }
                      if (metadata && metadata.type === 'empty') {
                          hintSpan.textContent = '(No values found in data)';
                      }
-                     
+
                     // Use 'input' event for text/number fields
                     input.addEventListener('input', (e) => {
                          updateFilterValue(e.target.value); // Update state with string value
@@ -366,17 +658,21 @@
                     inputWrapper.appendChild(input);
                     currentInput = input;
                 }
-                
+
                 // Hide/Show based on operator (applies to the wrapper now)
-                const operator = currentFilters[index].operator;
-                inputWrapper.style.display = (operator === 'exists' || operator === 'notExists') ? 'none' : '';
-                hintSpan.style.display = (operator === 'exists' || operator === 'notExists') ? 'none' : '';
+                if (currentFilters[index]) {
+                    const operator = currentFilters[index].operator;
+                    inputWrapper.style.display = (operator === 'exists' || operator === 'notExists') ? 'none' : '';
+                    hintSpan.style.display = (operator === 'exists' || operator === 'notExists') ? 'none' : '';
+                }
             }
 
+            // --- Render UI Functions (Preparation Tab) ---
             function renderFilterUI() {
                 console.log("Rendering filter UI. Available fields:", availableFields, "Enabled Status:", fieldEnabledStatus);
+                if (!filterControlsContainer) return; // Check if container exists
                 filterControlsContainer.innerHTML = ''; // Clear existing rows
-                
+
                 // Filter available fields based on enabled status
                 const enabledFields = availableFields.filter(field => fieldEnabledStatus[field] === true);
                 console.log("Rendering filters using enabled fields:", enabledFields);
@@ -387,12 +683,12 @@
                 }
 
                 const operators = [
-                    { value: '=', text: '=' }, 
-                    { value: '>', text: '>' }, 
-                    { value: '<', text: '<' }, 
-                    { value: '>=', text: '>=' }, 
-                    { value: '<=', text: '<=' }, 
-                    { value: '!=', text: '!=' }, 
+                    { value: '=', text: '=' },
+                    { value: '>', text: '>' },
+                    { value: '<', text: '<' },
+                    { value: '>=', text: '>=' },
+                    { value: '<=', text: '<=' },
+                    { value: '!=', text: '!=' },
                     { value: 'contains', text: 'contains' },
                     { value: 'startsWith', text: 'starts with' },
                     { value: 'endsWith', text: 'ends with' },
@@ -412,7 +708,7 @@
 
                     // Field Select (fixed width)
                     const fieldSelect = document.createElement('select');
-                    fieldSelect.className = 'form-select form-select-sm me-2 w-auto'; 
+                    fieldSelect.className = 'form-select form-select-sm me-2 w-auto';
                     fieldSelect.title = 'Select Field';
                     fieldSelect.innerHTML = '<option value="">-- Field --</option>';
                     // Use ONLY enabled fields for the dropdown
@@ -429,7 +725,6 @@
                          filter.field = '';
                          filter.value = ''; // Reset value too
                          // Might need to save here? Or wait for Apply
-                         // saveFiltersToStorage(); // Let's wait for Apply/Remove
                     }
                     filterRowDiv.appendChild(fieldSelect);
 
@@ -449,17 +744,17 @@
                     // Value Input Wrapper
                     const valueWrapper = document.createElement('div');
                     // Limit growth and set max-width
-                    valueWrapper.className = 'value-input-wrapper me-2'; 
+                    valueWrapper.className = 'value-input-wrapper me-2';
                     valueWrapper.style.flexGrow = '0'; // Don't allow growth
                     valueWrapper.style.flexShrink = '0'; // Don't allow shrinking either?
                     valueWrapper.style.maxWidth = '250px'; // Set max width to 250px
                     valueWrapper.style.width = '250px'; // Also set width for consistency?
                     filterRowDiv.appendChild(valueWrapper);
 
-                    // Comment Input 
+                    // Comment Input
                     const commentInput = document.createElement('input');
                     // Allow comment to grow now
-                    commentInput.className = 'form-control form-control-sm ms-2 me-2 flex-grow-1'; 
+                    commentInput.className = 'form-control form-control-sm ms-2 me-2 flex-grow-1';
                     commentInput.style.flexGrow = '1'; // Allow comment to take remaining space
                     commentInput.style.flexShrink = '1'; // Allow shrinking
                     commentInput.style.maxWidth = ''; // Remove previous max width
@@ -468,15 +763,15 @@
                     commentInput.title = 'Filter Comment';
                     filterRowDiv.appendChild(commentInput);
 
-                    // Hint Span 
+                    // Hint Span
                     const hintSpan = document.createElement('span');
-                    hintSpan.className = 'value-hint small text-muted d-block ms-1'; 
+                    hintSpan.className = 'value-hint small text-muted d-block ms-1';
 
                     // Remove Button
                     const removeBtn = document.createElement('button');
                     removeBtn.textContent = '×';
                     // Keep ms-auto to push it right
-                    removeBtn.className = 'btn btn-sm btn-outline-danger ms-auto'; 
+                    removeBtn.className = 'btn btn-sm btn-outline-danger ms-auto';
                     removeBtn.title = 'Remove this filter';
                     removeBtn.style.flexGrow = '0'; // Don't allow button to grow
                     removeBtn.style.flexShrink = '0'; // Don't allow button to shrink
@@ -484,45 +779,57 @@
                          const indexToRemove = currentFilters.findIndex(f => f.id === filterId);
                          if (indexToRemove > -1) {
                              currentFilters.splice(indexToRemove, 1);
-                             saveFiltersToStorage(); 
-                             renderFilterUI(); 
+                             saveFiltersToStorage();
+                             renderFilterUI();
                          }
                      });
                     filterRowDiv.appendChild(removeBtn);
 
-                    // --- Event Listeners --- 
+                    // --- Event Listeners ---
                     fieldSelect.addEventListener('change', (e) => {
-                        currentFilters[index].field = e.target.value;
-                        // Pass index, field name, wrapper div, hint span
-                        updateValueInputUI(index, e.target.value, valueWrapper, hintSpan); 
+                        const indexToUpdate = currentFilters.findIndex(f => f.id === filterId);
+                        if (indexToUpdate > -1) {
+                            currentFilters[indexToUpdate].field = e.target.value;
+                            updateValueInputUI(indexToUpdate, e.target.value, valueWrapper, hintSpan);
+                        }
                     });
                      operatorSelect.addEventListener('change', (e) => {
-                         currentFilters[index].operator = e.target.value;
-                         // Update visibility of the wrapper and hint
-                         const op = e.target.value;
-                         valueWrapper.style.display = (op === 'exists' || op === 'notExists') ? 'none' : '';
-                         hintSpan.style.display = (op === 'exists' || op === 'notExists') ? 'none' : '';
+                         const indexToUpdate = currentFilters.findIndex(f => f.id === filterId);
+                         if (indexToUpdate > -1) {
+                             currentFilters[indexToUpdate].operator = e.target.value;
+                             // Update visibility of the wrapper and hint
+                             const op = e.target.value;
+                             valueWrapper.style.display = (op === 'exists' || op === 'notExists') ? 'none' : '';
+                             hintSpan.style.display = (op === 'exists' || op === 'notExists') ? 'none' : '';
+                         }
                     });
                      // Note: valueInput listener is now added *inside* updateValueInputUI
                      commentInput.addEventListener('input', (e) => {
-                        currentFilters[index].comment = e.target.value;
+                         const indexToUpdate = currentFilters.findIndex(f => f.id === filterId);
+                         if (indexToUpdate > -1) {
+                             currentFilters[indexToUpdate].comment = e.target.value;
+                         }
                     });
-                    
+
                     // Initial UI update for value input based on loaded field
-                    updateValueInputUI(index, filter.field, valueWrapper, hintSpan);
+                    // Use findIndex again to ensure we use the correct index after potential resets
+                    const currentIndex = currentFilters.findIndex(f => f.id === filterId);
+                    if (currentIndex > -1) {
+                        updateValueInputUI(currentIndex, filter.field, valueWrapper, hintSpan);
+                    }
 
                     // Append main row and hint to the container
                     row.appendChild(filterRowDiv);
-                    row.appendChild(hintSpan); 
+                    row.appendChild(hintSpan);
                     filterControlsContainer.appendChild(row);
                 });
             }
-            
+
             // Rename renderWeightUI placeholder and implement
             function renderFieldConfigUI() {
                 console.log("Rendering Field Config UI (Weights & Toggles)");
                 if (!fieldConfigContainer) return;
-                
+
                 fieldConfigContainer.innerHTML = ''; // Clear previous content
 
                 if (!availableFields || availableFields.length === 0) {
@@ -531,7 +838,8 @@
                 }
 
                 availableFields.forEach(field => {
-                    const isEnabled = fieldEnabledStatus[field] === true; // Default to true if undefined? No, handled by init.
+                    // Make sure fieldEnabledStatus has an entry; default to true if it doesn't (should have been set in processLoadedData)
+                    const isEnabled = fieldEnabledStatus.hasOwnProperty(field) ? fieldEnabledStatus[field] : true;
                     const currentWeight = fieldWeights[field] !== undefined ? fieldWeights[field] : 100; // Default 100
 
                     const row = document.createElement('div');
@@ -561,9 +869,14 @@
                         fieldEnabledStatus[field] = newStatus;
                         saveEnabledStatusToStorage();
                         // Dim/undim row immediately
-                        row.style.opacity = newStatus ? '1' : '0.6'; 
+                        row.style.opacity = newStatus ? '1' : '0.6';
+                        // Update weight input disabled state
+                        const weightInput = row.querySelector('input[type="number"]');
+                        if (weightInput) weightInput.disabled = !newStatus;
                         // Re-render filters as available fields changed
-                        renderFilterUI(); 
+                        renderFilterUI();
+                        // Re-apply filters immediately to reflect enabled/disabled fields in output
+                        applyFilters();
                     });
                     enabledWrapper.appendChild(enabledCheckbox);
                     const enabledLabel = document.createElement('label'); // Optional label for switch
@@ -613,12 +926,15 @@
                     fieldConfigContainer.appendChild(row);
                 });
             }
-            
-            // --- ADD BACK applyFilters function definition ---
+
+            // --- Apply Filters Function (Preparation Tab) ---
             function applyFilters() {
-                console.log("Applying filters:", currentFilters);
-                console.log("Data to filter:", fullProcessedData);
-                
+                console.log("Applying filters:", JSON.parse(JSON.stringify(currentFilters)));
+                console.log("Data to filter:", fullProcessedData.length);
+                console.log("Enabled status:", fieldEnabledStatus);
+
+                if (!outputArea || !filterResultsCount) return; // Check if elements exist
+
                 if (!fullProcessedData || fullProcessedData.length === 0) {
                     outputArea.textContent = 'No data loaded to filter.';
                     filterResultsCount.textContent = '(0 records)';
@@ -627,114 +943,139 @@
 
                 const activeFilters = currentFilters.filter(f => f.field && f.field !== '' && f.operator); // Also ensure operator exists
 
-                if (activeFilters.length === 0) {
-                    outputArea.textContent = JSON.stringify(fullProcessedData, null, 2);
-                    filterResultsCount.textContent = `Showing all ${fullProcessedData.length} records.`;
-                    return;
-                }
+                let filteredData = fullProcessedData;
 
-                 const filteredData = fullProcessedData.filter(item => {
-                     if (!item || !item.processed_data) return false;
+                if (activeFilters.length > 0) {
+                     filteredData = fullProcessedData.filter(item => {
+                         if (!item || !item.processed_data) return false;
 
-                     for (const filter of activeFilters) {
-                         const itemValue = item.processed_data[filter.field];
-                         const filterValue = filter.value; 
-                         const operator = filter.operator;
+                         for (const filter of activeFilters) {
+                             const itemValue = item.processed_data[filter.field];
+                             const filterValue = filter.value;
+                             const operator = filter.operator;
 
-                         if (Array.isArray(filterValue)) {
-                            const itemValueStr = String(itemValue);
-                            if (operator === '=') {
-                                if (!filterValue.includes(itemValueStr)) return false;
-                            } else if (operator === '!=') {
-                                if (filterValue.includes(itemValueStr)) return false;
-                            } else {
-                                console.warn(`Operator '${operator}' not supported for multi-select field '${filter.field}'. Filter skipped.`);
-                                return false;
-                            }
-                            continue; 
-                         } 
+                             // --- Multi-Select Handling ---
+                             if (Array.isArray(filterValue)) {
+                                const itemValueStr = String(itemValue);
+                                // Treat multi-select as 'equals any of' or 'not equals any of'
+                                if (operator === '=') {
+                                    // Item's value must be present in the selected array
+                                    if (!filterValue.includes(itemValueStr)) return false;
+                                } else if (operator === '!=') {
+                                    // Item's value must NOT be present in the selected array
+                                    if (filterValue.includes(itemValueStr)) return false;
+                                } else {
+                                    // Unsupported operator for multi-select
+                                    console.warn(`Operator '${operator}' not directly supported for multi-select field '${filter.field}'. Filter skipped or potentially incorrect.`);
+                                    // For now, let's treat unsupported as "fail the filter" to be safe
+                                    return false;
+                                }
+                                continue; // Move to next filter if this one passed
+                             }
 
-                         const filterValueStr = String(filterValue || ''); 
-                         const valueExists = !(itemValue === null || itemValue === undefined || String(itemValue).trim() === '' || String(itemValue).trim() === '-');
-                         
-                         if (operator === 'exists') {
-                             if (!valueExists) return false;
-                             continue; 
-                         }
-                         if (operator === 'notExists') {
-                             if (valueExists) return false;
-                             continue; 
-                         }
-                         
-                         if (!valueExists) {
-                            if ((operator === '=' || operator === '!=') && (filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined')) {
-                                const isItemEmpty = !valueExists;
-                                const isFilterEmpty = filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined';
-                                if (operator === '=' && isItemEmpty !== isFilterEmpty) return false; 
-                                if (operator === '!=' && isItemEmpty === isFilterEmpty) return false;
-                                continue;
-                            } else {
-                                 return false; 
-                            }
-                         }
+                             // --- Single Value Handling ---
+                             const filterValueStr = String(filterValue || ''); // Ensure it's a string
+                             // Check if the item value exists and is not null/undefined/empty string/placeholder '-'
+                             const valueExists = !(itemValue === null || itemValue === undefined || String(itemValue).trim() === '' || String(itemValue).trim() === '-');
 
-                         const itemValueStr = String(itemValue).toLowerCase(); 
-                         const filterValueLower = filterValueStr.toLowerCase();
-                         const itemNum = parseFloat(itemValue);
-                         const filterNum = parseFloat(filterValueStr);
-                         let numericComparisonDone = false;
+                             // Handle 'exists' / 'notExists' first
+                             if (operator === 'exists') {
+                                 if (!valueExists) return false; // Fail if value doesn't exist
+                                 continue; // Pass if value exists
+                             }
+                             if (operator === 'notExists') {
+                                 if (valueExists) return false; // Fail if value exists
+                                 continue; // Pass if value doesn't exist
+                             }
 
-                         if (!isNaN(itemNum) && !isNaN(filterNum)) {
-                            numericComparisonDone = true;
-                            switch (operator) {
-                                case '=': if (!(itemNum === filterNum)) return false; break;
-                                case '>': if (!(itemNum > filterNum)) return false; break;
-                                case '<': if (!(itemNum < filterNum)) return false; break;
-                                case '>=': if (!(itemNum >= filterNum)) return false; break;
-                                case '<=': if (!(itemNum <= filterNum)) return false; break;
-                                case '!=': if (!(itemNum !== filterNum)) return false; break;
-                                default: numericComparisonDone = false; 
-                            }
-                         } else if (operator === '=' || operator === '!=') { 
-                             numericComparisonDone = false; 
-                         } else {
-                             if (['>', '<', '>=', '<='].includes(operator)) {
-                                 console.warn(`Cannot perform numeric comparison for operator '${operator}' on non-numeric values: Field='${filter.field}', Item='${itemValue}', Filter='${filterValueStr}'`);
-                                 return false; 
+                             // If operator requires a value, but item doesn't have one, it fails (unless comparing empty strings)
+                             if (!valueExists) {
+                                // Special case: Check if comparing empty/null strings
+                                if ((operator === '=' || operator === '!=') && (filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined')) {
+                                    const isItemEmpty = !valueExists;
+                                    const isFilterConsideredEmpty = (filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined');
+                                    if (operator === '=' && isItemEmpty !== isFilterConsideredEmpty) return false;
+                                    if (operator === '!=' && isItemEmpty === isFilterConsideredEmpty) return false;
+                                    continue; // Passed empty comparison
+                                } else {
+                                     // Item has no value, but filter requires one and isn't comparing empties
+                                     return false;
+                                }
+                             }
+
+                             // --- Comparisons when item value exists ---
+                             const itemValueStr = String(itemValue).toLowerCase();
+                             const filterValueLower = filterValueStr.toLowerCase();
+                             const itemNum = parseFloat(itemValue); // Try converting item value to number
+                             const filterNum = parseFloat(filterValueStr); // Try converting filter value to number
+                             let numericComparisonDone = false;
+
+                             // Attempt Numeric Comparison first if both seem numeric
+                             if (!isNaN(itemNum) && !isNaN(filterNum)) {
+                                numericComparisonDone = true;
+                                switch (operator) {
+                                    case '=': if (!(itemNum === filterNum)) return false; break;
+                                    case '>': if (!(itemNum > filterNum)) return false; break;
+                                    case '<': if (!(itemNum < filterNum)) return false; break;
+                                    case '>=': if (!(itemNum >= filterNum)) return false; break;
+                                    case '<=': if (!(itemNum <= filterNum)) return false; break;
+                                    case '!=': if (!(itemNum !== filterNum)) return false; break;
+                                    default: numericComparisonDone = false; // Operator not numeric
+                                }
+                             } else {
+                                 // If we intended a numeric comparison but failed, should we fail the filter?
+                                 // E.g., user enters '>' but value is 'N/A'
+                                 if (['>', '<', '>=', '<='].includes(operator)) {
+                                     console.warn(`Numeric comparison operator '${operator}' used, but values are not both numeric: Field='${filter.field}', Item='${itemValue}', Filter='${filterValueStr}'. Filter fails.`);
+                                     return false; // Fail if numeric comparison intended but not possible
+                                 }
+                                 // Otherwise, allow string comparison for '=', '!=', 'contains', etc.
+                                 numericComparisonDone = false;
+                             }
+
+                             // --- String Comparison (if numeric didn't happen or wasn't applicable) ---
+                             if (!numericComparisonDone) {
+                                switch(operator) {
+                                    case '=': if (!(itemValueStr === filterValueLower)) return false; break;
+                                    case '!=': if (!(itemValueStr !== filterValueLower)) return false; break;
+                                    case 'contains': if (!itemValueStr.includes(filterValueLower)) return false; break;
+                                    case 'startsWith': if (!itemValueStr.startsWith(filterValueLower)) return false; break;
+                                    case 'endsWith': if (!itemValueStr.endsWith(filterValueLower)) return false; break;
+                                    // Numeric operators already handled or failed above
+                                }
                              }
                          }
+                         // If we got through all filters for this item
+                         return true;
+                     });
+                }
 
-                         if (!numericComparisonDone) {
-                            switch(operator) {
-                                case '=': if (!(itemValueStr === filterValueLower)) return false; break;
-                                case '!=': if (!(itemValueStr !== filterValueLower)) return false; break;
-                                case 'contains': if (!itemValueStr.includes(filterValueLower)) return false; break;
-                                case 'startsWith': if (!itemValueStr.startsWith(filterValueLower)) return false; break;
-                                case 'endsWith': if (!itemValueStr.endsWith(filterValueLower)) return false; break;
-                            }
-                         }
-                     }
-                     return true; 
-                 });
-
-                 // --- Transform data for display (remove disabled fields) --- 
+                 // --- Transform data for display (remove disabled fields) ---
                  const dataForDisplay = filteredData.map(item => {
                      const displayItem = {
                          ticker: item.ticker,
-                         processed_data: {},
-                         error: item.error
+                         processed_data: {
+                             // Optionally include specific default fields even if disabled?
+                         },
+                         // Don't include error field by default unless needed
+                         // error: item.error
                      };
                      if (item.processed_data) {
                          for (const field in item.processed_data) {
                              // Only include the field if it exists and is explicitly enabled
+                             // Check hasOwnProperty for safety, and check the enabled status map
                              if (item.processed_data.hasOwnProperty(field) && fieldEnabledStatus[field] === true) {
                                  displayItem.processed_data[field] = item.processed_data[field];
                              }
                          }
                      }
+                     // Add error back if it exists
+                     if (item.error) {
+                         displayItem.error = item.error;
+                     }
                      return displayItem;
                  });
-                 // --- End Transformation --- 
+                 // --- End Transformation ---
 
                  // Display results using the transformed data
                  outputArea.textContent = JSON.stringify(dataForDisplay, null, 2);
@@ -742,20 +1083,24 @@
             }
             // --- END applyFilters definition ---
 
-            // Update processLoadedDataAndUpdateState to call the renamed renderer
+            // --- Data Loading & State Update (Preparation Tab) ---
              function processLoadedDataAndUpdateState() {
                  if (!fullProcessedData || fullProcessedData.length === 0) {
                      availableFields = [];
                      fieldMetadata = {}; // Clear metadata if no data
-                     fieldWeights = {}; // Also clear weights? Keep loaded ones for now.
-                     fieldEnabledStatus = {}; // Also clear enabled status
+                     // Keep loaded weights/enabled status? Or clear them?
+                     // Let's keep them for now, in case user reloads data.
+                     // fieldWeights = {};
+                     // fieldEnabledStatus = {};
+                     console.log("No processed data loaded or data is empty.");
                      // Re-render empty UIs
                      renderFieldConfigUI();
                      renderFilterUI();
+                     applyFilters(); // Clear output area if needed
                      return;
                  }
-                 
-                 // --- Discover Fields --- 
+
+                 // --- Discover Fields ---
                  const discoveredFields = new Set();
                  fullProcessedData.forEach(item => {
                      if (item && item.processed_data) {
@@ -765,7 +1110,7 @@
                  availableFields = [...discoveredFields].sort();
                  console.log("Discovered fields:", availableFields);
 
-                 // --- Calculate Metadata --- 
+                 // --- Calculate Metadata ---
                  const newFieldMetadata = {};
                  const MAX_UNIQUE_TEXT_VALUES = 100; // Limit for text dropdowns
                  availableFields.forEach(field => {
@@ -779,7 +1124,7 @@
                     fullProcessedData.forEach(item => {
                         if (item && item.processed_data && item.processed_data.hasOwnProperty(field)) {
                              const value = item.processed_data[field];
-                             // Consider value valid if not null, undefined, or placeholder '-' 
+                             // Consider value valid if not null, undefined, or placeholder '-' or empty string
                              if (value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-') {
                                  values.push(value);
                                  nonNullCount++;
@@ -801,21 +1146,25 @@
                     if (nonNullCount === 0) {
                         newFieldMetadata[field] = { type: 'empty' }; // Field exists but no valid values
                     } else if (numericCount / nonNullCount >= 0.8) { // Heuristic: >= 80% numeric?
-                        newFieldMetadata[field] = { type: 'numeric', min: min, max: max };
+                        newFieldMetadata[field] = { type: 'numeric', min: min === Infinity ? 'N/A' : min, max: max === -Infinity ? 'N/A' : max };
                     } else {
-                        newFieldMetadata[field] = { type: 'text', uniqueValues: [...uniqueTextValues].sort() };
+                        // Only provide uniqueValues if the count is manageable and > 0
+                        const uniqueValuesArray = uniqueTextValues.size > 0 && uniqueTextValues.size <= MAX_UNIQUE_TEXT_VALUES
+                                                  ? [...uniqueTextValues].sort()
+                                                  : [];
+                        newFieldMetadata[field] = { type: 'text', uniqueValues: uniqueValuesArray };
                     }
                  });
                  fieldMetadata = newFieldMetadata; // Update global metadata
                  console.log("Calculated field metadata:", fieldMetadata);
 
-                 // --- Initialize Weights & Enabled Status for New Fields --- 
+                 // --- Initialize Weights & Enabled Status for New Fields ---
                  let weightsChanged = false;
                  let statusChanged = false;
                  availableFields.forEach(field => {
                      // Default weight 100 if not present
                      if (!(field in fieldWeights)) {
-                         fieldWeights[field] = 100; 
+                         fieldWeights[field] = 100;
                          weightsChanged = true;
                          console.log(`Initialized weight for new field '${field}' to 100.`);
                      }
@@ -826,74 +1175,82 @@
                          console.log(`Initialized enabled status for new field '${field}' to true.`);
                      }
                  });
-                 
-                 // Clean up: Remove weights/status for fields no longer available (optional)
-                 // Could also keep them in case they reappear later
+
+                 // Optional: Clean up weights/status for fields no longer present in the data
+                 // This prevents the config UI showing fields that don't exist in the current dataset
+                 const currentAvailableSet = new Set(availableFields);
                  Object.keys(fieldWeights).forEach(field => {
-                    if (!availableFields.includes(field)) {
-                        // delete fieldWeights[field]; weightsChanged = true;
+                    if (!currentAvailableSet.has(field)) {
+                        console.log(`Removing stale weight config for field '${field}'.`);
+                        delete fieldWeights[field];
+                        weightsChanged = true;
                     }
                  });
                  Object.keys(fieldEnabledStatus).forEach(field => {
-                     if (!availableFields.includes(field)) {
-                         // delete fieldEnabledStatus[field]; statusChanged = true;
+                     if (!currentAvailableSet.has(field)) {
+                         console.log(`Removing stale enabled status for field '${field}'.`);
+                         delete fieldEnabledStatus[field];
+                         statusChanged = true;
                      }
                  });
-                 
-                 // Save if defaults were added
+
+                 // Save if defaults were added or stale entries removed
                  if (weightsChanged) saveWeightsToStorage();
                  if (statusChanged) saveEnabledStatusToStorage();
-                 
-                 // --- Re-render UIs --- 
-                 renderFieldConfigUI(); // Use the implemented function name
-                 renderFilterUI();
+
+                 // --- Re-render UIs ---
+                 renderFieldConfigUI(); // Render config first (populates fieldEnabledStatus)
+                 renderFilterUI(); // Then render filters (uses fieldEnabledStatus)
              }
 
-            // Add Filter Button Listener (Updated)
+            // --- Button Listeners (Preparation Tab) ---
+            // Add Filter Button
              if (addFilterBtn) {
                  addFilterBtn.addEventListener('click', () => {
                      console.log("Add Filter clicked");
                      // Add a new blank filter object including comment
-                     currentFilters.push({ id: Date.now(), field: '', operator: '=', value: '', comment: '' }); 
-                     saveFiltersToStorage();
+                     currentFilters.push({ id: Date.now() + Math.random(), field: '', operator: '=', value: '', comment: '' });
+                     // Don't save here, let Apply Filters or Remove handle saving
                      renderFilterUI();
                  });
              }
 
-            // Apply Filters Button Listener (Updated)
+            // Apply Filters Button
             if (applyFiltersBtn) {
                 applyFiltersBtn.addEventListener('click', () => {
                     console.log("Apply Filters clicked - Current Filter State:", JSON.parse(JSON.stringify(currentFilters)));
-                    // NOTE: The `currentFilters` array should already be up-to-date 
+                    // NOTE: The `currentFilters` array should already be up-to-date
                     // due to the 'change'/'input' listeners on the select/input fields.
                     // We just need to save this state before applying.
-                    saveFiltersToStorage(); 
+                    saveFiltersToStorage();
                     applyFilters(); // Apply the filters using the current state
                 });
             }
 
-            // Reset Filters Button Listener (Updated)
+            // Reset Filters Button
             if (resetFiltersBtn) {
                 resetFiltersBtn.addEventListener('click', () => {
                      console.log("Reset Filters clicked");
                      // Reset filters to a single blank one including comment
-                     currentFilters = [{ id: Date.now(), field: '', operator: '=', value: '', comment: '' }]; 
-                     saveFiltersToStorage(); 
-                     renderFilterUI(); 
-                     applyFilters(); 
+                     currentFilters = [{ id: Date.now() + Math.random(), field: '', operator: '=', value: '', comment: '' }];
+                     saveFiltersToStorage(); // Save the reset state
+                     renderFilterUI();
+                     applyFilters(); // Re-apply filters (which should now show all data)
                 });
             }
 
-            // Processing Button Listener (Updated)
+            // Process Data Button (Load from DB)
             if (processButton && processStatus && outputArea) {
                 processButton.addEventListener('click', async function() {
                     processButton.disabled = true;
                     processStatus.textContent = 'Processing data...';
                     processStatus.className = 'ms-2 text-info';
                     outputArea.textContent = ''; // Clear previous output
+                    if(filterResultsCount) filterResultsCount.textContent = ''; // Clear count
 
                     try {
-                        // Step 1: Call the endpoint to process and store data
+                        // Step 1: Call the endpoint to process and store data (using the backend python function)
+                        console.log("Calling /api/analytics/process-finviz endpoint...");
                         const processResponse = await fetch('/api/analytics/process-finviz', {
                             method: 'POST',
                             headers: { 'Accept': 'application/json' }
@@ -903,51 +1260,65 @@
 
                         if (!processResponse.ok) {
                             const errorDetail = processResult.detail || `Processing failed with status ${processResponse.status} - ${processResponse.statusText}`;
+                            console.error("Error response from process-finviz:", processResult);
                             throw new Error(errorDetail);
                         }
-                        
+
+                        console.log("Process request successful:", processResult);
                         processStatus.textContent = processResult.message || 'Processing request successful.';
                         processStatus.className = 'ms-2 text-success';
 
                         // Step 2: Call the endpoint to get the processed data
+                        console.log("Calling /api/analytics/get-processed-finviz endpoint...");
                         const getResponse = await fetch('/api/analytics/get-processed-finviz', {
                             method: 'GET',
                             headers: { 'Accept': 'application/json' }
                         });
-                        
+
                         if (!getResponse.ok) {
-                             // ... (existing error handling for getResponse) ...
+                             const getErrorResult = await getResponse.json();
+                             const getErrorDetail = getErrorResult.detail || `Failed to get processed data with status ${getResponse.status} - ${getResponse.statusText}`;
+                             console.error("Error response from get-processed-finviz:", getErrorResult);
+                             throw new Error(getErrorDetail);
                         }
 
                         const processedData = await getResponse.json();
-                        fullProcessedData = processedData; 
-                        
-                        // Step 3: Process loaded data (extract fields, init weights)
+                        console.log(`Successfully fetched ${processedData.length} processed records.`);
+                        fullProcessedData = processedData;
+
+                        // Step 3: Process loaded data (extract fields, init weights/status)
+                        console.log("Processing loaded data and updating state...");
                         processLoadedDataAndUpdateState();
-                        
+
                         // Step 4: Display initial unfiltered data (or apply loaded filters)
-                        applyFilters(); 
-                        
+                        console.log("Applying initial filters...");
+                        applyFilters();
+
                     } catch (error) {
                         console.error('Error during Finviz data processing/fetching:', error);
                         outputArea.textContent = `An error occurred. Check console for details. \nError: ${error.message}`;
                         processStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
                         processStatus.className = 'ms-2 text-danger';
-                        fullProcessedData = [];
-                        availableFields = []; 
+                        fullProcessedData = []; // Clear data on error
+                        processLoadedDataAndUpdateState(); // Re-render UIs (will show empty state)
                     } finally {
-                         processButton.disabled = false; 
+                         processButton.disabled = false;
+                         console.log("Processing/fetching finished.");
                     }
                 });
             }
-            
-            // Update Initial Load section to call renamed renderer
-            // --- Initial Load --- 
+
+            // --- Initial Page Load Logic ---
+            console.log("Initial page load: Loading state from localStorage...");
             loadFiltersFromStorage();
-            loadWeightsFromStorage(); 
+            loadWeightsFromStorage();
             loadEnabledStatusFromStorage();
-            renderFilterUI(); 
-            renderFieldConfigUI(); // Use the implemented function name
+            // Initial render based on loaded state (data is empty initially)
+            renderFilterUI(); // Render Prep tab UI elements
+            renderFieldConfigUI();
+            // Optionally trigger the "Load Data from DB" automatically on page load?
+            // processButton.click(); // Uncomment to auto-load data
+            console.log("Initial page load complete.");
 
         });
     </script>
