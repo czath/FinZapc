@@ -4,6 +4,9 @@
 
 {% block head_extra %}
     {# Add any page-specific CSS or meta tags here if needed later #}
+    {# --- Add Chart.js CDN --- #}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    {# --- End Chart.js CDN --- #}
     <style>
         /* Style for filter rows */
         .filter-row {
@@ -19,7 +22,7 @@
             margin-right: 0.5rem;
         }
         /* Style for output area */
-        #processed-finviz-output {
+        #processed-analytics-output {
             background-color: var(--bs-body-bg); /* Use CSS var for theme adapt */
             border: 1px solid var(--bs-border-color); /* Use CSS var for theme adapt */
             color: var(--bs-body-color); /* Ensure text color matches theme */
@@ -48,7 +51,7 @@
         }
         #drop-zone p {
             margin-bottom: 0;
-            color: var(--bs-secondary-color);
+            color: var(--bs-body-color); /* Use main body color for better contrast */
         }
     </style>
 {% endblock %}
@@ -78,41 +81,61 @@
         {# --- Data Import Tab Pane --- #}
         <div class="tab-pane fade show active" id="data-import-tab-pane" role="tabpanel" aria-labelledby="data-import-tab" tabindex="0">
             <h5>Data Import Sources</h5>
-            <p>Import raw data from external sources like Finviz.</p>
+            <p>Import raw data from external sources.</p>
 
-            {# --- 1. Finviz Fetch for Screened Tickers --- #}
+            {# --- Finviz Import Card --- #}
             <div class="my-3 p-3 border rounded bg-body-tertiary">
-                <h6>Option 1: Finviz Fetch for Screened Tickers</h6>
-                <p class="small text-muted">Trigger a background task to fetch the latest raw data from Finviz for tickers currently in the <strong>screener database table</strong>.</p>
-                <button id="run-finviz-btn" class="btn btn-primary me-2">Finviz fetch for Screened Tickers</button>
-                <span id="finviz-status" class="ms-2"></span> {# Area to show status messages for the fetch job #}
-            </div>
-            {# --- End Finviz Fetch for Screened Tickers --- #}
+                <h5 class="mb-3">Import from Finviz</h5>
+                <div class="row gy-3"> {# Use row with gutter spacing #}
+                    
+                    {# --- Column 1: Screened Tickers --- #}
+                    <div class="col-md-6">
+                        <h6>All Tracked Tickers</h6>
+                        <p class="small text-muted mb-2">Fetch data for tickers currently in the <strong>tracker list</strong>.</p>
+                        <button id="run-finviz-btn" class="btn btn-primary" style="max-width: 200px;">
+                            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span> <!-- Spinner -->
+                            <span class="button-text">Fetch Tracked</span> <!-- Text -->
+                        </button>
+                         <span id="finviz-status" class="ms-1 mt-1 d-block small"></span> {# Moved status below button #}
+                    </div>
+                    {# --- End Column 1 --- #}
 
-            {# --- 2. Finviz Fetch from Uploaded Ticker List --- #}
+                    {# --- Column 2: Custom List --- #}
+                    <div class="col-md-6">
+                        <h6>Custom List</h6>
+                        <p class="small text-muted mb-2">Upload a .txt file (one ticker per line).</p>
+                        
+                        {# Button First #}
+                        <button id="run-finviz-upload-btn" class="btn btn-primary mb-2" disabled style="max-width: 200px;">
+                            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span> <!-- Spinner -->
+                            <span class="button-text">Fetch Uploaded</span> <!-- Text -->
+                        </button>
+                        <span id="finviz-upload-status" class="ms-1 mt-1 d-block small mb-2"></span> {# Status below button #}
+
+                        {# Hidden File Input #}
+                        <input type="file" id="ticker-file-input" accept=".txt" style="display: none;">
+
+                        {# Drag and Drop Zone Below Button #}
+                        <div id="drop-zone" class="mb-2" style="max-width: 200px;"> {# Apply max-width #}
+                            <p>
+                                <span class="status-icon bi bi-cloud-arrow-up me-2 align-middle"></span> {# Icon holder #}
+                                <span class="status-text">Drag & drop .txt file or click</span> {# Text holder #}
+                            </p>
+                        </div>
+                        
+                    </div>
+                    {# --- End Column 2 --- #}
+                </div>
+            </div>
+            {# --- End Finviz Import Card --- #}
+
+            {# --- Placeholder for Future Import Sources --- #}
+            <!-- 
             <div class="my-3 p-3 border rounded bg-body-tertiary">
-                <h6>Option 2: Finviz Fetch from Uploaded Ticker List</h6>
-                <p class="small text-muted">Upload a text file (.txt) containing a list of tickers (one per line) to fetch data for.</p>
-
-                {# Hidden File Input #}
-                <input type="file" id="ticker-file-input" accept=".txt" style="display: none;">
-
-                {# Drag and Drop Zone #}
-                <div id="drop-zone" class="mb-3">
-                    <p>Drag & drop ticker file here (.txt only), or click to select</p>
+                <h5 class="mb-3">Import from [Other Source]</h5>
                 </div>
-
-                {# File Info & Action Area #}
-                <div id="file-info-area" class="mb-2 small">
-                    <!-- Info about the uploaded file will appear here -->
-                    <span id="file-info-text" class="text-muted">No file selected.</span>
-                </div>
-                <button id="run-finviz-upload-btn" class="btn btn-primary me-2" disabled>Fetch Finviz Data for Uploaded Tickers</button>
-                <span id="finviz-upload-status" class="ms-2"></span> {# Status for the upload fetch job #}
-            </div>
-            {# --- End Finviz Fetch from Uploaded Ticker List --- #}
-
-            {# Add other import steps here later #}
+            -->
+            {# --- End Placeholder --- #}
 
         </div>
         {# --- End Data Import Tab Pane --- #}
@@ -122,15 +145,15 @@
             <h5>Data Preparation Steps</h5>
             <p>Process, clean, filter, and configure the imported data.</p>
 
-            {# --- Finviz Data Processing, Filtering & Configuration --- #}
+            {# --- Raw Analytics Data Processing, Filtering & Configuration --- #}
             <div class="my-3 p-3 border rounded bg-body-tertiary">
-                <h6>Process, Filter & Configure Finviz Data</h6>
+                <h6>Process, Filter & Configure Raw Analytics Data</h6>
 
                 {# Processing Button (outside sub-tabs) #}
                 <div class="mb-3 pb-3 border-bottom">
-                    <p class="small text-muted">Load and process the raw Finviz data currently stored in the database.</p>
-                    <button id="process-finviz-data-btn" class="btn btn-secondary me-2">Load Data from DB</button>
-                    <span id="process-finviz-status" class="ms-2"></span> {# Status for the processing action #}
+                    <p class="small text-muted">Load and process all raw analytics data currently stored in the database.</p>
+                    <button id="process-analytics-data-btn" class="btn btn-secondary me-2">Load Data from DB</button>
+                    <span id="process-analytics-status" class="ms-2"></span> {# Status for the processing action #}
                 </div>
 
                 {# --- Sub-Tab Navigation for Prep Steps --- #}
@@ -162,9 +185,9 @@
                         </div>
 
                         {# Display area for processed output #}
-                        <div id="processed-finviz-output-container" class="mt-3">
+                        <div id="processed-analytics-output-container" class="mt-3">
                             <h6>Filtered Output:</h6> <span id="filter-results-count" class="ms-2 small text-muted"></span>
-                            <pre id="processed-finviz-output"></pre>
+                            <pre id="processed-analytics-output"></pre>
                         </div>
 
                     </div>
@@ -190,7 +213,7 @@
                 {# --- End Sub-Tab Content --- #}
 
             </div>
-            {# --- END Finviz Data Processing, Filtering & Configuration --- #}
+            {# --- END Raw Analytics Data Processing, Filtering & Configuration --- #}
 
             {# Add other prep steps here later #}
 
@@ -201,7 +224,43 @@
         <div class="tab-pane fade" id="data-report-tab-pane" role="tabpanel" aria-labelledby="data-report-tab" tabindex="0">
             <h5>Data Reporting</h5>
             <p>Generate reports, visualizations, or summaries based on the prepared data.</p>
-            <p class="text-muted small"><i>(Reporting features will be added here later)</i></p>
+            
+            {# --- Chart Controls & Display --- #}
+            <div class="my-3 p-3 border rounded bg-body-tertiary">
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label for="report-field-selector" class="form-label">Select Field for Chart (Y-axis):</label>
+                        <select id="report-field-selector" class="form-select form-select-sm">
+                            <option value="">-- Select Field --</option>
+                            {# Options will be populated by JavaScript #}
+                        </select>
+                    </div>
+                    {# --- NEW: Color By Selector --- #}
+                    <div class="col-md-4">
+                        <label for="report-color-selector" class="form-label">Color Points By Field:</label>
+                        <select id="report-color-selector" class="form-select form-select-sm">
+                            <option value="">-- No Color Variation --</option>
+                            {# Options will be populated by JavaScript #}
+                        </select>
+                    </div>
+                    {# --- END: Color By Selector --- #}
+                    {# Add placeholder for potential chart type selector later #}
+                    <!-- <div class="col-md-4">
+                        <label for="report-chart-type-selector" class="form-label">Chart Type:</label>
+                        <select id="report-chart-type-selector" class="form-select form-select-sm">
+                            <option value="scatter" selected>Scatter Plot</option>
+                             Add other chart types here later 
+                        </select>
+                    </div> -->
+                </div>
+                <div id="report-chart-container" style="position: relative; height:40vh; width:80vw">
+                    <canvas id="report-chart-canvas"></canvas>
+                </div>
+                <div id="chart-status" class="mt-2 small text-muted"></div>
+            </div>
+            {# --- End Chart Controls & Display --- #}
+
+            <p class="text-muted small"><i>(Other reporting features will be added here later)</i></p>
         </div>
         {# --- End Data Report Tab Pane --- #}
 
@@ -224,9 +283,9 @@
             let fieldEnabledStatus = {}; // {fieldName: true/false}
             let uploadedTickers = []; // To store tickers from uploaded file
 
-            const FILTER_STORAGE_KEY = 'finvizAnalyticsFilters';
-            const WEIGHT_STORAGE_KEY = 'finvizAnalyticsFieldWeights';
-            const FIELD_ENABLED_STORAGE_KEY = 'finvizAnalyticsFieldEnabled'; // New key
+            const FILTER_STORAGE_KEY = 'analyticsAnalyticsFilters';
+            const WEIGHT_STORAGE_KEY = 'analyticsAnalyticsFieldWeights';
+            const FIELD_ENABLED_STORAGE_KEY = 'analyticsAnalyticsFieldEnabled'; // New key
 
             // --- Element References ---
             // Import Tab
@@ -234,14 +293,13 @@
             const finvizStatus = document.getElementById('finviz-status');
             const dropZone = document.getElementById('drop-zone');
             const tickerFileInput = document.getElementById('ticker-file-input');
-            const fileInfoText = document.getElementById('file-info-text');
             const runFinvizUploadBtn = document.getElementById('run-finviz-upload-btn');
             const finvizUploadStatus = document.getElementById('finviz-upload-status');
 
             // Preparation Tab
-            const processButton = document.getElementById('process-finviz-data-btn');
-            const processStatus = document.getElementById('process-finviz-status');
-            const outputArea = document.getElementById('processed-finviz-output');
+            const processButton = document.getElementById('process-analytics-data-btn');
+            const processStatus = document.getElementById('process-analytics-status');
+            const outputArea = document.getElementById('processed-analytics-output');
             const filterControlsContainer = document.getElementById('filter-controls-container');
             const addFilterBtn = document.getElementById('add-filter-btn');
             const applyFiltersBtn = document.getElementById('apply-filters-btn');
@@ -249,20 +307,36 @@
             const filterResultsCount = document.getElementById('filter-results-count');
             const fieldConfigContainer = document.getElementById('field-config-container');
 
+            // Report Tab (NEW)
+            const reportFieldSelector = document.getElementById('report-field-selector');
+            const reportChartCanvas = document.getElementById('report-chart-canvas');
+            const chartStatus = document.getElementById('chart-status');
+            const reportColorSelector = document.getElementById('report-color-selector'); // NEW
+            let reportChartInstance = null; // To hold the chart object
+            let filteredDataForChart = []; // Store data used for the current chart
+
             // --- File Handling Logic (Import Tab) ---
             function handleFile(file) {
+                const dropZoneP = dropZone.querySelector('p');
+                const iconSpan = dropZoneP ? dropZoneP.querySelector('span.status-icon') : null;
+                const textSpan = dropZoneP ? dropZoneP.querySelector('span.status-text') : null; // Target text span
+
                 if (!file) {
-                    fileInfoText.textContent = 'No file selected.';
-                    fileInfoText.className = 'text-muted';
-                    runFinvizUploadBtn.disabled = true;
+                    if (dropZoneP && iconSpan && textSpan) {
+                        textSpan.textContent = 'Drag & drop ticker file here (.txt only), or click to select'; // Use textContent
+                        iconSpan.className = 'status-icon bi bi-cloud-arrow-up me-2 align-middle text-muted'; // Default icon + color
+                    }
+                    runFinvizUploadBtn.disabled = true; // Disable button if no file
                     uploadedTickers = [];
                     return;
                 }
 
                 if (!file.name.endsWith('.txt')) {
-                    fileInfoText.textContent = 'Invalid file type. Please upload a .txt file.';
-                    fileInfoText.className = 'text-danger';
-                    runFinvizUploadBtn.disabled = true;
+                    if (dropZoneP && iconSpan && textSpan) {
+                        textSpan.textContent = `Invalid file: ${file.name}. Please use a .txt file.`; // Use textContent
+                        iconSpan.className = 'status-icon bi bi-x-octagon-fill me-2 align-middle text-danger'; // Error icon + color
+                    }
+                    runFinvizUploadBtn.disabled = true; // Disable button if invalid file
                     uploadedTickers = [];
                     tickerFileInput.value = ''; // Reset file input
                     return;
@@ -271,30 +345,38 @@
                 const reader = new FileReader();
                 reader.onload = function(event) {
                     const content = event.target.result;
-                    // Split by lines, trim whitespace, filter out empty lines
                     const lines = content.split(/\r?\n/);
                     uploadedTickers = lines
-                        .map(line => line.trim().toUpperCase()) // Trim and convert to uppercase
-                        .filter(line => line.length > 0 && line.length <= 10); // Filter empty lines and basic length check
+                        .map(line => line.trim().toUpperCase())
+                        .filter(line => line.length > 0 && line.length <= 10);
 
-                    if (uploadedTickers.length > 0) {
-                        fileInfoText.textContent = `File: ${file.name} (${uploadedTickers.length} tickers found)`;
-                        fileInfoText.className = 'text-success';
-                        runFinvizUploadBtn.disabled = false;
-                        finvizUploadStatus.textContent = ''; // Clear previous status
-                        console.log("Tickers from file:", uploadedTickers);
-                    } else {
-                        fileInfoText.textContent = `File: ${file.name} - No valid tickers found.`;
-                        fileInfoText.className = 'text-warning';
-                        runFinvizUploadBtn.disabled = true;
-                        uploadedTickers = [];
+                    if (dropZoneP && iconSpan && textSpan) {
+                        if (uploadedTickers.length > 0) {
+                            textSpan.textContent = `File: ${file.name} (${uploadedTickers.length} tickers found)`; // Use textContent
+                            iconSpan.className = 'status-icon bi bi-check-circle-fill me-2 align-middle text-success'; // Success icon + color
+                            
+                            // Enable upload button ONLY if the other button is not currently running
+                            if (!finvizButton.disabled || finvizButton.querySelector('.spinner-border').style.display === 'none') {
+                                runFinvizUploadBtn.disabled = false;
+                            }
+                            
+                            finvizUploadStatus.textContent = '';
+                            console.log("Tickers from file:", uploadedTickers);
+                        } else {
+                            textSpan.textContent = `File: ${file.name} - No valid tickers found.`; // Use textContent
+                            iconSpan.className = 'status-icon bi bi-exclamation-triangle-fill me-2 align-middle text-warning'; // Warning icon + color
+                            runFinvizUploadBtn.disabled = true; // Disable button if no valid tickers
+                            uploadedTickers = [];
+                        }
                     }
                 };
                 reader.onerror = function(event) {
                     console.error("File reading error:", event);
-                    fileInfoText.textContent = 'Error reading file.';
-                    fileInfoText.className = 'text-danger';
-                    runFinvizUploadBtn.disabled = true;
+                    if (dropZoneP && iconSpan && textSpan) {
+                        textSpan.textContent = `Error reading file: ${file.name}`; // Use textContent
+                        iconSpan.className = 'status-icon bi bi-shield-exclamation me-2 align-middle text-danger'; // Error icon + color
+                    }
+                    runFinvizUploadBtn.disabled = true; // Disable button on error
                     uploadedTickers = [];
                 };
                 reader.readAsText(file);
@@ -335,13 +417,15 @@
             // 1. Fetch for Screened Tickers
             if (finvizButton && finvizStatus) {
                 finvizButton.addEventListener('click', async function() {
-                    finvizButton.disabled = true;
+                    // Disable both buttons and show spinner on the clicked one
+                    showSpinner(finvizButton, runFinvizUploadBtn);
                     finvizStatus.textContent = 'Starting fetch job...';
                     finvizStatus.className = 'ms-2 text-info';
+                    let eventSource = null; // Variable to hold EventSource connection
 
                     try {
-                        console.log("Calling /api/analytics/trigger-finviz-fetch endpoint...");
-                        const response = await fetch('/api/analytics/trigger-finviz-fetch', {
+                        console.log("Calling /api/analytics/start-finviz-fetch-screener endpoint...");
+                        const response = await fetch('/api/analytics/start-finviz-fetch-screener', {
                             method: 'POST',
                             headers: { 'Accept': 'application/json' }
                         });
@@ -349,23 +433,89 @@
 
                         if (!response.ok) {
                             const errorDetail = result.detail || `Fetch trigger failed with status ${response.status} - ${response.statusText}`;
-                            console.error("Error response from trigger-finviz-fetch:", result);
+                            console.error("Error response from start-finviz-fetch-screener:", result);
                             throw new Error(errorDetail);
                         }
 
-                        console.log("Fetch job triggered successfully:", result);
-                        finvizStatus.textContent = result.message || 'Fetch job triggered successfully.';
-                        finvizStatus.className = 'ms-2 text-success';
-                        // Maybe add polling or SSE later to check job status
+                        console.log("Fetch job triggered:", result);
+
+                        // --- SSE Integration --- 
+                        if (result.job_id) {
+                            console.log(`Received job_id: ${result.job_id}. Establishing SSE connection.`);
+                            finvizStatus.textContent = `${result.message || 'Fetch job triggered.'} Waiting for completion...`;
+                            finvizStatus.className = 'ms-2 text-info';
+
+                            eventSource = new EventSource(`/api/analytics/stream-job-status/${result.job_id}`);
+
+                            eventSource.onmessage = function(event) {
+                                console.log("SSE message received:", event.data);
+                                try {
+                                    const data = JSON.parse(event.data);
+                                    let isFinalStatus = false; // Flag to check if it's a terminal state
+
+                                    if (data.status === 'completed') {
+                                        finvizStatus.textContent = data.message || 'Job completed successfully.';
+                                        finvizStatus.className = 'ms-2 text-success';
+                                        console.log("Job completed via SSE.");
+                                        isFinalStatus = true;
+                                    } else if (data.status === 'failed') {
+                                        finvizStatus.textContent = `Error: ${data.message || 'Job failed.'}`;
+                                        finvizStatus.className = 'ms-2 text-danger';
+                                        console.error("Job failed via SSE:", data.message);
+                                        isFinalStatus = true;
+                                    } else if (data.status === 'partial_failure') { // <<< ADD HANDLING FOR PARTIAL FAILURE
+                                        finvizStatus.textContent = data.message || 'Job completed with some failures.';
+                                        finvizStatus.className = 'ms-2 text-warning'; // Use warning color
+                                        console.warn("Job completed with partial failure via SSE:", data.message);
+                                        isFinalStatus = true;
+                                    } else {
+                                        // Handle intermediate statuses if backend sends them
+                                        finvizStatus.textContent = data.message || 'Job in progress...'; 
+                                        finvizStatus.className = 'ms-2 text-info';
+                                    }
+                                    // Close connection and re-enable button on final status
+                                    if (isFinalStatus) { // <<< Check the flag
+                                        eventSource.close();
+                                        console.log("SSE connection closed.");
+                                        // Re-enable both buttons (conditionally for upload button)
+                                        hideSpinner(finvizButton, runFinvizUploadBtn);
+                                    }
+                                } catch (e) {
+                                    console.error("Error parsing SSE message:", e);
+                                    finvizStatus.textContent = 'Error processing status update.';
+                                    finvizStatus.className = 'ms-2 text-warning';
+                                    eventSource.close(); // Close on parsing error
+                                    hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
+                                }
+                            };
+
+                            eventSource.onerror = function(error) {
+                                console.error("SSE connection error:", error);
+                                // Update status only if it hasn't already shown completion/failure
+                                if (!finvizStatus.classList.contains('text-success') && !finvizStatus.classList.contains('text-danger')) {
+                                     finvizStatus.textContent = 'Error receiving status updates. Check console.';
+                                     finvizStatus.className = 'ms-2 text-warning';
+                                }
+                                eventSource.close(); // Ensure connection is closed
+                                hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
+                            };
+
+                        } else {
+                            // If no job_id received, handle as before (show initial message)
+                            console.warn("No job_id received in response. Cannot track completion status.");
+                            finvizStatus.textContent = result.message || 'Fetch job triggered successfully.';
+                            finvizStatus.className = 'ms-2 text-success';
+                            hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
+                        }
+                        // --- End SSE Integration ---
 
                     } catch (error) {
                         console.error('Error triggering Finviz fetch for screened tickers:', error);
                         finvizStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
                         finvizStatus.className = 'ms-2 text-danger';
-                    } finally {
-                        // Re-enable button after a short delay to prevent spamming
-                        setTimeout(() => { finvizButton.disabled = false; }, 2000);
-                    }
+                        if (eventSource) eventSource.close(); // Close SSE if open
+                        hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
+                    } // No finally block needed as button re-enabled within logic
                 });
             }
 
@@ -378,63 +528,108 @@
                         return;
                     }
 
-                    runFinvizUploadBtn.disabled = true;
+                    // Disable both buttons and show spinner on the clicked one
+                    showSpinner(runFinvizUploadBtn, finvizButton);
                     finvizUploadStatus.textContent = `Starting fetch job for ${uploadedTickers.length} tickers...`;
                     finvizUploadStatus.className = 'ms-2 text-info';
+                    let eventSourceUpload = null; // Variable for this button's EventSource
 
                     try {
-                        console.log("Calling NEW endpoint /api/analytics/trigger-finviz-fetch-list with tickers:", uploadedTickers);
+                        console.log("Calling endpoint /api/analytics/start-finviz-fetch-upload with tickers:", uploadedTickers);
 
-                        // ************************************************************
-                        // TODO: Implement backend endpoint and actual fetch call here
-                        // ************************************************************
-
-                        // Placeholder for actual API call
-                        await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network delay
-                        const mockResponse = { ok: true }; // Simulate success
-                        const mockResult = { message: `Fetch job for ${uploadedTickers.length} tickers triggered successfully. (Placeholder)` };
-                        // Placeholder end
-
-                        // Replace with actual fetch call:
-                        /*
-                        const response = await fetch('/api/analytics/trigger-finviz-fetch-list', {
+                        const response = await fetch('/api/analytics/start-finviz-fetch-upload', { // <-- Use new endpoint
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
                                 'Accept': 'application/json'
                             },
-                            body: JSON.stringify({ tickers: uploadedTickers })
+                            body: JSON.stringify({ tickers: uploadedTickers }) // Send tickers in correct format
                         });
                         const result = await response.json();
 
                         if (!response.ok) {
                             const errorDetail = result.detail || `Fetch trigger failed with status ${response.status} - ${response.statusText}`;
-                            console.error("Error response from trigger-finviz-fetch-list:", result);
+                            console.error("Error response from start-finviz-fetch-upload:", result);
                             throw new Error(errorDetail);
                         }
                         console.log("Fetch job triggered successfully:", result);
-                        finvizUploadStatus.textContent = result.message || 'Fetch job triggered successfully.';
-                        finvizUploadStatus.className = 'ms-2 text-success';
-                        */
 
-                        // Using Mock result for now
-                        if (!mockResponse.ok) {
-                             const errorDetail = mockResult.detail || `Fetch trigger failed (Placeholder)`;
-                             throw new Error(errorDetail);
-                        }
-                        console.log("Fetch job triggered successfully (Placeholder):", mockResult);
-                        finvizUploadStatus.textContent = mockResult.message;
-                        finvizUploadStatus.className = 'ms-2 text-success';
+                        // --- SSE Integration for Upload --- 
+                        if (result.job_id) {
+                             console.log(`Received job_id: ${result.job_id}. Establishing SSE connection for upload.`);
+                             finvizUploadStatus.textContent = `${result.message || 'Fetch job triggered.'} Waiting for completion...`;
+                             finvizUploadStatus.className = 'ms-2 text-info';
 
+                             eventSourceUpload = new EventSource(`/api/analytics/stream-job-status/${result.job_id}`);
+
+                             eventSourceUpload.onmessage = function(event) {
+                                 console.log("SSE message received (upload):", event.data);
+                                 try {
+                                     const data = JSON.parse(event.data);
+                                     let isFinalStatus = false; // Flag
+
+                                     if (data.status === 'completed') {
+                                         finvizUploadStatus.textContent = data.message || 'Job completed successfully.';
+                                         finvizUploadStatus.className = 'ms-2 text-success';
+                                         console.log("Upload job completed via SSE.");
+                                         isFinalStatus = true;
+                                     } else if (data.status === 'failed') {
+                                         finvizUploadStatus.textContent = `Error: ${data.message || 'Job failed.'}`;
+                                         finvizUploadStatus.className = 'ms-2 text-danger';
+                                         console.error("Upload job failed via SSE:", data.message);
+                                         isFinalStatus = true;
+                                     } else if (data.status === 'partial_failure') { // <<< ADD HANDLING FOR PARTIAL FAILURE
+                                        finvizUploadStatus.textContent = data.message || 'Job completed with some failures.';
+                                        finvizUploadStatus.className = 'ms-2 text-warning'; // Use warning color
+                                        console.warn("Upload job completed with partial failure via SSE:", data.message);
+                                        isFinalStatus = true;
+                                     } else {
+                                         finvizUploadStatus.textContent = data.message || 'Job in progress...'; 
+                                         finvizUploadStatus.className = 'ms-2 text-info';
+                                     }
+                                     // Close connection and re-enable button on final status
+                                     if (isFinalStatus) { // <<< Check the flag
+                                         eventSourceUpload.close();
+                                         console.log("SSE connection closed (upload).");
+                                         // Re-enable both buttons (conditionally for upload button)
+                                         hideSpinner(runFinvizUploadBtn, finvizButton);
+                                     }
+                                 } catch (e) {
+                                     console.error("Error parsing SSE message (upload):", e);
+                                     finvizUploadStatus.textContent = 'Error processing status update.';
+                                     finvizUploadStatus.className = 'ms-2 text-warning';
+                                     eventSourceUpload.close(); // Close on error
+                                     hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+                                 }
+                             };
+
+                             eventSourceUpload.onerror = function(error) {
+                                 console.error("SSE connection error (upload):", error);
+                                 // Update status only if it hasn't already shown completion/failure
+                                 if (!finvizUploadStatus.classList.contains('text-success') && !finvizUploadStatus.classList.contains('text-danger')) {
+                                     finvizUploadStatus.textContent = 'Error receiving status updates. Check console.';
+                                     finvizUploadStatus.className = 'ms-2 text-warning';
+                                 }
+                                 eventSourceUpload.close(); // Ensure closed
+                                 hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+                             };
+
+                         } else {
+                             // If no job_id received, handle as before
+                             console.warn("No job_id received in upload response. Cannot track completion status.");
+                             finvizUploadStatus.textContent = result.message || 'Fetch job triggered successfully.';
+                             finvizUploadStatus.className = 'ms-2 text-success';
+                             hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+                         }
+                         // --- End SSE Integration for Upload ---
 
                     } catch (error) {
                         console.error('Error triggering Finviz fetch for uploaded tickers:', error);
                         finvizUploadStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
                         finvizUploadStatus.className = 'ms-2 text-danger';
-                    } finally {
-                        // Re-enable button after a short delay
-                        setTimeout(() => { runFinvizUploadBtn.disabled = false; }, 2000);
-                    }
+                         if (eventSourceUpload) eventSourceUpload.close(); // Close SSE if open
+                         hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+                    } // No finally block needed
                 });
             }
 
@@ -1080,8 +1275,275 @@
                  // Display results using the transformed data
                  outputArea.textContent = JSON.stringify(dataForDisplay, null, 2);
                  filterResultsCount.textContent = `Showing ${filteredData.length} matching records (out of ${fullProcessedData.length}).`; // Count based on filtered records
+
+                 // --- Update data used for chart and render --- 
+                 filteredDataForChart = filteredData; // Store the data before transformation
+                 renderScatterPlot(); // Update chart when filters change
+                 // --- End Chart Update --- 
             }
             // --- END applyFilters definition ---
+
+            // --- NEW: Populate Report Field Selector --- 
+            function populateReportFieldSelector() {
+                console.log("Populating report field selector...");
+                if (!reportFieldSelector) return;
+
+                const previousValue = reportFieldSelector.value; // Remember selection
+                reportFieldSelector.innerHTML = '<option value="">-- Select Field --</option>'; // Clear and add default
+
+                if (!availableFields || availableFields.length === 0) {
+                    console.log("No available fields to populate report selector.");
+                    return;
+                }
+
+                // Filter available fields based on enabled status
+                const enabledFields = availableFields.filter(field => fieldEnabledStatus[field] === true);
+                console.log("Populating report selector with enabled fields:", enabledFields);
+
+                enabledFields.forEach(field => {
+                    const option = document.createElement('option');
+                    option.value = field;
+                    option.textContent = field;
+                    reportFieldSelector.appendChild(option);
+                });
+
+                // Try to restore previous selection
+                if (enabledFields.includes(previousValue)) {
+                    reportFieldSelector.value = previousValue;
+                } else {
+                    // If previous selection is no longer valid (e.g., disabled), reset chart
+                    if (reportChartInstance) {
+                        reportChartInstance.destroy();
+                        reportChartInstance = null;
+                    }
+                    if (chartStatus) chartStatus.textContent = 'Select a field to generate the chart.';
+                }
+            }
+            // --- END Populate Report Field Selector ---
+
+            // --- NEW: Populate Report Color Selector --- 
+            function populateReportColorSelector() {
+                console.log("Populating report color selector...");
+                if (!reportColorSelector) return;
+
+                const previousValue = reportColorSelector.value; // Remember selection
+                reportColorSelector.innerHTML = '<option value="">-- No Color Variation --</option>'; // Clear and add default
+
+                if (!availableFields || availableFields.length === 0) {
+                    console.log("No available fields to populate color selector.");
+                    return;
+                }
+
+                // Use the same enabled fields as the main selector
+                const enabledFields = availableFields.filter(field => fieldEnabledStatus[field] === true);
+                console.log("Populating color selector with enabled fields:", enabledFields);
+
+                enabledFields.forEach(field => {
+                    const option = document.createElement('option');
+                    option.value = field;
+                    option.textContent = field;
+                    // Maybe exclude the currently selected Y-axis field?
+                    // if (reportFieldSelector && field === reportFieldSelector.value) {
+                    //     option.disabled = true;
+                    // }
+                    reportColorSelector.appendChild(option);
+                });
+
+                // Try to restore previous selection
+                if (enabledFields.includes(previousValue)) {
+                    reportColorSelector.value = previousValue;
+                } else {
+                    // If previous selection is no longer valid, just reset to default
+                    reportColorSelector.value = "";
+                }
+            }
+            // --- END Populate Report Color Selector ---
+
+            // --- NEW: Render Scatter Plot --- 
+            function renderScatterPlot() {
+                console.log("Rendering scatter plot...");
+                if (!reportFieldSelector || !reportChartCanvas || !chartStatus || !reportColorSelector) { // Added color selector check
+                    console.error("Report tab elements not found.");
+                    return;
+                }
+
+                const selectedField = reportFieldSelector.value;
+                const colorField = reportColorSelector.value; // NEW: Get color field
+                console.log(`Selected Y-axis field: ${selectedField}, Color by field: ${colorField}`);
+
+                chartStatus.textContent = ''; // Clear previous status
+
+                if (!selectedField) {
+                    chartStatus.textContent = 'Please select a field from the dropdown.';
+                    // Destroy existing chart if no field is selected
+                    if (reportChartInstance) {
+                        reportChartInstance.destroy();
+                        reportChartInstance = null;
+                    }
+                    return;
+                }
+
+                if (!filteredDataForChart || filteredDataForChart.length === 0) {
+                    chartStatus.textContent = 'No data available to plot (apply filters or load data).';
+                    if (reportChartInstance) {
+                        reportChartInstance.destroy();
+                        reportChartInstance = null;
+                    }
+                    return;
+                }
+
+                // Color mapping logic
+                const colorMap = {};
+                const predefinedColors = [
+                    'rgba(255, 99, 132, 0.7)', 'rgba(54, 162, 235, 0.7)', 'rgba(255, 206, 86, 0.7)',
+                    'rgba(75, 192, 192, 0.7)', 'rgba(153, 102, 255, 0.7)', 'rgba(255, 159, 64, 0.7)',
+                    'rgba(199, 199, 199, 0.7)', 'rgba(83, 102, 255, 0.7)', 'rgba(40, 159, 64, 0.7)',
+                    'rgba(210, 99, 132, 0.7)'
+                     // Add more colors if needed
+                ];
+                let colorIndex = 0;
+                const defaultColor = 'rgba(128, 128, 128, 0.6)'; // Default for missing color value
+
+                // Function to get or assign a color
+                const getColorForValue = (value) => {
+                    if (value === null || value === undefined || value === '') return defaultColor;
+                    const valueStr = String(value);
+                    if (!colorMap[valueStr]) {
+                        colorMap[valueStr] = predefinedColors[colorIndex % predefinedColors.length];
+                        colorIndex++;
+                    }
+                    return colorMap[valueStr];
+                };
+
+                console.log(`Generating plot for field: ${selectedField} with ${filteredDataForChart.length} filtered records.`);
+
+                // Prepare data for scatter plot: { x: index, y: value, ticker: ticker, colorValue: colorValue }
+                const plotData = [];
+                const pointBackgroundColors = [];
+                const pointBorderColors = [];
+                let nonNumericCount = 0;
+
+                filteredDataForChart.forEach((item, index) => {
+                    let pointColor = defaultColor;
+                    let colorValue = null;
+
+                    if (item && item.processed_data) {
+                        // Get Y-axis value
+                        if (item.processed_data.hasOwnProperty(selectedField)) {
+                            const rawYValue = item.processed_data[selectedField];
+                            const numericYValue = Number(rawYValue);
+
+                            if (!isNaN(numericYValue) && rawYValue !== null && rawYValue !== '') {
+                                // Get color field value if a color field is selected
+                                if (colorField && item.processed_data.hasOwnProperty(colorField)) {
+                                    colorValue = item.processed_data[colorField];
+                                    pointColor = getColorForValue(colorValue);
+                                } else if (!colorField) {
+                                    // Use a default single color if no color field selected
+                                    pointColor = predefinedColors[0]; 
+                                }
+
+                                plotData.push({
+                                    x: index,
+                                    y: numericYValue,
+                                    ticker: item.ticker || 'N/A',
+                                    colorValue: colorValue // Store for potential tooltip use
+                                });
+                                pointBackgroundColors.push(pointColor);
+                                pointBorderColors.push(pointColor.replace('0.7', '1').replace('0.6', '1')); // Make border solid
+
+                            } else {
+                                nonNumericCount++; // Y-value is non-numeric
+                            }
+                        } else {
+                            nonNumericCount++; // Missing Y-value field
+                        }
+                    } else {
+                         nonNumericCount++; // Missing processed_data
+                    }
+                });
+
+                if (plotData.length === 0) {
+                    chartStatus.textContent = `No numeric data found for field '${selectedField}' in the current filtered data.`;
+                     if (reportChartInstance) {
+                        reportChartInstance.destroy();
+                        reportChartInstance = null;
+                    }
+                    return;
+                }
+
+                if (nonNumericCount > 0) {
+                    chartStatus.textContent = `Plotting ${plotData.length} numeric points. ${nonNumericCount} records were excluded due to missing or non-numeric values for '${selectedField}'.`;
+                }
+
+                const ctx = reportChartCanvas.getContext('2d');
+
+                // Destroy previous chart instance if it exists
+                if (reportChartInstance) {
+                    reportChartInstance.destroy();
+                }
+
+                // Create the scatter chart
+                reportChartInstance = new Chart(ctx, {
+                    type: 'scatter',
+                    data: {
+                        datasets: [{
+                            label: selectedField, // Use field name as dataset label (for legend/tooltip)
+                            data: plotData,
+                            backgroundColor: pointBackgroundColors, // Use generated color array
+                            borderColor: pointBorderColors, // Use generated color array
+                            pointRadius: 5,
+                            pointHoverRadius: 7
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Record Index (in filtered list)'
+                                },
+                                type: 'linear', // Ensure x-axis is treated as linear
+                                position: 'bottom'
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: selectedField // Y-axis label is the selected field
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: true, // Ensure legend is displayed
+                                position: 'top',
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        // context.raw should contain {x, y, ticker, colorValue}
+                                        const pointData = context.raw;
+                                        if (pointData) {
+                                            let label = `Ticker: ${pointData.ticker}`; 
+                                            label += `\n${context.dataset.label || 'Value'}: ${pointData.y}`;
+                                            if (colorField && pointData.colorValue !== null) {
+                                                label += `\n${colorField}: ${pointData.colorValue}`;
+                                            }
+                                            return label.split('\n'); // Return as array for multi-line tooltips
+                                        } 
+                                        return ''; // Default tooltip if raw data missing
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                console.log("Scatter plot rendered successfully.");
+            }
+            // --- END Render Scatter Plot --- 
 
             // --- Data Loading & State Update (Preparation Tab) ---
              function processLoadedDataAndUpdateState() {
@@ -1201,6 +1663,8 @@
                  // --- Re-render UIs ---
                  renderFieldConfigUI(); // Render config first (populates fieldEnabledStatus)
                  renderFilterUI(); // Then render filters (uses fieldEnabledStatus)
+                 populateReportFieldSelector(); // --- ADD THIS CALL ---
+                 populateReportColorSelector(); // --- ADD THIS CALL TOO ---
              }
 
             // --- Button Listeners (Preparation Tab) ---
@@ -1243,6 +1707,7 @@
             if (processButton && processStatus && outputArea) {
                 processButton.addEventListener('click', async function() {
                     processButton.disabled = true;
+                    showSpinner(processButton); // Show spinner
                     processStatus.textContent = 'Processing data...';
                     processStatus.className = 'ms-2 text-info';
                     outputArea.textContent = ''; // Clear previous output
@@ -1250,8 +1715,8 @@
 
                     try {
                         // Step 1: Call the endpoint to process and store data (using the backend python function)
-                        console.log("Calling /api/analytics/process-finviz endpoint...");
-                        const processResponse = await fetch('/api/analytics/process-finviz', {
+                        console.log("Calling /api/analytics/process-raw-data endpoint...");
+                        const processResponse = await fetch('/api/analytics/process-raw-data', {
                             method: 'POST',
                             headers: { 'Accept': 'application/json' }
                         });
@@ -1260,7 +1725,7 @@
 
                         if (!processResponse.ok) {
                             const errorDetail = processResult.detail || `Processing failed with status ${processResponse.status} - ${processResponse.statusText}`;
-                            console.error("Error response from process-finviz:", processResult);
+                            console.error("Error response from process-raw-data:", processResult);
                             throw new Error(errorDetail);
                         }
 
@@ -1269,8 +1734,8 @@
                         processStatus.className = 'ms-2 text-success';
 
                         // Step 2: Call the endpoint to get the processed data
-                        console.log("Calling /api/analytics/get-processed-finviz endpoint...");
-                        const getResponse = await fetch('/api/analytics/get-processed-finviz', {
+                        console.log("Calling /api/analytics/get-processed-data endpoint...");
+                        const getResponse = await fetch('/api/analytics/get-processed-data', {
                             method: 'GET',
                             headers: { 'Accept': 'application/json' }
                         });
@@ -1278,7 +1743,7 @@
                         if (!getResponse.ok) {
                              const getErrorResult = await getResponse.json();
                              const getErrorDetail = getErrorResult.detail || `Failed to get processed data with status ${getResponse.status} - ${getResponse.statusText}`;
-                             console.error("Error response from get-processed-finviz:", getErrorResult);
+                             console.error("Error response from get-processed-data:", getErrorResult);
                              throw new Error(getErrorDetail);
                         }
 
@@ -1304,9 +1769,44 @@
                     } finally {
                          processButton.disabled = false;
                          console.log("Processing/fetching finished.");
+                         hideSpinner(processButton); // Hide spinner
                     }
                 });
             }
+
+            // --- Helper functions to toggle button spinner/text --- 
+            function showSpinner(button, otherButton) {
+                const spinner = button.querySelector('.spinner-border');
+                const text = button.querySelector('.button-text');
+                if (spinner) spinner.style.display = 'inline-block';
+                if (text) text.style.display = 'none';
+                button.disabled = true;
+                if (otherButton) otherButton.disabled = true; // Disable other button too
+            }
+
+            function hideSpinner(button, otherButton) {
+                const spinner = button.querySelector('.spinner-border');
+                const text = button.querySelector('.button-text');
+                if (spinner) spinner.style.display = 'none';
+                if (text) text.style.display = 'inline-block'; 
+                
+                // Re-enable the current button
+                button.disabled = false;
+
+                // Re-enable the other button conditionally
+                if (otherButton) {
+                    // If the other button is the upload button, only enable it if tickers are loaded
+                    if (otherButton.id === 'run-finviz-upload-btn') {
+                        if (uploadedTickers.length > 0) {
+                            otherButton.disabled = false;
+                        }
+                    } else {
+                        // Otherwise (if other button is the screened fetch), always re-enable it
+                        otherButton.disabled = false;
+                    }
+                }
+            }
+            // --- End Helper Functions --- 
 
             // --- Initial Page Load Logic ---
             console.log("Initial page load: Loading state from localStorage...");
@@ -1318,6 +1818,19 @@
             renderFieldConfigUI();
             // Optionally trigger the "Load Data from DB" automatically on page load?
             // processButton.click(); // Uncomment to auto-load data
+            
+            // --- NEW: Add Event Listener for Report Field Selector ---
+            if (reportFieldSelector) {
+                reportFieldSelector.addEventListener('change', renderScatterPlot);
+            }
+            // --- END Event Listener ---
+            
+            // --- NEW: Add Event Listener for Report Color Selector ---
+            if (reportColorSelector) {
+                reportColorSelector.addEventListener('change', renderScatterPlot);
+            }
+            // --- END Event Listener ---
+
             console.log("Initial page load complete.");
 
         });
