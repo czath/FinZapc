@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     const FILTER_STORAGE_KEY = 'analyticsAnalyticsFilters';
     // const WEIGHT_STORAGE_KEY = 'analyticsAnalyticsFieldWeights'; // REMOVED
     const FIELD_ENABLED_STORAGE_KEY = 'analyticsAnalyticsFieldEnabled'; // New key
+    const TEXT_FILTER_DROPDOWN_THRESHOLD = 30; // <<< ADD THIS CONSTANT
 
     // --- Element References ---
     // Import Tab
@@ -528,8 +529,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         };
 
         // --- Existing logic to create input/select based on metadata --- 
-        if (metadata && metadata.type === 'text' && metadata.uniqueValues && metadata.uniqueValues.length > 0) {
-            // --- Create Multi-Select ---
+        if (metadata && metadata.type === 'text' && metadata.uniqueValues && metadata.uniqueValues.length > 0
+            && metadata.uniqueValues.length <= TEXT_FILTER_DROPDOWN_THRESHOLD) { // <<< ADD THRESHOLD CHECK
+            // --- Create Multi-Select (Only if below threshold) ---
             // hintSpan.textContent = `(${metadata.uniqueValues.length} unique values)`; // REMOVED - Hint set above
             const select = document.createElement('select');
             select.multiple = true;
@@ -556,7 +558,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             currentInput = select;
 
         } else {
-             // --- Create Text/Number Input ---
+             // --- Create Text/Number Input (Fallback for text with many values, or non-text types) ---
             const input = document.createElement('input');
             input.className = 'form-control form-control-sm';
             input.placeholder = 'Value';
@@ -577,6 +579,31 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                 input.step = 'any';
             } else {
                 input.type = 'text';
+                
+                // --- ADD DATALIST for text inputs exceeding threshold ---
+                if (metadata && metadata.type === 'text' && metadata.uniqueValues && metadata.uniqueValues.length > 0) {
+                    const datalistId = `datalist-${index}-${fieldName.replace(/\W/g, '_')}`; // Unique ID
+                    input.setAttribute('list', datalistId);
+
+                    const datalist = document.createElement('datalist');
+                    datalist.id = datalistId;
+
+                    metadata.uniqueValues.forEach(val => {
+                        const option = document.createElement('option');
+                        option.value = val; 
+                        // Optionally: option.textContent = val; (usually not needed for datalist)
+                        datalist.appendChild(option);
+                    });
+                    
+                    // --- Add log to show datalist content ---
+                    console.log(`[Datalist] Populating datalist #${datalistId} for field '${fieldName}' with options:`, metadata.uniqueValues);
+                    // --- End log ---
+
+                    // Append datalist to the same wrapper as the input
+                    inputWrapper.appendChild(datalist); 
+                    console.log(`Created datalist ${datalistId} for field ${fieldName} with ${metadata.uniqueValues.length} options.`);
+                }
+                // --- END DATALIST ---
             }
             // REMOVED empty check hint, covered by descriptor
             // if (metadata && metadata.type === 'empty') {
