@@ -164,10 +164,10 @@
                 {# --- Sub-Tab Navigation for Prep Steps --- #}
                 <ul class="nav nav-tabs mt-3" id="prepStepsTabs" role="tablist">
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link active" id="filter-subtab" data-bs-toggle="tab" data-bs-target="#filter-subtab-pane" type="button" role="tab" aria-controls="filter-subtab-pane" aria-selected="true">Filters & Output</button>
+                        <button class="nav-link active" id="config-subtab" data-bs-toggle="tab" data-bs-target="#config-subtab-pane" type="button" role="tab" aria-controls="config-subtab-pane" aria-selected="true">Field Configuration</button>
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="config-subtab" data-bs-toggle="tab" data-bs-target="#config-subtab-pane" type="button" role="tab" aria-controls="config-subtab-pane" aria-selected="false">Field Configuration</button>
+                        <button class="nav-link" id="filter-subtab" data-bs-toggle="tab" data-bs-target="#filter-subtab-pane" type="button" role="tab" aria-controls="filter-subtab-pane" aria-selected="false">Filters & Output</button>
                     </li>
                 </ul>
                 {# --- End Sub-Tab Navigation --- #}
@@ -175,8 +175,23 @@
                 {# --- Sub-Tab Content --- #}
                 <div class="tab-content pt-3" id="prepStepsTabsContent">
 
+                    {# --- Field Configuration Sub-Tab Pane --- #}
+                    <div class="tab-pane fade show active" id="config-subtab-pane" role="tabpanel" aria-labelledby="config-subtab" tabindex="0">
+
+                        {# Container for Field Weights & Toggles #}
+                        <div class="mb-3">
+                            <!-- REMOVED Field Configuration H6 heading -->
+                            <div id="field-config-container" style="max-height: 400px; overflow-y: auto;"> <!-- Increased height slightly -->
+                                <!-- Field config rows will be added here dynamically -->
+                                <p class="text-muted small">Load data to configure fields.</p>
+                            </div>
+                        </div>
+
+                    </div>
+                    {# --- End Field Configuration Sub-Tab Pane --- #}
+
                     {# --- Filters & Output Sub-Tab Pane --- #}
-                    <div class="tab-pane fade show active" id="filter-subtab-pane" role="tabpanel" aria-labelledby="filter-subtab" tabindex="0">
+                    <div class="tab-pane fade" id="filter-subtab-pane" role="tabpanel" aria-labelledby="filter-subtab" tabindex="0">
 
                         {# Filter Controls #}
                         <div class="mb-3">
@@ -197,22 +212,6 @@
 
                     </div>
                     {# --- End Filters & Output Sub-Tab Pane --- #}
-
-                    {# --- Field Configuration Sub-Tab Pane --- #}
-                    <div class="tab-pane fade" id="config-subtab-pane" role="tabpanel" aria-labelledby="config-subtab" tabindex="0">
-
-                        {# Container for Field Weights & Toggles #}
-                        <div class="mb-3">
-                            <h6>Field Configuration (Weights & Enabled Status):</h6>
-                            <div id="field-config-container" style="max-height: 400px; overflow-y: auto;"> <!-- Increased height slightly -->
-                                <!-- Field config rows will be added here dynamically -->
-                                <p class="text-muted small">Load data to configure fields.</p>
-                            </div>
-                            <!-- Optional: Add a "Save Weights/Toggles" or "Reset Weights/Toggles" button here later -->
-                        </div>
-
-                    </div>
-                    {# --- End Field Configuration Sub-Tab Pane --- #}
 
                 </div>
                 {# --- End Sub-Tab Content --- #}
@@ -320,14 +319,13 @@
             // --- Global variables ---
             let fullProcessedData = [];
             let currentFilters = [];
-            let fieldWeights = {};      // {fieldName: weight (0-100)}
-            let availableFields = [];
-            let fieldMetadata = {};
             let fieldEnabledStatus = {}; // {fieldName: true/false}
             let uploadedTickers = []; // To store tickers from uploaded file
+            let currentSortKey = 'name'; // Default sort
+            let currentSortDirection = 'asc';
 
             const FILTER_STORAGE_KEY = 'analyticsAnalyticsFilters';
-            const WEIGHT_STORAGE_KEY = 'analyticsAnalyticsFieldWeights';
+            // const WEIGHT_STORAGE_KEY = 'analyticsAnalyticsFieldWeights'; // REMOVED
             const FIELD_ENABLED_STORAGE_KEY = 'analyticsAnalyticsFieldEnabled'; // New key
 
             // --- Element References ---
@@ -738,49 +736,6 @@
                 }
             }
 
-            function loadWeightsFromStorage() {
-                console.log("Loading weights from localStorage...");
-                const savedWeights = localStorage.getItem(WEIGHT_STORAGE_KEY);
-                let loaded = {}; // Load into temp object first
-                if (savedWeights) {
-                    try {
-                        loaded = JSON.parse(savedWeights);
-                        if (typeof loaded !== 'object' || loaded === null || Array.isArray(loaded)) {
-                            loaded = {}; // Reset if not a valid object
-                        }
-                    } catch (e) {
-                        console.error("Error parsing saved weights:", e);
-                        loaded = {};
-                        localStorage.removeItem(WEIGHT_STORAGE_KEY);
-                    }
-                }
-                // Process loaded weights, ensuring they are numbers 0-100
-                const processedWeights = {};
-                for (const field in loaded) {
-                    if (loaded.hasOwnProperty(field)) {
-                        const weight = Number(loaded[field]);
-                        if (!isNaN(weight)) {
-                            processedWeights[field] = Math.max(0, Math.min(100, weight)); // Clamp 0-100
-                        } else {
-                            processedWeights[field] = 100; // Default if stored value invalid
-                        }
-                    }
-                }
-                fieldWeights = processedWeights;
-                console.log("Loaded field weights:", fieldWeights);
-            }
-
-            function saveWeightsToStorage() {
-                console.log("Saving weights to localStorage:", fieldWeights);
-                try {
-                    // Ensure weights are valid numbers before saving?
-                    // Or trust the input validation/clamping
-                    localStorage.setItem(WEIGHT_STORAGE_KEY, JSON.stringify(fieldWeights));
-                } catch (e) {
-                    console.error("Error saving weights to localStorage:", e);
-                }
-            }
-
             // NEW function for enabled status
             function loadEnabledStatusFromStorage() {
                 console.log("Loading enabled status from localStorage...");
@@ -819,11 +774,63 @@
                  }
             }
 
+            // --- NEW: Helper Function to Get Field Descriptor String ---
+            function getFieldDescriptor(fieldName) {
+                const metadata = fieldMetadata[fieldName];
+
+                if (!metadata) {
+                    return "(Metadata not available)"; // Fallback
+                }
+
+                // const count = metadata.existingValueCount; // Count is now displayed separately
+
+                switch (metadata.type) {
+                    case 'numeric':
+                        const min = metadata.min !== undefined ? metadata.min : 'N/A';
+                        const max = metadata.max !== undefined ? metadata.max : 'N/A';
+                        // const numericCountDisplay = typeof count === 'number' ? `(${count} records)` : '(count N/A)'; // REMOVED count display
+                        return `Numeric, Min: ${min} to Max: ${max}`;
+                    case 'text':
+                        const uniqueCount = metadata.totalUniqueCount !== undefined ? metadata.totalUniqueCount : 'N/A';
+                        // const textCountDisplay = typeof count === 'number' ? `(${count} records)` : '(count N/A)'; // REMOVED count display
+                        let examples = '';
+                        let introPhrase = '';
+                        if (metadata.uniqueValues && metadata.uniqueValues.length > 0) {
+                            const numExamples = Math.min(metadata.uniqueValues.length, 3);
+                            const exampleValues = metadata.uniqueValues.slice(0, numExamples).map(v => `"${v}"`); // Add quotes
+                            examples = exampleValues.join(', ');
+                            
+                            if (numExamples === 1) {
+                                introPhrase = 'First value found: ';
+                            } else if (numExamples === 2) {
+                                introPhrase = 'First two found: ';
+                            } else { // 3 or more (but we only show 3)
+                                introPhrase = 'First three found: ';
+                            }
+                        } else {
+                            introPhrase = '(No values found)'
+                        }
+                        // REMOVED count display from return string
+                        return `Text (${uniqueCount} unique values). ${introPhrase}${examples}`;
+                    case 'empty':
+                        return 'Empty'; 
+                    default:
+                        // Fallback, still try to show count if available // REMOVED count display
+                        // const fallbackCountDisplay = typeof count === 'number' ? `(${count} records)` : ''; 
+                        return `(Unknown type: ${metadata.type})`.trim(); // Keep trim just in case
+                }
+            }
+            // --- END NEW Helper Function ---
+
             // --- Helper to update value input based on field metadata (Preparation Tab) ---
             function updateValueInputUI(index, fieldName, inputWrapper, hintSpan) {
                 const metadata = fieldMetadata[fieldName];
                 inputWrapper.innerHTML = ''; // Clear previous input/select
-                hintSpan.textContent = '';
+                
+                // --- Update hint text using the new descriptor function --- 
+                hintSpan.textContent = fieldName ? getFieldDescriptor(fieldName) : ''; // Get descriptor or clear if no field
+                // --- End update hint text ---
+                
                 let currentInput = null;
 
                 // Define a common handler for updating the filter state
@@ -833,9 +840,10 @@
                     }
                 };
 
+                // --- Existing logic to create input/select based on metadata --- 
                 if (metadata && metadata.type === 'text' && metadata.uniqueValues && metadata.uniqueValues.length > 0) {
                     // --- Create Multi-Select ---
-                    hintSpan.textContent = `(${metadata.uniqueValues.length} unique values)`;
+                    // hintSpan.textContent = `(${metadata.uniqueValues.length} unique values)`; // REMOVED - Hint set above
                     const select = document.createElement('select');
                     select.multiple = true;
                     select.className = 'form-select form-select-sm w-100';
@@ -863,7 +871,6 @@
                 } else {
                      // --- Create Text/Number Input ---
                     const input = document.createElement('input');
-                    // const datalistId = `datalist-${currentFilters[index].id}`; // Datalist currently disabled
                     input.className = 'form-control form-control-sm';
                     input.placeholder = 'Value';
                     // Ensure value is treated as a string for text input
@@ -876,22 +883,18 @@
                     }
                     input.value = initialValue;
 
-
+                    // Set input type based on metadata (hint is set above)
                     if (metadata && metadata.type === 'numeric') {
-                        hintSpan.textContent = `(Range: ${metadata.min} - ${metadata.max})`;
+                        // hintSpan.textContent = `(Range: ${metadata.min} - ${metadata.max})`; // REMOVED
                         input.type = 'number';
                         input.step = 'any';
                     } else {
                         input.type = 'text';
-                        // Add datalist only if simple text and no unique values provided
-                        // input.setAttribute('list', datalistId);
-                        // const datalist = document.getElementById(datalistId) || document.createElement('datalist');
-                        // datalist.id = datalistId;
-                        // inputWrapper.appendChild(datalist); // Append datalist if using
                     }
-                     if (metadata && metadata.type === 'empty') {
-                         hintSpan.textContent = '(No values found in data)';
-                     }
+                    // REMOVED empty check hint, covered by descriptor
+                    // if (metadata && metadata.type === 'empty') {
+                    //     hintSpan.textContent = '(No values found in data)';
+                    // }
 
                     // Use 'input' event for text/number fields
                     input.addEventListener('input', (e) => {
@@ -901,12 +904,14 @@
                     inputWrapper.appendChild(input);
                     currentInput = input;
                 }
+                // --- End existing logic --- 
 
-                // Hide/Show based on operator (applies to the wrapper now)
+                // Hide/Show based on operator (applies to the wrapper AND hint now)
                 if (currentFilters[index]) {
                     const operator = currentFilters[index].operator;
-                    inputWrapper.style.display = (operator === 'exists' || operator === 'notExists') ? 'none' : '';
-                    hintSpan.style.display = (operator === 'exists' || operator === 'notExists') ? 'none' : '';
+                    const shouldHide = operator === 'exists' || operator === 'notExists';
+                    inputWrapper.style.display = shouldHide ? 'none' : '';
+                    hintSpan.style.display = shouldHide ? 'none' : ''; // Control hint visibility too
                 }
             }
 
@@ -1070,105 +1075,219 @@
 
             // Rename renderWeightUI placeholder and implement
             function renderFieldConfigUI() {
-                console.log("Rendering Field Config UI (Weights & Toggles)");
+                console.log("Rendering Field Config UI"); // Updated log message
                 if (!fieldConfigContainer) return;
 
                 fieldConfigContainer.innerHTML = ''; // Clear previous content
 
+                // --- Create Header Row ---
+                const headerRow = document.createElement('div');
+                headerRow.className = 'd-flex align-items-center mb-2 p-2 border-bottom fw-bold text-muted small';
+                
+                const headers = [
+                    { key: 'name', text: 'Field name', width: '150px', align: 'start', extraClasses: 'me-3' }, 
+                    { key: 'count', text: 'Occured', width: '80px', align: 'end', extraClasses: 'me-3 text-end' }, // Updated text and width
+                    { key: 'descriptor', text: 'Data descriptor', width: 'auto', align: 'start', extraClasses: 'flex-grow-1 me-3' }, 
+                    { key: 'enabled', text: 'Included', width: '70px', align: 'center', extraClasses: 'text-center' } 
+                ];
+
+                headers.forEach(headerInfo => {
+                    const headerEl = document.createElement('div');
+                    headerEl.textContent = headerInfo.text;
+                    headerEl.style.minWidth = headerInfo.width;
+                    if (headerInfo.width === 'auto') {
+                        headerEl.classList.add('flex-grow-1');
+                    } else {
+                        headerEl.style.flexBasis = headerInfo.width; // Use flex-basis for better control
+                        headerEl.style.flexShrink = '0';
+                    }
+                     headerEl.className += ` ${headerInfo.extraClasses || ''}`;
+                    headerEl.dataset.sortKey = headerInfo.key;
+                    headerEl.style.cursor = 'pointer';
+                    headerEl.title = `Sort by ${headerInfo.text}`; // Update title text
+
+                    // Add sort indicator space
+                    const sortIndicator = document.createElement('span');
+                    sortIndicator.className = 'sort-indicator ms-1'; // Add ms-1 for spacing
+                    headerEl.appendChild(sortIndicator);
+
+                    headerEl.addEventListener('click', () => {
+                        const sortKey = headerEl.dataset.sortKey;
+                        if (currentSortKey === sortKey) {
+                            currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+                        } else {
+                            currentSortKey = sortKey;
+                            currentSortDirection = 'asc';
+                        }
+                        sortAndReRenderFields();
+                    });
+                    headerRow.appendChild(headerEl);
+                });
+
+                fieldConfigContainer.appendChild(headerRow);
+                updateSortIndicators(); // Initial indicator update
+                // --- End Header Row ---
+
                 if (!availableFields || availableFields.length === 0) {
-                    fieldConfigContainer.innerHTML = '<p class="text-muted small">Load data first to configure fields.</p>';
+                    // Append message *after* header if no data
+                    const noDataMsg = document.createElement('p');
+                    noDataMsg.className = 'text-muted small mt-2 ms-2'; // Added ms-2 for indent
+                    noDataMsg.textContent = 'Load data first to configure fields.';
+                    fieldConfigContainer.appendChild(noDataMsg);
                     return;
                 }
+                
+                // --- Render Data Rows (using a separate function now for clarity) ---
+                renderFieldDataRows(availableFields); 
+            }
 
-                availableFields.forEach(field => {
-                    // Make sure fieldEnabledStatus has an entry; default to true if it doesn't (should have been set in processLoadedData)
+            // --- NEW: Separate function to render just the data rows ---
+            function renderFieldDataRows(fieldsToRender) {
+                 // Clear only existing data rows (keep header)
+                 const existingRows = fieldConfigContainer.querySelectorAll('.field-data-row');
+                 existingRows.forEach(row => row.remove());
+
+                 fieldsToRender.forEach(field => {
+                    const metadata = fieldMetadata[field] || {}; // Get metadata or empty obj
                     const isEnabled = fieldEnabledStatus.hasOwnProperty(field) ? fieldEnabledStatus[field] : true;
-                    const currentWeight = fieldWeights[field] !== undefined ? fieldWeights[field] : 100; // Default 100
+                    const existingCount = metadata.existingValueCount !== undefined ? metadata.existingValueCount : null; // Use null for sorting
+                    const descriptorText = getFieldDescriptor(field);
 
                     const row = document.createElement('div');
-                    row.className = 'd-flex align-items-center mb-2 p-2 border-bottom'; // Row styling
+                    // Add specific class for data rows
+                    row.className = 'd-flex align-items-center mb-2 p-2 border-bottom field-data-row'; 
+                    row.dataset.fieldName = field; 
                     if (!isEnabled) {
-                        row.style.opacity = '0.6'; // Dim disabled fields
+                        row.style.opacity = '0.6'; 
                     }
 
-                    // Field Name Label
-                    const label = document.createElement('label');
-                    label.textContent = field;
-                    label.className = 'me-auto fw-bold'; // Push others right, make bold
-                    label.style.minWidth = '150px'; // Give label some space
-                    label.title = field; // Show full name on hover if needed
+                    // Create elements with matching widths/alignment from header config
+                    // 1. Name
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = field;
+                    nameSpan.className = 'fw-bold me-3'; // Match header spacing
+                    nameSpan.style.minWidth = '150px';
+                    nameSpan.style.flexBasis = '150px';
+                    nameSpan.style.flexShrink = '0';
+                    nameSpan.title = field; 
+                    row.appendChild(nameSpan);
 
-                    // Enabled Checkbox
+                    // 2. Count
+                    const countSpan = document.createElement('span');
+                    // Handle null count appropriately for display
+                    countSpan.textContent = (metadata.type === 'empty' || existingCount === null) ? '-' : existingCount;
+                    countSpan.className = 'small text-muted text-end me-3'; // Match header spacing & align
+                    countSpan.style.minWidth = '70px'; 
+                    countSpan.style.flexBasis = '70px';
+                    countSpan.style.flexShrink = '0';
+                    row.appendChild(countSpan);
+
+                    // 3. Descriptor
+                    const descriptorSpan = document.createElement('span');
+                    descriptorSpan.textContent = descriptorText;
+                    descriptorSpan.className = 'small text-muted flex-grow-1 me-3'; // Match header spacing 
+                    row.appendChild(descriptorSpan);
+                    
+                    // 4. Enabled Checkbox
                     const enabledWrapper = document.createElement('div');
-                    enabledWrapper.className = 'form-check form-switch me-3';
+                    // Center checkbox within its allocated space
+                    enabledWrapper.className = 'form-check form-switch d-flex justify-content-center'; 
+                    enabledWrapper.style.minWidth = '70px'; 
+                    enabledWrapper.style.flexBasis = '70px';
+                    enabledWrapper.style.flexShrink = '0';
                     const enabledCheckbox = document.createElement('input');
                     enabledCheckbox.type = 'checkbox';
                     enabledCheckbox.className = 'form-check-input';
                     enabledCheckbox.checked = isEnabled;
-                    enabledCheckbox.id = `enable-${field.replace(/\W/g, '_')}`; // Create safe ID
+                    enabledCheckbox.id = `enable-${field.replace(/\W/g, '_')}`;
                     enabledCheckbox.title = isEnabled ? 'Disable this field' : 'Enable this field';
                     enabledCheckbox.addEventListener('change', (e) => {
                         const newStatus = e.target.checked;
                         fieldEnabledStatus[field] = newStatus;
                         saveEnabledStatusToStorage();
-                        // Dim/undim row immediately
                         row.style.opacity = newStatus ? '1' : '0.6';
-                        // Update weight input disabled state
-                        const weightInput = row.querySelector('input[type="number"]');
-                        if (weightInput) weightInput.disabled = !newStatus;
-                        // Re-render filters as available fields changed
+                        // Re-rendering the whole table is complex due to sorting, 
+                        // so we just update opacity here. Filters will use updated status.
+                        // Consider a full re-sort/re-render if needed after toggle?
                         renderFilterUI();
-                        // Re-apply filters immediately to reflect enabled/disabled fields in output
                         applyFilters();
                     });
                     enabledWrapper.appendChild(enabledCheckbox);
-                    const enabledLabel = document.createElement('label'); // Optional label for switch
-                    enabledLabel.className = 'form-check-label small';
-                    enabledLabel.htmlFor = enabledCheckbox.id;
-                    enabledLabel.textContent = 'Enabled';
-                    enabledWrapper.appendChild(enabledLabel);
-
-                    // Weight Input
-                    const weightWrapper = document.createElement('div');
-                    weightWrapper.className = 'd-flex align-items-center';
-                    const weightInput = document.createElement('input');
-                    weightInput.type = 'number';
-                    weightInput.min = 0;
-                    weightInput.max = 100;
-                    weightInput.step = 1;
-                    weightInput.className = 'form-control form-control-sm';
-                    weightInput.style.width = '80px'; // Fixed width for weight input
-                    weightInput.value = currentWeight;
-                    weightInput.title = `Weight for ${field} (0-100)`;
-                    weightInput.disabled = !isEnabled; // Disable weight if field is disabled
-                    weightInput.addEventListener('input', (e) => {
-                        let weight = parseInt(e.target.value, 10);
-                        if (isNaN(weight)) {
-                             weight = 100; // Default if invalid input
-                        } else {
-                             weight = Math.max(0, Math.min(100, weight)); // Clamp value
-                        }
-                        fieldWeights[field] = weight;
-                        // Save immediately on input change? Or add a save button?
-                        // Saving immediately for simplicity now.
-                        saveWeightsToStorage();
-                        // Update the input value in case it was clamped
-                        e.target.value = weight;
-                    });
-                    weightWrapper.appendChild(weightInput);
-                    const weightLabel = document.createElement('span');
-                    weightLabel.className = 'ms-1 small';
-                    weightLabel.textContent = '%';
-                    weightWrapper.appendChild(weightLabel);
-
-                    // Append elements to row
-                    row.appendChild(label);
                     row.appendChild(enabledWrapper);
-                    row.appendChild(weightWrapper);
 
                     fieldConfigContainer.appendChild(row);
                 });
             }
+            // --- END NEW Data Row Render Function ---
+
+            // --- NEW: Sort and Re-render Function ---
+            function sortAndReRenderFields() {
+                if (!availableFields || availableFields.length === 0) return; // No fields to sort
+
+                const fieldsToSort = [...availableFields]; // Create a mutable copy
+
+                fieldsToSort.sort((a, b) => {
+                    const metaA = fieldMetadata[a] || {}; 
+                    const metaB = fieldMetadata[b] || {};
+                    let valA, valB;
+
+                    switch (currentSortKey) {
+                        case 'name':
+                            valA = a.toLowerCase();
+                            valB = b.toLowerCase();
+                            break;
+                        case 'count':
+                            // Treat empty/N/A as -1 for sorting purposes to put them first/last
+                            valA = metaA.existingValueCount !== undefined && metaA.type !== 'empty' ? metaA.existingValueCount : -1;
+                            valB = metaB.existingValueCount !== undefined && metaB.type !== 'empty' ? metaB.existingValueCount : -1;
+                            break;
+                        case 'descriptor':
+                            // Sort by the generated text descriptor
+                            valA = getFieldDescriptor(a).toLowerCase();
+                            valB = getFieldDescriptor(b).toLowerCase();
+                            break;
+                        case 'enabled':
+                            // Sort boolean true first (desc) or false first (asc)
+                            valA = fieldEnabledStatus.hasOwnProperty(a) ? fieldEnabledStatus[a] : true;
+                            valB = fieldEnabledStatus.hasOwnProperty(b) ? fieldEnabledStatus[b] : true;
+                            break;
+                        default:
+                            return 0; // No sort
+                    }
+
+                    let comparison = 0;
+                    if (typeof valA === 'string' && typeof valB === 'string') {
+                        comparison = valA.localeCompare(valB);
+                    } else if (typeof valA === 'number' && typeof valB === 'number') {
+                        comparison = valA - valB;
+                    } else if (typeof valA === 'boolean' && typeof valB === 'boolean') {
+                        comparison = (valA === valB) ? 0 : (valA ? -1 : 1); // True first
+                    }
+
+                    return currentSortDirection === 'asc' ? comparison : comparison * -1;
+                });
+
+                // Re-render the rows in the sorted order
+                renderFieldDataRows(fieldsToSort);
+                updateSortIndicators(); // Update indicators after sort
+            }
+            // --- END NEW Sort Function ---
+
+            // --- NEW: Update Sort Indicators ---
+            function updateSortIndicators() {
+                const headers = fieldConfigContainer.querySelectorAll('[data-sort-key]');
+                headers.forEach(header => {
+                    const indicator = header.querySelector('.sort-indicator');
+                    if (!indicator) return;
+
+                    if (header.dataset.sortKey === currentSortKey) {
+                        indicator.innerHTML = currentSortDirection === 'asc' ? ' <i class="bi bi-sort-up"></i>' : ' <i class="bi bi-sort-down"></i>';
+                    } else {
+                        indicator.innerHTML = ''; // Clear other indicators
+                    }
+                });
+            }
+            // --- END NEW Sort Indicators --- 
 
             // --- Apply Filters Function (Preparation Tab) ---
             function applyFilters() {
@@ -2004,7 +2123,6 @@
                      fieldMetadata = {}; // Clear metadata if no data
                      // Keep loaded weights/enabled status? Or clear them?
                      // Let's keep them for now, in case user reloads data.
-                     // fieldWeights = {};
                      // fieldEnabledStatus = {};
                      console.log("No processed data loaded or data is empty.");
                      // Re-render empty UIs
@@ -2027,14 +2145,14 @@
 
                  // --- Calculate Metadata --- 
                  const newFieldMetadata = {};
-                 const MAX_UNIQUE_TEXT_VALUES = 100; // Limit for text dropdowns
+                 const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100; // Limit for text dropdowns
+
                  availableFields.forEach(field => {
-                    const values = [];
                     let numericCount = 0;
-                    let nonNullCount = 0;
+                    let existingValueCount = 0; // <<< Initialize counter for existing values
                     let min = Infinity;
                     let max = -Infinity;
-                    const uniqueTextValues = new Set();
+                    const allUniqueTextValues = new Set(); // <<< Use Set to get ALL unique text values
 
                     fullProcessedData.forEach(item => {
                         // --- Get value based on field (source vs processed_data) --- 
@@ -2048,49 +2166,55 @@
                         }
                         // --- End Get value ---
                         
-                        // Consider value valid if not null, undefined, or placeholder '-' or empty string
-                        if (value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-') {
-                             values.push(value);
-                             nonNullCount++;
+                        // Check if the value exists and is not null/undefined/empty string/placeholder '-'
+                        const valueExists = value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-';
+                        
+                        if (valueExists) {
+                             existingValueCount++; // <<< Increment count if value exists
                              const num = Number(value);
                              if (!isNaN(num)) {
                                  numericCount++;
                                  if (num < min) min = num;
                                  if (num > max) max = num;
                              } else {
-                                 // Collect unique non-numeric strings (up to a limit)
-                                 if (uniqueTextValues.size < MAX_UNIQUE_TEXT_VALUES) {
-                                      uniqueTextValues.add(String(value)); // Store as string
-                                 }
+                                 // Collect ALL unique non-numeric strings
+                                 allUniqueTextValues.add(String(value)); // Store as string
                              }
                         }
                     });
 
-                    if (nonNullCount === 0) {
-                        newFieldMetadata[field] = { type: 'empty' }; // Field exists but no valid values
-                    } else if (numericCount / nonNullCount >= 0.8) { // Heuristic: >= 80% numeric?
-                        newFieldMetadata[field] = { type: 'numeric', min: min === Infinity ? 'N/A' : min, max: max === -Infinity ? 'N/A' : max };
+                    // Determine field type and store metadata
+                    if (existingValueCount === 0) {
+                        newFieldMetadata[field] = { 
+                            type: 'empty', 
+                            existingValueCount: 0 
+                        }; // Field exists but no valid values
+                    } else if (numericCount / existingValueCount >= 0.8) { // Heuristic: >= 80% numeric?
+                        newFieldMetadata[field] = { 
+                            type: 'numeric', 
+                            min: min === Infinity ? 'N/A' : min, 
+                            max: max === -Infinity ? 'N/A' : max, 
+                            existingValueCount: existingValueCount 
+                        };
                     } else {
-                        // Only provide uniqueValues if the count is manageable and > 0
-                        const uniqueValuesArray = uniqueTextValues.size > 0 && uniqueTextValues.size <= MAX_UNIQUE_TEXT_VALUES
-                                                  ? [...uniqueTextValues].sort()
-                                                  : [];
-                        newFieldMetadata[field] = { type: 'text', uniqueValues: uniqueValuesArray };
+                        const totalUniqueCount = allUniqueTextValues.size; // <<< Get total unique count
+                        // Create the potentially truncated array for dropdowns
+                        const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
+                        
+                        newFieldMetadata[field] = { 
+                            type: 'text', 
+                            uniqueValues: uniqueValuesForDropdown, // For dropdowns
+                            totalUniqueCount: totalUniqueCount,   // Exact total unique count
+                            existingValueCount: existingValueCount 
+                        };
                     }
                  });
                  fieldMetadata = newFieldMetadata; // Update global metadata
                  console.log("Calculated field metadata:", fieldMetadata);
 
-                 // --- Initialize Weights & Enabled Status for New Fields ---
-                 let weightsChanged = false;
+                 // --- Initialize Enabled Status for New Fields --- 
                  let statusChanged = false;
                  availableFields.forEach(field => {
-                     // Default weight 100 if not present
-                     if (!(field in fieldWeights)) {
-                         fieldWeights[field] = 100;
-                         weightsChanged = true;
-                         console.log(`Initialized weight for new field '${field}' to 100.`);
-                     }
                      // Default enabled status true if not present
                      if (!(field in fieldEnabledStatus)) {
                          fieldEnabledStatus[field] = true;
@@ -2099,16 +2223,8 @@
                      }
                  });
 
-                 // Optional: Clean up weights/status for fields no longer present in the data
-                 // This prevents the config UI showing fields that don't exist in the current dataset
+                 // Optional: Clean up status for fields no longer present in the data
                  const currentAvailableSet = new Set(availableFields);
-                 Object.keys(fieldWeights).forEach(field => {
-                    if (!currentAvailableSet.has(field)) {
-                        console.log(`Removing stale weight config for field '${field}'.`);
-                        delete fieldWeights[field];
-                        weightsChanged = true;
-                    }
-                 });
                  Object.keys(fieldEnabledStatus).forEach(field => {
                      if (!currentAvailableSet.has(field)) {
                          console.log(`Removing stale enabled status for field '${field}'.`);
@@ -2118,10 +2234,9 @@
                  });
 
                  // Save if defaults were added or stale entries removed
-                 if (weightsChanged) saveWeightsToStorage();
                  if (statusChanged) saveEnabledStatusToStorage();
 
-                 // --- Re-render UIs ---
+                 // --- Re-render UIs --- 
                  renderFieldConfigUI(); // Render config first (populates fieldEnabledStatus)
                  renderFilterUI(); // Then render filters (uses fieldEnabledStatus)
                  populateReportFieldSelector(); // Populates BOTH X and Y now
@@ -2272,7 +2387,7 @@
             // --- Initial Page Load Logic ---
             console.log("Initial page load: Loading state from localStorage...");
             loadFiltersFromStorage();
-            loadWeightsFromStorage();
+            // loadWeightsFromStorage(); // REMOVED
             loadEnabledStatusFromStorage();
 
             // --- Register Chart.js Plugins --- 
@@ -2286,7 +2401,7 @@
 
             // Initial render based on loaded state (data is empty initially)
             renderFilterUI(); // Render Prep tab UI elements
-            renderFieldConfigUI();
+            renderFieldConfigUI(); // <<< ADD THIS CALL HERE
             // Optionally trigger the "Load Data from DB" automatically on page load?
             // processButton.click(); // Uncomment to auto-load data
             
