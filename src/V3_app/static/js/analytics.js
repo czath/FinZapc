@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     let availableFields = [];
     let fieldMetadata = {};
     let fieldEnabledStatus = {}; // {fieldName: true/false}
+    let fieldNumericFormats = {}; // <<< ADDED: {fieldName: format ('default', 'percent', 'million', 'billion', 'integer')}
     let uploadedTickers = []; // To store tickers from uploaded file
     let currentSortKey = 'name'; // Default sort
     let currentSortDirection = 'asc';
@@ -14,6 +15,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     const FILTER_STORAGE_KEY = 'analyticsAnalyticsFilters';
     // const WEIGHT_STORAGE_KEY = 'analyticsAnalyticsFieldWeights'; // REMOVED
     const FIELD_ENABLED_STORAGE_KEY = 'analyticsAnalyticsFieldEnabled'; // New key
+    const FIELD_NUMERIC_FORMAT_STORAGE_KEY = 'analyticsNumericFieldFormats'; // <<< ADDED
     const TEXT_FILTER_DROPDOWN_THRESHOLD = 30; // <<< ADD THIS CONSTANT
 
     // --- Element References ---
@@ -462,6 +464,38 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
          }
     }
 
+    // --- NEW: Storage for Numeric Formats ---
+    function loadNumericFormatsFromStorage() {
+        console.log("Loading numeric formats from localStorage...");
+        const savedFormats = localStorage.getItem(FIELD_NUMERIC_FORMAT_STORAGE_KEY);
+        if (savedFormats) {
+            try {
+                fieldNumericFormats = JSON.parse(savedFormats);
+                if (typeof fieldNumericFormats !== 'object' || fieldNumericFormats === null || Array.isArray(fieldNumericFormats)) {
+                    fieldNumericFormats = {}; // Reset if not valid object
+                }
+                console.log("Loaded numeric formats:", fieldNumericFormats);
+            } catch (e) {
+                console.error("Error parsing saved numeric formats:", e);
+                fieldNumericFormats = {};
+                localStorage.removeItem(FIELD_NUMERIC_FORMAT_STORAGE_KEY);
+            }
+        } else {
+            fieldNumericFormats = {}; // Initialize empty if nothing saved
+            console.log("No saved numeric formats found.");
+        }
+    }
+
+    function saveNumericFormatsToStorage() {
+        console.log("Saving numeric formats to localStorage:", fieldNumericFormats);
+        try {
+            localStorage.setItem(FIELD_NUMERIC_FORMAT_STORAGE_KEY, JSON.stringify(fieldNumericFormats));
+        } catch (e) {
+            console.error("Error saving numeric formats to localStorage:", e);
+        }
+    }
+    // --- END NEW: Storage for Numeric Formats ---
+
     // --- NEW: Helper Function to Get Field Descriptor String ---
     function getFieldDescriptor(fieldName) {
         const metadata = fieldMetadata[fieldName];
@@ -476,8 +510,12 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             case 'numeric':
                 const min = metadata.min !== undefined ? metadata.min : 'N/A';
                 const max = metadata.max !== undefined ? metadata.max : 'N/A';
+                // <<< NEW: Get format and apply it >>>
+                const format = fieldNumericFormats[fieldName] || 'default';
+                const formattedMin = formatNumericValue(min, format);
+                const formattedMax = formatNumericValue(max, format);
                 // const numericCountDisplay = typeof count === 'number' ? `(${count} records)` : '(count N/A)'; // REMOVED count display
-                return `Numeric, Min: ${min} to Max: ${max}`;
+                return `Numeric, Min: ${formattedMin} to Max: ${formattedMax}`;
             case 'text':
                 const uniqueCount = metadata.totalUniqueCount !== undefined ? metadata.totalUniqueCount : 'N/A';
                 // const textCountDisplay = typeof count === 'number' ? `(${count} records)` : '(count N/A)'; // REMOVED count display
@@ -510,13 +548,106 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     }
     // --- END NEW Helper Function ---
 
+    // --- NEW: Helper Function to Format Numeric Values ---
+    function formatNumericValue(rawValue, format = 'default') {
+        if (rawValue === null || rawValue === undefined || String(rawValue).trim() === '' || String(rawValue).trim() === '-') {
+            return 'N/A'; // Or return rawValue if preferred for N/A cases
+        }
+
+        const num = Number(rawValue);
+        if (isNaN(num)) {
+            return String(rawValue); // Return original if not a number
+        }
+
+        let formattedValue;
+
+        switch (format) {
+            case 'percent':
+                // Multiply by 100 for percentage display
+                formattedValue = (num * 100).toFixed(2) + '%'; 
+                break;
+            case 'million':
+                formattedValue = (num / 1_000_000).toFixed(2) + 'M';
+                break;
+            case 'billion':
+                formattedValue = (num / 1_000_000_000).toFixed(2) + 'B';
+                break;
+            case 'integer': // NEW: Integer format
+                formattedValue = Math.round(num).toString(); // Round to nearest integer
+                break;
+            case 'raw': // NEW: Raw format
+                formattedValue = String(num); // No rounding or suffix
+                break;
+            case 'default':
+            default:
+                formattedValue = num.toFixed(2);
+                break;
+        }
+
+        return formattedValue;
+    }
+    // --- END NEW Formatting Helper ---
+
+    // --- NEW: Helper Function to Parse Formatted Input to Raw Value ---
+    function parseFormattedValue(inputValue, format = 'default') {
+        const valueStr = String(inputValue).trim();
+        if (valueStr === '') {
+            return null; // Treat empty input as null or undefined?
+        }
+
+        const num = Number(valueStr);
+        if (isNaN(num)) {
+            // Consider handling suffixes like M, B, % directly? For now, assume user enters plain number.
+            console.warn(`[parseFormattedValue] Input '${valueStr}' is not a valid number.`);
+            return NaN; // Indicate parsing failure 
+        }
+
+        let rawValue;
+        switch (format) {
+            case 'percent':
+                // Convert percentage input back to decimal
+                rawValue = num / 100;
+                break;
+            case 'million':
+                // Convert million input back to raw number
+                rawValue = num * 1_000_000;
+                break;
+            case 'billion':
+                // Convert billion input back to raw number
+                rawValue = num * 1_000_000_000;
+                break;
+            case 'integer':
+            case 'default':
+            case 'raw':
+            default:
+                // No conversion needed for these formats
+                rawValue = num;
+                break;
+        }
+
+        console.log(`[parseFormattedValue] Input: ${inputValue}, Format: ${format}, Parsed Raw: ${rawValue}`);
+        return rawValue;
+    }
+    // --- END NEW Parsing Helper ---
+
     // --- Helper to update value input based on field metadata (Preparation Tab) ---
     function updateValueInputUI(index, fieldName, inputWrapper, hintSpan) {
         const metadata = fieldMetadata[fieldName];
         inputWrapper.innerHTML = ''; // Clear previous input/select
         
-        // --- Update hint text using the new descriptor function --- 
-        hintSpan.textContent = fieldName ? getFieldDescriptor(fieldName) : ''; // Get descriptor or clear if no field
+        // --- Update hint text using the new descriptor function (which now includes formatting) --- 
+        let hintText = fieldName ? getFieldDescriptor(fieldName) : '';
+        // Append the input scale guidance if applicable
+        if (fieldNumericFormats[fieldName] || 'default') {
+            const format = fieldNumericFormats[fieldName] || 'default';
+            switch (format) {
+                case 'percent': hintText += ' (Enter % value, e.g., 5 for 5%)'; break;
+                case 'million': hintText += ' (Enter value in Millions, e.g., 1.5 for 1.5M)'; break;
+                case 'billion': hintText += ' (Enter value in Billions, e.g., 2.1 for 2.1B)'; break;
+                // No specific suffix needed for default, integer, raw
+            }
+        }
+        hintSpan.textContent = hintText;
         // --- End update hint text ---
         
         let currentInput = null;
@@ -573,8 +704,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             input.value = initialValue;
 
             // Set input type based on metadata (hint is set above)
+            // No change needed here, hint updated above covers numeric range display
             if (metadata && metadata.type === 'numeric') {
-                // hintSpan.textContent = `(Range: ${metadata.min} - ${metadata.max})`; // REMOVED
                 input.type = 'number';
                 input.step = 'any';
             } else {
@@ -801,7 +932,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         const headers = [
             { key: 'name', text: 'Field name', width: '150px', align: 'start', extraClasses: 'me-3' }, 
             { key: 'count', text: 'Occured', width: '80px', align: 'end', extraClasses: 'me-3 text-end' }, // Updated text and width
-            { key: 'descriptor', text: 'Data descriptor', width: 'auto', align: 'start', extraClasses: 'flex-grow-1 me-3' }, 
+            { key: 'descriptor', text: 'Data descriptor', width: 'auto', align: 'start', extraClasses: 'flex-grow-1 me-3' },
+            { key: 'format', text: 'Format', width: '140px', align: 'start', extraClasses: 'me-3' }, // <<< Increased width
             { key: 'enabled', text: 'Included', width: '70px', align: 'center', extraClasses: 'text-center' } 
         ];
 
@@ -902,7 +1034,58 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             descriptorSpan.className = 'small text-muted flex-grow-1 me-3'; // Match header spacing 
             row.appendChild(descriptorSpan);
             
-            // 4. Enabled Checkbox
+            // 4. Format Dropdown (for numeric fields)
+            const formatWrapper = document.createElement('div');
+            formatWrapper.className = 'me-3'; // Match header spacing
+            formatWrapper.style.minWidth = '140px'; // Match increased header width
+            formatWrapper.style.flexBasis = '140px';
+            formatWrapper.style.flexShrink = '0';
+            
+            if (metadata.type === 'numeric') {
+                const formatSelect = document.createElement('select');
+                formatSelect.className = 'form-select form-select-sm';
+                formatSelect.title = 'Select numeric format';
+                
+                const formats = [ // Updated text labels
+                    { value: 'raw',     text: 'raw data' },
+                    { value: 'integer', text: 'integer' },
+                    { value: 'default', text: 'decimal' }, // Changed from 'Default (1.23)'
+                    { value: 'percent', text: 'in %' },      // Changed from 'Percent (1.23%)'
+                    { value: 'million', text: 'in Millions' },// Changed from 'Millions (1.23M)'
+                    { value: 'billion', text: 'in Billions' } // Changed from 'Billions (1.23B)'
+                ];
+
+                formats.forEach(fmt => {
+                    const option = document.createElement('option');
+                    option.value = fmt.value;
+                    option.textContent = fmt.text;
+                    if (fieldNumericFormats[field] === fmt.value) {
+                        option.selected = true;
+                    }
+                    formatSelect.appendChild(option);
+                });
+
+                formatSelect.addEventListener('change', (e) => {
+                    const newFormat = e.target.value;
+                    fieldNumericFormats[field] = newFormat;
+                    saveNumericFormatsToStorage();
+                    
+                    // Re-render the descriptor span for this row only
+                    const updatedDescriptorText = getFieldDescriptor(field);
+                    descriptorSpan.textContent = updatedDescriptorText;
+                    // Also re-render chart if needed? Or wait for filter/apply? Let's wait.
+                    console.log(`Format for field '${field}' changed to '${newFormat}'. Descriptor updated.`);
+                });
+
+                formatWrapper.appendChild(formatSelect);
+            } else {
+                 // Optional: Add a placeholder or leave empty for non-numeric fields
+                 formatWrapper.textContent = '-'; // Placeholder
+                 formatWrapper.classList.add('text-muted', 'text-center');
+            }
+            row.appendChild(formatWrapper); // Add format selector/placeholder
+
+            // 5. Enabled Checkbox (was 4)
             const enabledWrapper = document.createElement('div');
             // Center checkbox within its allocated space
             enabledWrapper.className = 'form-check form-switch d-flex justify-content-center'; 
@@ -1099,16 +1282,33 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                      // Attempt Numeric Comparison first if both seem numeric
                      if (!isNaN(itemNum) && !isNaN(filterNum)) {
                         numericComparisonDone = true;
-                        switch (operator) {
-                            case '=': if (!(itemNum === filterNum)) return false; break;
-                            case '>': if (!(itemNum > filterNum)) return false; break;
-                            case '<': if (!(itemNum < filterNum)) return false; break;
-                            case '>=': if (!(itemNum >= filterNum)) return false; break;
-                            case '<=': if (!(itemNum <= filterNum)) return false; break;
-                            case '!=': if (!(itemNum !== filterNum)) return false; break;
-                            default: numericComparisonDone = false; // Operator not numeric
-                        }
-                     } else {
+                        // <<< NEW: Get format and parse filter value if needed >>>
+                        let parsedFilterNum = filterNum; // Default to original if no format or parsing fails
+                        const format = fieldNumericFormats[filter.field] || 'default';
+                        // Apply parsing only if a conversion format is active
+                        if (['percent', 'million', 'billion'].includes(format)) {
+                            const parsedVal = parseFormattedValue(filterValueStr, format);
+                            if (!isNaN(parsedVal)) {
+                                parsedFilterNum = parsedVal; // Use parsed value for comparison
+                            } else {
+                                // Handle parsing failure - maybe skip filter?
+                                console.warn(`Filter skipped: Could not parse filter value '${filterValueStr}' for field '${filter.field}' with format '${format}'.`);
+                                return false; // Fail the item if filter value is invalid for the format
+                            }
+                        } // else: no parsing needed for default/raw/integer
+                        // <<< END NEW >>>
+
+                         switch (operator) {
+                             // Compare itemNum (raw) against parsedFilterNum (raw equivalent of user input)
+                             case '=': if (!(itemNum === parsedFilterNum)) return false; break;
+                             case '>': if (!(itemNum > parsedFilterNum)) return false; break;
+                             case '<': if (!(itemNum < parsedFilterNum)) return false; break;
+                             case '>=': if (!(itemNum >= parsedFilterNum)) return false; break;
+                             case '<=': if (!(itemNum <= parsedFilterNum)) return false; break;
+                             case '!=': if (!(itemNum !== parsedFilterNum)) return false; break;
+                             default: numericComparisonDone = false; // Operator not numeric
+                         }
+                      } else {
                          // If we intended a numeric comparison but failed, should we fail the filter?
                          // E.g., user enters '>' but value is 'N/A'
                          if (['>', '<', '>=', '<='].includes(operator)) {
@@ -1713,6 +1913,15 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                 scales: {
                     x: xAxisConfig, // Use the defined X-axis config
                     y: {
+                        // <<< Apply formatting to Y-axis ticks >>>
+                        ticks: {
+                            callback: function(value, index, ticks) {
+                                // Get format for the Y field
+                                const yField = reportFieldSelector.value;
+                                const format = (yField && fieldNumericFormats[yField]) ? fieldNumericFormats[yField] : 'default';
+                                return formatNumericValue(value, format);
+                            }
+                        },
                         title: {
                             display: true,
                             text: selectedYField // Y-axis label is the selected Y field
@@ -1735,8 +1944,13 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                                 if (chartType === 'bar') {
                                     // Bar chart: X is category (label), Y is value
                                     labelLines.push(`Ticker: ${context.label || 'N/A'}`); // Ticker is the category label
-                                    labelLines.push(`${context.dataset.label || 'Value'}: ${context.parsed.y}`); // Y value
-
+                                    //labelLines.push(`${context.dataset.label || 'Value'}: ${context.parsed.y}`); // Y value
+                                    // <<< Format Y value for bar chart tooltip >>>
+                                    const yField = reportFieldSelector.value;
+                                    const yFormat = (yField && fieldNumericFormats[yField]) ? fieldNumericFormats[yField] : 'default';
+                                    const formattedY = formatNumericValue(context.parsed.y, yFormat);
+                                    labelLines.push(`${yField || 'Value'}: ${formattedY} (Raw: ${context.parsed.y})`);
+ 
                                     // Add color field info for bar charts (find original item)
                                     if (colorField) {
                                         const dataIndex = context.dataIndex;
@@ -1758,9 +1972,16 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                                     }
                                     // Use selected field names for axes labels or default
                                     const xLabel = useIndexAsX ? 'Index' : selectedXField;
-                                    const xValueDisplay = useIndexAsX ? pointData.x : `${pointData.x} ${pointData.originalX != pointData.x ? '('+pointData.originalX+')' : ''}`;
-                                    labelLines.push(`${xLabel}: ${xValueDisplay}`);
-                                    labelLines.push(`${selectedYField}: ${pointData.y} ${pointData.originalY != pointData.y ? '('+pointData.originalY+')' : ''}`);
+                                    //const xValueDisplay = useIndexAsX ? pointData.x : `${pointData.x} ${pointData.originalX != pointData.x ? '('+pointData.originalX+')' : ''}`;
+                                    // <<< Format X and Y values for scatter/line/bubble tooltip >>>
+                                    const xFormat = (selectedXField && fieldNumericFormats[selectedXField]) ? fieldNumericFormats[selectedXField] : 'default';
+                                    const yFormatTooltip = (selectedYField && fieldNumericFormats[selectedYField]) ? fieldNumericFormats[selectedYField] : 'default';
+                                    
+                                    const formattedX = useIndexAsX ? pointData.x : formatNumericValue(pointData.x, xFormat); 
+                                    const formattedYTooltip = formatNumericValue(pointData.y, yFormatTooltip);
+
+                                    labelLines.push(`${xLabel}: ${formattedX} ${!useIndexAsX && pointData.originalX != pointData.x ? '(Raw: '+pointData.originalX+')' : ''}`);
+                                    labelLines.push(`${selectedYField}: ${formattedYTooltip} ${pointData.originalY != pointData.y ? '(Raw: '+pointData.originalY+')' : ''}`);
 
                                     // Add color field info if available
                                     if (colorField && pointData.colorValue !== null && pointData.colorValue !== undefined) {
@@ -1769,7 +1990,11 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
                                     // Add size field info for bubble charts
                                     if (chartType === 'bubble' && sizeField && pointData.originalSize !== null && pointData.originalSize !== undefined) {
-                                        labelLines.push(`${sizeField} (Size): ${pointData.originalSize}`);
+                                        //labelLines.push(`${sizeField} (Size): ${pointData.originalSize}`);
+                                        // <<< Format Size value for bubble tooltip >>>
+                                        const sizeFormat = fieldNumericFormats[sizeField] || 'default';
+                                        const formattedSize = formatNumericValue(pointData.originalSize, sizeFormat);
+                                        labelLines.push(`${sizeField} (Size): ${formattedSize} (Raw: ${pointData.originalSize})`);
                                     }
                                 } else {
                                      // Fallback if pointData isn't available (shouldn't happen often)
@@ -1950,6 +2175,35 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
          // Save if defaults were added or stale entries removed
          if (statusChanged) saveEnabledStatusToStorage();
 
+         // --- Initialize Numeric Format Status for New Numeric Fields --- 
+         let formatStatusChanged = false;
+         availableFields.forEach(field => {
+             const meta = fieldMetadata[field] || {};
+             // Only apply to numeric fields
+             if (meta.type === 'numeric') {
+                 // Default format is 'default' if not present
+                 if (!(field in fieldNumericFormats)) {
+                     fieldNumericFormats[field] = 'default'; 
+                     formatStatusChanged = true;
+                     console.log(`Initialized numeric format for new field '${field}' to 'default'.`);
+                 }
+             }
+         });
+
+         // Optional: Clean up formats for fields no longer numeric or present
+         const currentNumericFields = new Set(availableFields.filter(f => (fieldMetadata[f] || {}).type === 'numeric'));
+         Object.keys(fieldNumericFormats).forEach(field => {
+             if (!currentNumericFields.has(field)) {
+                 console.log(`Removing stale numeric format for field '${field}'.`);
+                 delete fieldNumericFormats[field];
+                 formatStatusChanged = true;
+             }
+         });
+
+         // Save if defaults were added or stale entries removed
+         if (formatStatusChanged) saveNumericFormatsToStorage();
+         // --- End Initialize Numeric Format Status ---
+
          // --- Re-render UIs --- 
          renderFieldConfigUI(); // Render config first (populates fieldEnabledStatus)
          renderFilterUI(); // Then render filters (uses fieldEnabledStatus)
@@ -2103,6 +2357,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     loadFiltersFromStorage();
     // loadWeightsFromStorage(); // REMOVED
     loadEnabledStatusFromStorage();
+    loadNumericFormatsFromStorage(); // <<< ADD THIS CALL HERE
 
     // --- Register Chart.js Plugins --- 
     if (window.ChartZoom) { // Check if plugin loaded
