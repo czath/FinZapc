@@ -9,6 +9,9 @@
     {# --- Add Zoom Plugin CDN --- #}
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     {# --- End Chart.js CDN --- #}
+    {# --- DataTables CSS --- #}
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
+    {# --- End DataTables CSS --- #}
     <style>
         /* Style for filter rows */
         .filter-row {
@@ -154,17 +157,15 @@
             <div class="my-3 p-3 border rounded bg-body-tertiary">
                 <h6>Process, Filter & Configure Raw Analytics Data</h6>
 
-                {# Processing Button (outside sub-tabs) #}
-                <div class="mb-3 pb-3 border-bottom">
-                    <p class="small text-muted">Load and process all raw analytics data currently stored in the database.</p>
-                    <button id="process-analytics-data-btn" class="btn btn-secondary me-2">Load Data from DB</button>
-                    <span id="process-analytics-status" class="ms-2"></span> {# Status for the processing action #}
-                </div>
-
                 {# --- Sub-Tab Navigation for Prep Steps --- #}
                 <ul class="nav nav-tabs mt-3" id="prepStepsTabs" role="tablist">
+                    {# --- NEW: Load Data Sub-Tab Button --- #}
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link active" id="config-subtab" data-bs-toggle="tab" data-bs-target="#config-subtab-pane" type="button" role="tab" aria-controls="config-subtab-pane" aria-selected="true">Field Configuration</button>
+                        <button class="nav-link active" id="load-data-subtab" data-bs-toggle="tab" data-bs-target="#load-data-subtab-pane" type="button" role="tab" aria-controls="load-data-subtab-pane" aria-selected="true">Load Data</button>
+                    </li>
+                    {# --- End Load Data Sub-Tab Button --- #}
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="config-subtab" data-bs-toggle="tab" data-bs-target="#config-subtab-pane" type="button" role="tab" aria-controls="config-subtab-pane" aria-selected="false">Field Configuration</button> {# Removed active, set aria-selected false #}
                     </li>
                     <li class="nav-item" role="presentation">
                         <button class="nav-link" id="filter-subtab" data-bs-toggle="tab" data-bs-target="#filter-subtab-pane" type="button" role="tab" aria-controls="filter-subtab-pane" aria-selected="false">Filters & Output</button>
@@ -175,8 +176,18 @@
                 {# --- Sub-Tab Content --- #}
                 <div class="tab-content pt-3" id="prepStepsTabsContent">
 
+                    {# --- NEW: Load Data Sub-Tab Pane --- #}
+                    <div class="tab-pane fade show active" id="load-data-subtab-pane" role="tabpanel" aria-labelledby="load-data-subtab" tabindex="0">
+                        <h6>Load Data</h6>
+                        <p class="small text-muted">Load and process all raw analytics data currently stored in the database.</p>
+                        {# Moved Button and Status Here #}
+                        <button id="process-analytics-data-btn" class="btn btn-secondary me-2">Load Data from DB</button>
+                        <span id="process-analytics-status" class="ms-2"></span> {# Status for the processing action #}
+                    </div>
+                    {# --- End Load Data Sub-Tab Pane --- #}
+
                     {# --- Field Configuration Sub-Tab Pane --- #}
-                    <div class="tab-pane fade show active" id="config-subtab-pane" role="tabpanel" aria-labelledby="config-subtab" tabindex="0">
+                    <div class="tab-pane fade" id="config-subtab-pane" role="tabpanel" aria-labelledby="config-subtab" tabindex="0"> {# Removed show active #}
 
                         {# Container for Field Weights & Toggles #}
                         <div class="mb-3">
@@ -207,7 +218,25 @@
                         {# Display area for processed output #}
                         <div id="processed-analytics-output-container" class="mt-3">
                             <h6>Filtered Output:</h6> <span id="filter-results-count" class="ms-2 small text-muted"></span>
-                            <pre id="processed-analytics-output"></pre>
+                            <div class="table-responsive mt-2"> {# Make table horizontally scrollable on small screens #}
+                                <table id="output-table" class="table table-striped table-bordered table-sm compact display" style="width:100%">
+                                     <thead>
+                                         {# Table headers will be added dynamically by JS #}
+                                         <tr>
+                                             {# Placeholder - will be replaced #}
+                                             <th>Loading...</th>
+                                         </tr>
+                                     </thead>
+                                     <tbody>
+                                         {# Table body content will be added dynamically by JS #}
+                                         {# Add a placeholder row or message? #}
+                                         <tr>
+                                             <td class="text-center text-muted small">Apply filters to view data.</td>
+                                         </tr>
+                                     </tbody>
+                                </table>
+                            </div>
+                            {# --- End Table --- #}
                         </div>
 
                     </div>
@@ -229,7 +258,25 @@
             <h5>Data Transformation</h5>
             <p>Apply transformations, calculations, or feature engineering to the prepared data.</p>
             <div class="my-3 p-3 border rounded bg-body-tertiary">
-                <p class="text-muted"><i>(Transformation features will be added here later)</i></p>
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Define Transformations</h6>
+                        <div id="transformation-rules-container" class="mb-3" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--bs-border-color); padding: 10px; background-color: var(--bs-body-bg);">
+                            <p class="text-muted small">No transformations defined yet.</p>
+                            <!-- Transformation rules will be listed here -->
+                        </div>
+                        <button id="add-transformation-btn" class="btn btn-sm btn-outline-success me-2">+ Add Rule</button>
+                        <button id="apply-transformations-btn" class="btn btn-sm btn-primary">Apply Transformations</button>
+                        <span id="transform-status" class="ms-2 small text-muted"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Transformed Data Preview</h6>
+                        <pre id="transformed-data-output" style="max-height: 350px; overflow-y: auto; border: 1px solid var(--bs-border-color); padding: 10px; font-size: 0.8rem; background-color: var(--bs-body-bg); white-space: pre-wrap; word-wrap: break-word;"></pre>
+                    </div>
+                </div>
+
+                <!-- Modal Placeholder for defining a transformation (hidden initially) -->
+                <!-- TODO: Add modal structure later -->
             </div>
         </div>
         {# --- End Transform Tab Pane --- #}
@@ -310,12 +357,73 @@
     {# --- End Main Tab Content --- #}
 
     <!-- Add other analytics-specific content here later -->
+
+    {# --- Numeric Format Configuration Modal --- #}
+    <div class="modal fade" id="numericFormatModal" tabindex="-1" aria-labelledby="numericFormatModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="numericFormatModalLabel">Configure Format for <span id="format-field-name" class="fw-bold"></span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="format-current-field"> {# Store field name #}
+                    
+                    <div class="mb-3 row">
+                        <label for="format-decimals" class="col-sm-4 col-form-label col-form-label-sm">Decimals:</label>
+                        <div class="col-sm-8">
+                            <input type="number" class="form-control form-control-sm" id="format-decimals" min="0" step="1" placeholder="Auto">
+                            <div class="form-text form-text-sm">Leave blank for automatic decimal places.</div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3 row">
+                        <label for="format-prefix" class="col-sm-4 col-form-label col-form-label-sm">Prefix:</label>
+                        <div class="col-sm-8">
+                            <input type="text" class="form-control form-control-sm" id="format-prefix" placeholder="e.g., $">
+                        </div>
+                    </div>
+
+                    <div class="mb-3 row">
+                        <label for="format-suffix" class="col-sm-4 col-form-label col-form-label-sm">Suffix:</label>
+                        <div class="col-sm-8">
+                            <input type="text" class="form-control form-control-sm" id="format-suffix" placeholder="e.g., %, K, M">
+                        </div>
+                    </div>
+
+                    <div class="mb-3 row">
+                        <label class="col-sm-4 col-form-label col-form-label-sm">Separator:</label>
+                        <div class="col-sm-8">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="format-use-separator">
+                                <label class="form-check-label small" for="format-use-separator">Use thousands separator (e.g., 1,000)</label>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="save-format-btn">Save Format</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {# --- End Modal --- #}
+
 {% endblock %}
 
 {% block scripts %}
+    {# --- jQuery (must come before DataTables) --- #}
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    {# --- DataTables JS (including Bootstrap 5 integration) --- #}
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+
     {# Add any page-specific JavaScript here if needed later #}
     <!-- Original script block removed, content moved to /static/js/analytics.js -->
     <script src="/static/js/analytics.js"></script>
+    <script src="/static/js/analytics_transform.js"></script>
 {% endblock %}
 
 <!-- Popper.js -->

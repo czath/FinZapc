@@ -11,6 +11,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     let uploadedTickers = []; // To store tickers from uploaded file
     let currentSortKey = 'name'; // Default sort
     let currentSortDirection = 'asc';
+    let outputDataTable = null; // <<< ADDED: For DataTable instance
+    let lastAppliedHeaders = []; // <<< ADDED: To track changes for DataTable re-init
 
     const FILTER_STORAGE_KEY = 'analyticsAnalyticsFilters';
     // const WEIGHT_STORAGE_KEY = 'analyticsAnalyticsFieldWeights'; // REMOVED
@@ -21,16 +23,16 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // --- Element References ---
     // Import Tab
     const finvizButton = document.getElementById('run-finviz-btn');
-    const finvizStatus = document.getElementById('finviz-status');
+    // const finvizStatus = document.getElementById('finviz-status'); // REMOVE COMMENT, will be moved lower
     const dropZone = document.getElementById('drop-zone');
     const tickerFileInput = document.getElementById('ticker-file-input');
     const runFinvizUploadBtn = document.getElementById('run-finviz-upload-btn');
-    const finvizUploadStatus = document.getElementById('finviz-upload-status');
+    // const finvizUploadStatus = document.getElementById('finviz-upload-status'); // REMOVE COMMENT, will be moved lower
 
     // Preparation Tab
     const processButton = document.getElementById('process-analytics-data-btn');
-    const processStatus = document.getElementById('process-analytics-status');
-    const outputArea = document.getElementById('processed-analytics-output');
+    // const processStatus = document.getElementById('process-analytics-status'); // <<< MOVE DECLARATION LOWER
+    const outputArea = document.getElementById('processed-analytics-output'); // <<< Keep for now? applyFilters checks output-table
     const filterControlsContainer = document.getElementById('filter-controls-container');
     const addFilterBtn = document.getElementById('add-filter-btn');
     const applyFiltersBtn = document.getElementById('apply-filters-btn');
@@ -96,7 +98,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                         runFinvizUploadBtn.disabled = false;
                     }
                     
-                    finvizUploadStatus.textContent = '';
+                    // finvizUploadStatus.textContent = '';
                     console.log("Tickers from file:", uploadedTickers);
                 } else {
                     textSpan.textContent = `File: ${file.name} - No valid tickers found.`; // Use textContent
@@ -151,222 +153,237 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- Button Listeners (Import Tab) ---
     // 1. Fetch for Screened Tickers
-    if (finvizButton && finvizStatus) {
-        finvizButton.addEventListener('click', async function() {
-            // Disable both buttons and show spinner on the clicked one
-            showSpinner(finvizButton, runFinvizUploadBtn);
-            finvizStatus.textContent = 'Starting fetch job...';
-            finvizStatus.className = 'ms-2 text-info';
-            let eventSource = null; // Variable to hold EventSource connection
+    if (finvizButton) { // Simplified check, only button needed
+        // <<< Declare finvizStatus HERE >>>
+        const finvizStatus = document.getElementById('finviz-status');
+        if (!finvizStatus) {
+            console.error("Could not find finviz-status element (#finviz-status). Listener not attached."); // Updated message
+        } else {
+            finvizButton.addEventListener('click', async function() {
+                // Disable both buttons and show spinner on the clicked one
+                showSpinner(finvizButton, runFinvizUploadBtn);
+                finvizStatus.textContent = 'Starting fetch job...';
+                finvizStatus.className = 'ms-2 text-info';
+                let eventSource = null; // Variable to hold EventSource connection
 
-            try {
-                console.log("Calling /api/analytics/start-finviz-fetch-screener endpoint...");
-                const response = await fetch('/api/analytics/start-finviz-fetch-screener', {
-                    method: 'POST',
-                    headers: { 'Accept': 'application/json' }
-                });
-                const result = await response.json();
+                try {
+                    console.log("Calling /api/analytics/start-finviz-fetch-screener endpoint...");
+                    const response = await fetch('/api/analytics/start-finviz-fetch-screener', {
+                        method: 'POST',
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    const result = await response.json();
 
-                if (!response.ok) {
-                    const errorDetail = result.detail || `Fetch trigger failed with status ${response.status} - ${response.statusText}`;
-                    console.error("Error response from start-finviz-fetch-screener:", result);
-                    throw new Error(errorDetail);
-                }
+                    if (!response.ok) {
+                        const errorDetail = result.detail || `Fetch trigger failed with status ${response.status} - ${response.statusText}`;
+                        console.error("Error response from start-finviz-fetch-screener:", result);
+                        throw new Error(errorDetail);
+                    }
 
-                console.log("Fetch job triggered:", result);
+                    console.log("Fetch job triggered:", result);
 
-                // --- SSE Integration --- 
-                if (result.job_id) {
-                    console.log(`Received job_id: ${result.job_id}. Establishing SSE connection.`);
-                    finvizStatus.textContent = `${result.message || 'Fetch job triggered.'} Waiting for completion...`;
-                    finvizStatus.className = 'ms-2 text-info';
+                    // --- SSE Integration --- 
+                    if (result.job_id) {
+                        console.log(`Received job_id: ${result.job_id}. Establishing SSE connection.`);
+                        finvizStatus.textContent = `${result.message || 'Fetch job triggered.'} Waiting for completion...`;
+                        finvizStatus.className = 'ms-2 text-info';
 
-                    eventSource = new EventSource(`/api/analytics/stream-job-status/${result.job_id}`);
+                        eventSource = new EventSource(`/api/analytics/stream-job-status/${result.job_id}`);
 
-                    eventSource.onmessage = function(event) {
-                        console.log("SSE message received:", event.data);
-                        try {
-                            const data = JSON.parse(event.data);
-                            let isFinalStatus = false; // Flag to check if it's a terminal state
+                        eventSource.onmessage = function(event) {
+                            console.log("SSE message received:", event.data);
+                            try {
+                                const data = JSON.parse(event.data);
+                                let isFinalStatus = false; // Flag to check if it's a terminal state
 
-                            if (data.status === 'completed') {
-                                finvizStatus.textContent = data.message || 'Job completed successfully.';
-                                finvizStatus.className = 'ms-2 text-success';
-                                console.log("Job completed via SSE.");
-                                isFinalStatus = true;
-                            } else if (data.status === 'failed') {
-                                finvizStatus.textContent = `Error: ${data.message || 'Job failed.'}`;
-                                finvizStatus.className = 'ms-2 text-danger';
-                                console.error("Job failed via SSE:", data.message);
-                                isFinalStatus = true;
-                            } else if (data.status === 'partial_failure') { // <<< ADD HANDLING FOR PARTIAL FAILURE
-                                finvizStatus.textContent = data.message || 'Job completed with some failures.';
-                                finvizStatus.className = 'ms-2 text-warning'; // Use warning color
-                                console.warn("Job completed with partial failure via SSE:", data.message);
-                                isFinalStatus = true;
-                            } else {
-                                // Handle intermediate statuses if backend sends them
-                                finvizStatus.textContent = data.message || 'Job in progress...'; 
-                                finvizStatus.className = 'ms-2 text-info';
+                                if (data.status === 'completed') {
+                                    finvizStatus.textContent = data.message || 'Job completed successfully.';
+                                    finvizStatus.className = 'ms-2 text-success';
+                                    console.log("Job completed via SSE.");
+                                    isFinalStatus = true;
+                                } else if (data.status === 'failed') {
+                                    finvizStatus.textContent = `Error: ${data.message || 'Job failed.'}`;
+                                    finvizStatus.className = 'ms-2 text-danger';
+                                    console.error("Job failed via SSE:", data.message);
+                                    isFinalStatus = true;
+                                } else if (data.status === 'partial_failure') { // <<< ADD HANDLING FOR PARTIAL FAILURE
+                                    finvizStatus.textContent = data.message || 'Job completed with some failures.';
+                                    finvizStatus.className = 'ms-2 text-warning'; // Use warning color
+                                    console.warn("Job completed with partial failure via SSE:", data.message);
+                                    isFinalStatus = true;
+                                } else {
+                                    // Handle intermediate statuses if backend sends them
+                                    finvizStatus.textContent = data.message || 'Job in progress...';
+                                    finvizStatus.className = 'ms-2 text-info';
+                                }
+                                // Close connection and re-enable button on final status
+                                if (isFinalStatus) { // <<< Check the flag
+                                    eventSource.close();
+                                    console.log("SSE connection closed.");
+                                    // Re-enable both buttons (conditionally for upload button)
+                                    hideSpinner(finvizButton, runFinvizUploadBtn);
+                                }
+                            } catch (e) {
+                                console.error("Error parsing SSE message:", e);
+                                finvizStatus.textContent = 'Error processing status update.';
+                                finvizStatus.className = 'ms-2 text-warning';
+                                if (eventSource) eventSource.close(); // Close on parsing error
+                                hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
                             }
-                            // Close connection and re-enable button on final status
-                            if (isFinalStatus) { // <<< Check the flag
-                                eventSource.close();
-                                console.log("SSE connection closed.");
-                                // Re-enable both buttons (conditionally for upload button)
-                                hideSpinner(finvizButton, runFinvizUploadBtn);
+                        };
+
+                        eventSource.onerror = function(error) {
+                            console.error("SSE connection error:", error);
+                            // Update status only if it hasn't already shown completion/failure
+                            if (!finvizStatus.classList.contains('text-success') && !finvizStatus.classList.contains('text-danger')) {
+                                 finvizStatus.textContent = 'Error receiving status updates. Check console.';
+                                 finvizStatus.className = 'ms-2 text-warning';
                             }
-                        } catch (e) {
-                            console.error("Error parsing SSE message:", e);
-                            finvizStatus.textContent = 'Error processing status update.';
-                            finvizStatus.className = 'ms-2 text-warning';
-                            eventSource.close(); // Close on parsing error
+                            if (eventSource) eventSource.close(); // Ensure connection is closed
                             hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
-                        }
-                    };
+                        };
 
-                    eventSource.onerror = function(error) {
-                        console.error("SSE connection error:", error);
-                        // Update status only if it hasn't already shown completion/failure
-                        if (!finvizStatus.classList.contains('text-success') && !finvizStatus.classList.contains('text-danger')) {
-                             finvizStatus.textContent = 'Error receiving status updates. Check console.';
-                             finvizStatus.className = 'ms-2 text-warning';
-                        }
-                        eventSource.close(); // Ensure connection is closed
+                    } else {
+                        // If no job_id received, handle as before (show initial message)
+                        console.warn("No job_id received in response. Cannot track completion status.");
+                        finvizStatus.textContent = result.message || 'Fetch job triggered successfully.';
+                        finvizStatus.className = 'ms-2 text-success';
                         hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
-                    };
+                    }
+                    // --- End SSE Integration ---
 
-                } else {
-                    // If no job_id received, handle as before (show initial message)
-                    console.warn("No job_id received in response. Cannot track completion status.");
-                    finvizStatus.textContent = result.message || 'Fetch job triggered successfully.';
-                    finvizStatus.className = 'ms-2 text-success';
+                } catch (error) {
+                    console.error('Error triggering Finviz fetch for screened tickers:', error);
+                    finvizStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
+                    finvizStatus.className = 'ms-2 text-danger';
+                    if (eventSource) eventSource.close(); // Close SSE if open
                     hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
-                }
-                // --- End SSE Integration ---
-
-            } catch (error) {
-                console.error('Error triggering Finviz fetch for screened tickers:', error);
-                finvizStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
-                finvizStatus.className = 'ms-2 text-danger';
-                if (eventSource) eventSource.close(); // Close SSE if open
-                hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
-            } // No finally block needed as button re-enabled within logic
-        });
+                } // No finally block needed as button re-enabled within logic
+            });
+        } // <<< Closing brace for 'else' associated with 'if (!finvizStatus)'
+    } else {
+        // This else corresponds to if (finvizButton)
+        console.error("[DEBUG] Could not find finvizButton element (#run-finviz-btn). Listener not attached."); // Corrected error message
     }
 
     // 2. Fetch for Uploaded Tickers
-    if (runFinvizUploadBtn && finvizUploadStatus) {
-        runFinvizUploadBtn.addEventListener('click', async function() {
-            if (uploadedTickers.length === 0) {
-                finvizUploadStatus.textContent = 'No tickers loaded from file.';
-                finvizUploadStatus.className = 'ms-2 text-warning';
-                return;
-            }
-
-            // Disable both buttons and show spinner on the clicked one
-            showSpinner(runFinvizUploadBtn, finvizButton);
-            finvizUploadStatus.textContent = `Starting fetch job for ${uploadedTickers.length} tickers...`;
-            finvizUploadStatus.className = 'ms-2 text-info';
-            let eventSourceUpload = null; // Variable for this button's EventSource
-
-            try {
-                console.log("Calling endpoint /api/analytics/start-finviz-fetch-upload with tickers:", uploadedTickers);
-
-                const response = await fetch('/api/analytics/start-finviz-fetch-upload', { // <-- Use new endpoint
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify({ tickers: uploadedTickers }) // Send tickers in correct format
-                });
-                const result = await response.json();
-
-                if (!response.ok) {
-                    const errorDetail = result.detail || `Fetch trigger failed with status ${response.status} - ${response.statusText}`;
-                    console.error("Error response from start-finviz-fetch-upload:", result);
-                    throw new Error(errorDetail);
-                }
-                console.log("Fetch job triggered successfully:", result);
-
-                // --- SSE Integration for Upload --- 
-                if (result.job_id) {
-                     console.log(`Received job_id: ${result.job_id}. Establishing SSE connection for upload.`);
-                     finvizUploadStatus.textContent = `${result.message || 'Fetch job triggered.'} Waiting for completion...`;
-                     finvizUploadStatus.className = 'ms-2 text-info';
-
-                     eventSourceUpload = new EventSource(`/api/analytics/stream-job-status/${result.job_id}`);
-
-                     eventSourceUpload.onmessage = function(event) {
-                         console.log("SSE message received (upload):", event.data);
-                         try {
-                             const data = JSON.parse(event.data);
-                             let isFinalStatus = false; // Flag
-
-                             if (data.status === 'completed') {
-                                 finvizUploadStatus.textContent = data.message || 'Job completed successfully.';
-                                 finvizUploadStatus.className = 'ms-2 text-success';
-                                 console.log("Upload job completed via SSE.");
-                                 isFinalStatus = true;
-                             } else if (data.status === 'failed') {
-                                 finvizUploadStatus.textContent = `Error: ${data.message || 'Job failed.'}`;
-                                 finvizUploadStatus.className = 'ms-2 text-danger';
-                                 console.error("Upload job failed via SSE:", data.message);
-                                 isFinalStatus = true;
-                             } else if (data.status === 'partial_failure') { // <<< ADD HANDLING FOR PARTIAL FAILURE
-                                finvizUploadStatus.textContent = data.message || 'Job completed with some failures.';
-                                finvizUploadStatus.className = 'ms-2 text-warning'; // Use warning color
-                                console.warn("Upload job completed with partial failure via SSE:", data.message);
-                                isFinalStatus = true;
-                             } else {
-                                 finvizUploadStatus.textContent = data.message || 'Job in progress...'; 
-                                 finvizUploadStatus.className = 'ms-2 text-info';
-                             }
-                             // Close connection and re-enable button on final status
-                             if (isFinalStatus) { // <<< Check the flag
-                                 eventSourceUpload.close();
-                                 console.log("SSE connection closed (upload).");
-                                 // Re-enable both buttons (conditionally for upload button)
-                                 hideSpinner(runFinvizUploadBtn, finvizButton);
-                             }
-                         } catch (e) {
-                             console.error("Error parsing SSE message (upload):", e);
-                             finvizUploadStatus.textContent = 'Error processing status update.';
-                             finvizUploadStatus.className = 'ms-2 text-warning';
-                             eventSourceUpload.close(); // Close on error
-                             hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
-                         }
-                     };
-
-                     eventSourceUpload.onerror = function(error) {
-                         console.error("SSE connection error (upload):", error);
-                         // Update status only if it hasn't already shown completion/failure
-                         if (!finvizUploadStatus.classList.contains('text-success') && !finvizUploadStatus.classList.contains('text-danger')) {
-                             finvizUploadStatus.textContent = 'Error receiving status updates. Check console.';
-                             finvizUploadStatus.className = 'ms-2 text-warning';
-                         }
-                         eventSourceUpload.close(); // Ensure closed
-                         hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
-                     };
-
-                 } else {
-                     // If no job_id received, handle as before
-                     console.warn("No job_id received in upload response. Cannot track completion status.");
-                     finvizUploadStatus.textContent = result.message || 'Fetch job triggered successfully.';
-                     finvizUploadStatus.className = 'ms-2 text-success';
-                     hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+    if (runFinvizUploadBtn) { // Simplified check
+        // <<< Declare finvizUploadStatus HERE >>>
+        const finvizUploadStatus = document.getElementById('finviz-upload-status');
+        if (!finvizUploadStatus) {
+            console.error("Could not find finviz-upload-status element.");
+        } else {
+             runFinvizUploadBtn.addEventListener('click', async function() {
+                 if (uploadedTickers.length === 0) {
+                     finvizUploadStatus.textContent = 'No tickers loaded from file.';
+                     finvizUploadStatus.className = 'ms-2 text-warning';
+                     return;
                  }
-                 // --- End SSE Integration for Upload ---
 
-            } catch (error) {
-                console.error('Error triggering Finviz fetch for uploaded tickers:', error);
-                finvizUploadStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
-                finvizUploadStatus.className = 'ms-2 text-danger';
-                 if (eventSourceUpload) eventSourceUpload.close(); // Close SSE if open
-                 hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
-            } // No finally block needed
-        });
+                 // Disable both buttons and show spinner on the clicked one
+                 showSpinner(runFinvizUploadBtn, finvizButton);
+                 finvizUploadStatus.textContent = `Starting fetch job for ${uploadedTickers.length} tickers...`;
+                 finvizUploadStatus.className = 'ms-2 text-info';
+                 let eventSourceUpload = null; // Variable for this button's EventSource
+
+                 try {
+                     console.log("Calling endpoint /api/analytics/start-finviz-fetch-upload with tickers:", uploadedTickers);
+
+                     const response = await fetch('/api/analytics/start-finviz-fetch-upload', { // <-- Use new endpoint
+                         method: 'POST',
+                         headers: {
+                             'Content-Type': 'application/json',
+                             'Accept': 'application/json'
+                         },
+                         body: JSON.stringify({ tickers: uploadedTickers }) // Send tickers in correct format
+                     });
+                     const result = await response.json();
+
+                     if (!response.ok) {
+                         const errorDetail = result.detail || `Fetch trigger failed with status ${response.status} - ${response.statusText}`;
+                         console.error("Error response from start-finviz-fetch-upload:", result);
+                         throw new Error(errorDetail);
+                     }
+                     console.log("Fetch job triggered successfully:", result);
+
+                     // --- SSE Integration for Upload --- 
+                     if (result.job_id) {
+                          console.log(`Received job_id: ${result.job_id}. Establishing SSE connection for upload.`);
+                          finvizUploadStatus.textContent = `${result.message || 'Fetch job triggered.'} Waiting for completion...`;
+                          finvizUploadStatus.className = 'ms-2 text-info';
+
+                          eventSourceUpload = new EventSource(`/api/analytics/stream-job-status/${result.job_id}`);
+
+                          eventSourceUpload.onmessage = function(event) {
+                              console.log("SSE message received (upload):", event.data);
+                              try {
+                                  const data = JSON.parse(event.data);
+                                  let isFinalStatus = false; // Flag
+
+                                  if (data.status === 'completed') {
+                                      finvizUploadStatus.textContent = data.message || 'Job completed successfully.';
+                                      finvizUploadStatus.className = 'ms-2 text-success';
+                                      console.log("Upload job completed via SSE.");
+                                      isFinalStatus = true;
+                                  } else if (data.status === 'failed') {
+                                      finvizUploadStatus.textContent = `Error: ${data.message || 'Job failed.'}`;
+                                      finvizUploadStatus.className = 'ms-2 text-danger';
+                                      console.error("Upload job failed via SSE:", data.message);
+                                      isFinalStatus = true;
+                                  } else if (data.status === 'partial_failure') { // <<< ADD HANDLING FOR PARTIAL FAILURE
+                                     finvizUploadStatus.textContent = data.message || 'Job completed with some failures.';
+                                     finvizUploadStatus.className = 'ms-2 text-warning'; // Use warning color
+                                     console.warn("Upload job completed with partial failure via SSE:", data.message);
+                                     isFinalStatus = true;
+                                  } else {
+                                      finvizUploadStatus.textContent = data.message || 'Job in progress...'; 
+                                      finvizUploadStatus.className = 'ms-2 text-info';
+                                  }
+                                  // Close connection and re-enable button on final status
+                                  if (isFinalStatus) { // <<< Check the flag
+                                      eventSourceUpload.close();
+                                      console.log("SSE connection closed (upload).");
+                                      // Re-enable both buttons (conditionally for upload button)
+                                      hideSpinner(runFinvizUploadBtn, finvizButton);
+                                  }
+                              } catch (e) {
+                                  console.error("Error parsing SSE message (upload):", e);
+                                  finvizUploadStatus.textContent = 'Error processing status update.';
+                                  finvizUploadStatus.className = 'ms-2 text-warning';
+                                  eventSourceUpload.close(); // Close on error
+                                  hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+                              }
+                          };
+
+                          eventSourceUpload.onerror = function(error) {
+                              console.error("SSE connection error (upload):", error);
+                              // Update status only if it hasn't already shown completion/failure
+                              if (!finvizUploadStatus.classList.contains('text-success') && !finvizUploadStatus.classList.contains('text-danger')) {
+                                  finvizUploadStatus.textContent = 'Error receiving status updates. Check console.';
+                                  finvizUploadStatus.className = 'ms-2 text-warning';
+                              }
+                              eventSourceUpload.close(); // Ensure closed
+                              hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+                          };
+
+                      } else {
+                          // If no job_id received, handle as before
+                          console.warn("No job_id received in upload response. Cannot track completion status.");
+                          finvizUploadStatus.textContent = result.message || 'Fetch job triggered successfully.';
+                          finvizUploadStatus.className = 'ms-2 text-success';
+                          hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+                      }
+                      // --- End SSE Integration for Upload ---
+
+                 } catch (error) {
+                     console.error('Error triggering Finviz fetch for uploaded tickers:', error);
+                     finvizUploadStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
+                     finvizUploadStatus.className = 'ms-2 text-danger';
+                      if (eventSourceUpload) eventSourceUpload.close(); // Close SSE if open
+                      hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+                 } // No finally block needed
+             });
+        }
     }
 
     // --- Storage & State Functions (Preparation Tab) ---
@@ -1192,11 +1209,24 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         console.log("Data to filter:", fullProcessedData.length);
         console.log("Enabled status:", fieldEnabledStatus);
 
-        if (!outputArea || !filterResultsCount) return; // Check if elements exist
+        // Changed from outputArea to outputTableContainer // TODO: Verify if outputTableContainer is the correct ID
+        const outputTable = document.getElementById('output-table'); // <<< CHANGED: Get table element
+        if (!outputTable || !filterResultsCount) { // Check table and count element
+            console.error("Output table or filter count element not found.");
+            return;
+        }
 
         if (!fullProcessedData || fullProcessedData.length === 0) {
-            outputArea.textContent = 'No data loaded to filter.';
+            // outputArea.textContent = 'No data loaded to filter.'; // OLD PRE TAG
+            // Clear DataTable if it exists and show message
+            if ($.fn.dataTable.isDataTable('#output-table')) {
+                outputDataTable.clear().draw();
+                // Optionally update the table body with a message
+                $('#output-table tbody').html('<tr><td colspan="100%" class="text-center text-muted small">No data loaded to filter.</td></tr>');
+            }
             filterResultsCount.textContent = '(0 records)';
+            filteredDataForChart = []; // Clear chart data too
+            renderChart();
             return;
         }
 
@@ -1223,103 +1253,81 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                      const operator = filter.operator;
                      // --- End Get value/operator --- 
 
-                     // --- Multi-Select Handling ---
+                     // --- Multi-Select Handling --- // (Keep existing filter logic)
                      if (Array.isArray(filterValue)) {
                         const itemValueStr = String(itemValue);
-                        // Treat multi-select as 'equals any of' or 'not equals any of'
                         if (operator === '=') {
-                            // Item's value must be present in the selected array
                             if (!filterValue.includes(itemValueStr)) return false;
                         } else if (operator === '!=') {
-                            // Item's value must NOT be present in the selected array
                             if (filterValue.includes(itemValueStr)) return false;
                         } else {
-                            // Unsupported operator for multi-select
-                            console.warn(`Operator '${operator}' not directly supported for multi-select field '${filter.field}'. Filter skipped or potentially incorrect.`);
-                            // For now, let's treat unsupported as "fail the filter" to be safe
+                            console.warn(`Operator '${operator}' not directly supported for multi-select field '${filter.field}'. Filter skipped.`);
                             return false;
                         }
-                        continue; // Move to next filter if this one passed
+                        continue; 
                      }
 
-                     // --- Single Value Handling ---
-                     const filterValueStr = String(filterValue || ''); // Ensure it's a string
-                     // Check if the item value exists and is not null/undefined/empty string/placeholder '-'
+                     // --- Single Value Handling --- // (Keep existing filter logic)
+                     const filterValueStr = String(filterValue || ''); 
                      const valueExists = !(itemValue === null || itemValue === undefined || String(itemValue).trim() === '' || String(itemValue).trim() === '-');
 
-                     // Handle 'exists' / 'notExists' first
                      if (operator === 'exists') {
-                         if (!valueExists) return false; // Fail if value doesn't exist
-                         continue; // Pass if value exists
+                         if (!valueExists) return false;
+                         continue; 
                      }
                      if (operator === 'notExists') {
-                         if (valueExists) return false; // Fail if value exists
-                         continue; // Pass if value doesn't exist
+                         if (valueExists) return false; 
+                         continue; 
                      }
 
-                     // If operator requires a value, but item doesn't have one, it fails (unless comparing empty strings)
                      if (!valueExists) {
-                        // Special case: Check if comparing empty/null strings
                         if ((operator === '=' || operator === '!=') && (filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined')) {
                             const isItemEmpty = !valueExists;
                             const isFilterConsideredEmpty = (filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined');
                             if (operator === '=' && isItemEmpty !== isFilterConsideredEmpty) return false;
                             if (operator === '!=' && isItemEmpty === isFilterConsideredEmpty) return false;
-                            continue; // Passed empty comparison
+                            continue; 
                         } else {
-                             // Item has no value, but filter requires one and isn't comparing empties
                              return false;
                         }
                      }
 
-                     // --- Comparisons when item value exists ---
                      const itemValueStr = String(itemValue).toLowerCase();
                      const filterValueLower = filterValueStr.toLowerCase();
-                     const itemNum = parseFloat(itemValue); // Try converting item value to number
-                     const filterNum = parseFloat(filterValueStr); // Try converting filter value to number
+                     const itemNum = parseFloat(itemValue); 
+                     const filterNum = parseFloat(filterValueStr); 
                      let numericComparisonDone = false;
 
-                     // Attempt Numeric Comparison first if both seem numeric
                      if (!isNaN(itemNum) && !isNaN(filterNum)) {
                         numericComparisonDone = true;
-                        // <<< NEW: Get format and parse filter value if needed >>>
-                        let parsedFilterNum = filterNum; // Default to original if no format or parsing fails
+                        let parsedFilterNum = filterNum; 
                         const format = fieldNumericFormats[filter.field] || 'default';
-                        // Apply parsing only if a conversion format is active
                         if (['percent', 'million', 'billion'].includes(format)) {
                             const parsedVal = parseFormattedValue(filterValueStr, format);
                             if (!isNaN(parsedVal)) {
-                                parsedFilterNum = parsedVal; // Use parsed value for comparison
+                                parsedFilterNum = parsedVal; 
                             } else {
-                                // Handle parsing failure - maybe skip filter?
                                 console.warn(`Filter skipped: Could not parse filter value '${filterValueStr}' for field '${filter.field}' with format '${format}'.`);
-                                return false; // Fail the item if filter value is invalid for the format
+                                return false; 
                             }
-                        } // else: no parsing needed for default/raw/integer
-                        // <<< END NEW >>>
-
+                        } 
                          switch (operator) {
-                             // Compare itemNum (raw) against parsedFilterNum (raw equivalent of user input)
                              case '=': if (!(itemNum === parsedFilterNum)) return false; break;
                              case '>': if (!(itemNum > parsedFilterNum)) return false; break;
                              case '<': if (!(itemNum < parsedFilterNum)) return false; break;
                              case '>=': if (!(itemNum >= parsedFilterNum)) return false; break;
                              case '<=': if (!(itemNum <= parsedFilterNum)) return false; break;
                              case '!=': if (!(itemNum !== parsedFilterNum)) return false; break;
-                             default: numericComparisonDone = false; // Operator not numeric
+                             default: numericComparisonDone = false; 
                          }
                       } else {
-                         // If we intended a numeric comparison but failed, should we fail the filter?
-                         // E.g., user enters '>' but value is 'N/A'
                          if (['>', '<', '>=', '<='].includes(operator)) {
                              console.warn(`Numeric comparison operator '${operator}' used, but values are not both numeric: Field='${filter.field}', Item='${itemValue}', Filter='${filterValueStr}'. Filter fails.`);
-                             return false; // Fail if numeric comparison intended but not possible
+                             return false; 
                          }
-                         // Otherwise, allow string comparison for '=', '!=', 'contains', etc.
                          numericComparisonDone = false;
                      }
 
-                     // --- String Comparison (if numeric didn't happen or wasn't applicable) ---
                      if (!numericComparisonDone) {
                         switch(operator) {
                             case '=': if (!(itemValueStr === filterValueLower)) return false; break;
@@ -1327,49 +1335,122 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                             case 'contains': if (!itemValueStr.includes(filterValueLower)) return false; break;
                             case 'startsWith': if (!itemValueStr.startsWith(filterValueLower)) return false; break;
                             case 'endsWith': if (!itemValueStr.endsWith(filterValueLower)) return false; break;
-                            // Numeric operators already handled or failed above
                         }
                      }
                  }
-                 // If we got through all filters for this item
                  return true;
              });
         }
 
-         // --- Transform data for display (remove disabled fields) ---
-         const dataForDisplay = filteredData.map(item => {
-             const displayItem = {
-                 ticker: item.ticker,
-                 processed_data: {
-                     // Optionally include specific default fields even if disabled?
-                 },
-                 // Don't include error field by default unless needed
-                 // error: item.error
-             };
-             if (item.processed_data) {
-                 for (const field in item.processed_data) {
-                     // Only include the field if it exists and is explicitly enabled
-                     // Check hasOwnProperty for safety, and check the enabled status map
-                     if (item.processed_data.hasOwnProperty(field) && fieldEnabledStatus[field] === true) {
-                         displayItem.processed_data[field] = item.processed_data[field];
+         // --- NEW: DataTable Update Logic --- 
+
+         // 1. Determine Columns/Headers based on enabled fields
+         const enabledFields = availableFields.filter(field => fieldEnabledStatus[field] === true);
+         // Always include Ticker first, consider including 'source' and 'error' if needed?
+         // For now, just ticker + enabled processed_data fields.
+         const currentHeaders = ['Ticker', ...enabledFields]; 
+         console.log("Table Headers:", currentHeaders);
+
+         // 2. Format data for the table (array of arrays)
+         const tableData = filteredData.map(item => {
+             const row = [item.ticker || 'N/A']; // Start with ticker
+             enabledFields.forEach(field => {
+                 let value = ''; // Default to empty string
+                 if (field === 'source') { // Handle 'source' if it becomes enabled
+                     value = item.source || '';
+                 } else if (item.processed_data && item.processed_data.hasOwnProperty(field)) {
+                     const rawValue = item.processed_data[field];
+                     // Apply formatting for display in the table
+                     const format = fieldNumericFormats[field] || 'default';
+                     if (fieldMetadata[field]?.type === 'numeric') { 
+                        value = formatNumericValue(rawValue, format); // Use existing formatting function
+                     } else {
+                         value = (rawValue === null || rawValue === undefined) ? '' : String(rawValue);
                      }
                  }
-             }
-             // Add error back if it exists
-             if (item.error) {
-                 displayItem.error = item.error;
-             }
-             return displayItem;
+                 row.push(value);
+             });
+             // Optionally add error column data
+             // if (headers.includes('Error')) {
+             //    row.push(item.error || '');
+             // }
+             return row;
          });
-         // --- End Transformation ---
 
-         // Display results using the transformed data
-         outputArea.textContent = JSON.stringify(dataForDisplay, null, 2);
+         // 3. Check if DataTable needs destruction/re-initialization (headers changed)
+         const headersChanged = JSON.stringify(currentHeaders) !== JSON.stringify(lastAppliedHeaders);
+         if (headersChanged && $.fn.dataTable.isDataTable('#output-table')) {
+             console.log("Headers changed, destroying existing DataTable.");
+             outputDataTable.destroy();
+             outputDataTable = null;
+             // Clear the tbody and thead manually after destroying
+             $('#output-table tbody').empty(); 
+             $('#output-table thead tr').empty();
+         }
+         lastAppliedHeaders = [...currentHeaders]; // Store current headers
+
+         // 4. Update Table Header (if not initialized or headers changed)
+         if (!outputDataTable || headersChanged) {
+             const theadRow = outputTable.querySelector('thead tr');
+             theadRow.innerHTML = ''; // Clear placeholder or old headers
+             currentHeaders.forEach(headerText => {
+                 const th = document.createElement('th');
+                 th.textContent = headerText;
+                 theadRow.appendChild(th);
+             });
+         }
+
+         // 5. Initialize or Update DataTable
+         if (outputDataTable) {
+             // Table exists, just update data
+             console.log("Updating existing DataTable data.");
+             outputDataTable.clear();
+             outputDataTable.rows.add(tableData);
+             outputDataTable.draw();
+         } else {
+             // Initialize DataTable for the first time or after destruction
+             console.log("Initializing DataTable.");
+             try {
+                 outputDataTable = $('#output-table').DataTable({
+                     data: tableData,
+                     // columns: currentHeaders.map(header => ({ title: header })), // Let header update handle titles
+                     paging: true,       // Enable pagination
+                     searching: true,    // Enable search box
+                     lengthChange: true, // Allow user to change number of rows shown
+                     pageLength: 50,     // Default number of rows per page
+                     scrollX: true,      // Enable horizontal scrolling if needed
+                     scrollY: '400px',   // Set vertical scroll height
+                     scrollCollapse: true,// Collapse table height when few records
+                     destroy: true,      // Allows re-initialization
+                     stateSave: false,   // Don't save search/sort state in localStorage (can conflict with our filters)
+                     order: [[0, 'asc']], // Default sort by first column (Ticker)
+                     language: { // Customize text if needed
+                         emptyTable: "No matching records found based on current filters.",
+                         zeroRecords: "No matching records found"
+                     },
+                     // Optional: Add Bootstrap 5 styling integration
+                     // dom: "<'row'<'col-sm-12 col-md-6'l><'col-sm-12 col-md-6'f>>" +
+                     //      "<'row'<'col-sm-12'tr>>" +
+                     //      "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>",
+                 });
+             } catch (error) {
+                 console.error("Error initializing DataTable:", error);
+                 // Handle initialization error (e.g., display message to user)
+                 filterResultsCount.textContent = 'Error displaying results table.';
+             }
+         }
+         // --- END DataTable Update Logic ---
+
+         // --- OLD JSON Output Logic (Removed) ---
+         // const dataForDisplay = filteredData.map(item => { ... });
+         // outputArea.textContent = JSON.stringify(dataForDisplay, null, 2);
+         // --- End OLD JSON Output Logic ---
+
          filterResultsCount.textContent = `Showing ${filteredData.length} matching records (out of ${fullProcessedData.length}).`; // Count based on filtered records
 
          // --- Update data used for chart and render --- 
          filteredDataForChart = filteredData; // Store the data before transformation
-         renderChart(); // Update chart when filters change // RENAMED
+         renderChart(); // Update chart when filters change 
          // --- End Chart Update --- 
     }
     // --- END applyFilters definition ---
@@ -2248,74 +2329,95 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     }
 
     // Process Data Button (Load from DB)
-    if (processButton && processStatus && outputArea) {
-        processButton.addEventListener('click', async function() {
-            processButton.disabled = true;
-            showSpinner(processButton); // Show spinner
-            processStatus.textContent = 'Processing data...';
-            processStatus.className = 'ms-2 text-info';
-            outputArea.textContent = ''; // Clear previous output
-            if(filterResultsCount) filterResultsCount.textContent = ''; // Clear count
+    console.log("[DEBUG] Locating processButton element..."); // Updated log
+    // Use processButton declared earlier
+    console.log("[DEBUG] processButton element:", processButton);
 
-            try {
-                // Step 1: Call the endpoint to process and store data (using the backend python function)
-                console.log("Calling /api/analytics/process-raw-data endpoint...");
-                const processResponse = await fetch('/api/analytics/process-raw-data', {
-                    method: 'POST',
-                    headers: { 'Accept': 'application/json' }
-                });
+    // Check if the button element exists before proceeding
+    if (processButton) {
+        // <<< MOVE processStatus declaration HERE >>>
+        const processStatus = document.getElementById('process-analytics-status');
+        console.log("[DEBUG] Locating processStatus element just before adding listener:", processStatus); // <<< ADD LOG
+        
+        // Check if status element was found before adding listener
+        if (processStatus) {
+            console.log("[DEBUG] Adding event listener to processButton."); 
+            processButton.addEventListener('click', async function() {
+                console.log("[DEBUG] processButton clicked!"); 
+                processButton.disabled = true;
+                showSpinner(processButton); // Show spinner
+                // Use the processStatus variable captured just above
+                processStatus.textContent = 'Processing data...';
+                processStatus.className = 'ms-2 text-info';
+                // outputArea.textContent = ''; // No longer needed
+                if(filterResultsCount) filterResultsCount.textContent = ''; // Clear count
 
-                const processResult = await processResponse.json();
+                try {
+                    // Step 1: Call the endpoint to process and store data (using the backend python function)
+                    console.log("Calling /api/analytics/process-raw-data endpoint...");
+                    const processResponse = await fetch('/api/analytics/process-raw-data', {
+                        method: 'POST',
+                        headers: { 'Accept': 'application/json' }
+                    });
 
-                if (!processResponse.ok) {
-                    const errorDetail = processResult.detail || `Processing failed with status ${processResponse.status} - ${processResponse.statusText}`;
-                    console.error("Error response from process-raw-data:", processResult);
-                    throw new Error(errorDetail);
-                }
+                    const processResult = await processResponse.json();
 
-                console.log("Process request successful:", processResult);
-                processStatus.textContent = processResult.message || 'Processing request successful.';
-                processStatus.className = 'ms-2 text-success';
+                    if (!processResponse.ok) {
+                        const errorDetail = processResult.detail || `Processing failed with status ${processResponse.status} - ${processResponse.statusText}`;
+                        console.error("Error response from process-raw-data:", processResult);
+                        throw new Error(errorDetail);
+                    }
 
-                // Step 2: Call the endpoint to get the processed data
-                console.log("Calling /api/analytics/get-processed-data endpoint...");
-                const getResponse = await fetch('/api/analytics/get-processed-data', {
-                    method: 'GET',
-                    headers: { 'Accept': 'application/json' }
-                });
+                    console.log("Process request successful:", processResult);
+                    processStatus.textContent = processResult.message || 'Processing request successful.';
+                    processStatus.className = 'ms-2 text-success';
 
-                if (!getResponse.ok) {
-                     const getErrorResult = await getResponse.json();
-                     const getErrorDetail = getErrorResult.detail || `Failed to get processed data with status ${getResponse.status} - ${getResponse.statusText}`;
-                     console.error("Error response from get-processed-data:", getErrorResult);
-                     throw new Error(getErrorDetail);
-                }
+                    // Step 2: Call the endpoint to get the processed data
+                    console.log("Calling /api/analytics/get-processed-data endpoint...");
+                    const getResponse = await fetch('/api/analytics/get-processed-data', {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' }
+                    });
 
-                const processedData = await getResponse.json();
-                console.log(`Successfully fetched ${processedData.length} processed records.`);
-                fullProcessedData = processedData;
+                    if (!getResponse.ok) {
+                         const getErrorResult = await getResponse.json();
+                         const getErrorDetail = getErrorResult.detail || `Failed to get processed data with status ${getResponse.status} - ${getResponse.statusText}`;
+                         console.error("Error response from get-processed-data:", getErrorResult);
+                         throw new Error(getErrorDetail);
+                    }
 
-                // Step 3: Process loaded data (extract fields, init weights/status)
-                console.log("Processing loaded data and updating state...");
-                processLoadedDataAndUpdateState();
+                    const processedData = await getResponse.json();
+                    console.log(`Successfully fetched ${processedData.length} processed records.`);
+                    fullProcessedData = processedData;
 
-                // Step 4: Display initial unfiltered data (or apply loaded filters)
-                console.log("Applying initial filters...");
-                applyFilters();
+                    // Step 3: Process loaded data (extract fields, init weights/status)
+                    console.log("Processing loaded data and updating state...");
+                    processLoadedDataAndUpdateState();
 
-            } catch (error) {
-                console.error('Error during Finviz data processing/fetching:', error);
-                outputArea.textContent = `An error occurred. Check console for details. \nError: ${error.message}`;
-                processStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
-                processStatus.className = 'ms-2 text-danger';
-                fullProcessedData = []; // Clear data on error
-                processLoadedDataAndUpdateState(); // Re-render UIs (will show empty state)
-            } finally {
-                 processButton.disabled = false;
-                 console.log("Processing/fetching finished.");
-                 hideSpinner(processButton); // Hide spinner
-            }
-        });
+                    // Step 4: Display initial unfiltered data (or apply loaded filters)
+                    console.log("Applying initial filters...");
+                    applyFilters();
+
+                } catch (error) {
+                    console.error('Error during Finviz data processing/fetching:', error);
+                    // outputArea.textContent = `An error occurred. Check console for details. \nError: ${error.message}`; // No longer using outputArea
+                    // Display error in the status span instead?
+                    processStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
+                    processStatus.className = 'ms-2 text-danger';
+                    fullProcessedData = []; // Clear data on error
+                    processLoadedDataAndUpdateState(); // Re-render UIs (will show empty state)
+                    applyFilters(); // Clear table on error
+                } finally {
+                     processButton.disabled = false;
+                     console.log("Processing/fetching finished.");
+                     hideSpinner(processButton); // Hide spinner
+                 }
+             });
+        } else {
+             console.error("[DEBUG] Could not find processStatus element (#process-analytics-status). Listener not attached."); // Specific error message
+        }
+    } else {
+        console.error("[DEBUG] Could not find processButton element (#process-analytics-data-btn). Listener not attached."); 
     }
 
     // --- Helper functions to toggle button spinner/text --- 
