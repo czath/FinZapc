@@ -1,0 +1,2187 @@
+document.addEventListener('DOMContentLoaded', function() { // No longer needs to be async
+    console.log("Analytics.js: DOMContentLoaded event fired. Script execution started."); // <<< ADD THIS LINE
+    // --- Global variables ---
+    let fullProcessedData = [];
+    let currentFilters = [];
+    // let fieldWeights = {};      // {fieldName: weight (0-100)} // REMOVED
+    let availableFields = [];
+    let fieldMetadata = {};
+    let fieldEnabledStatus = {}; // {fieldName: true/false}
+    let uploadedTickers = []; // To store tickers from uploaded file
+    let currentSortKey = 'name'; // Default sort
+    let currentSortDirection = 'asc';
+
+    const FILTER_STORAGE_KEY = 'analyticsAnalyticsFilters';
+    // const WEIGHT_STORAGE_KEY = 'analyticsAnalyticsFieldWeights'; // REMOVED
+    const FIELD_ENABLED_STORAGE_KEY = 'analyticsAnalyticsFieldEnabled'; // New key
+
+    // --- Element References ---
+    // Import Tab
+    const finvizButton = document.getElementById('run-finviz-btn');
+    const finvizStatus = document.getElementById('finviz-status');
+    const dropZone = document.getElementById('drop-zone');
+    const tickerFileInput = document.getElementById('ticker-file-input');
+    const runFinvizUploadBtn = document.getElementById('run-finviz-upload-btn');
+    const finvizUploadStatus = document.getElementById('finviz-upload-status');
+
+    // Preparation Tab
+    const processButton = document.getElementById('process-analytics-data-btn');
+    const processStatus = document.getElementById('process-analytics-status');
+    const outputArea = document.getElementById('processed-analytics-output');
+    const filterControlsContainer = document.getElementById('filter-controls-container');
+    const addFilterBtn = document.getElementById('add-filter-btn');
+    const applyFiltersBtn = document.getElementById('apply-filters-btn');
+    const resetFiltersBtn = document.getElementById('reset-filters-btn');
+    const filterResultsCount = document.getElementById('filter-results-count');
+    const fieldConfigContainer = document.getElementById('field-config-container');
+
+    // Report Tab (NEW)
+    const reportFieldSelector = document.getElementById('report-field-selector'); // Y-axis
+    const reportXAxisSelector = document.getElementById('report-x-axis-selector'); // NEW X-axis
+    const reportChartCanvas = document.getElementById('report-chart-canvas');
+    const chartStatus = document.getElementById('chart-status');
+    const reportColorSelector = document.getElementById('report-color-selector');
+    const reportChartTypeSelector = document.getElementById('report-chart-type-selector'); // NEW
+    let reportChartInstance = null;
+    const reportSizeSelector = document.getElementById('report-size-selector'); // NEW Size selector
+    const resetChartBtn = document.getElementById('reset-chart-btn'); // NEW Reset button
+    let filteredDataForChart = []; // Holds the data currently used by the chart
+    const swapAxesBtn = document.getElementById('swap-axes-btn'); // NEW Swap button
+
+    // --- File Handling Logic (Import Tab) ---
+    function handleFile(file) {
+        const dropZoneP = dropZone.querySelector('p');
+        const iconSpan = dropZoneP ? dropZoneP.querySelector('span.status-icon') : null;
+        const textSpan = dropZoneP ? dropZoneP.querySelector('span.status-text') : null; // Target text span
+
+        if (!file) {
+            if (dropZoneP && iconSpan && textSpan) {
+                textSpan.textContent = 'Drag & drop ticker file here (.txt only), or click to select'; // Use textContent
+                iconSpan.className = 'status-icon bi bi-cloud-arrow-up me-2 align-middle text-muted'; // Default icon + color
+            }
+            runFinvizUploadBtn.disabled = true; // Disable button if no file
+            uploadedTickers = [];
+            return;
+        }
+
+        if (!file.name.endsWith('.txt')) {
+            if (dropZoneP && iconSpan && textSpan) {
+                textSpan.textContent = `Invalid file: ${file.name}. Please use a .txt file.`; // Use textContent
+                iconSpan.className = 'status-icon bi bi-x-octagon-fill me-2 align-middle text-danger'; // Error icon + color
+            }
+            runFinvizUploadBtn.disabled = true; // Disable button if invalid file
+            uploadedTickers = [];
+            tickerFileInput.value = ''; // Reset file input
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const content = event.target.result;
+            const lines = content.split(/\r?\n/);
+            uploadedTickers = lines
+                .map(line => line.trim().toUpperCase())
+                .filter(line => line.length > 0 && line.length <= 10);
+
+            if (dropZoneP && iconSpan && textSpan) {
+                if (uploadedTickers.length > 0) {
+                    textSpan.textContent = `File: ${file.name} (${uploadedTickers.length} tickers found)`; // Use textContent
+                    iconSpan.className = 'status-icon bi bi-check-circle-fill me-2 align-middle text-success'; // Success icon + color
+                    
+                    // Enable upload button ONLY if the other button is not currently running
+                    if (!finvizButton.disabled || finvizButton.querySelector('.spinner-border').style.display === 'none') {
+                        runFinvizUploadBtn.disabled = false;
+                    }
+                    
+                    finvizUploadStatus.textContent = '';
+                    console.log("Tickers from file:", uploadedTickers);
+                } else {
+                    textSpan.textContent = `File: ${file.name} - No valid tickers found.`; // Use textContent
+                    iconSpan.className = 'status-icon bi bi-exclamation-triangle-fill me-2 align-middle text-warning'; // Warning icon + color
+                    runFinvizUploadBtn.disabled = true; // Disable button if no valid tickers
+                    uploadedTickers = [];
+                }
+            }
+        };
+        reader.onerror = function(event) {
+            console.error("File reading error:", event);
+            if (dropZoneP && iconSpan && textSpan) {
+                textSpan.textContent = `Error reading file: ${file.name}`; // Use textContent
+                iconSpan.className = 'status-icon bi bi-shield-exclamation me-2 align-middle text-danger'; // Error icon + color
+            }
+            runFinvizUploadBtn.disabled = true; // Disable button on error
+            uploadedTickers = [];
+        };
+        reader.readAsText(file);
+    }
+
+    if (dropZone && tickerFileInput) {
+        // Click drop zone triggers file input
+        dropZone.addEventListener('click', () => tickerFileInput.click());
+
+        // Drag events
+        dropZone.addEventListener('dragover', (event) => {
+            event.preventDefault(); // Prevent default browser behavior
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', (event) => {
+            dropZone.classList.remove('dragover');
+        });
+        dropZone.addEventListener('drop', (event) => {
+            event.preventDefault(); // Prevent default browser behavior
+            dropZone.classList.remove('dragover');
+            if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+                const file = event.dataTransfer.files[0];
+                tickerFileInput.files = event.dataTransfer.files; // Assign files to input for consistency
+                handleFile(file);
+                event.dataTransfer.clearData();
+            }
+        });
+
+        // File input change event
+        tickerFileInput.addEventListener('change', (event) => {
+            if (event.target.files && event.target.files.length > 0) {
+                handleFile(event.target.files[0]);
+            }
+        });
+    }
+
+    // --- Button Listeners (Import Tab) ---
+    // 1. Fetch for Screened Tickers
+    if (finvizButton && finvizStatus) {
+        finvizButton.addEventListener('click', async function() {
+            // Disable both buttons and show spinner on the clicked one
+            showSpinner(finvizButton, runFinvizUploadBtn);
+            finvizStatus.textContent = 'Starting fetch job...';
+            finvizStatus.className = 'ms-2 text-info';
+            let eventSource = null; // Variable to hold EventSource connection
+
+            try {
+                console.log("Calling /api/analytics/start-finviz-fetch-screener endpoint...");
+                const response = await fetch('/api/analytics/start-finviz-fetch-screener', {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const result = await response.json();
+
+                if (!response.ok) {
+                    const errorDetail = result.detail || `Fetch trigger failed with status ${response.status} - ${response.statusText}`;
+                    console.error("Error response from start-finviz-fetch-screener:", result);
+                    throw new Error(errorDetail);
+                }
+
+                console.log("Fetch job triggered:", result);
+
+                // --- SSE Integration --- 
+                if (result.job_id) {
+                    console.log(`Received job_id: ${result.job_id}. Establishing SSE connection.`);
+                    finvizStatus.textContent = `${result.message || 'Fetch job triggered.'} Waiting for completion...`;
+                    finvizStatus.className = 'ms-2 text-info';
+
+                    eventSource = new EventSource(`/api/analytics/stream-job-status/${result.job_id}`);
+
+                    eventSource.onmessage = function(event) {
+                        console.log("SSE message received:", event.data);
+                        try {
+                            const data = JSON.parse(event.data);
+                            let isFinalStatus = false; // Flag to check if it's a terminal state
+
+                            if (data.status === 'completed') {
+                                finvizStatus.textContent = data.message || 'Job completed successfully.';
+                                finvizStatus.className = 'ms-2 text-success';
+                                console.log("Job completed via SSE.");
+                                isFinalStatus = true;
+                            } else if (data.status === 'failed') {
+                                finvizStatus.textContent = `Error: ${data.message || 'Job failed.'}`;
+                                finvizStatus.className = 'ms-2 text-danger';
+                                console.error("Job failed via SSE:", data.message);
+                                isFinalStatus = true;
+                            } else if (data.status === 'partial_failure') { // <<< ADD HANDLING FOR PARTIAL FAILURE
+                                finvizStatus.textContent = data.message || 'Job completed with some failures.';
+                                finvizStatus.className = 'ms-2 text-warning'; // Use warning color
+                                console.warn("Job completed with partial failure via SSE:", data.message);
+                                isFinalStatus = true;
+                            } else {
+                                // Handle intermediate statuses if backend sends them
+                                finvizStatus.textContent = data.message || 'Job in progress...'; 
+                                finvizStatus.className = 'ms-2 text-info';
+                            }
+                            // Close connection and re-enable button on final status
+                            if (isFinalStatus) { // <<< Check the flag
+                                eventSource.close();
+                                console.log("SSE connection closed.");
+                                // Re-enable both buttons (conditionally for upload button)
+                                hideSpinner(finvizButton, runFinvizUploadBtn);
+                            }
+                        } catch (e) {
+                            console.error("Error parsing SSE message:", e);
+                            finvizStatus.textContent = 'Error processing status update.';
+                            finvizStatus.className = 'ms-2 text-warning';
+                            eventSource.close(); // Close on parsing error
+                            hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
+                        }
+                    };
+
+                    eventSource.onerror = function(error) {
+                        console.error("SSE connection error:", error);
+                        // Update status only if it hasn't already shown completion/failure
+                        if (!finvizStatus.classList.contains('text-success') && !finvizStatus.classList.contains('text-danger')) {
+                             finvizStatus.textContent = 'Error receiving status updates. Check console.';
+                             finvizStatus.className = 'ms-2 text-warning';
+                        }
+                        eventSource.close(); // Ensure connection is closed
+                        hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
+                    };
+
+                } else {
+                    // If no job_id received, handle as before (show initial message)
+                    console.warn("No job_id received in response. Cannot track completion status.");
+                    finvizStatus.textContent = result.message || 'Fetch job triggered successfully.';
+                    finvizStatus.className = 'ms-2 text-success';
+                    hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
+                }
+                // --- End SSE Integration ---
+
+            } catch (error) {
+                console.error('Error triggering Finviz fetch for screened tickers:', error);
+                finvizStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
+                finvizStatus.className = 'ms-2 text-danger';
+                if (eventSource) eventSource.close(); // Close SSE if open
+                hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
+            } // No finally block needed as button re-enabled within logic
+        });
+    }
+
+    // 2. Fetch for Uploaded Tickers
+    if (runFinvizUploadBtn && finvizUploadStatus) {
+        runFinvizUploadBtn.addEventListener('click', async function() {
+            if (uploadedTickers.length === 0) {
+                finvizUploadStatus.textContent = 'No tickers loaded from file.';
+                finvizUploadStatus.className = 'ms-2 text-warning';
+                return;
+            }
+
+            // Disable both buttons and show spinner on the clicked one
+            showSpinner(runFinvizUploadBtn, finvizButton);
+            finvizUploadStatus.textContent = `Starting fetch job for ${uploadedTickers.length} tickers...`;
+            finvizUploadStatus.className = 'ms-2 text-info';
+            let eventSourceUpload = null; // Variable for this button's EventSource
+
+            try {
+                console.log("Calling endpoint /api/analytics/start-finviz-fetch-upload with tickers:", uploadedTickers);
+
+                const response = await fetch('/api/analytics/start-finviz-fetch-upload', { // <-- Use new endpoint
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ tickers: uploadedTickers }) // Send tickers in correct format
+                });
+                const result = await response.json();
+
+                if (!response.ok) {
+                    const errorDetail = result.detail || `Fetch trigger failed with status ${response.status} - ${response.statusText}`;
+                    console.error("Error response from start-finviz-fetch-upload:", result);
+                    throw new Error(errorDetail);
+                }
+                console.log("Fetch job triggered successfully:", result);
+
+                // --- SSE Integration for Upload --- 
+                if (result.job_id) {
+                     console.log(`Received job_id: ${result.job_id}. Establishing SSE connection for upload.`);
+                     finvizUploadStatus.textContent = `${result.message || 'Fetch job triggered.'} Waiting for completion...`;
+                     finvizUploadStatus.className = 'ms-2 text-info';
+
+                     eventSourceUpload = new EventSource(`/api/analytics/stream-job-status/${result.job_id}`);
+
+                     eventSourceUpload.onmessage = function(event) {
+                         console.log("SSE message received (upload):", event.data);
+                         try {
+                             const data = JSON.parse(event.data);
+                             let isFinalStatus = false; // Flag
+
+                             if (data.status === 'completed') {
+                                 finvizUploadStatus.textContent = data.message || 'Job completed successfully.';
+                                 finvizUploadStatus.className = 'ms-2 text-success';
+                                 console.log("Upload job completed via SSE.");
+                                 isFinalStatus = true;
+                             } else if (data.status === 'failed') {
+                                 finvizUploadStatus.textContent = `Error: ${data.message || 'Job failed.'}`;
+                                 finvizUploadStatus.className = 'ms-2 text-danger';
+                                 console.error("Upload job failed via SSE:", data.message);
+                                 isFinalStatus = true;
+                             } else if (data.status === 'partial_failure') { // <<< ADD HANDLING FOR PARTIAL FAILURE
+                                finvizUploadStatus.textContent = data.message || 'Job completed with some failures.';
+                                finvizUploadStatus.className = 'ms-2 text-warning'; // Use warning color
+                                console.warn("Upload job completed with partial failure via SSE:", data.message);
+                                isFinalStatus = true;
+                             } else {
+                                 finvizUploadStatus.textContent = data.message || 'Job in progress...'; 
+                                 finvizUploadStatus.className = 'ms-2 text-info';
+                             }
+                             // Close connection and re-enable button on final status
+                             if (isFinalStatus) { // <<< Check the flag
+                                 eventSourceUpload.close();
+                                 console.log("SSE connection closed (upload).");
+                                 // Re-enable both buttons (conditionally for upload button)
+                                 hideSpinner(runFinvizUploadBtn, finvizButton);
+                             }
+                         } catch (e) {
+                             console.error("Error parsing SSE message (upload):", e);
+                             finvizUploadStatus.textContent = 'Error processing status update.';
+                             finvizUploadStatus.className = 'ms-2 text-warning';
+                             eventSourceUpload.close(); // Close on error
+                             hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+                         }
+                     };
+
+                     eventSourceUpload.onerror = function(error) {
+                         console.error("SSE connection error (upload):", error);
+                         // Update status only if it hasn't already shown completion/failure
+                         if (!finvizUploadStatus.classList.contains('text-success') && !finvizUploadStatus.classList.contains('text-danger')) {
+                             finvizUploadStatus.textContent = 'Error receiving status updates. Check console.';
+                             finvizUploadStatus.className = 'ms-2 text-warning';
+                         }
+                         eventSourceUpload.close(); // Ensure closed
+                         hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+                     };
+
+                 } else {
+                     // If no job_id received, handle as before
+                     console.warn("No job_id received in upload response. Cannot track completion status.");
+                     finvizUploadStatus.textContent = result.message || 'Fetch job triggered successfully.';
+                     finvizUploadStatus.className = 'ms-2 text-success';
+                     hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+                 }
+                 // --- End SSE Integration for Upload ---
+
+            } catch (error) {
+                console.error('Error triggering Finviz fetch for uploaded tickers:', error);
+                finvizUploadStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
+                finvizUploadStatus.className = 'ms-2 text-danger';
+                 if (eventSourceUpload) eventSourceUpload.close(); // Close SSE if open
+                 hideSpinner(runFinvizUploadBtn, finvizButton); // Re-enable both
+            } // No finally block needed
+        });
+    }
+
+    // --- Storage & State Functions (Preparation Tab) ---
+    function loadFiltersFromStorage() {
+        console.log("Loading filters from localStorage...");
+        const savedFilters = localStorage.getItem(FILTER_STORAGE_KEY);
+        let loaded = [];
+        if (savedFilters) {
+            try {
+                loaded = JSON.parse(savedFilters);
+                if (!Array.isArray(loaded)) loaded = [];
+            } catch (e) {
+                console.error("Error parsing saved filters:", e);
+                loaded = [];
+                localStorage.removeItem(FILTER_STORAGE_KEY);
+            }
+        } else {
+            console.log("No saved filters found.");
+        }
+
+        // Ensure structure (id, field, operator, value, comment)
+        currentFilters = loaded.map(f => ({
+            id: f.id || Date.now() + Math.random(), // Add random for better uniqueness if needed
+            field: f.field || '',
+            operator: f.operator || '=',
+            value: f.value !== undefined ? f.value : '',
+            comment: f.comment || '' // Add comment field with default
+        }));
+
+        console.log("Processed loaded/default filters:", currentFilters);
+
+        // Add default blank filter if none loaded
+        if (currentFilters.length === 0) {
+            currentFilters.push({ id: Date.now() + Math.random(), field: '', operator: '=', value: '', comment: '' }); // Add comment
+            console.log("Added default blank filter.");
+        }
+    }
+
+    function saveFiltersToStorage() {
+         if (!Array.isArray(currentFilters)) {
+             console.error("Attempted to save non-array filters:", currentFilters);
+             return;
+         }
+        // Save id, field, operator, value, comment
+        const filtersToSave = currentFilters.map(f => ({
+             id: f.id,
+             field: f.field,
+             operator: f.operator,
+             value: f.value,
+             comment: f.comment // Add comment field
+         }));
+        console.log("Saving filters to localStorage:", filtersToSave);
+        try {
+             localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filtersToSave));
+        } catch (e) {
+            console.error("Error saving filters to localStorage:", e);
+        }
+    }
+
+    // NEW function for enabled status
+    function loadEnabledStatusFromStorage() {
+        console.log("Loading enabled status from localStorage...");
+        const savedStatus = localStorage.getItem(FIELD_ENABLED_STORAGE_KEY);
+        if (savedStatus) {
+            try {
+                fieldEnabledStatus = JSON.parse(savedStatus);
+                if (typeof fieldEnabledStatus !== 'object' || fieldEnabledStatus === null || Array.isArray(fieldEnabledStatus)) {
+                    fieldEnabledStatus = {}; // Reset if not valid object
+                }
+                // Ensure all values are boolean
+                for (const field in fieldEnabledStatus) {
+                    if (fieldEnabledStatus.hasOwnProperty(field)) {
+                        fieldEnabledStatus[field] = Boolean(fieldEnabledStatus[field]);
+                    }
+                }
+                console.log("Loaded field enabled status:", fieldEnabledStatus);
+            } catch (e) {
+                console.error("Error parsing saved enabled status:", e);
+                fieldEnabledStatus = {};
+                localStorage.removeItem(FIELD_ENABLED_STORAGE_KEY);
+            }
+        } else {
+            fieldEnabledStatus = {}; // Initialize empty if nothing saved
+            console.log("No saved enabled status found.");
+        }
+    }
+
+    // NEW function for enabled status
+    function saveEnabledStatusToStorage() {
+         console.log("Saving enabled status to localStorage:", fieldEnabledStatus);
+         try {
+            localStorage.setItem(FIELD_ENABLED_STORAGE_KEY, JSON.stringify(fieldEnabledStatus));
+         } catch (e) {
+            console.error("Error saving enabled status to localStorage:", e);
+         }
+    }
+
+    // --- NEW: Helper Function to Get Field Descriptor String ---
+    function getFieldDescriptor(fieldName) {
+        const metadata = fieldMetadata[fieldName];
+
+        if (!metadata) {
+            return "(Metadata not available)"; // Fallback
+        }
+
+        // const count = metadata.existingValueCount; // Count is now displayed separately
+
+        switch (metadata.type) {
+            case 'numeric':
+                const min = metadata.min !== undefined ? metadata.min : 'N/A';
+                const max = metadata.max !== undefined ? metadata.max : 'N/A';
+                // const numericCountDisplay = typeof count === 'number' ? `(${count} records)` : '(count N/A)'; // REMOVED count display
+                return `Numeric, Min: ${min} to Max: ${max}`;
+            case 'text':
+                const uniqueCount = metadata.totalUniqueCount !== undefined ? metadata.totalUniqueCount : 'N/A';
+                // const textCountDisplay = typeof count === 'number' ? `(${count} records)` : '(count N/A)'; // REMOVED count display
+                let examples = '';
+                let introPhrase = '';
+                if (metadata.uniqueValues && metadata.uniqueValues.length > 0) {
+                    const numExamples = Math.min(metadata.uniqueValues.length, 3);
+                    const exampleValues = metadata.uniqueValues.slice(0, numExamples).map(v => `"${v}"`); // Add quotes
+                    examples = exampleValues.join(', ');
+                    
+                    if (numExamples === 1) {
+                        introPhrase = 'First value found: ';
+                    } else if (numExamples === 2) {
+                        introPhrase = 'First two found: ';
+                    } else { // 3 or more (but we only show 3)
+                        introPhrase = 'First three found: ';
+                    }
+                } else {
+                    introPhrase = '(No values found)'
+                }
+                // REMOVED count display from return string
+                return `Text (${uniqueCount} unique values). ${introPhrase}${examples}`;
+            case 'empty':
+                return 'Empty'; 
+            default:
+                // Fallback, still try to show count if available // REMOVED count display
+                // const fallbackCountDisplay = typeof count === 'number' ? `(${count} records)` : ''; 
+                return `(Unknown type: ${metadata.type})`.trim(); // Keep trim just in case
+        }
+    }
+    // --- END NEW Helper Function ---
+
+    // --- Helper to update value input based on field metadata (Preparation Tab) ---
+    function updateValueInputUI(index, fieldName, inputWrapper, hintSpan) {
+        const metadata = fieldMetadata[fieldName];
+        inputWrapper.innerHTML = ''; // Clear previous input/select
+        
+        // --- Update hint text using the new descriptor function --- 
+        hintSpan.textContent = fieldName ? getFieldDescriptor(fieldName) : ''; // Get descriptor or clear if no field
+        // --- End update hint text ---
+        
+        let currentInput = null;
+
+        // Define a common handler for updating the filter state
+        const updateFilterValue = (newValue) => {
+            if (currentFilters[index]) { // Ensure filter still exists
+                currentFilters[index].value = newValue;
+            }
+        };
+
+        // --- Existing logic to create input/select based on metadata --- 
+        if (metadata && metadata.type === 'text' && metadata.uniqueValues && metadata.uniqueValues.length > 0) {
+            // --- Create Multi-Select ---
+            // hintSpan.textContent = `(${metadata.uniqueValues.length} unique values)`; // REMOVED - Hint set above
+            const select = document.createElement('select');
+            select.multiple = true;
+            select.className = 'form-select form-select-sm w-100';
+            select.size = Math.min(metadata.uniqueValues.length, 4);
+
+            metadata.uniqueValues.forEach(val => {
+                const option = document.createElement('option');
+                option.value = val;
+                option.textContent = val;
+                // Check if current filter value (which might be an array) includes this option
+                if (currentFilters[index] && Array.isArray(currentFilters[index].value) && currentFilters[index].value.includes(val)) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+
+            select.addEventListener('change', (e) => {
+                const selectedValues = Array.from(e.target.selectedOptions).map(opt => opt.value);
+                updateFilterValue(selectedValues); // Update state with array
+            });
+
+            inputWrapper.appendChild(select);
+            currentInput = select;
+
+        } else {
+             // --- Create Text/Number Input ---
+            const input = document.createElement('input');
+            input.className = 'form-control form-control-sm';
+            input.placeholder = 'Value';
+            // Ensure value is treated as a string for text input
+            let initialValue = '';
+            if (currentFilters[index]) {
+                const filterVal = currentFilters[index].value;
+                initialValue = Array.isArray(filterVal)
+                                ? '' // Clear if switching from multi-select
+                                : (filterVal !== null && filterVal !== undefined ? String(filterVal) : '');
+            }
+            input.value = initialValue;
+
+            // Set input type based on metadata (hint is set above)
+            if (metadata && metadata.type === 'numeric') {
+                // hintSpan.textContent = `(Range: ${metadata.min} - ${metadata.max})`; // REMOVED
+                input.type = 'number';
+                input.step = 'any';
+            } else {
+                input.type = 'text';
+            }
+            // REMOVED empty check hint, covered by descriptor
+            // if (metadata && metadata.type === 'empty') {
+            //     hintSpan.textContent = '(No values found in data)';
+            // }
+
+            // Use 'input' event for text/number fields
+            input.addEventListener('input', (e) => {
+                 updateFilterValue(e.target.value); // Update state with string value
+            });
+
+            inputWrapper.appendChild(input);
+            currentInput = input;
+        }
+        // --- End existing logic --- 
+
+        // Hide/Show based on operator (applies to the wrapper AND hint now)
+        if (currentFilters[index]) {
+            const operator = currentFilters[index].operator;
+            const shouldHide = operator === 'exists' || operator === 'notExists';
+            inputWrapper.style.display = shouldHide ? 'none' : '';
+            hintSpan.style.display = shouldHide ? 'none' : ''; // Control hint visibility too
+        }
+    }
+
+    // --- Render UI Functions (Preparation Tab) ---
+    function renderFilterUI() {
+        console.log("Rendering filter UI. Available fields:", availableFields, "Enabled Status:", fieldEnabledStatus);
+        if (!filterControlsContainer) return; // Check if container exists
+        filterControlsContainer.innerHTML = ''; // Clear existing rows
+
+        // Filter available fields based on enabled status
+        const enabledFields = availableFields.filter(field => fieldEnabledStatus[field] === true);
+        console.log("Rendering filters using enabled fields:", enabledFields);
+
+        if (!currentFilters || currentFilters.length === 0) {
+            // filterControlsContainer.innerHTML = '<p class="text-muted small mb-0">No filters defined. Click \'+'+\' Add Filter.\'</p>'; // Old version
+            filterControlsContainer.innerHTML = `<p class="text-muted small mb-0">No filters defined. Click '+ Add Filter'.</p>`; // Use template literal
+            return;
+        }
+
+        const operators = [
+            { value: '=', text: '=' },
+            { value: '>', text: '>' },
+            { value: '<', text: '<' },
+            { value: '>=', text: '>=' },
+            { value: '<=', text: '<=' },
+            { value: '!=', text: '!=' },
+            { value: 'contains', text: 'contains' },
+            { value: 'startsWith', text: 'starts with' },
+            { value: 'endsWith', text: 'ends with' },
+            { value: 'exists', text: 'exists (non-empty)'}, // Check if field exists and is not null/empty/None
+            { value: 'notExists', text: 'does not exist / empty'} // Check if field is missing or null/empty/None
+        ];
+
+        currentFilters.forEach((filter, index) => {
+            const filterId = filter.id;
+            const row = document.createElement('div');
+            // Use d-flex for the main row container
+            row.className = 'filter-row-container mb-2'; // Container for row + hint
+            row.dataset.filterId = filterId;
+
+            const filterRowDiv = document.createElement('div');
+            filterRowDiv.className = 'd-flex align-items-center filter-row'; // Flexbox for controls + comment + remove
+
+            // Field Select (fixed width)
+            const fieldSelect = document.createElement('select');
+            fieldSelect.className = 'form-select form-select-sm me-2 w-auto';
+            fieldSelect.title = 'Select Field';
+            fieldSelect.innerHTML = '<option value="">-- Field --</option>';
+            // Use ONLY enabled fields for the dropdown
+            enabledFields.forEach(fieldName => {
+                const option = document.createElement('option');
+                option.value = fieldName;
+                option.textContent = fieldName;
+                if (filter.field === fieldName) option.selected = true;
+                fieldSelect.appendChild(option);
+            });
+            // If the currently selected filter field is no longer enabled, reset it
+            if (filter.field && !enabledFields.includes(filter.field)) {
+                 console.log(`Filter field '${filter.field}' is no longer enabled, resetting filter row ${index}.`);
+                 filter.field = '';
+                 filter.value = ''; // Reset value too
+                 // Might need to save here? Or wait for Apply
+            }
+            filterRowDiv.appendChild(fieldSelect);
+
+            // Operator Select (fixed width)
+            const operatorSelect = document.createElement('select');
+            operatorSelect.className = 'form-select form-select-sm me-2 w-auto';
+            operatorSelect.title = 'Select Operator';
+            operators.forEach(op => {
+                const option = document.createElement('option');
+                option.value = op.value;
+                option.textContent = op.text;
+                if (filter.operator === op.value) option.selected = true;
+                operatorSelect.appendChild(option);
+            });
+             filterRowDiv.appendChild(operatorSelect);
+
+            // Value Input Wrapper
+            const valueWrapper = document.createElement('div');
+            // Limit growth and set max-width
+            valueWrapper.className = 'value-input-wrapper me-2';
+            valueWrapper.style.flexGrow = '0'; // Don't allow growth
+            valueWrapper.style.flexShrink = '0'; // Don't allow shrinking either?
+            valueWrapper.style.maxWidth = '250px'; // Set max width to 250px
+            valueWrapper.style.width = '250px'; // Also set width for consistency?
+            filterRowDiv.appendChild(valueWrapper);
+
+            // Comment Input
+            const commentInput = document.createElement('input');
+            // Allow comment to grow now
+            commentInput.className = 'form-control form-control-sm ms-2 me-2 flex-grow-1';
+            commentInput.style.flexGrow = '1'; // Allow comment to take remaining space
+            commentInput.style.flexShrink = '1'; // Allow shrinking
+            commentInput.style.maxWidth = ''; // Remove previous max width
+            commentInput.placeholder = 'Comment';
+            commentInput.value = filter.comment || '';
+            commentInput.title = 'Filter Comment';
+            filterRowDiv.appendChild(commentInput);
+
+            // Hint Span
+            const hintSpan = document.createElement('span');
+            hintSpan.className = 'value-hint small text-muted d-block ms-1';
+
+            // Remove Button
+            const removeBtn = document.createElement('button');
+            removeBtn.textContent = '×';
+            // Keep ms-auto to push it right
+            removeBtn.className = 'btn btn-sm btn-outline-danger ms-auto';
+            removeBtn.title = 'Remove this filter';
+            removeBtn.style.flexGrow = '0'; // Don't allow button to grow
+            removeBtn.style.flexShrink = '0'; // Don't allow button to shrink
+            removeBtn.addEventListener('click', () => {
+                 const indexToRemove = currentFilters.findIndex(f => f.id === filterId);
+                 if (indexToRemove > -1) {
+                     currentFilters.splice(indexToRemove, 1);
+                     saveFiltersToStorage();
+                     renderFilterUI();
+                 }
+             });
+            filterRowDiv.appendChild(removeBtn);
+
+            // --- Event Listeners ---
+            fieldSelect.addEventListener('change', (e) => {
+                const indexToUpdate = currentFilters.findIndex(f => f.id === filterId);
+                if (indexToUpdate > -1) {
+                    currentFilters[indexToUpdate].field = e.target.value;
+                    updateValueInputUI(indexToUpdate, e.target.value, valueWrapper, hintSpan);
+                }
+            });
+             operatorSelect.addEventListener('change', (e) => {
+                 const indexToUpdate = currentFilters.findIndex(f => f.id === filterId);
+                 if (indexToUpdate > -1) {
+                     currentFilters[indexToUpdate].operator = e.target.value;
+                     // Update visibility of the wrapper and hint
+                     const op = e.target.value;
+                     valueWrapper.style.display = (op === 'exists' || op === 'notExists') ? 'none' : '';
+                     hintSpan.style.display = (op === 'exists' || op === 'notExists') ? 'none' : '';
+                 }
+            });
+             // Note: valueInput listener is now added *inside* updateValueInputUI
+             commentInput.addEventListener('input', (e) => {
+                 const indexToUpdate = currentFilters.findIndex(f => f.id === filterId);
+                 if (indexToUpdate > -1) {
+                     currentFilters[indexToUpdate].comment = e.target.value;
+                 }
+            });
+
+            // Initial UI update for value input based on loaded field
+            // Use findIndex again to ensure we use the correct index after potential resets
+            const currentIndex = currentFilters.findIndex(f => f.id === filterId);
+            if (currentIndex > -1) {
+                updateValueInputUI(currentIndex, filter.field, valueWrapper, hintSpan);
+            }
+
+            // Append main row and hint to the container
+            row.appendChild(filterRowDiv);
+            row.appendChild(hintSpan);
+            filterControlsContainer.appendChild(row);
+        });
+    }
+
+    function renderFieldConfigUI() {
+        console.log("Rendering Field Config UI"); // Updated log message
+        if (!fieldConfigContainer) return;
+
+        fieldConfigContainer.innerHTML = ''; // Clear previous content
+
+        // --- Create Header Row ---
+        const headerRow = document.createElement('div');
+        headerRow.className = 'd-flex align-items-center mb-2 p-2 border-bottom fw-bold text-muted small';
+        
+        const headers = [
+            { key: 'name', text: 'Field name', width: '150px', align: 'start', extraClasses: 'me-3' }, 
+            { key: 'count', text: 'Occured', width: '80px', align: 'end', extraClasses: 'me-3 text-end' }, // Updated text and width
+            { key: 'descriptor', text: 'Data descriptor', width: 'auto', align: 'start', extraClasses: 'flex-grow-1 me-3' }, 
+            { key: 'enabled', text: 'Included', width: '70px', align: 'center', extraClasses: 'text-center' } 
+        ];
+
+        headers.forEach(headerInfo => {
+            const headerEl = document.createElement('div');
+            headerEl.textContent = headerInfo.text;
+            headerEl.style.minWidth = headerInfo.width;
+            if (headerInfo.width === 'auto') {
+                headerEl.classList.add('flex-grow-1');
+            } else {
+                headerEl.style.flexBasis = headerInfo.width; // Use flex-basis for better control
+                headerEl.style.flexShrink = '0';
+            }
+             headerEl.className += ` ${headerInfo.extraClasses || ''}`;
+            headerEl.dataset.sortKey = headerInfo.key;
+            headerEl.style.cursor = 'pointer';
+            headerEl.title = `Sort by ${headerInfo.text}`; // Update title text
+
+            // Add sort indicator space
+            const sortIndicator = document.createElement('span');
+            sortIndicator.className = 'sort-indicator ms-1'; // Add ms-1 for spacing
+            headerEl.appendChild(sortIndicator);
+
+            headerEl.addEventListener('click', () => {
+                const sortKey = headerEl.dataset.sortKey;
+                if (currentSortKey === sortKey) {
+                    currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSortKey = sortKey;
+                    currentSortDirection = 'asc';
+                }
+                sortAndReRenderFields();
+            });
+            headerRow.appendChild(headerEl);
+        });
+
+        fieldConfigContainer.appendChild(headerRow);
+        updateSortIndicators(); // Initial indicator update
+        // --- End Header Row ---
+
+        if (!availableFields || availableFields.length === 0) {
+            // Append message *after* header if no data
+            const noDataMsg = document.createElement('p');
+            noDataMsg.className = 'text-muted small mt-2 ms-2'; // Added ms-2 for indent
+            noDataMsg.textContent = 'Load data first to configure fields.';
+            fieldConfigContainer.appendChild(noDataMsg);
+            return;
+        }
+        
+        // --- Render Data Rows (using a separate function now for clarity) ---
+        renderFieldDataRows(availableFields); 
+    }
+
+    // --- NEW: Separate function to render just the data rows ---
+    function renderFieldDataRows(fieldsToRender) {
+         // Clear only existing data rows (keep header)
+         const existingRows = fieldConfigContainer.querySelectorAll('.field-data-row');
+         existingRows.forEach(row => row.remove());
+
+         fieldsToRender.forEach(field => {
+            const metadata = fieldMetadata[field] || {}; // Get metadata or empty obj
+            const isEnabled = fieldEnabledStatus.hasOwnProperty(field) ? fieldEnabledStatus[field] : true;
+            const existingCount = metadata.existingValueCount !== undefined ? metadata.existingValueCount : null; // Use null for sorting
+            const descriptorText = getFieldDescriptor(field);
+
+            const row = document.createElement('div');
+            // Add specific class for data rows
+            row.className = 'd-flex align-items-center mb-2 p-2 border-bottom field-data-row'; 
+            row.dataset.fieldName = field; 
+            if (!isEnabled) {
+                row.style.opacity = '0.6'; 
+            }
+
+            // Create elements with matching widths/alignment from header config
+            // 1. Name
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = field;
+            nameSpan.className = 'fw-bold me-3'; // Match header spacing
+            nameSpan.style.minWidth = '150px';
+            nameSpan.style.flexBasis = '150px';
+            nameSpan.style.flexShrink = '0';
+            nameSpan.title = field; 
+            row.appendChild(nameSpan);
+
+            // 2. Count
+            const countSpan = document.createElement('span');
+            // Handle null count appropriately for display
+            countSpan.textContent = (metadata.type === 'empty' || existingCount === null) ? '-' : existingCount;
+            countSpan.className = 'small text-muted text-end me-3'; // Match header spacing & align
+            countSpan.style.minWidth = '80px'; // <<< MATCH UPDATED HEADER WIDTH 
+            countSpan.style.flexBasis = '80px'; // <<< MATCH UPDATED HEADER WIDTH
+            countSpan.style.flexShrink = '0';
+            row.appendChild(countSpan);
+
+            // 3. Descriptor
+            const descriptorSpan = document.createElement('span');
+            descriptorSpan.textContent = descriptorText;
+            descriptorSpan.className = 'small text-muted flex-grow-1 me-3'; // Match header spacing 
+            row.appendChild(descriptorSpan);
+            
+            // 4. Enabled Checkbox
+            const enabledWrapper = document.createElement('div');
+            // Center checkbox within its allocated space
+            enabledWrapper.className = 'form-check form-switch d-flex justify-content-center'; 
+            enabledWrapper.style.minWidth = '70px'; 
+            enabledWrapper.style.flexBasis = '70px';
+            enabledWrapper.style.flexShrink = '0';
+            const enabledCheckbox = document.createElement('input');
+            enabledCheckbox.type = 'checkbox';
+            enabledCheckbox.className = 'form-check-input';
+            enabledCheckbox.checked = isEnabled;
+            enabledCheckbox.id = `enable-${field.replace(/\W/g, '_')}`;
+            enabledCheckbox.title = isEnabled ? 'Disable this field' : 'Enable this field';
+            enabledCheckbox.addEventListener('change', (e) => {
+                const newStatus = e.target.checked;
+                fieldEnabledStatus[field] = newStatus;
+                saveEnabledStatusToStorage();
+                row.style.opacity = newStatus ? '1' : '0.6';
+                // Re-rendering the whole table is complex due to sorting, 
+                // so we just update opacity here. Filters will use updated status.
+                // Consider a full re-sort/re-render if needed after toggle?
+                renderFilterUI();
+                applyFilters();
+            });
+            enabledWrapper.appendChild(enabledCheckbox);
+            row.appendChild(enabledWrapper);
+
+            fieldConfigContainer.appendChild(row);
+        });
+    }
+    // --- END NEW Data Row Render Function ---
+
+    // --- NEW: Sort and Re-render Function ---
+    function sortAndReRenderFields() {
+        if (!availableFields || availableFields.length === 0) return; // No fields to sort
+
+        const fieldsToSort = [...availableFields]; // Create a mutable copy
+
+        fieldsToSort.sort((a, b) => {
+            const metaA = fieldMetadata[a] || {}; 
+            const metaB = fieldMetadata[b] || {};
+            let valA, valB;
+
+            switch (currentSortKey) {
+                case 'name':
+                    valA = a.toLowerCase();
+                    valB = b.toLowerCase();
+                    break;
+                case 'count':
+                    // Treat empty/N/A as -1 for sorting purposes to put them first/last
+                    valA = metaA.existingValueCount !== undefined && metaA.type !== 'empty' ? metaA.existingValueCount : -1;
+                    valB = metaB.existingValueCount !== undefined && metaB.type !== 'empty' ? metaB.existingValueCount : -1;
+                    break;
+                case 'descriptor':
+                    // Sort by the generated text descriptor
+                    valA = getFieldDescriptor(a).toLowerCase();
+                    valB = getFieldDescriptor(b).toLowerCase();
+                    break;
+                case 'enabled':
+                    // Sort boolean true first (desc) or false first (asc)
+                    valA = fieldEnabledStatus.hasOwnProperty(a) ? fieldEnabledStatus[a] : true;
+                    valB = fieldEnabledStatus.hasOwnProperty(b) ? fieldEnabledStatus[b] : true;
+                    break;
+                default:
+                    return 0; // No sort
+            }
+
+            let comparison = 0;
+            if (typeof valA === 'string' && typeof valB === 'string') {
+                comparison = valA.localeCompare(valB);
+            } else if (typeof valA === 'number' && typeof valB === 'number') {
+                comparison = valA - valB;
+            } else if (typeof valA === 'boolean' && typeof valB === 'boolean') {
+                comparison = (valA === valB) ? 0 : (valA ? -1 : 1); // True first
+            }
+
+            return currentSortDirection === 'asc' ? comparison : comparison * -1;
+        });
+
+        // Re-render the rows in the sorted order
+        renderFieldDataRows(fieldsToSort);
+        updateSortIndicators(); // Update indicators after sort
+    }
+    // --- END NEW Sort Function ---
+
+    // --- NEW: Update Sort Indicators ---
+    function updateSortIndicators() {
+        const headers = fieldConfigContainer.querySelectorAll('[data-sort-key]');
+        headers.forEach(header => {
+            const indicator = header.querySelector('.sort-indicator');
+            if (!indicator) return;
+
+            if (header.dataset.sortKey === currentSortKey) {
+                indicator.innerHTML = currentSortDirection === 'asc' ? ' <i class="bi bi-sort-up"></i>' : ' <i class="bi bi-sort-down"></i>';
+            } else {
+                indicator.innerHTML = ''; // Clear other indicators
+            }
+        });
+    }
+    // --- END NEW Sort Indicators --- 
+
+    // --- Apply Filters Function (Preparation Tab) ---
+    function applyFilters() {
+        console.log("Applying filters:", JSON.parse(JSON.stringify(currentFilters)));
+        console.log("Data to filter:", fullProcessedData.length);
+        console.log("Enabled status:", fieldEnabledStatus);
+
+        if (!outputArea || !filterResultsCount) return; // Check if elements exist
+
+        if (!fullProcessedData || fullProcessedData.length === 0) {
+            outputArea.textContent = 'No data loaded to filter.';
+            filterResultsCount.textContent = '(0 records)';
+            return;
+        }
+
+        const activeFilters = currentFilters.filter(f => f.field && f.field !== '' && f.operator); // Also ensure operator exists
+
+        let filteredData = fullProcessedData;
+
+        if (activeFilters.length > 0) {
+             filteredData = fullProcessedData.filter(item => {
+                 if (!item) return false; // Removed || !item.processed_data check here, handle inside loop
+
+                 for (const filter of activeFilters) {
+                     // --- Get item value based on field --- 
+                     let itemValue = null;
+                     if (filter.field === 'source') {
+                         itemValue = item.source;
+                     } else if (item.processed_data) { // Check if processed_data exists before accessing
+                        itemValue = item.processed_data[filter.field];
+                     }
+                     // --- End Get item value ---
+
+                     // --- Get filter value and operator (Declared only once) --- 
+                     const filterValue = filter.value;
+                     const operator = filter.operator;
+                     // --- End Get value/operator --- 
+
+                     // --- Multi-Select Handling ---
+                     if (Array.isArray(filterValue)) {
+                        const itemValueStr = String(itemValue);
+                        // Treat multi-select as 'equals any of' or 'not equals any of'
+                        if (operator === '=') {
+                            // Item's value must be present in the selected array
+                            if (!filterValue.includes(itemValueStr)) return false;
+                        } else if (operator === '!=') {
+                            // Item's value must NOT be present in the selected array
+                            if (filterValue.includes(itemValueStr)) return false;
+                        } else {
+                            // Unsupported operator for multi-select
+                            console.warn(`Operator '${operator}' not directly supported for multi-select field '${filter.field}'. Filter skipped or potentially incorrect.`);
+                            // For now, let's treat unsupported as "fail the filter" to be safe
+                            return false;
+                        }
+                        continue; // Move to next filter if this one passed
+                     }
+
+                     // --- Single Value Handling ---
+                     const filterValueStr = String(filterValue || ''); // Ensure it's a string
+                     // Check if the item value exists and is not null/undefined/empty string/placeholder '-'
+                     const valueExists = !(itemValue === null || itemValue === undefined || String(itemValue).trim() === '' || String(itemValue).trim() === '-');
+
+                     // Handle 'exists' / 'notExists' first
+                     if (operator === 'exists') {
+                         if (!valueExists) return false; // Fail if value doesn't exist
+                         continue; // Pass if value exists
+                     }
+                     if (operator === 'notExists') {
+                         if (valueExists) return false; // Fail if value exists
+                         continue; // Pass if value doesn't exist
+                     }
+
+                     // If operator requires a value, but item doesn't have one, it fails (unless comparing empty strings)
+                     if (!valueExists) {
+                        // Special case: Check if comparing empty/null strings
+                        if ((operator === '=' || operator === '!=') && (filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined')) {
+                            const isItemEmpty = !valueExists;
+                            const isFilterConsideredEmpty = (filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined');
+                            if (operator === '=' && isItemEmpty !== isFilterConsideredEmpty) return false;
+                            if (operator === '!=' && isItemEmpty === isFilterConsideredEmpty) return false;
+                            continue; // Passed empty comparison
+                        } else {
+                             // Item has no value, but filter requires one and isn't comparing empties
+                             return false;
+                        }
+                     }
+
+                     // --- Comparisons when item value exists ---
+                     const itemValueStr = String(itemValue).toLowerCase();
+                     const filterValueLower = filterValueStr.toLowerCase();
+                     const itemNum = parseFloat(itemValue); // Try converting item value to number
+                     const filterNum = parseFloat(filterValueStr); // Try converting filter value to number
+                     let numericComparisonDone = false;
+
+                     // Attempt Numeric Comparison first if both seem numeric
+                     if (!isNaN(itemNum) && !isNaN(filterNum)) {
+                        numericComparisonDone = true;
+                        switch (operator) {
+                            case '=': if (!(itemNum === filterNum)) return false; break;
+                            case '>': if (!(itemNum > filterNum)) return false; break;
+                            case '<': if (!(itemNum < filterNum)) return false; break;
+                            case '>=': if (!(itemNum >= filterNum)) return false; break;
+                            case '<=': if (!(itemNum <= filterNum)) return false; break;
+                            case '!=': if (!(itemNum !== filterNum)) return false; break;
+                            default: numericComparisonDone = false; // Operator not numeric
+                        }
+                     } else {
+                         // If we intended a numeric comparison but failed, should we fail the filter?
+                         // E.g., user enters '>' but value is 'N/A'
+                         if (['>', '<', '>=', '<='].includes(operator)) {
+                             console.warn(`Numeric comparison operator '${operator}' used, but values are not both numeric: Field='${filter.field}', Item='${itemValue}', Filter='${filterValueStr}'. Filter fails.`);
+                             return false; // Fail if numeric comparison intended but not possible
+                         }
+                         // Otherwise, allow string comparison for '=', '!=', 'contains', etc.
+                         numericComparisonDone = false;
+                     }
+
+                     // --- String Comparison (if numeric didn't happen or wasn't applicable) ---
+                     if (!numericComparisonDone) {
+                        switch(operator) {
+                            case '=': if (!(itemValueStr === filterValueLower)) return false; break;
+                            case '!=': if (!(itemValueStr !== filterValueLower)) return false; break;
+                            case 'contains': if (!itemValueStr.includes(filterValueLower)) return false; break;
+                            case 'startsWith': if (!itemValueStr.startsWith(filterValueLower)) return false; break;
+                            case 'endsWith': if (!itemValueStr.endsWith(filterValueLower)) return false; break;
+                            // Numeric operators already handled or failed above
+                        }
+                     }
+                 }
+                 // If we got through all filters for this item
+                 return true;
+             });
+        }
+
+         // --- Transform data for display (remove disabled fields) ---
+         const dataForDisplay = filteredData.map(item => {
+             const displayItem = {
+                 ticker: item.ticker,
+                 processed_data: {
+                     // Optionally include specific default fields even if disabled?
+                 },
+                 // Don't include error field by default unless needed
+                 // error: item.error
+             };
+             if (item.processed_data) {
+                 for (const field in item.processed_data) {
+                     // Only include the field if it exists and is explicitly enabled
+                     // Check hasOwnProperty for safety, and check the enabled status map
+                     if (item.processed_data.hasOwnProperty(field) && fieldEnabledStatus[field] === true) {
+                         displayItem.processed_data[field] = item.processed_data[field];
+                     }
+                 }
+             }
+             // Add error back if it exists
+             if (item.error) {
+                 displayItem.error = item.error;
+             }
+             return displayItem;
+         });
+         // --- End Transformation ---
+
+         // Display results using the transformed data
+         outputArea.textContent = JSON.stringify(dataForDisplay, null, 2);
+         filterResultsCount.textContent = `Showing ${filteredData.length} matching records (out of ${fullProcessedData.length}).`; // Count based on filtered records
+
+         // --- Update data used for chart and render --- 
+         filteredDataForChart = filteredData; // Store the data before transformation
+         renderChart(); // Update chart when filters change // RENAMED
+         // --- End Chart Update --- 
+    }
+    // --- END applyFilters definition ---
+
+    // --- NEW: Populate Report Field Selector --- 
+    function populateReportFieldSelector() { // Renamed implicitly, now handles both X and Y
+        console.log("Populating report field selectors (X and Y)...");
+        if (!reportFieldSelector || !reportXAxisSelector) return; // Check both selectors
+
+        const previousYValue = reportFieldSelector.value; // Remember selection
+        const previousXValue = reportXAxisSelector.value; // Remember selection for X
+        reportFieldSelector.innerHTML = '<option value="">-- Select Y Field --</option>'; // Clear and add default
+        // Add default index option first
+        reportXAxisSelector.innerHTML = '<option value="index" selected>-- Record Index (Default) --</option>'; // Make default selected initially
+        // Add default option for Size selector
+        reportSizeSelector.innerHTML = '<option value="">-- Select Field (Bubble Only) --</option>';
+
+        if (!availableFields || availableFields.length === 0) {
+            console.log("No available fields to populate report selectors.");
+            return;
+        }
+
+        // Filter available fields based on enabled status
+        const enabledFields = availableFields.filter(field => fieldEnabledStatus[field] === true);
+        console.log("Populating report selectors with enabled fields:", enabledFields);
+
+        // --- Separate check for numeric fields (optional, but helpful) ---
+        const numericFields = enabledFields.filter(field => fieldMetadata[field]?.type === 'numeric' || field === 'index'); // Treat 'index' as numeric conceptually
+        console.log("Numeric fields identified for selectors:", numericFields);
+        
+        // Populate X, Y, and Size selectors
+        enabledFields.forEach(field => {
+            // Y-axis option
+            const optionY = document.createElement('option');
+            optionY.value = field;
+            optionY.textContent = field;
+            reportFieldSelector.appendChild(optionY);
+            
+            // X-axis option
+            const optionX = document.createElement('option');
+            optionX.value = field;
+            optionX.textContent = field;
+            reportXAxisSelector.appendChild(optionX);
+
+            // Size-axis option (Only add numeric fields)
+            // Check if the field type is numeric according to metadata
+            if (fieldMetadata[field]?.type === 'numeric') {
+                const optionSize = document.createElement('option');
+                optionSize.value = field;
+                optionSize.textContent = field;
+                reportSizeSelector.appendChild(optionSize);
+            }
+        });
+
+        // Try to restore previous selections (if they weren't the default index)
+        if (enabledFields.includes(previousYValue)) {
+            reportFieldSelector.value = previousYValue;
+        }
+        // Restore X only if it's an enabled field and not the default 'index'
+        if (previousXValue && previousXValue !== 'index' && enabledFields.includes(previousXValue)) {
+            reportXAxisSelector.value = previousXValue;
+        } else {
+            // Otherwise, ensure the default 'index' option is selected
+            reportXAxisSelector.value = 'index';
+        }
+
+        // Restore Size selector if possible
+        const previousSizeValue = reportSizeSelector.value;
+        if (previousSizeValue && fieldMetadata[previousSizeValue]?.type === 'numeric' && enabledFields.includes(previousSizeValue)) {
+            reportSizeSelector.value = previousSizeValue;
+        } else {
+            reportSizeSelector.value = ""; // Reset if previous not valid/numeric/enabled
+        }
+
+        // If previous Y selection is no longer valid, reset chart
+        if (previousYValue && !enabledFields.includes(previousYValue)) {
+            if (reportChartInstance) {
+                reportChartInstance.destroy();
+                reportChartInstance = null;
+            }
+            if (chartStatus) chartStatus.textContent = 'Select fields to generate the chart.';
+        }
+    }
+    // --- END Populate Report Field Selector ---
+
+    // --- NEW: Populate Report Color Selector --- 
+    function populateReportColorSelector() {
+        console.log("Populating report color selector...");
+        if (!reportColorSelector) return;
+
+        const previousValue = reportColorSelector.value; // Remember selection
+        reportColorSelector.innerHTML = '<option value="">-- No Color Variation --</option>'; // Clear and add default
+
+        if (!availableFields || availableFields.length === 0) {
+            console.log("No available fields to populate color selector.");
+            return;
+        }
+
+        // Use the same enabled fields as the main selector
+        const enabledFields = availableFields.filter(field => fieldEnabledStatus[field] === true);
+        console.log("[populateReportColorSelector] Enabled fields:", enabledFields);
+        console.log("[populateReportColorSelector] Does 'name' exist and is enabled?", enabledFields.includes('name'));
+        console.log("[populateReportColorSelector] Previous value:", previousValue);
+
+        enabledFields.forEach(field => {
+            const option = document.createElement('option');
+            option.value = field;
+            option.textContent = field;
+            // Maybe exclude the currently selected Y-axis field?
+            // if (reportFieldSelector && field === reportFieldSelector.value) {
+            //     option.disabled = true;
+            // }
+            reportColorSelector.appendChild(option);
+        });
+
+        // Set default to 'name' if available, otherwise restore previous or set default
+        const defaultColorFieldLower = 'name'; // Define the desired default in lowercase
+
+        // Find the actual field name (case-insensitive) if it exists and is enabled
+        const nameFieldActualCase = enabledFields.find(f => f.toLowerCase() === defaultColorFieldLower);
+
+        console.log(`[populateReportColorSelector] Found 'name' field with actual case: ${nameFieldActualCase}`);
+
+        if (nameFieldActualCase) { // CHECK 1: Does 'name' (any case) exist and is enabled?
+            // If previous value was valid and *not* the default 'name' (case-insensitive check), restore it
+            if (previousValue && previousValue.toLowerCase() !== defaultColorFieldLower && enabledFields.includes(previousValue)) { // CHECK 2
+                reportColorSelector.value = previousValue;
+                console.log(`[populateReportColorSelector] Restoring previous value: ${previousValue}`);
+            } else {
+                // Otherwise, set to the desired default 'name' using the actual case found
+                reportColorSelector.value = nameFieldActualCase;
+                console.log(`[populateReportColorSelector] Setting default value to actual case: ${nameFieldActualCase}`);
+            }
+        } else if (previousValue && enabledFields.includes(previousValue)) { // CHECK 3: 'name' not enabled, but previous valid value exists?
+            // If 'name' isn't available, but previous value is, restore it
+            reportColorSelector.value = previousValue;
+            console.log(`[populateReportColorSelector] 'name' not found/enabled, restoring previous value: ${previousValue}`);
+        } else {
+            // Otherwise (no 'name', no valid previous), set to empty default
+            reportColorSelector.value = "";
+            console.log(`[populateReportColorSelector] No default or previous value found, setting to empty.`);
+        }
+        console.log(`[populateReportColorSelector] Final value set: ${reportColorSelector.value}`);
+    }
+    // --- END Populate Report Color Selector ---
+
+    // --- RENAMED: Render Chart (previously Render Scatter Plot) --- 
+    function renderChart() {
+        console.log("Rendering chart..."); 
+        if (!reportFieldSelector || !reportXAxisSelector || !reportChartCanvas || !chartStatus || !reportColorSelector || !reportSizeSelector || !reportChartTypeSelector) { // Added Size selector check
+            console.error("Report tab elements not found.");
+            return;
+        }
+
+        // --- Declare variables at the top --- 
+        let plotData = []; 
+        const labels = []; 
+        const numericData = []; 
+        const pointBackgroundColors = [];
+        const pointBorderColors = [];
+        let nonNumericXCount = 0; // Track non-numeric X (only if X field is selected)
+        let nonNumericYCount = 0; // Track non-numeric Y
+        let nonNumericSizeCount = 0; // Track non-numeric/non-positive Size
+        let missingItemCount = 0; // Track missing items
+        // --- End variable declarations --- 
+
+        // Helper function to get value from item
+        const getValue = (item, field) => {
+            if (!item) return null;
+            if (field === 'source') return item.source;
+            if (item.processed_data && item.processed_data.hasOwnProperty(field)) {
+                return item.processed_data[field];
+            }
+            return null; // Field not found
+        };
+
+        const selectedYField = reportFieldSelector.value;
+        const selectedXField = reportXAxisSelector.value; // NEW: Get X-axis field
+        const colorField = reportColorSelector.value; 
+        const sizeField = reportSizeSelector.value; // NEW: Get size field
+        const selectedChartType = reportChartTypeSelector.value;
+        const useIndexAsX = (!selectedXField || selectedXField === 'index'); // Check if default X is used
+        console.log(`Selected X:${useIndexAsX ? 'Index' : selectedXField}, Y:${selectedYField}, Color:${colorField || '-'}, Size:${sizeField || '-'}, Type:${selectedChartType}`);
+
+        chartStatus.textContent = ''; // Clear previous status
+
+        // --- Disable X-axis selector for bar charts ---
+        if (selectedChartType === 'bar') {
+            reportXAxisSelector.disabled = true;
+            // Optionally reset X-axis selection for bar? Or just ignore it? Let's ignore it for now.
+            // reportXAxisSelector.value = ''; // Reset
+        } else {
+            reportXAxisSelector.disabled = false;
+        }
+        // --- End Disable X-axis ---
+
+        // --- Enable/Disable Size selector based on chart type ---
+        reportSizeSelector.disabled = (selectedChartType !== 'bubble');
+        // --- End Enable/Disable Size ---
+
+        // Need Y field selected for all chart types
+        if (!selectedYField) {
+            chartStatus.textContent = 'Please select a field for the Y axis.';
+            if (reportChartInstance) {
+                reportChartInstance.destroy();
+                reportChartInstance = null;
+            }
+            return;
+        }
+
+        // Need Size field selected *only* for bubble charts
+        if (selectedChartType === 'bubble' && !sizeField) {
+            chartStatus.textContent = 'Please select a field for Bubble Size.';
+            if (reportChartInstance) {
+                reportChartInstance.destroy();
+                reportChartInstance = null;
+            }
+            return;
+        }
+
+        if (!filteredDataForChart || filteredDataForChart.length === 0) {
+            chartStatus.textContent = 'No data available to plot (apply filters or load data).';
+            if (reportChartInstance) {
+                reportChartInstance.destroy();
+                reportChartInstance = null;
+            }
+            return;
+        }
+
+        // --- Pre-calculate min/max for size scaling (Bubble only) ---
+        let minSize = Infinity;
+        let maxSize = -Infinity;
+        if (selectedChartType === 'bubble' && sizeField) {
+            filteredDataForChart.forEach(item => {
+                if (item) {
+                    const sizeValue = getValue(item, sizeField);
+                    const numericSize = Number(sizeValue);
+                    // Consider only positive numeric values for size scaling
+                    if (!isNaN(numericSize) && numericSize > 0) {
+                        if (numericSize < minSize) minSize = numericSize;
+                        if (numericSize > maxSize) maxSize = numericSize;
+                    }
+                }
+            });
+            // Handle case where no valid positive sizes found
+            if (minSize === Infinity || maxSize === -Infinity) {
+                console.warn(`No valid positive numeric data found for size field '${sizeField}'. Bubbles will have default size.`);
+                // Set defaults to prevent division by zero later
+                minSize = 1;
+                maxSize = 1;
+            } else if (minSize === maxSize) {
+                 // If all valid sizes are the same, adjust slightly for scaling formula
+                 minSize = maxSize / 2;
+            }
+            console.log(`[Bubble Scaling] Min Size: ${minSize}, Max Size: ${maxSize} for field '${sizeField}'`);
+        }
+        // --- End Pre-calculation ---
+
+        // Color mapping logic (remains the same)
+        const colorMap = {};
+        const predefinedColors = [
+            'rgba(255, 99, 132, 0.7)', 'rgba(54, 162, 235, 0.7)', 'rgba(255, 206, 86, 0.7)',
+            'rgba(75, 192, 192, 0.7)', 'rgba(153, 102, 255, 0.7)', 'rgba(255, 159, 64, 0.7)',
+            'rgba(199, 199, 199, 0.7)', 'rgba(83, 102, 255, 0.7)', 'rgba(40, 159, 64, 0.7)',
+            'rgba(210, 99, 132, 0.7)'
+        ];
+        let colorIndex = 0;
+        const defaultColor = 'rgba(128, 128, 128, 0.6)';
+        const getColorForValue = (value) => {
+            if (value === null || value === undefined || value === '') return defaultColor;
+            const valueStr = String(value);
+            if (!colorMap[valueStr]) {
+                colorMap[valueStr] = predefinedColors[colorIndex % predefinedColors.length];
+                colorIndex++;
+            }
+            return colorMap[valueStr];
+        };
+        
+        // Process data points
+        // Reset counts
+        nonNumericXCount = 0;
+        nonNumericYCount = 0;
+        nonNumericSizeCount = 0; // Reset size count too
+        missingItemCount = 0;
+        
+        filteredDataForChart.forEach((item, index) => {
+            let pointColor = defaultColor;
+            let colorValue = null;
+
+            if (item) {
+                // Get Y-axis value
+                const rawYValue = getValue(item, selectedYField);
+                const numericYValue = Number(rawYValue);
+                const isYNumeric = !isNaN(numericYValue) && rawYValue !== null && String(rawYValue).trim() !== '';
+                
+                // Get X-axis value (only if needed for scatter/line)
+                let rawXValue = null;
+                let numericXValue = null;
+                let isXNumeric = false;
+                // Determine X value based on selection or default index
+                if (selectedChartType === 'scatter' || selectedChartType === 'line' || selectedChartType === 'bubble') { // Include bubble
+                    if (useIndexAsX) {
+                        // Use the loop index as the X value
+                        numericXValue = index;
+                        rawXValue = index; // Store index as raw value too for consistency
+                        isXNumeric = true; // Index is always numeric
+                    } else {
+                        // Use the selected field for X value
+                        rawXValue = getValue(item, selectedXField);
+                        numericXValue = Number(rawXValue);
+                        isXNumeric = !isNaN(numericXValue) && rawXValue !== null && String(rawXValue).trim() !== '';
+                    }
+                }
+
+                // Check if data is valid for the *specific chart type*
+                let isValidPoint = false;
+                if (selectedChartType === 'scatter' || selectedChartType === 'line') {
+                    isValidPoint = isXNumeric && isYNumeric;
+                    if (!isXNumeric) nonNumericXCount++;
+                    if (!isYNumeric) nonNumericYCount++;
+                } else if (selectedChartType === 'bar') {
+                    isValidPoint = isYNumeric; // Only Y needs to be numeric for bar
+                    if (!isYNumeric) nonNumericYCount++;
+                } else if (selectedChartType === 'bubble') {
+                    // Bubble needs valid X, Y, and Size
+                    const rawSizeValue = getValue(item, sizeField);
+                    const numericSizeValue = Number(rawSizeValue);
+                    const isSizeNumericPositive = !isNaN(numericSizeValue) && numericSizeValue > 0;
+
+                    isValidPoint = isXNumeric && isYNumeric && isSizeNumericPositive;
+
+                    // Increment specific counts for bubble exclusions
+                    if (!isXNumeric) nonNumericXCount++;
+                    if (!isYNumeric) nonNumericYCount++;
+                    if (!isSizeNumericPositive) nonNumericSizeCount++;
+                }
+
+                if (isValidPoint) {
+                    // Get color field value
+                    if (colorField) {
+                        colorValue = getValue(item, colorField);
+                        pointColor = getColorForValue(colorValue);
+                    } else {
+                        pointColor = predefinedColors[0]; // Default if no color field
+                    }
+
+                    // Add data based on chart type
+                    if (selectedChartType === 'scatter' || selectedChartType === 'line') {
+                        const dataPoint = {
+                            x: numericXValue, // Use the actual numeric X value
+                            y: numericYValue,
+                            ticker: item.ticker || 'N/A',
+                            colorValue: colorValue,
+                            originalX: rawXValue, // Store original values for tooltip if needed
+                            originalY: rawYValue
+                        };
+                        plotData.push(dataPoint); 
+                    } else if (selectedChartType === 'bar') {
+                        labels.push(item.ticker || `Index ${index}`); // X is the ticker/label
+                        numericData.push(numericYValue); // Y is the bar height
+                        // Bar colors are pushed later, need to store color value
+                        // We'll handle this by iterating over labels/numericData later
+                    } else if (selectedChartType === 'bubble') {
+                        const rawSizeValue = getValue(item, sizeField);
+                        const numericSizeValue = Number(rawSizeValue);
+                        // Scale radius (ensure min/max are valid)
+                        const minRadius = 5;
+                        const maxRadius = 30;
+                        let radius = minRadius; // Default size if scaling fails
+                        if (maxSize > minSize) { // Avoid division by zero
+                            radius = minRadius + ((numericSizeValue - minSize) / (maxSize - minSize)) * (maxRadius - minRadius);
+                        }
+                        radius = Math.max(minRadius, radius); // Ensure minimum radius
+
+                        const dataPoint = {
+                            x: numericXValue,
+                            y: numericYValue,
+                            r: radius, // Calculated radius
+                            ticker: item.ticker || 'N/A',
+                            colorValue: colorValue,
+                            originalX: rawXValue,
+                            originalY: rawYValue,
+                            originalSize: rawSizeValue // Store original size value for tooltip
+                        };
+                        plotData.push(dataPoint);
+                    }
+
+                    // Push colors (only needed for scatter/line here, bar handled later)
+                     if (selectedChartType !== 'bar') {
+                         pointBackgroundColors.push(pointColor);
+                         pointBorderColors.push(pointColor.replace(/0\.\d+\)/, '1)')); 
+                     }
+
+                } 
+                // No else block needed here for invalid points, counts incremented above
+
+            } else {
+                 missingItemCount++; // Missing item entirely
+            }
+        });
+        
+        // --- Handle Bar Chart Colors ---
+         if (selectedChartType === 'bar') {
+             // We need to iterate through the generated labels/numericData
+             // and find the corresponding original item to get the color value
+             labels.forEach((label, index) => {
+                 // Find the original item - this assumes labels are unique tickers or unique indices
+                 const originalItem = filteredDataForChart.find(item => 
+                     (item && item.ticker === label) || (item && !item.ticker && label === `Index ${index}`)
+                 );
+                 let pointColor = defaultColor;
+                 if (originalItem && colorField) {
+                     const colorValue = getValue(originalItem, colorField);
+                     pointColor = getColorForValue(colorValue);
+                 } else if (originalItem) {
+                     pointColor = predefinedColors[0]; // Default if no color field
+                 }
+                 pointBackgroundColors.push(pointColor);
+                 pointBorderColors.push(pointColor.replace(/0\.\d+\)/, '1)'));
+             });
+         }
+        // --- End Bar Chart Colors ---
+
+        // Check if any valid data points were found for the selected type
+        console.log('Type of plotData before hasData:', typeof plotData, 'Value:', plotData); // DEBUG LOG
+        const hasData = (selectedChartType === 'bar' ? numericData.length > 0 : (plotData && plotData.length > 0)); // Simplified check
+        if (!hasData) {
+            chartStatus.textContent = `No valid numeric data found for the selected axes (${selectedXField ? 'X:'+selectedXField+', ' : ''}Y:${selectedYField}) in the current filtered data.`;
+             if (reportChartInstance) {
+                reportChartInstance.destroy();
+                reportChartInstance = null;
+            }
+            return;
+        }
+        
+        // Construct status message about excluded points
+        let excludedMessages = [];
+        if (missingItemCount > 0) excludedMessages.push(`${missingItemCount} missing records`);
+        // Only report non-numeric X for scatter/line
+        // Only report non-numeric X if a specific field (not index) was selected
+        if (!useIndexAsX && (selectedChartType === 'scatter' || selectedChartType === 'line') && nonNumericXCount > 0) {
+            excludedMessages.push(`${nonNumericXCount} non-numeric X values ('${selectedXField}')`);
+        }
+         if (nonNumericYCount > 0) { // Relevant for all types
+             excludedMessages.push(`${nonNumericYCount} non-numeric Y values ('${selectedYField}')`);
+         }
+         if (selectedChartType === 'bubble' && nonNumericSizeCount > 0) {
+             excludedMessages.push(`${nonNumericSizeCount} invalid Size values ('${sizeField}')`);
+         }
+
+        const plottedCount = hasData ? (selectedChartType === 'bar' ? numericData.length : plotData.length) : 0;
+        if (excludedMessages.length > 0) {
+            chartStatus.textContent = `Plotting ${plottedCount} points. ${excludedMessages.join(', ')} were excluded.`;
+        } else {
+            chartStatus.textContent = `Plotting ${plottedCount} points.`;
+        }
+
+        const ctx = reportChartCanvas.getContext('2d');
+
+        // Destroy previous chart instance if it exists
+        if (reportChartInstance) {
+            reportChartInstance.destroy();
+        }
+
+        // Determine data structure based on chart type
+        let chartDataConfig;
+        let xAxisConfig; // Define X-axis config separately
+
+        if (selectedChartType === 'scatter' || selectedChartType === 'line') {
+            chartDataConfig = {
+                datasets: [{
+                    label: `${selectedYField} vs ${selectedXField}`, // Combined label
+                    data: plotData, // Use {x, y, ...} data
+                    backgroundColor: pointBackgroundColors,
+                    borderColor: pointBorderColors,
+                    pointRadius: selectedChartType === 'scatter' ? 5 : 3, 
+                    pointHoverRadius: selectedChartType === 'scatter' ? 7 : 5,
+                    borderWidth: selectedChartType === 'line' ? 2 : 1, 
+                    fill: selectedChartType === 'line' ? false : undefined, 
+                    tension: selectedChartType === 'line' ? 0.1 : undefined 
+                }]
+            };
+            xAxisConfig = { // Define X-axis for scatter/line
+                 title: {
+                     display: true,
+                     text: useIndexAsX ? 'Record Index' : selectedXField // Use selected X field name or default
+                 },
+                 type: 'linear', // Numeric axis
+                 position: 'bottom'
+            };
+        } else if (selectedChartType === 'bar') {
+            chartDataConfig = {
+                labels: labels, // Use ticker labels for categories
+                datasets: [{
+                    label: selectedYField, // Y field is the value
+                    data: numericData, // Use numeric array for bar heights
+                    backgroundColor: pointBackgroundColors, // Use generated colors
+                    borderColor: pointBorderColors,
+                    borderWidth: 1
+                }]
+            };
+            xAxisConfig = { // Define X-axis for bar
+                 title: {
+                     display: true,
+                     text: 'Ticker / Record' // Generic label for categories
+                 },
+                 type: 'category', // Categorical axis
+                 position: 'bottom'
+            };
+        } else if (selectedChartType === 'bubble') {
+            chartDataConfig = {
+                datasets: [{
+                    label: `${selectedYField} vs ${selectedXField}`,
+                    data: plotData,
+                    backgroundColor: pointBackgroundColors,
+                    borderColor: pointBorderColors,
+                    borderWidth: 1
+                }]
+            };
+            xAxisConfig = {
+                title: {
+                    display: true,
+                    text: useIndexAsX ? 'Record Index' : selectedXField
+                },
+                type: 'linear',
+                position: 'bottom'
+            };
+        } else {
+             console.error(`Unsupported chart type: ${selectedChartType}`);
+             chartStatus.textContent = `Unsupported chart type selected: ${selectedChartType}`;
+             return;
+        }
+
+        // Create the chart
+        reportChartInstance = new Chart(ctx, {
+            type: selectedChartType, // Use selected type
+            data: chartDataConfig, // Use the prepared config
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: xAxisConfig, // Use the defined X-axis config
+                    y: {
+                        title: {
+                            display: true,
+                            text: selectedYField // Y-axis label is the selected Y field
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true, 
+                        position: 'top',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                console.log("Tooltip callback executed (Step 3 - Full)");
+                                let labelLines = []; // Use an array for multi-line labels
+                                const chartType = context.chart.config.type;
+                                const pointData = context.raw; // Available for scatter/line
+
+                                if (chartType === 'bar') {
+                                    // Bar chart: X is category (label), Y is value
+                                    labelLines.push(`Ticker: ${context.label || 'N/A'}`); // Ticker is the category label
+                                    labelLines.push(`${context.dataset.label || 'Value'}: ${context.parsed.y}`); // Y value
+
+                                    // Add color field info for bar charts (find original item)
+                                    if (colorField) {
+                                        const dataIndex = context.dataIndex;
+                                        // Find the original item matching the label/index
+                                        const originalItem = filteredDataForChart.find(item => 
+                                            (item && item.ticker === context.label) || (item && !item.ticker && context.label === `Index ${dataIndex}`)
+                                        );
+                                        if (originalItem) {
+                                            const colorValue = getValue(originalItem, colorField);
+                                            if (colorValue !== null && colorValue !== undefined) {
+                                                 labelLines.push(`${colorField}: ${colorValue}`);
+                                            }
+                                        }
+                                    }
+                                } else if (pointData) { 
+                                    // Scatter/Line chart: pointData contains {x, y, ticker, colorValue, originalX, originalY}
+                                    if (pointData.ticker) {
+                                        labelLines.push(`Ticker: ${pointData.ticker}`);
+                                    }
+                                    // Use selected field names for axes labels or default
+                                    const xLabel = useIndexAsX ? 'Index' : selectedXField;
+                                    const xValueDisplay = useIndexAsX ? pointData.x : `${pointData.x} ${pointData.originalX != pointData.x ? '('+pointData.originalX+')' : ''}`;
+                                    labelLines.push(`${xLabel}: ${xValueDisplay}`);
+                                    labelLines.push(`${selectedYField}: ${pointData.y} ${pointData.originalY != pointData.y ? '('+pointData.originalY+')' : ''}`);
+
+                                    // Add color field info if available
+                                    if (colorField && pointData.colorValue !== null && pointData.colorValue !== undefined) {
+                                        labelLines.push(`${colorField}: ${pointData.colorValue}`);
+                                    }
+
+                                    // Add size field info for bubble charts
+                                    if (chartType === 'bubble' && sizeField && pointData.originalSize !== null && pointData.originalSize !== undefined) {
+                                        labelLines.push(`${sizeField} (Size): ${pointData.originalSize}`);
+                                    }
+                                } else {
+                                     // Fallback if pointData isn't available (shouldn't happen often)
+                                     labelLines.push(`${context.dataset.label || 'Data'}: (${context.parsed.x}, ${context.parsed.y})`);
+                                }
+                                
+                                return labelLines; // Return array for multi-line tooltip
+                            }
+                        }
+                    },
+                    zoom: {
+                        pan: {
+                            enabled: true,
+                            mode: 'xy', // Allow panning on both axes
+                            threshold: 5, // Minimum drag distance to trigger pan
+                            overscroll: true, // Explicitly set overscroll mode
+                        },
+                        zoom: {
+                            wheel: {
+                                enabled: true, // Enable zooming via mouse wheel
+                            },
+                            pinch: {
+                                enabled: true // Enable zooming via pinch gesture (requires Hammer.js for touch)
+                            },
+                            drag: {
+                                 enabled: true, // Enable zooming via drag selection 
+                                 modifierKey: 'shift', // Optional: Require Shift key for drag zoom
+                            },
+                            mode: 'xy', // Allow zooming on both axes
+                        }
+                    }
+                }
+            }
+        });
+
+        // Force an update after initial render - might help plugin init
+        if (reportChartInstance) {
+            reportChartInstance.update(); 
+            // Trigger resize event after update
+            window.dispatchEvent(new Event('resize')); 
+            console.log("Forced chart update and dispatched resize event.");
+        }
+
+        console.log(`Chart rendered successfully as ${selectedChartType}.`); // Updated log
+
+        console.log(`Generating ${selectedChartType} plot for field: ${selectedYField} with ${filteredDataForChart.length} filtered records.`); // Corrected variable name
+
+        // Prepare data for chart
+        // For Scatter/Line: [{ x: index, y: value, ticker: ticker, colorValue: colorValue }]
+        // For Bar: labels: [ticker1, ticker2,...], data: [value1, value2,...]
+        // Use let instead of const
+        // plotData = []; 
+        // labels = []; 
+        // numericData = []; 
+        // pointBackgroundColors = [];
+        // pointBorderColors = [];
+        // nonNumericCount = 0; 
+    }
+    // --- END Render Chart --- 
+
+    // --- Data Loading & State Update (Preparation Tab) ---
+     function processLoadedDataAndUpdateState() {
+         if (!fullProcessedData || fullProcessedData.length === 0) {
+             availableFields = [];
+             fieldMetadata = {}; // Clear metadata if no data
+             // Keep loaded weights/enabled status? Or clear them?
+             // Let's keep them for now, in case user reloads data.
+             // fieldEnabledStatus = {};
+             console.log("No processed data loaded or data is empty.");
+             // Re-render empty UIs
+             renderFieldConfigUI();
+             renderFilterUI();
+             applyFilters(); // Clear output area if needed
+             return;
+         }
+
+         // --- Discover Fields --- 
+         const discoveredFields = new Set();
+         fullProcessedData.forEach(item => {
+             if (item && item.processed_data) {
+                 Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
+             }
+         });
+         discoveredFields.add('source'); // --- ADD 'source' FIELD EXPLICITLY --- 
+         availableFields = [...discoveredFields].sort();
+         console.log("Discovered fields (including source):", availableFields);
+
+         // --- Calculate Metadata --- 
+         const newFieldMetadata = {};
+         const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100; // Limit for text dropdowns
+
+         availableFields.forEach(field => {
+            let numericCount = 0;
+            let existingValueCount = 0; // <<< Initialize counter for existing values
+            let min = Infinity;
+            let max = -Infinity;
+            const allUniqueTextValues = new Set(); // <<< Use Set to get ALL unique text values
+
+            fullProcessedData.forEach(item => {
+                // --- Get value based on field (source vs processed_data) --- 
+                let value = null;
+                if (field === 'source') {
+                    if (item && item.source) {
+                        value = item.source;
+                    }
+                } else if (item && item.processed_data && item.processed_data.hasOwnProperty(field)) {
+                     value = item.processed_data[field];
+                }
+                // --- End Get value ---
+                
+                // Check if the value exists and is not null/undefined/empty string/placeholder '-'
+                const valueExists = value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-';
+                
+                if (valueExists) {
+                     existingValueCount++; // <<< Increment count if value exists
+                     const num = Number(value);
+                     if (!isNaN(num)) {
+                         numericCount++;
+                         if (num < min) min = num;
+                         if (num > max) max = num;
+                     } else {
+                         // Collect ALL unique non-numeric strings
+                         allUniqueTextValues.add(String(value)); // Store as string
+                     }
+                }
+            });
+
+            // Determine field type and store metadata
+            if (existingValueCount === 0) {
+                newFieldMetadata[field] = { 
+                    type: 'empty', 
+                    existingValueCount: 0 
+                }; // Field exists but no valid values
+            } else if (numericCount / existingValueCount >= 0.8) { // Heuristic: >= 80% numeric?
+                newFieldMetadata[field] = { 
+                    type: 'numeric', 
+                    min: min === Infinity ? 'N/A' : min, 
+                    max: max === -Infinity ? 'N/A' : max, 
+                    existingValueCount: existingValueCount 
+                };
+            } else {
+                const totalUniqueCount = allUniqueTextValues.size; // <<< Get total unique count
+                // Create the potentially truncated array for dropdowns
+                const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
+                
+                newFieldMetadata[field] = { 
+                    type: 'text', 
+                    uniqueValues: uniqueValuesForDropdown, // For dropdowns
+                    totalUniqueCount: totalUniqueCount,   // Exact total unique count
+                    existingValueCount: existingValueCount 
+                };
+            }
+         });
+         fieldMetadata = newFieldMetadata; // Update global metadata
+         console.log("Calculated field metadata:", fieldMetadata);
+
+         // --- Initialize Enabled Status for New Fields --- 
+         let statusChanged = false;
+         availableFields.forEach(field => {
+             // Default enabled status true if not present
+             if (!(field in fieldEnabledStatus)) {
+                 fieldEnabledStatus[field] = true;
+                 statusChanged = true;
+                 console.log(`Initialized enabled status for new field '${field}' to true.`);
+             }
+         });
+
+         // Optional: Clean up status for fields no longer present in the data
+         const currentAvailableSet = new Set(availableFields);
+         Object.keys(fieldEnabledStatus).forEach(field => {
+             if (!currentAvailableSet.has(field)) {
+                 console.log(`Removing stale enabled status for field '${field}'.`);
+                 delete fieldEnabledStatus[field];
+                 statusChanged = true;
+             }
+         });
+
+         // Save if defaults were added or stale entries removed
+         if (statusChanged) saveEnabledStatusToStorage();
+
+         // --- Re-render UIs --- 
+         renderFieldConfigUI(); // Render config first (populates fieldEnabledStatus)
+         renderFilterUI(); // Then render filters (uses fieldEnabledStatus)
+         populateReportFieldSelector(); // Populates BOTH X and Y now
+         populateReportColorSelector(); 
+     }
+
+    // --- Button Listeners (Preparation Tab) ---
+    // Add Filter Button
+     if (addFilterBtn) {
+         addFilterBtn.addEventListener('click', () => {
+             console.log("Add Filter clicked");
+             // Add a new blank filter object including comment
+             currentFilters.push({ id: Date.now() + Math.random(), field: '', operator: '=', value: '', comment: '' });
+             // Don't save here, let Apply Filters or Remove handle saving
+             renderFilterUI();
+         });
+     }
+
+    // Apply Filters Button
+    if (applyFiltersBtn) {
+        applyFiltersBtn.addEventListener('click', () => {
+            console.log("Apply Filters clicked - Current Filter State:", JSON.parse(JSON.stringify(currentFilters)));
+            // NOTE: The `currentFilters` array should already be up-to-date
+            // due to the 'change'/'input' listeners on the select/input fields.
+            // We just need to save this state before applying.
+            saveFiltersToStorage();
+            applyFilters(); // Apply the filters using the current state
+        });
+    }
+
+    // Reset Filters Button
+    if (resetFiltersBtn) {
+        resetFiltersBtn.addEventListener('click', () => {
+             console.log("Reset Filters clicked");
+             // Reset filters to a single blank one including comment
+             currentFilters = [{ id: Date.now() + Math.random(), field: '', operator: '=', value: '', comment: '' }];
+             saveFiltersToStorage(); // Save the reset state
+             renderFilterUI();
+             applyFilters(); // Re-apply filters (which should now show all data)
+        });
+    }
+
+    // Process Data Button (Load from DB)
+    if (processButton && processStatus && outputArea) {
+        processButton.addEventListener('click', async function() {
+            processButton.disabled = true;
+            showSpinner(processButton); // Show spinner
+            processStatus.textContent = 'Processing data...';
+            processStatus.className = 'ms-2 text-info';
+            outputArea.textContent = ''; // Clear previous output
+            if(filterResultsCount) filterResultsCount.textContent = ''; // Clear count
+
+            try {
+                // Step 1: Call the endpoint to process and store data (using the backend python function)
+                console.log("Calling /api/analytics/process-raw-data endpoint...");
+                const processResponse = await fetch('/api/analytics/process-raw-data', {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                const processResult = await processResponse.json();
+
+                if (!processResponse.ok) {
+                    const errorDetail = processResult.detail || `Processing failed with status ${processResponse.status} - ${processResponse.statusText}`;
+                    console.error("Error response from process-raw-data:", processResult);
+                    throw new Error(errorDetail);
+                }
+
+                console.log("Process request successful:", processResult);
+                processStatus.textContent = processResult.message || 'Processing request successful.';
+                processStatus.className = 'ms-2 text-success';
+
+                // Step 2: Call the endpoint to get the processed data
+                console.log("Calling /api/analytics/get-processed-data endpoint...");
+                const getResponse = await fetch('/api/analytics/get-processed-data', {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                if (!getResponse.ok) {
+                     const getErrorResult = await getResponse.json();
+                     const getErrorDetail = getErrorResult.detail || `Failed to get processed data with status ${getResponse.status} - ${getResponse.statusText}`;
+                     console.error("Error response from get-processed-data:", getErrorResult);
+                     throw new Error(getErrorDetail);
+                }
+
+                const processedData = await getResponse.json();
+                console.log(`Successfully fetched ${processedData.length} processed records.`);
+                fullProcessedData = processedData;
+
+                // Step 3: Process loaded data (extract fields, init weights/status)
+                console.log("Processing loaded data and updating state...");
+                processLoadedDataAndUpdateState();
+
+                // Step 4: Display initial unfiltered data (or apply loaded filters)
+                console.log("Applying initial filters...");
+                applyFilters();
+
+            } catch (error) {
+                console.error('Error during Finviz data processing/fetching:', error);
+                outputArea.textContent = `An error occurred. Check console for details. \nError: ${error.message}`;
+                processStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
+                processStatus.className = 'ms-2 text-danger';
+                fullProcessedData = []; // Clear data on error
+                processLoadedDataAndUpdateState(); // Re-render UIs (will show empty state)
+            } finally {
+                 processButton.disabled = false;
+                 console.log("Processing/fetching finished.");
+                 hideSpinner(processButton); // Hide spinner
+            }
+        });
+    }
+
+    // --- Helper functions to toggle button spinner/text --- 
+    function showSpinner(button, otherButton) {
+        const spinner = button.querySelector('.spinner-border');
+        const text = button.querySelector('.button-text');
+        if (spinner) spinner.style.display = 'inline-block';
+        if (text) text.style.display = 'none';
+        button.disabled = true;
+        if (otherButton) otherButton.disabled = true; // Disable other button too
+    }
+
+    function hideSpinner(button, otherButton) {
+        const spinner = button.querySelector('.spinner-border');
+        const text = button.querySelector('.button-text');
+        if (spinner) spinner.style.display = 'none';
+        if (text) text.style.display = 'inline-block'; 
+        
+        // Re-enable the current button
+        button.disabled = false;
+
+        // Re-enable the other button conditionally
+        if (otherButton) {
+            // If the other button is the upload button, only enable it if tickers are loaded
+            if (otherButton.id === 'run-finviz-upload-btn') {
+                if (uploadedTickers.length > 0) {
+                    otherButton.disabled = false;
+                }
+            } else {
+                // Otherwise (if other button is the screened fetch), always re-enable it
+                otherButton.disabled = false;
+            }
+        }
+    }
+    // --- End Helper Functions --- 
+
+    // --- Initial Page Load Logic ---
+    console.log("Initial page load: Loading state from localStorage...");
+    loadFiltersFromStorage();
+    // loadWeightsFromStorage(); // REMOVED
+    loadEnabledStatusFromStorage();
+
+    // --- Register Chart.js Plugins --- 
+    if (window.ChartZoom) { // Check if plugin loaded
+        Chart.register(window.ChartZoom);
+        console.log("Chartjs zoom plugin registered.");
+    } else {
+        console.warn("Chartjs zoom plugin (ChartZoom) not found. Zoom/pan disabled.");
+    }
+    // --- End Plugin Registration --- 
+
+    // Initial render based on loaded state (data is empty initially)
+    renderFilterUI(); // Render Prep tab UI elements
+    renderFieldConfigUI(); // <<< ADD THIS CALL HERE
+    // Optionally trigger the "Load Data from DB" automatically on page load?
+    // processButton.click(); // Uncomment to auto-load data
+    
+    // --- Event Listener for Report Field Selector ---
+    if (reportFieldSelector) { // Y-axis
+        reportFieldSelector.addEventListener('change', renderChart); 
+    }
+    // --- NEW: Event Listener for Report X-Axis Selector ---
+    if (reportXAxisSelector) {
+        reportXAxisSelector.addEventListener('change', renderChart);
+    }
+    
+    // --- Event Listener for Report Color Selector --- Moved inside DOMContentLoaded
+    if (reportColorSelector) {
+        reportColorSelector.addEventListener('change', renderChart);
+    }
+    // --- END Event Listener ---
+
+    console.log("Initial page load complete.");
+
+    // --- NEW: Add Event Listener for Report Chart Type Selector --- Moved inside DOMContentLoaded
+    if (reportChartTypeSelector) {
+        reportChartTypeSelector.addEventListener('change', renderChart);
+    }
+    // --- END Event Listener ---
+
+    // --- NEW: Add Event Listener for Reset Chart Button ---
+    if (resetChartBtn) {
+        resetChartBtn.addEventListener('click', () => {
+            console.log("Reset View button clicked");
+            if (reportChartInstance) {
+                reportChartInstance.resetZoom();
+                console.log("Chart zoom/pan reset.");
+            } else {
+                console.log("No chart instance found to reset zoom.");
+            }
+        });
+    }
+    // --- END Reset Button Listener ---
+
+    // --- NEW: Add Event Listener for Report Size Selector ---
+    if (reportSizeSelector) {
+        reportSizeSelector.addEventListener('change', renderChart);
+    }
+    // --- END Size Selector Listener ---
+
+    // --- NEW: Add Event Listener for Swap Axes Button ---
+    if (swapAxesBtn && reportXAxisSelector && reportFieldSelector) { // Ensure all elements exist
+        swapAxesBtn.addEventListener('click', () => {
+            console.log("Swap Axes button clicked");
+            const currentX = reportXAxisSelector.value;
+            const currentY = reportFieldSelector.value;
+
+            // --- Validation ---
+            // 1. Don't swap if Y is not selected
+            if (!currentY) {
+                console.log("[Swap Axes] Cannot swap: Y-axis not selected.");
+                return;
+            }
+            // 2. Check if Y value exists in X options
+            const yOptionInX = Array.from(reportXAxisSelector.options).some(opt => opt.value === currentY);
+            if (!yOptionInX) {
+                console.log(`[Swap Axes] Cannot swap: Y-axis value '${currentY}' not found in X-axis options.`);
+                return;
+            }
+
+            let newX = currentY;
+            let newY = currentX;
+
+            // --- Handle special 'index' case for X ---
+            if (currentX === 'index') {
+                // Allow swapping Y -> X, but keep Y as is (don't put 'index' in Y)
+                newY = currentY; // Y remains unchanged
+                console.log("[Swap Axes] X is index. Swapping Y->X only.");
+            } else {
+                // 3. Normal case: Check if X value exists in Y options
+                const xOptionInY = Array.from(reportFieldSelector.options).some(opt => opt.value === currentX);
+                if (!xOptionInY) {
+                    console.log(`[Swap Axes] Cannot swap: X-axis value '${currentX}' not found in Y-axis options.`);
+                    return;
+                }
+                // If all checks pass for normal swap, newX and newY are already set correctly
+                console.log("[Swap Axes] Performing full swap.");
+            }
+
+            // Apply the new values
+            reportXAxisSelector.value = newX;
+            reportFieldSelector.value = newY;
+
+            // Re-render the chart
+            renderChart();
+        });
+    }
+    // --- END Swap Axes Button Listener ---
+
+}); 

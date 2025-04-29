@@ -41,6 +41,9 @@ from datetime import datetime # <<< ADD THIS IMPORT
 # --- Add CORS Middleware Import --- 
 from fastapi.middleware.cors import CORSMiddleware
 # --- End Import --- 
+# --- Add StaticFiles Import ---
+from fastapi.staticfiles import StaticFiles # <<< ADD THIS IMPORT
+# --- End StaticFiles Import ---
 
 # --- Standard Library Imports ---
 # ... (other imports)
@@ -675,8 +678,13 @@ def create_app():
         # Assuming it was correct before
         current_dir = os.path.dirname(os.path.abspath(__file__))
         static_dir = os.path.join(current_dir, "static")
-        os.makedirs(static_dir, exist_ok=True)
+        # --- Mount Static Directory ---
+        # Ensure the directory exists (optional but good practice)
+        os.makedirs(static_dir, exist_ok=True) 
+        logger.info(f"Mounting static directory: {static_dir} at /static")
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
+        logger.info("Static files mounted successfully.")
+        # --- End Mount Static Directory ---
 
         # Revert: Database path and initialization?
         # Need to use the global DATABASE_URL here if we keep it global
