@@ -224,60 +224,150 @@ document.addEventListener('DOMContentLoaded', function() {
          console.log("Pre-scanning rules to identify needed aggregates...");
          const neededAggregates = {}; // { fieldName: Set<string>('min', 'max', 'avg', 'sum', 'median', 'values') }
          // Reuse the aggregate regex from executeArithmeticRule
-         const aggregateScanRegex = /(?:(MIN|MAX|AVG|SUM|MEDIAN)\s*\(\s*'?\{([^{}]+)\}?'?\s*\))|(?:(TRIM_AVG)\s*\(\s*'?\{([^{}]+)\}?'?\s*,\s*(\d+(?:\.\d+)?%?)\s*\))|(?:(AVG_AFTER_TRIM_MIN|AVG_AFTER_TRIM_MAX)\s*\(\s*'?\{([^{}]+)\}?'?\s*,\s*(\d+)\s*\))/gi;
+         // <<< Regex to find BOTH global and grouped aggregates >>>
+         // Groups: 1=aggFunc, 2=aggField, 3=groupKeyword (in), 4=groupField | 5=trimFunc, 6=trimField, 7=trimParam | 8=trimCountFunc, 9=trimCountField, 10=trimCountParam
+         const aggregateScanRegex = /(?:(MIN|MAX|AVG|SUM|MEDIAN)\\s*\\(\\s*\\{([^{}]+)\\}\s*(?:\\b(in)\\b\\s*\\{([^{}]+)\\})?\\s*\\))|(?:(TRIM_AVG)\\s*\\(\\s*\'\\{([^{}]+)\\}\'?\\s*,\\s*(\\d+(?:\\.\\d+)?%?)\\s*\\))|(?:(AVG_AFTER_TRIM_MIN|AVG_AFTER_TRIM_MAX)\\s*\\(\\s*\'\\{([^{}]+)\\}\'?\\s*,\\s*(\\d+)\\s*\\))/gi; // CORRECTED REGEX
 
+         // <<< NEW: Structure for needed GROUPED aggregates >>>
+         const neededGroupedAggregates = {}; // { groupField: { aggField: Set<aggFunc> } }
+
+         // <<< Store ALL numeric fields encountered for potential grouping >>>
+         const allNumericFields = new Set(); // Keep track for efficiency later
+ 
          rules.forEach(rule => {
             if (!rule.enabled || rule.type !== 'arithmetic' || !rule.parameters?.formula) {
                 return; // Skip disabled or non-arithmetic rules
             }
-            const formula = rule.parameters.formula;
+            let formula = rule.parameters.formula; 
+            // console.log(`[Pre-scan] Processing Formula: "${formula}"`); // DEBUG REMOVED
+
             let match;
-            // Reset regex lastIndex before each test/exec loop
+            const tempGroupedPlaceholders = {}; 
+            let placeholderIndex = 0;
+
+            // --- Manual Pre-Parse for FUNC({...} in {...}) Syntax ---
+            // console.log("[Pre-scan Manual] Checking for FUNC({...} in {...}) patterns..."); // DEBUG REMOVED
+            const manualGroupedPattern = /\(\s*\{([^{}]+)\}\s*\b(in)\b\s*\{([^{}]+)\}\s*\)/i; 
+            const validAggFuncs = ["MIN", "MAX", "AVG", "SUM", "MEDIAN"];
+            let currentSearchIndex = 0;
+            let potentialMatchPos = formula.indexOf('(', currentSearchIndex);
+
+            while (potentialMatchPos !== -1) {
+                let functionName = null;
+                let functionStartPos = -1;
+                for(let i = potentialMatchPos - 1; i >= 0; i--) {
+                    const char = formula[i];
+                    if (char === ' ' || char === '\t' || char === '\n' || char === '\r') continue; 
+                    if (char.match(/[a-zA-Z]/)) { 
+                         let start = i;
+                         while (start >= 0 && formula[start].match(/[a-zA-Z]/)) {
+                             start--;
+                         }
+                         functionStartPos = start + 1;
+                         functionName = formula.substring(functionStartPos, i + 1).toUpperCase();
+                         break;
+                    } else {
+                         break; 
+                    }
+                }
+
+                if (functionName && validAggFuncs.includes(functionName)) {
+                    manualGroupedPattern.lastIndex = potentialMatchPos; 
+                    const subMatch = manualGroupedPattern.exec(formula);
+                    
+                    if (subMatch && subMatch.index === potentialMatchPos) {
+                        // const fullMatchedString = formula.substring(functionStartPos, potentialMatchPos + subMatch[0].length); // DEBUG REMOVED
+                        // console.log(`[Pre-scan Manual] Found potential match: Func='${functionName}', Pattern='${subMatch[0]}', Full='${fullMatchedString}'`); // DEBUG REMOVED
+                        
+                        const aggField = subMatch[1];
+                        const groupField = subMatch[3];
+                        const aggFuncLower = functionName.toLowerCase();
+                        let requiredType; 
+                        switch(aggFuncLower) {
+                            case 'min': requiredType = 'min'; break;
+                            case 'max': requiredType = 'max'; break;
+                            case 'avg': requiredType = 'avg'; break;
+                            case 'sum': requiredType = 'sum'; break;
+                            case 'median': requiredType = 'median'; break;
+                            default: requiredType = null; 
+                        }
+
+                        if (requiredType) {
+                            // console.log(`  - Recording GROUPED requirement: ${functionName}({${aggField}} in {${groupField}}) -> Type: ${requiredType}`); // DEBUG REMOVED
+                            if (!neededGroupedAggregates[groupField]) {
+                                neededGroupedAggregates[groupField] = {};
+                            }
+                            if (!neededGroupedAggregates[groupField][aggField]) {
+                                neededGroupedAggregates[groupField][aggField] = new Set();
+                            }
+                            neededGroupedAggregates[groupField][aggField].add(requiredType);
+                            
+                            const placeholder = `__TEMP_GROUPED_AGG_${placeholderIndex++}__`;
+                            tempGroupedPlaceholders[placeholder] = { aggFunc: aggFuncLower, aggField, groupField };
+                            formula = formula.substring(0, functionStartPos) + placeholder + formula.substring(potentialMatchPos + subMatch[0].length);
+                            // console.log(`  - Formula modified for regex pass: "${formula}"`); // DEBUG REMOVED
+                            currentSearchIndex = functionStartPos + placeholder.length;
+                        } else {
+                            currentSearchIndex = potentialMatchPos + 1; 
+                        }
+                    } else {
+                         currentSearchIndex = potentialMatchPos + 1; 
+                    }
+                } else {
+                     currentSearchIndex = potentialMatchPos + 1; 
+                }
+                potentialMatchPos = formula.indexOf('(', currentSearchIndex);
+            }
+            // console.log("[Pre-scan Manual] Finished manual check."); // DEBUG REMOVED
+            // --- End Manual Pre-Parse ---
+            
+             rule.parameters.tempGroupedPlaceholders = tempGroupedPlaceholders; 
+             rule.parameters.formulaWithPlaceholders = formula; 
+
+            // --- Standard Regex Parse for remaining aggregates (on potentially modified formula) ---
+            // console.log(`[Pre-scan Regex] Checking remaining formula "${formula}" for other aggregates...`); // DEBUG REMOVED
+            const patternString = "(?:(MIN|MAX|AVG|SUM|MEDIAN)\\s*\\(\\s*\\{([^{}]+)\\}\s*\\))|(?:(TRIM_AVG)\\s*\\(\\s*\'\\{([^{}]+)\\}\'?\\s*,\\s*(\\d+(?:\\.\\d+)?%?)\\s*\\))|(?:(AVG_AFTER_TRIM_MIN|AVG_AFTER_TRIM_MAX)\\s*\\(\\s*\'\\{([^{}]+)\\}\'?\\s*,\\s*(\\d+)\\s*\\))"; 
+            const aggregateScanRegex = new RegExp(patternString, "gi");            
+            
             aggregateScanRegex.lastIndex = 0; 
             while ((match = aggregateScanRegex.exec(formula)) !== null) {
-                const functionName = (match[1] || match[3] || match[6])?.toLowerCase();
-                const fieldName = match[2] || match[4] || match[7];
+                 // console.log(`[Pre-scan Regex] Found Other Aggregate Match:`, match); // DEBUG REMOVED
+                 const aggFunc = (match[1] || match[3] || match[6])?.toLowerCase();
+                 const aggField = match[2] || match[4] || match[7];
 
-                if (fieldName && functionName) {
-                     if (!neededAggregates[fieldName]) {
-                         neededAggregates[fieldName] = new Set();
-                     }
-                     
-                     // Determine the required aggregate type
+                 if (aggField && aggFunc) {
                      let requiredType;
-                     switch(functionName) { // Use functionKey from outer scope? No, needs to be from functionName
-                          case 'min': requiredType = 'min'; break;
-                          case 'max': requiredType = 'max'; break;
-                          case 'avg': requiredType = 'avg'; break;
-                          case 'sum': requiredType = 'sum'; break;
-                          case 'median': requiredType = 'median'; break;
-                          // For any trimmed function, we need the raw values array
-                          case 'trim_avg':
-                          case 'avg_after_trim_min':
-                          case 'avg_after_trim_max':
-                              requiredType = 'values'; 
-                              break;
-                          default:
-                              console.warn(`[Pre-scan] Unknown aggregate function found: ${functionName}`);
-                              continue; // Skip unknown function
+                     switch(aggFunc) {
+                        case 'min': requiredType = 'min'; break;
+                        case 'max': requiredType = 'max'; break;
+                        case 'avg': requiredType = 'avg'; break;
+                        case 'sum': requiredType = 'sum'; break;
+                        case 'median': requiredType = 'median'; break;
+                        case 'trim_avg':
+                        case 'avg_after_trim_min':
+                        case 'avg_after_trim_max':
+                            requiredType = 'values'; 
+                            break;
+                        default:
+                            console.warn(`[Pre-scan Regex] Unknown aggregate function found: ${aggFunc}`); // Keep this warning
+                            continue;
                      }
-                     
-                     // If a dynamic trim needs values, ensure standard ones are also calculated if needed elsewhere
-                     // For now, we are calculating all anyway, so just add the type.
-                     neededAggregates[fieldName].add(requiredType);
-                     
-                     // If avg or sum is needed, implicitly need count/sum for avg
-                     // But we calculate all for now.
-                }
+                    // console.log(`  - Recording GLOBAL/OTHER requirement: ${aggFunc.toUpperCase()}({${aggField}}) -> Type: ${requiredType}`); // DEBUG REMOVED
+                    if (!neededAggregates[aggField]) {
+                        neededAggregates[aggField] = new Set();
+                    }
+                    neededAggregates[aggField].add(requiredType);
+                 }
             }
          });
-         console.log("Needed aggregates identified by pre-scan:", neededAggregates);
+         console.log("Needed GLOBAL/OTHER aggregates identified by pre-scan:", neededAggregates); 
+         console.log("Needed GROUPED aggregates identified by pre-scan:", neededGroupedAggregates);
          // --- End Optimization Pre-scan ---
 
          // --- Calculate Aggregates --- OPTIMIZED
-         console.log("Calculating *ONLY* needed aggregates for identified numeric fields..."); 
+         console.log("Calculating *ONLY* needed GLOBAL aggregates..."); 
         const aggregateResults = {};
-         
+          
          // Iterate only over fields identified as numeric
          numericFieldsForAggregation.forEach(field => { 
              const neededTypes = neededAggregates[field]; // Get the Set of needed types for this field
@@ -354,8 +444,122 @@ document.addEventListener('DOMContentLoaded', function() {
 
          }); // End field loop
 
-         console.log("Final Calculated Aggregates Object (Optimized):", aggregateResults); // MODIFIED Log
+         console.log("Final Calculated GLOBAL Aggregates Object:", aggregateResults); // MODIFIED Log
         // --- END Aggregate Calculation ---
+        
+        // --- NEW: Calculate GROUPED Aggregates --- 
+        console.log("Calculating needed GROUPED aggregates...");
+        const groupedAggregateResults = {}; // { groupField: { groupValue: { aggField: { results... } } } }
+
+        // Iterate through each GROUPING field identified in the pre-scan
+        for (const groupField in neededGroupedAggregates) {
+            if (!neededGroupedAggregates.hasOwnProperty(groupField)) continue;
+            console.log(` Processing groupField: ${groupField}`);
+            groupedAggregateResults[groupField] = {}; // Initialize object for this grouping field
+            const neededAggFields = neededGroupedAggregates[groupField]; // Fields to aggregate for this groupField
+
+            // Temporary storage for intermediate results PER GROUP VALUE
+            const intermediateGroupData = {}; // { groupValue: { aggField: { sum, count, min, max, values } } }
+
+            // --- Pass 1: Iterate data to collect intermediate values for this grouping field --- 
+            workingData.forEach(item => {
+                if (!item) return;
+                let groupValue = null;
+                // Get the value for the current grouping field (e.g., item's Sector)
+                if (item.processed_data && item.processed_data.hasOwnProperty(groupField)) {
+                    groupValue = item.processed_data[groupField];
+                } else if (item.hasOwnProperty(groupField) && groupField !== 'processed_data') {
+                    groupValue = item[groupField];
+                }
+                // Convert null/undefined group values to a consistent key like '__NONE__' or skip?
+                // Let's use a key for now to handle potential aggregations on null groups.
+                const groupKey = (groupValue === null || groupValue === undefined || String(groupValue).trim() === '') ? '__NONE__' : String(groupValue);
+
+                // Initialize storage for this specific group value if not seen before
+                if (!intermediateGroupData[groupKey]) {
+                    intermediateGroupData[groupKey] = {};
+                }
+
+                // Now, for this item, get the values of the AGGREGATION fields needed for this groupField
+                for (const aggField in neededAggFields) {
+                    if (!neededAggFields.hasOwnProperty(aggField)) continue;
+                    
+                    // Initialize storage for this aggField within this groupKey if not seen before
+                    if (!intermediateGroupData[groupKey][aggField]) {
+                        intermediateGroupData[groupKey][aggField] = {
+                            sum: 0,
+                            count: 0,
+                            min: Infinity,
+                            max: -Infinity,
+                            values: [] // Always collect for potential median/avg later
+                        };
+                    }
+
+                    // Get the value to be aggregated (e.g., item's Price)
+                    let valueToAggregate = null;
+                    if (item.processed_data && item.processed_data.hasOwnProperty(aggField)) {
+                        valueToAggregate = item.processed_data[aggField];
+                    } else if (item.hasOwnProperty(aggField) && aggField !== 'processed_data') {
+                        valueToAggregate = item[aggField];
+                    }
+                    
+                    // Convert to number and update intermediate stats
+                    const numValue = Number(valueToAggregate);
+                    if (valueToAggregate !== null && valueToAggregate !== undefined && String(valueToAggregate).trim() !== '' && !isNaN(numValue)) {
+                        const stats = intermediateGroupData[groupKey][aggField];
+                        stats.sum += numValue;
+                        stats.count++;
+                        if (numValue < stats.min) stats.min = numValue;
+                        if (numValue > stats.max) stats.max = numValue;
+                        stats.values.push(numValue);
+                    }
+                } // End loop through needed aggFields
+            }); // End data iteration (Pass 1) for groupField
+
+            // --- Pass 2: Finalize calculations for each group value within this groupField --- 
+            console.log(` Finalizing aggregates for groupField: ${groupField}`);
+            for (const groupKey in intermediateGroupData) {
+                if (!intermediateGroupData.hasOwnProperty(groupKey)) continue;
+                groupedAggregateResults[groupField][groupKey] = {}; // Initialize final results object for this groupKey
+                
+                for (const aggField in intermediateGroupData[groupKey]) {
+                    if (!intermediateGroupData[groupKey].hasOwnProperty(aggField)) continue;
+                    
+                    const stats = intermediateGroupData[groupKey][aggField];
+                    const neededFunctions = neededGroupedAggregates[groupField][aggField]; // Get the Set of needed funcs
+                    const finalResults = {};
+
+                    // <<< Remove intermediate stats log >>>
+                    // console.log(`  [Group Calc DEBUG] Finalizing: GroupKey='${groupKey}', AggField='${aggField}', Stats:`, JSON.parse(JSON.stringify(stats))); 
+
+                    if (stats.count > 0) {
+                        if (neededFunctions.has('sum')) finalResults.sum = stats.sum;
+                        if (neededFunctions.has('avg')) {
+                            finalResults.avg = stats.sum / stats.count;
+                            // <<< Remove AVG calculation log >>>
+                            // console.log(`    [Group Calc DEBUG] Calculated AVG: ${finalResults.avg} (Sum: ${stats.sum}, Count: ${stats.count})`); 
+                        }
+                        if (neededFunctions.has('min')) finalResults.min = stats.min;
+                        if (neededFunctions.has('max')) finalResults.max = stats.max;
+                        if (neededFunctions.has('median')) finalResults.median = calculateMedian(stats.values);
+                        finalResults.count = stats.count; 
+                    } else { 
+                        // Handle case where group had no valid numeric data for this aggField
+                         if (neededFunctions.has('sum')) finalResults.sum = 0;
+                         if (neededFunctions.has('avg')) finalResults.avg = null;
+                         if (neededFunctions.has('min')) finalResults.min = null;
+                         if (neededFunctions.has('max')) finalResults.max = null;
+                         if (neededFunctions.has('median')) finalResults.median = null;
+                         finalResults.count = 0;
+                    }
+
+                    groupedAggregateResults[groupField][groupKey][aggField] = finalResults;
+                }
+            }
+        } // End loop through groupFields
+
+        console.log("Final Calculated GROUPED Aggregates Object:", groupedAggregateResults);
+        // --- END NEW: Calculate GROUPED Aggregates --- 
         
         // --- Rule Execution Loop --- 
         validRules.forEach((rule, ruleIndex) => { // Use validRules here
@@ -383,7 +587,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 try {
                     switch (rule.type) {
                         case 'arithmetic':
-                            newValue = executeArithmeticRule(item, rule.parameters, availableFieldsDuringTransform, aggregateResults);
+                            newValue = executeArithmeticRule(item, rule.parameters, availableFieldsDuringTransform, aggregateResults, groupedAggregateResults);
                             break;
                         case 'text_manipulation':
                             newValue = executeTextManipulationRule(item, rule.parameters, availableFieldsDuringTransform);
@@ -650,190 +854,203 @@ document.addEventListener('DOMContentLoaded', function() {
     window.extractDelimitedSubstring = extractDelimitedSubstring;
 
     // --- Rule Execution Handlers ---
-    function executeArithmeticRule(item, params, availableFields, aggregateResults = {}) {
+    function executeArithmeticRule(item, params, availableFields, aggregateResults = {}, groupedAggregateResults = {}) {
         if (!params || !params.formula) {
             throw new Error("Missing formula parameter for arithmetic rule.");
         }
-        let formula = params.formula;
-
-        // --- Aggregate Substitution (MIN, MAX, AVG, SUM, MEDIAN, TRIM_AVG, AVG_AFTER_TRIM_MIN, AVG_AFTER_TRIM_MAX) ---
-        // Regex to find Aggregate({Field}) or Aggregate({Field}, Param) case-insensitively
-        const aggregateRegex = /(?:(MIN|MAX|AVG|SUM|MEDIAN)\s*\(\s*'?\{([^{}]+)\}?'?\s*\))|(?:(TRIM_AVG)\s*\(\s*'?\{([^{}]+)\}?'?\s*,\s*(\d+(?:\.\d+)?%?)\s*\))|(?:(AVG_AFTER_TRIM_MIN|AVG_AFTER_TRIM_MAX)\s*\(\s*'?\{([^{}]+)\}?'?\s*,\s*(\d+)\s*\))/gi;
+        let processedFormula = params.formulaWithPlaceholders || params.formula; 
+        // console.log(`[Arithmetic Rule] Starting execution with formula: "${processedFormula}"`); // DEBUG REMOVED
         
-        // Check if there are any aggregate calls to substitute
-        // Use test() first for efficiency before doing a full replace
-        if (aggregateRegex.test(formula)) { 
-            console.log(`[Arithmetic Rule] Substituting aggregates in formula "${params.formula}"...`);
-            
-            // Use replace with a replacer function for robustness
-            // Adjusted capture groups: 
-            // 1=stdFunc, 2=stdField | 3=trimAvgFunc, 4=trimAvgField, 5=trimAvgParam | 6=avgTrimCountFunc, 7=avgTrimCountField, 8=avgTrimCountParam
-            formula = formula.replace(aggregateRegex, (fullMatch, stdFunc, stdField, trimAvgFunc, trimAvgField, trimAvgParam, avgTrimCountFunc, avgTrimCountField, avgTrimCountParam) => {
-                const functionName = stdFunc || trimAvgFunc || avgTrimCountFunc;
-                const fieldName = stdField || trimAvgField || avgTrimCountField;
-                const param = trimAvgParam || avgTrimCountParam; // General parameter (string)
+        const tempGroupedPlaceholders = params.tempGroupedPlaceholders || {}; 
+        
+        // --- Manual Substitution for Grouped Aggregates using Placeholders ---
+        if (Object.keys(tempGroupedPlaceholders).length > 0) {
+             // console.log(`[Arithmetic Rule Manual] Substituting grouped aggregate placeholders in "${processedFormula}"...`); // DEBUG REMOVED
+             for (const placeholder in tempGroupedPlaceholders) {
+                 if (tempGroupedPlaceholders.hasOwnProperty(placeholder)) {
+                     const { aggFunc, aggField, groupField } = tempGroupedPlaceholders[placeholder];
+                     let replacementValue = null;
+                     let functionKey = aggFunc; 
+                     try {
+                         let currentItemGroupValue = null;
+                         if (item.processed_data && item.processed_data.hasOwnProperty(groupField)) {
+                             currentItemGroupValue = item.processed_data[groupField];
+                         } else if (item.hasOwnProperty(groupField) && groupField !== 'processed_data') {
+                             currentItemGroupValue = item[groupField];
+                         }
+                         const groupKey = (currentItemGroupValue === null || currentItemGroupValue === undefined || String(currentItemGroupValue).trim() === '') ? '__NONE__' : String(currentItemGroupValue);
+                         
+                         // console.log(`  [Group Lookup Placeholder] GroupField: ${groupField}, GroupKey: ${groupKey}, AggField: ${aggField}, FuncKey: ${functionKey}`); // DEBUG REMOVED
+                         replacementValue = groupedAggregateResults?.[groupField]?.[groupKey]?.[aggField]?.[functionKey];
+                         // console.log(`  [Group Lookup Placeholder DEBUG] Raw value looked up:`, replacementValue); // DEBUG REMOVED
+                         if (replacementValue === undefined) replacementValue = null;
+                         // console.log(`  - Placeholder ${placeholder} -> ${replacementValue}`); // DEBUG REMOVED
+                     } catch (calcError) {
+                         console.error(`  - Error during manual grouped substitution for ${placeholder}: ${calcError}`); // Keep this error
+                         replacementValue = null;
+                     }
+                     const replacementString = replacementValue === null ? 'null' : String(replacementValue);
+                     processedFormula = processedFormula.replaceAll(placeholder, replacementString);
+                 }
+             }
+             // console.log(`[Arithmetic Rule Manual] Formula after placeholder substitution: "${processedFormula}"`); // DEBUG REMOVED
+        }
+        // --- End Manual Substitution ---
 
+        // --- Standard Regex Substitution for remaining aggregates ---
+        const patternString = "(?:(MIN|MAX|AVG|SUM|MEDIAN)\\s*\\(\\s*\\{([^{}]+)\\}\s*\\))|(?:(TRIM_AVG)\\s*\\(\\s*\'\\{([^{}]+)\\}\'?\\s*,\\s*(\\d+(?:\\.\\d+)?%?)\\s*\\))|(?:(AVG_AFTER_TRIM_MIN|AVG_AFTER_TRIM_MAX)\\s*\\(\\s*\'\\{([^{}]+)\\}\'?\\s*,\\s*(\\d+)\\s*\\))"; 
+        const aggregateRegex = new RegExp(patternString, "gi"); 
+        
+        aggregateRegex.lastIndex = 0; 
+        if (aggregateRegex.test(processedFormula)) { 
+            // console.log(`[Arithmetic Rule Regex] Substituting other (Global/TRIM) aggregates in formula "${processedFormula}" for item ${item.ticker}...`); // DEBUG REMOVED
+            aggregateRegex.lastIndex = 0; 
+            processedFormula = processedFormula.replace(aggregateRegex, (fullMatch, stdAggFunc, stdAggField, trimFunc, trimField, trimParam, trimCountFunc, trimCountField, trimCountParam) => {
+                const functionName = stdAggFunc || trimFunc || trimCountFunc;
+                const fieldName = stdAggField || trimField || trimCountField;
+                const param = trimParam || trimCountParam;
                 let replacementValue = null;
                 let functionKey = functionName.toLowerCase();
 
-                try { // Wrap calculation in try/catch for safety within replacer
+                try { 
+                    // --- Handle GLOBAL Trimmed Average (TRIM_AVG) --- 
                     if (functionKey === 'trim_avg') {
                         let customTrimPercent = null;
-                        // Parameter (trimParam) is required by regex for this branch
-                        try {
-                            if (param && param.endsWith('%')) {
-                                customTrimPercent = parseFloat(param.slice(0, -1)) / 100.0;
-                            } else {
-                                customTrimPercent = parseFloat(param);
-                            }
-                            if (isNaN(customTrimPercent) || customTrimPercent < 0 || customTrimPercent >= 0.5) {
-                                console.warn(`[Transform Rule] Invalid trim percentage '${param}' provided for ${fieldName} in ${fullMatch}. Substitution will be null.`);
-                                customTrimPercent = null;
-                            }
-                        } catch (e) {
-                            console.warn(`[Transform Rule] Error parsing trim percentage '${param}' for ${fieldName} in ${fullMatch}. Substitution will be null. Error: ${e}`);
-                            customTrimPercent = null;
-                        }
-
-                        if (customTrimPercent !== null) {
-                            const rawValues = aggregateResults[fieldName]?.values;
-                            if (rawValues) {
-                                replacementValue = calculateTrimmedAverage(rawValues, customTrimPercent);
-                                console.log(`  - Calculated TRIM_AVG for ${fullMatch}: ${replacementValue}`); 
-                            } else {
-                                console.warn(`  - Cannot calculate Trimmed Average for ${fieldName}: Raw values not found.`);
-                                replacementValue = null;
-                            }
-                        } else {
-                            replacementValue = null; // Invalid trim percent means null result
-                        }
-                    } else if (functionKey === 'avg_after_trim_min' || functionKey === 'avg_after_trim_max') {
-                        // Parameter is required by the regex (param = avgTrimCountParam)
+                         try {
+                             if (param && param.endsWith('%')) {
+                                 customTrimPercent = parseFloat(param.slice(0, -1)) / 100.0;
+                             } else {
+                                 customTrimPercent = parseFloat(param);
+                             }
+                             if (isNaN(customTrimPercent) || customTrimPercent < 0 || customTrimPercent >= 0.5) {
+                                 console.warn(`[Transform Rule Regex] Invalid trim percentage '${param}' for ${fieldName}. Sub null.`);
+                                 customTrimPercent = null;
+                             }
+                         } catch (e) {
+                              console.warn(`[Transform Rule Regex] Error parsing trim percentage '${param}' for ${fieldName}. Sub null. Error: ${e}`);
+                             customTrimPercent = null;
+                         }
+                         if (customTrimPercent !== null) {
+                             const rawValues = aggregateResults[fieldName]?.values;
+                             if (rawValues) {
+                                 replacementValue = calculateTrimmedAverage(rawValues, customTrimPercent);
+                                 // console.log(`  - Regex Calculated TRIM_AVG for ${fullMatch}: ${replacementValue}`); // DEBUG REMOVED
+                             } else {
+                                 console.warn(`  - Regex Cannot calculate Trimmed Average for ${fieldName}: Raw values not found.`); // Keep this warning
+                                 replacementValue = null;
+                             }
+                         } else {
+                             replacementValue = null;
+                         }
+                    } 
+                    // --- Handle GLOBAL Trim Min/Max (AVG_AFTER_TRIM_MIN/MAX) --- 
+                    else if (functionKey === 'avg_after_trim_min' || functionKey === 'avg_after_trim_max') {
                         let removeCount = null;
-                        try {
-                            removeCount = parseInt(param, 10); // Parse as integer
-                            if (!Number.isInteger(removeCount) || removeCount < 0) {
-                                console.warn(`[Transform Rule] Invalid remove count '${param}' provided for ${fieldName} in ${fullMatch}. Must be non-negative integer. Substitution will be null.`);
-                                removeCount = null; // Mark as invalid
-                            }
-                        } catch (e) {
-                            console.warn(`[Transform Rule] Error parsing remove count '${param}' for ${fieldName} in ${fullMatch}. Substitution will be null. Error: ${e}`);
-                            removeCount = null; // Mark as invalid on error
-                        }
-
-                        if (removeCount !== null) {
-                            const rawValues = aggregateResults[fieldName]?.values;
-                            if (rawValues) {
-                                if (functionKey === 'avg_after_trim_min') {
-                                    console.log(`  - Calculating AVG_AFTER_TRIM_MIN for ${fieldName} with removeCount=${removeCount}`);
-                                    replacementValue = calculateAvgAfterTrimMin(rawValues, removeCount);
-                                } else { // functionKey === 'avg_after_trim_max'
-                                    console.log(`  - Calculating AVG_AFTER_TRIM_MAX for ${fieldName} with removeCount=${removeCount}`);
-                                    replacementValue = calculateAvgAfterTrimMax(rawValues, removeCount);
-                                }
-                                console.log(`  - Result from ${functionKey.toUpperCase()}: ${replacementValue}`);
-                            } else {
-                                console.warn(`  - Cannot calculate ${functionKey.toUpperCase()} for ${fieldName}: Raw values not found.`);
-                                replacementValue = null;
-                            }
-                        } else {
-                            replacementValue = null; // Invalid remove count means null result
-                        }
-                    } else {
-                        // Handle other standard aggregate functions (MIN, MAX, AVG, SUM, MEDIAN)
-                        if (functionKey === 'median') { functionKey = 'median'; }
-                        // min, max, avg, sum are already correct
-                        if (aggregateResults && aggregateResults[fieldName] && aggregateResults[fieldName].hasOwnProperty(functionKey) && aggregateResults[fieldName][functionKey] !== undefined) {
-                    replacementValue = aggregateResults[fieldName][functionKey];
-                             console.log(`  - Found value for ${fullMatch}: ${replacementValue}`);
-                } else {
-                            replacementValue = null;
-                            console.warn(`  - Standard aggregate value for ${functionName}('{${fieldName}}') not found or invalid in aggregateResults (key: ${functionKey}).`);
-                        }
-                    }
-                } catch(calcError) {
-                     console.error(`  - Error during replacement calculation for ${fullMatch}: ${calcError}`);
-                     replacementValue = null; // Ensure null on error
+                         try {
+                             removeCount = parseInt(param, 10);
+                             if (!Number.isInteger(removeCount) || removeCount < 0) {
+                                 console.warn(`[Transform Rule Regex] Invalid remove count '${param}' for ${fieldName}. Sub null.`);
+                                 removeCount = null;
+                             }
+                         } catch (e) {
+                             console.warn(`[Transform Rule Regex] Error parsing remove count '${param}' for ${fieldName}. Sub null. Error: ${e}`);
+                             removeCount = null;
+                         }
+                         if (removeCount !== null) {
+                             const rawValues = aggregateResults[fieldName]?.values;
+                             if (rawValues) {
+                                 if (functionKey === 'avg_after_trim_min') {
+                                     replacementValue = calculateAvgAfterTrimMin(rawValues, removeCount);
+                                 } else { 
+                                     replacementValue = calculateAvgAfterTrimMax(rawValues, removeCount);
+                                 }
+                                 // console.log(`  - Regex Result from ${functionKey.toUpperCase()}: ${replacementValue}`); // DEBUG REMOVED
+                             } else {
+                                 console.warn(`  - Regex Cannot calculate ${functionKey.toUpperCase()} for ${fieldName}: Raw values not found.`); // Keep this warning
+                                 replacementValue = null;
+                             }
+                         } else {
+                             replacementValue = null;
+                         }
+                    } 
+                    // --- Handle standard GLOBAL aggregates (MIN, MAX, AVG, SUM, MEDIAN) --- 
+                    else {
+                         if (aggregateResults && aggregateResults[fieldName] && aggregateResults[fieldName].hasOwnProperty(functionKey) && aggregateResults[fieldName][functionKey] !== undefined) {
+                             replacementValue = aggregateResults[fieldName][functionKey];
+                             // console.log(`  - Regex Global Lookup: ${functionName}({${fieldName}}) -> ${replacementValue}`); // DEBUG REMOVED
+                         } else {
+                             replacementValue = null;
+                             console.warn(`  - Regex Standard GLOBAL aggregate value for ${functionName}('{${fieldName}}') not found or invalid (key: ${functionKey}).`); // Keep this warning
+                         }
+                     }
+                 } catch(calcError) {
+                     console.error(`  - Regex Error during replacement calculation for ${fullMatch}: ${calcError}`); // Keep this error
+                     replacementValue = null;
                 }
-                
-                // Return the string for replacement (or 'null')
                 const replacementString = replacementValue === null ? 'null' : String(replacementValue);
-                 console.log(`  - Replacing ${fullMatch} with ${replacementString}`);
+                 // console.log(`  - Regex Replacing ${fullMatch} with ${replacementString}`); // DEBUG REMOVED
                 return replacementString; 
             });
-
-            console.log(`[Arithmetic Rule] Formula after aggregate substitution: "${formula}"`);
-        } else {
-             console.log(`[Arithmetic Rule] No aggregate functions found in formula "${params.formula}".`);
+            // console.log(`[Arithmetic Rule Regex] Formula after other substitution: "${processedFormula}"`); // DEBUG REMOVED
         }
-        // --- End Aggregate Substitution ---
+        // --- End Standard Regex Substitution ---
 
-        // Find all field placeholders like {FieldName} or {Field Name with Spaces}
-        const fieldPlaceholders = formula.match(/\{([^{}]+)\}/g) || [];
-        const fieldNames = fieldPlaceholders.map(ph => ph.substring(1, ph.length - 1)); // Extract names
+        // --- Final Formula Evaluation ---
+        const fieldPlaceholders = processedFormula.match(/\{([^{}]+)\}/g) || [];
+        const fieldNames = fieldPlaceholders.map(ph => ph.substring(1, ph.length - 1));
 
-        const args = []; // Values to pass to the function
-        const argNames = []; // Variable names inside the function
-        let hasInvalidArgument = false; // Flag if any input is invalid
+        const args = []; 
+        const argNames = []; 
 
         fieldNames.forEach((fieldName, index) => {
             const cleanArgName = `arg${index}`; // Create safe variable names (arg0, arg1, ...)
             argNames.push(cleanArgName);
 
             // Replace placeholder in formula with the safe variable name
-            // Use replaceAll for multiple occurrences of the same field
-            const placeholderRegex = new RegExp(`\\{${fieldName.replace(/[-\/\\^$*+?.()|[\]]/g, '\\$&')}\\}`, 'g'); // Escape regex special chars in fieldName
-            formula = formula.replace(placeholderRegex, cleanArgName);
+            const placeholderRegex = new RegExp(`\\{${fieldName.replace(/[-\/\\^$*+?.()|[\]]/g, '\\$&')}\\}`, 'g');
+            processedFormula = processedFormula.replace(placeholderRegex, cleanArgName);
 
             // Get the value from the item
             let value = null;
-            // Check availableFields first - rule should only use fields known at this stage
             if (!availableFields.has(fieldName)) {
                  console.warn(`Field '{${fieldName}}' used in formula is not available at this stage for ticker ${item.ticker}. Using null.`);
-                 value = null; 
-            } else if (fieldName === 'ticker' && item.ticker !== undefined) { // Check existence
-                 value = item.ticker; // Cannot do arithmetic on ticker, will likely cause NaN
+                 value = null;
+            } else if (fieldName === 'ticker' && item.ticker !== undefined) {
+                 value = item.ticker;
             } else if (fieldName === 'source' && item.source !== undefined) {
-                 value = item.source; // Cannot do arithmetic on source
+                 value = item.source;
             } else if (item.processed_data && item.processed_data.hasOwnProperty(fieldName)) {
                  value = item.processed_data[fieldName];
-            } 
+            }
             // else value remains null
 
-            // Convert value to number, handle null/undefined/non-numeric
-            const numValue = Number(value);
-            if (value === null || value === undefined || String(value).trim() === '' || isNaN(numValue)) {
-                // If any field is non-numeric or missing, the result should be null
-                console.debug(`Non-numeric or missing value for field '{${fieldName}}' (value: ${value}) in ticker ${item.ticker}. Result will be null.`);
-                args.push(null); // Push null to indicate issue
-                hasInvalidArgument = true; 
-            } else {
-                args.push(numValue);
-            }
+            // REMOVED Strict numeric conversion and invalid argument check
+            // const numValue = Number(value);
+            // if (value === null || value === undefined || String(value).trim() === '' || isNaN(numValue)) {
+            //     console.debug(`Non-numeric or missing value for field '{${fieldName}}' (value: ${value}) in ticker ${item.ticker}. Result will be null.`);
+            //     args.push(null);
+            //     hasInvalidArgument = true;
+            // } else {
+            //     args.push(numValue);
+            // }
+            args.push(value); // Push the raw value (string, number, null, etc.)
         });
 
-        // Check if any argument became null due to non-numeric/missing source data
-        if (hasInvalidArgument) {
-            return null; // Abort calculation for this row if any input is invalid
-        }
-
-        // Use the Function constructor for safe execution
+        // console.log(`[Arithmetic Rule EXECUTION] Final Processed Formula: "${processedFormula}"`); // DEBUG REMOVED
+        // console.log(`[Arithmetic Rule EXECUTION] Arguments for function:`, argNames, args); // DEBUG REMOVED
         try {
-            // Ensure formula is not empty after substitutions
-            if (formula.trim() === '') {
+            if (processedFormula.trim() === '') {
                 throw new Error("Formula is empty after field substitution.");
             }
-            const dynamicFunction = new Function(...argNames, `"use strict"; return (${formula});`);
+            const dynamicFunction = new Function(...argNames, `"use strict"; return (${processedFormula});`);
             const result = dynamicFunction(...args);
 
-            // Check for NaN or Infinity which indicate issues like division by zero
             if (result === null || result === undefined || !Number.isFinite(result)) {
-                console.debug(`Arithmetic result is non-finite (NaN/Infinity) for ticker ${item.ticker}. Formula: ${params.formula}. Returning null.`);
+                // console.debug(`Arithmetic result is non-finite (NaN/Infinity) for ticker ${item.ticker}. Formula: ${params.formula}. Returning null.`); // DEBUG REMOVED
                 return null;
             }
             return result;
         } catch (e) {
-            // Catch errors during formula execution (e.g., syntax errors, division by zero implicitly handled by isFinite)
             throw new Error(`Formula execution failed: ${e.message}. Formula: ${params.formula}`);
         }
     }
@@ -867,7 +1084,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     value = item[fieldName];
                 } else if (item.processed_data && item.processed_data.hasOwnProperty(fieldName)) {
                     value = item.processed_data[fieldName];
-                }
+            }
             } else {
                  console.warn(`Field '{${fieldName}}' used in expression is not available at this stage for ticker ${item.ticker}. Using null.`);
                  // Value remains null
@@ -998,7 +1215,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Example using the replacer logic from arithmetic (would need careful integration):
         // trueExpr = trueExpr.replace(aggregateRegex, replacerFunction); 
         // falseExpr = falseExpr.replace(aggregateRegex, replacerFunction); 
-        
+
         // Use the Function constructor for safe execution
         try {
              // Construct the body carefully to evaluate condition then return appropriate expr
@@ -1409,6 +1626,73 @@ document.addEventListener('DOMContentLoaded', function() {
                 fieldPickerGroup.appendChild(fieldPickerMenu);
                 helpersContainer.appendChild(fieldPickerGroup);
 
+                // <<< NEW: Group By Field Picker Button >>>
+                const groupFieldPickerGroup = document.createElement('div');
+                groupFieldPickerGroup.className = 'btn-group';
+                const groupFieldPickerBtn = document.createElement('button');
+                groupFieldPickerBtn.type = 'button';
+                groupFieldPickerBtn.className = 'btn btn-sm btn-outline-secondary dropdown-toggle';
+                groupFieldPickerBtn.dataset.bsToggle = 'dropdown';
+                groupFieldPickerBtn.innerHTML = '<i class="bi bi-folder2"></i> Group By'; // Icon indicating grouping
+                groupFieldPickerBtn.title = 'Select Grouping Field';
+                const groupFieldPickerMenu = document.createElement('ul');
+                groupFieldPickerMenu.className = 'dropdown-menu dropdown-menu-sm';
+                groupFieldPickerMenu.id = 'arithmetic-group-field-picker-dropdown'; // Unique ID
+                // Add scrolling styles
+                groupFieldPickerMenu.style.maxHeight = '250px'; 
+                groupFieldPickerMenu.style.overflowY = 'auto'; 
+                groupFieldPickerMenu.innerHTML = '<li><span class="dropdown-item-text text-muted small">Loading...</span></li>'; // Placeholder
+                
+                groupFieldPickerGroup.appendChild(groupFieldPickerBtn);
+                groupFieldPickerGroup.appendChild(groupFieldPickerMenu);
+                helpersContainer.appendChild(groupFieldPickerGroup); // Add the new group
+                // <<< END NEW >>>
+                // <<< Populate Group By Picker >>>
+                try {
+                    const mainModule = window.AnalyticsMainModule;
+                    let allFieldsForGrouping = [];
+                    let metadataForGrouping = {};
+                    if (mainModule && typeof mainModule.getAvailableFields === 'function' && typeof mainModule.getFieldMetadata === 'function') {
+                        // Use PRE-transform fields/metadata for defining grouping options
+                        allFieldsForGrouping = mainModule.getAvailableFields(); 
+                        metadataForGrouping = mainModule.getFieldMetadata();
+                        // <<< Get Enabled Status >>>
+                        enabledStatusForGrouping = mainModule.getFieldEnabledStatus ? mainModule.getFieldEnabledStatus() : {}; 
+                     } else {
+                         console.error("[Group Field Picker] AnalyticsMainModule or required functions not found.");
+                     }
+                    // Filter for non-numeric AND enabled fields
+                    const nonNumericEnabledFields = allFieldsForGrouping.filter(f => 
+                        metadataForGrouping[f]?.type !== 'numeric' && // Check type
+                        (enabledStatusForGrouping[f] === true || enabledStatusForGrouping[f] === undefined) // Check enabled (default true if missing)
+                    );
+                    console.log("[Group Field Picker] Populating with non-numeric, enabled fields:", nonNumericEnabledFields);
+ 
+                     groupFieldPickerMenu.innerHTML = ''; // Clear loading placeholder
+                    if (nonNumericEnabledFields.length > 0) {
+                        nonNumericEnabledFields.sort().forEach(fieldName => {
+                            const li = document.createElement('li');
+                            const button = document.createElement('button');
+                            button.type = 'button';
+                            button.className = 'dropdown-item btn btn-link btn-sm py-0 text-start';
+                            button.textContent = fieldName;
+                            button.addEventListener('click', (e) => {
+                                e.preventDefault();
+                                const formulaTextarea = document.getElementById('param-formula');
+                                // Insert {FieldName} at cursor - user manually places it in 'in {...}'
+                                insertTextAtCursor(formulaTextarea, `{${fieldName}}`); 
+                            });
+                            li.appendChild(button);
+                            groupFieldPickerMenu.appendChild(li);
+                        });
+                    } else {
+                        groupFieldPickerMenu.innerHTML = '<li><span class="dropdown-item-text text-muted small">(No text/grouping fields found)</span></li>';
+                    }
+                } catch (e) {
+                     console.error("[Group Field Picker] Error populating picker:", e);
+                     groupFieldPickerMenu.innerHTML = '<li><span class="dropdown-item-text text-danger small">Error loading fields</span></li>';
+                }
+                // <<< END Populate >>>
                 // MIN Button
                 const minBtn = document.createElement('button');
                 minBtn.type = 'button';
@@ -1418,11 +1702,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 minBtn.addEventListener('click', () => {
                     const textToInsert = 'MIN({FieldName})';
                     const placeholderLength = '{FieldName}'.length;
+                    const initialCursorPos = inputElement.selectionStart; // Get cursor pos BEFORE insertion
                     insertTextAtCursor(inputElement, textToInsert);
-                    // Select the placeholder
-                    const endPos = inputElement.selectionEnd;
-                    const startPosPlaceholder = endPos - placeholderLength - 1; // 1 for the closing brace
-                    inputElement.setSelectionRange(startPosPlaceholder, endPos -1);
+                    // Select the placeholder inside the parentheses
+                    const startPosPlaceholder = initialCursorPos + 'MIN('.length;
+                    const endPosPlaceholder = startPosPlaceholder + placeholderLength;
+                    inputElement.setSelectionRange(startPosPlaceholder, endPosPlaceholder);
                 });
                 helpersContainer.appendChild(minBtn);
 
@@ -1435,11 +1720,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 maxBtn.addEventListener('click', () => {
                     const textToInsert = 'MAX({FieldName})';
                     const placeholderLength = '{FieldName}'.length;
+                    const initialCursorPos = inputElement.selectionStart;
                     insertTextAtCursor(inputElement, textToInsert);
-                    // Select the placeholder
-                    const endPos = inputElement.selectionEnd;
-                    const startPosPlaceholder = endPos - placeholderLength - 1;
-                    inputElement.setSelectionRange(startPosPlaceholder, endPos -1);
+                    // Select the placeholder inside the parentheses
+                    const startPosPlaceholder = initialCursorPos + 'MAX('.length;
+                    const endPosPlaceholder = startPosPlaceholder + placeholderLength;
+                    inputElement.setSelectionRange(startPosPlaceholder, endPosPlaceholder);
                 });
                 helpersContainer.appendChild(maxBtn);
 
@@ -1452,11 +1738,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 avgBtn.addEventListener('click', () => {
                     const textToInsert = 'AVG({FieldName})';
                     const placeholderLength = '{FieldName}'.length;
+                    const initialCursorPos = inputElement.selectionStart;
                     insertTextAtCursor(inputElement, textToInsert);
-                    // Select the placeholder
-                    const endPos = inputElement.selectionEnd;
-                    const startPosPlaceholder = endPos - placeholderLength - 1;
-                    inputElement.setSelectionRange(startPosPlaceholder, endPos -1);
+                    // Select the placeholder inside the parentheses
+                    const startPosPlaceholder = initialCursorPos + 'AVG('.length;
+                    const endPosPlaceholder = startPosPlaceholder + placeholderLength;
+                    inputElement.setSelectionRange(startPosPlaceholder, endPosPlaceholder);
                 });
                 helpersContainer.appendChild(avgBtn);
 
@@ -1469,11 +1756,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 sumBtn.addEventListener('click', () => {
                     const textToInsert = 'SUM({FieldName})';
                     const placeholderLength = '{FieldName}'.length;
+                    const initialCursorPos = inputElement.selectionStart;
                     insertTextAtCursor(inputElement, textToInsert);
-                    // Select the placeholder
-                    const endPos = inputElement.selectionEnd;
-                    const startPosPlaceholder = endPos - placeholderLength - 1;
-                    inputElement.setSelectionRange(startPosPlaceholder, endPos -1);
+                    // Select the placeholder inside the parentheses
+                    const startPosPlaceholder = initialCursorPos + 'SUM('.length;
+                    const endPosPlaceholder = startPosPlaceholder + placeholderLength;
+                    inputElement.setSelectionRange(startPosPlaceholder, endPosPlaceholder);
                 });
                 helpersContainer.appendChild(sumBtn);
 
@@ -1486,10 +1774,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 medianBtn.addEventListener('click', () => {
                     const textToInsert = 'MEDIAN({FieldName})';
                     const placeholderLength = '{FieldName}'.length;
+                    const initialCursorPos = inputElement.selectionStart;
                     insertTextAtCursor(inputElement, textToInsert);
-                    const endPos = inputElement.selectionEnd;
-                    const startPosPlaceholder = endPos - placeholderLength - 1;
-                    inputElement.setSelectionRange(startPosPlaceholder, endPos -1);
+                    // Select the placeholder inside the parentheses
+                    const startPosPlaceholder = initialCursorPos + 'MEDIAN('.length;
+                    const endPosPlaceholder = startPosPlaceholder + placeholderLength;
+                    inputElement.setSelectionRange(startPosPlaceholder, endPosPlaceholder);
                 });
                 helpersContainer.appendChild(medianBtn);
 
@@ -1546,6 +1836,25 @@ document.addEventListener('DOMContentLoaded', function() {
                     inputElement.setSelectionRange(startPosPlaceholder, endPosPlaceholder);
                 });
                 helpersContainer.appendChild(avgTrimMaxBtn);
+
+                // <<< NEW: Grouped Aggregate Button >>>
+                const groupedAggBtn = document.createElement('button');
+                groupedAggBtn.type = 'button';
+                groupedAggBtn.className = 'btn btn-sm btn-outline-info'; // Use info color for distinction
+                groupedAggBtn.textContent = 'AGG(... in Group)'; // <<< Generic Text
+                groupedAggBtn.title = 'Insert Grouped Aggregate Template: FUNC({AggField} in {GroupField})'; // <<< Updated Generic Title to new syntax
+                groupedAggBtn.addEventListener('click', () => {
+                    const textToInsert = 'AVG({AggField} in {GroupField})'; // <<< Insert with 'in' inside parens
+                    const functionLength = 'AVG'.length;
+                    const initialCursorPos = inputElement.selectionStart;
+                    insertTextAtCursor(inputElement, textToInsert);
+                    // <<< Select the FUNCTION part (AVG) >>>
+                    const startPosPlaceholder = initialCursorPos;
+                    const endPosPlaceholder = startPosPlaceholder + functionLength;
+                    inputElement.setSelectionRange(startPosPlaceholder, endPosPlaceholder);
+                });
+                helpersContainer.appendChild(groupedAggBtn);
+                // <<< END NEW >>>
 
                 // Operator Buttons
                 ['+', '-', '*', '/', '(', ')'].forEach(op => {
@@ -1871,18 +2180,18 @@ document.addEventListener('DOMContentLoaded', function() {
             if(transformStatus) transformStatus.textContent = "Applying transformations..."; // Update status
 
             try {
-                // Trigger the main analytics module to run the transformation process
+            // Trigger the main analytics module to run the transformation process
                 // <<< Use setTimeout to allow UI repaint before starting work >>>
                 setTimeout(() => {
                     try {
-                        if (window.AnalyticsMainModule && typeof window.AnalyticsMainModule.runTransformations === 'function') {
-                             window.AnalyticsMainModule.runTransformations();
+            if (window.AnalyticsMainModule && typeof window.AnalyticsMainModule.runTransformations === 'function') {
+                 window.AnalyticsMainModule.runTransformations();
                              // Status message will be updated by the main module's runTransformations
-                        } else {
-                            console.error("AnalyticsMainModule or runTransformations function not found.");
-                            alert("Error: Cannot trigger transformation process. Main module not available.");
-                             if(transformStatus) transformStatus.textContent = "Error: Main analytics module not found.";
-                        }
+            } else {
+                console.error("AnalyticsMainModule or runTransformations function not found.");
+                alert("Error: Cannot trigger transformation process. Main module not available.");
+                 if(transformStatus) transformStatus.textContent = "Error: Main analytics module not found.";
+            }
                     } catch (innerError) {
                         // Catch errors *during* the transformation run
                         console.error("Error during transformation execution:", innerError);
