@@ -1618,9 +1618,19 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         console.log("Rendering chart..."); 
         // <<< LOG THE DATA SOURCE AT THE START >>>
         if (finalDataForAnalysis && finalDataForAnalysis.length > 0) {
-            console.log("RenderChart using finalDataForAnalysis. First item:", JSON.parse(JSON.stringify(finalDataForAnalysis[0])));
-            if (!finalDataForAnalysis[0]?.processed_data?.['test 2']) { // Check specifically if 'test 2' is missing
-                console.warn("WARNING: 'test 2' field is MISSING from first item in finalDataForAnalysis at start of renderChart!");
+           // console.log("RenderChart using finalDataForAnalysis. First item:", JSON.parse(JSON.stringify(finalDataForAnalysis[0]))); 
+           // if (!finalDataForAnalysis[0]?.processed_data?.['test 2']) { 
+           //     console.warn("WARNING: 'test 2' field is MISSING from first item in finalDataForAnalysis at start of renderChart!"); 
+           // }
+           // --- REMOVE THE WARNING LINE DIRECTLY ---
+           // console.warn("WARNING: 'test 2' field is MISSING from first item in finalDataForAnalysis at start of renderChart!"); 
+
+           if (finalDataForAnalysis.length > 0 && finalDataForAnalysis[0]) {
+                // Simple log showing keys for the first item
+                console.log("RenderChart: First item keys:", Object.keys(finalDataForAnalysis[0]), "Processed_data keys:", Object.keys(finalDataForAnalysis[0].processed_data || {}));
+                
+            } else {
+                console.log("RenderChart called with empty or missing finalDataForAnalysis.");
             }
         } else {
             console.log("RenderChart called with empty or missing finalDataForAnalysis.");
@@ -2666,9 +2676,13 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
         // <<< LOG FINAL DATA BEFORE UI UPDATE >>>
         if (finalDataForAnalysis && finalDataForAnalysis.length > 0) {
-            console.log("End of runTransformations. finalDataForAnalysis[0]:", JSON.parse(JSON.stringify(finalDataForAnalysis[0])));
-            if (!finalDataForAnalysis[0]?.processed_data?.['test 2']) {
-                 console.error("CRITICAL WARNING: 'test 2' MISSING from finalDataForAnalysis immediately after transformation!");
+            // console.log("End of runTransformations. finalDataForAnalysis[0]:", JSON.parse(JSON.stringify(finalDataForAnalysis[0]))); 
+            // if (!finalDataForAnalysis[0]?.processed_data?.['test 2']) { // <<< ENSURE THIS BLOCK IS REMOVED
+            //      console.error("CRITICAL WARNING: 'test 2' MISSING from finalDataForAnalysis immediately after transformation!");
+            // } // <<< ENSURE THIS BLOCK IS REMOVED
+            if (finalDataForAnalysis.length > 0 && finalDataForAnalysis[0]) {
+                // Simple log showing keys for the first item
+                 console.log("End of runTransformations: First item keys:", Object.keys(finalDataForAnalysis[0]), "Processed_data keys:", Object.keys(finalDataForAnalysis[0].processed_data || {}));
             }
         } else {
              console.log("End of runTransformations. finalDataForAnalysis is empty.");
@@ -2802,7 +2816,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // IMPORTANT: This should be one of the LAST things done in this listener
     window.AnalyticsMainModule = {
         runTransformations: runTransformations,
-        getCurrentFilteredData: () => filteredDataForChart // Expose getter for input data
+        getCurrentFilteredData: () => filteredDataForChart, // Expose getter for input data
+        getAvailableFields: () => availableFields, // <<< ADDED
+        getFieldMetadata: () => fieldMetadata     // <<< ADDED
         // Add other functions here if needed by other modules
     };
     console.log("AnalyticsMainModule initialized and exposed."); // <<< ADD CONFIRMATION LOG
