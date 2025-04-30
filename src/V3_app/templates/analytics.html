@@ -259,24 +259,93 @@
             <p>Apply transformations, calculations, or feature engineering to the prepared data.</p>
             <div class="my-3 p-3 border rounded bg-body-tertiary">
                 <div class="row">
+                    {# --- Column 1: Rule Definition & Controls --- #}
                     <div class="col-md-6">
                         <h6>Define Transformations</h6>
-                        <div id="transformation-rules-container" class="mb-3" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--bs-border-color); padding: 10px; background-color: var(--bs-body-bg);">
-                            <p class="text-muted small">No transformations defined yet.</p>
-                            <!-- Transformation rules will be listed here -->
+                        <div id="transformation-rules-container" class="mb-3" style="min-height: 200px; max-height: 400px; overflow-y: auto; border: 1px solid var(--bs-border-color); padding: 10px; background-color: var(--bs-body-bg);">
+                            <p class="text-muted small">No transformations defined yet. Click "+ Add Rule" to begin.</p>
+                            <!-- Transformation rules will be listed here dynamically -->
                         </div>
-                        <button id="add-transformation-btn" class="btn btn-sm btn-outline-success me-2">+ Add Rule</button>
-                        <button id="apply-transformations-btn" class="btn btn-sm btn-primary">Apply Transformations</button>
-                        <span id="transform-status" class="ms-2 small text-muted"></span>
+                        <div class="mb-3"> {# Button Group #}
+                            <button id="add-transformation-rule-btn" class="btn btn-sm btn-outline-success me-2" data-bs-toggle="modal" data-bs-target="#transformationRuleModal">
+                                <i class="bi bi-plus-lg"></i> Add Rule
+                            </button>
+                            <button id="apply-transformations-btn" class="btn btn-sm btn-primary me-2">
+                                <i class="bi bi-play-fill"></i> Apply Transformations
+                            </button>
+                             {# Placeholder for future buttons #}
+                            <button id="save-transform-rules-btn" class="btn btn-sm btn-outline-secondary me-1" title="Save Rules to Browser"><i class="bi bi-save"></i></button>
+                            <button id="load-transform-rules-btn" class="btn btn-sm btn-outline-secondary me-1" title="Load Rules from Browser"><i class="bi bi-folder2-open"></i></button>
+                            {# <button id="export-transform-rules-btn" class="btn btn-sm btn-outline-secondary me-1" title="Export Rules to File"><i class="bi bi-box-arrow-down"></i></button> #}
+                            {# <button id="import-transform-rules-btn" class="btn btn-sm btn-outline-secondary" title="Import Rules from File"><i class="bi bi-box-arrow-up"></i></button> #}
+                        </div>
+                        <div id="transform-status" class="mt-2 small text-muted"></div> {# Status message area #}
                     </div>
+                    {# --- Column 2: Data Preview --- #}
                     <div class="col-md-6">
-                        <h6>Transformed Data Preview</h6>
-                        <pre id="transformed-data-output" style="max-height: 350px; overflow-y: auto; border: 1px solid var(--bs-border-color); padding: 10px; font-size: 0.8rem; background-color: var(--bs-body-bg); white-space: pre-wrap; word-wrap: break-word;"></pre>
+                        <h6>Transformed Data Preview (First 10 Rows)</h6>
+                        <pre id="transformed-data-output" class="p-2 border rounded" style="max-height: 450px; overflow: auto; font-size: 0.75rem; white-space: pre; word-wrap: normal; background-color: var(--bs-tertiary-bg); color: var(--bs-body-color);"></pre>
                     </div>
                 </div>
 
-                <!-- Modal Placeholder for defining a transformation (hidden initially) -->
-                <!-- TODO: Add modal structure later -->
+                {# --- Transformation Rule Editor Modal (Placeholder Structure) --- #}
+                <div class="modal fade" id="transformationRuleModal" tabindex="-1" aria-labelledby="transformationRuleModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false"> {# Static backdrop, no keyboard close #}
+                    <div class="modal-dialog modal-lg"> {# Larger modal #}
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="transformationRuleModalLabel">Define Transformation Rule</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <input type="hidden" id="transform-rule-id"> {# For editing existing rules #}
+                                
+                                {# --- Basic Rule Info --- #}
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <label for="transform-rule-type" class="form-label form-label-sm">Rule Type:</label>
+                                        <select id="transform-rule-type" class="form-select form-select-sm">
+                                            <option value="" selected disabled>-- Select Type --</option>
+                                            {# Options will be added dynamically via JS #}
+                                            {# Examples:
+                                            <option value="arithmetic">Arithmetic Formula</option>
+                                            <option value="ratio">Ratio (Field A / Field B)</option>
+                                            <option value="weighted_sum">Weighted Sum</option>
+                                            <option value="normalize">Normalize (Min/Max)</option>
+                                            <option value="conditional_map">Conditional Mapping</option>
+                                            <option value="text_concat">Concatenate Text</option>
+                                             ... more later ... 
+                                            #}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="transform-output-name" class="form-label form-label-sm">New Field Name:</label>
+                                        <input type="text" id="transform-output-name" class="form-control form-control-sm" placeholder="e.g., ProfitMargin, NormalizedScore">
+                                        <div id="output-name-feedback" class="invalid-feedback small"></div>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="transform-rule-comment" class="form-label form-label-sm">Comment (Optional):</label>
+                                    <input type="text" id="transform-rule-comment" class="form-control form-control-sm" placeholder="Describe what this rule does">
+                                </div>
+                                <hr>
+                                
+                                {# --- Dynamic Parameter Section --- #}
+                                <div id="transform-parameters-container">
+                                    <p class="text-muted small text-center">Select a Rule Type to configure parameters.</p>
+                                    {# Rule-specific parameters will be injected here by JS #}
+                                </div>
+                                {# --- End Dynamic Parameter Section --- #}
+                                
+                            </div>
+                            <div class="modal-footer">
+                                <span id="transform-modal-status" class="me-auto text-danger small"></span> {# For modal-specific errors #}
+                                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-sm btn-primary" id="save-transformation-rule-btn">Save Rule</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {# --- End Modal --- #}
             </div>
         </div>
         {# --- End Transform Tab Pane --- #}
