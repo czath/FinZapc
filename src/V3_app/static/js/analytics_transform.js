@@ -37,35 +37,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 { id: 'formula', name: 'Formula', type: 'textarea', placeholder: 'Example: ({P/E} * {EPS (ttm)}) + 10', required: true },
             ]
         },
-        'ratio': {
-            name: 'Ratio (Field A / Field B)',
-            description: 'Calculate the ratio between two existing numeric fields.',
+        'text_manipulation': {
+            name: 'Text Manipulation',
+            description: 'Create a new field using JavaScript string operations and functions on existing fields.',
             parameters: [
                 {
-                    id: 'numeratorField',
-                    name: 'Numerator Field',
-                    type: 'text', // Later enhance to dropdown/selector
-                    placeholder: 'Enter exact field name for numerator',
-                    required: true
-                },
-                {
-                    id: 'denominatorField',
-                    name: 'Denominator Field',
-                    type: 'text',
-                    placeholder: 'Enter exact field name for denominator',
-                    required: true
-                }
-            ]
-        },
-        'weighted_sum': {
-            name: 'Weighted Sum',
-            description: 'Calculate a sum of fields, each multiplied by a weight. Format: FieldName1: Weight1, FieldName2: Weight2, ...',
-            parameters: [
-                {
-                    id: 'fieldWeightsInput',
-                    name: 'Field: Weight Pairs',
+                    id: 'expression',
+                    name: 'Expression',
                     type: 'textarea',
-                    placeholder: 'Example: P/E: 0.6, \'EPS (ttm)\': 0.4', // Use quotes if field names have spaces/special chars? For now, assume simple names or user handles quotes.
+                    placeholder: 'Example: {Sector} + \'-\' + {Industry}\nExample: parseFloat({field_as_string})\nExample: {Name}.substring(0, 5).toLowerCase()',
                     required: true
                 }
             ]
@@ -374,15 +354,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 try {
                     switch (rule.type) {
                         case 'arithmetic':
-                            // Pass the *full set* of fields available *at this stage* AND aggregates
                             newValue = executeArithmeticRule(item, rule.parameters, availableFieldsDuringTransform, aggregateResults);
                             break;
-                        case 'ratio':
-                            newValue = executeRatioRule(item, rule.parameters, availableFieldsDuringTransform);
+                        case 'text_manipulation':
+                            newValue = executeTextManipulationRule(item, rule.parameters, availableFieldsDuringTransform);
                             break;
-                        case 'weighted_sum':
-                            newValue = executeWeightedSumRule(item, rule.parameters, availableFieldsDuringTransform);
-                            break;
+                        // case 'ratio': ... removed ...
+                        // case 'weighted_sum': ... removed ...
                         // Add cases for other rule types (normalize, etc.) here
                         default:
                             // This case should technically not be hit due to filtering validRules above
@@ -581,6 +559,66 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     // --- END NEW Helper ---
 
+    // --- NEW: Helper function to extract Nth substring between delimiters ---
+    function extractDelimitedSubstring(text, delimiterPair, index) {
+        console.log(`[Helper] extractDelimitedSubstring called with: text='${text}', delimiter='${delimiterPair}', index=${index}`); // Log Inputs
+        if (typeof text !== 'string' || typeof delimiterPair !== 'string' || delimiterPair.length !== 2 || !Number.isInteger(index) || index <= 0) {
+            console.warn(`[extractDelimitedSubstring] Invalid input: text='${text}', delimiter='${delimiterPair}', index=${index}`);
+            return null;
+        }
+
+        // --- ADDED: Remove surrounding quotes if present --- 
+        let processedText = text.trim(); // Trim whitespace first
+        if (processedText.startsWith('"') && processedText.endsWith('"')) {
+             processedText = processedText.substring(1, processedText.length - 1);
+             console.log(`[extractDelimitedSubstring] Removed surrounding quotes. Text is now: '${processedText}'`); 
+        }
+        console.log(`[Helper] Text after quote processing: '${processedText}'`); // Log Processed Text
+        // --- END ADDED ---
+
+        const startDelim = delimiterPair[0];
+        const endDelim = delimiterPair[1];
+        
+        // Escape delimiters for regex
+        const escapedStart = startDelim.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const escapedEnd = endDelim.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+
+        // Regex to find content between delimiters, non-greedy
+        const regex = new RegExp(`${escapedStart}(.*?)${escapedEnd}`, 'g');
+        console.log(`[Helper] Constructed Regex: ${regex}`); // Log Regex
+        
+        let match;
+        let count = 0;
+        let result = null;
+
+        // Use the processedText for matching
+        while ((match = regex.exec(processedText)) !== null) { 
+            console.log(`[Helper] Regex match found: Full='${match[0]}', Group1='${match[1]}'`); // Log Match
+            count++;
+            if (count === index) {
+                // Found the Nth match
+                result = match[1]; // Group 1 captures the content between delimiters
+                console.log(`[Helper] Found ${index}th match: '${result}'`); // Log Found Result
+                break; // Stop searching
+            }
+        }
+
+        if (result !== null) {
+             // Trim whitespace and common separators (like comma) from the result
+             const finalResult = result.trim().replace(/^,|,$/g, '').trim();
+             console.log(`[Helper] Returning final result: '${finalResult}'`); // Log Return Value
+             return finalResult; 
+        } else {
+             // Nth match not found
+             console.log(`[Helper] ${index}th match not found. Returning null.`); // Log Not Found
+             return null;
+        }
+    }
+    // --- END NEW Helper ---
+
+    // --- Make helper globally accessible for dynamic function execution --- ADDED
+    window.extractDelimitedSubstring = extractDelimitedSubstring;
+
     // --- Rule Execution Handlers ---
     function executeArithmeticRule(item, params, availableFields, aggregateResults = {}) {
         if (!params || !params.formula) {
@@ -770,151 +808,113 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // --- NEW: Execution Handler for Ratio Rule ---
-    function executeRatioRule(item, params, availableFields) {
-        if (!params || !params.numeratorField || !params.denominatorField) {
-            throw new Error("Missing numeratorField or denominatorField parameter for ratio rule.");
+    // --- NEW: Execution Handler for Text Manipulation Rule ---
+    function executeTextManipulationRule(item, params, availableFields) {
+        if (!params || !params.expression) {
+            throw new Error("Missing expression parameter for text manipulation rule.");
         }
-        const numField = params.numeratorField;
-        const denField = params.denominatorField;
+        let expression = params.expression;
 
-        // --- Check field availability --- 
-        if (!availableFields.has(numField)) {
-            console.warn(`Ratio Rule: Numerator field '{${numField}}' is not available at this stage for ticker ${item.ticker}. Result will be null.`);
-            return null;
-        }
-        if (!availableFields.has(denField)) {
-            console.warn(`Ratio Rule: Denominator field '{${denField}}' is not available at this stage for ticker ${item.ticker}. Result will be null.`);
-            return null;
-        }
+        // Find all field placeholders like {FieldName}
+        const fieldPlaceholders = expression.match(/\{([^{}]+)\}/g) || [];
+        const fieldNames = fieldPlaceholders.map(ph => ph.substring(1, ph.length - 1));
 
-        // --- Get values --- 
-        // Helper to get value from item (prioritizes processed_data)
-        const getValue = (dataItem, fieldName) => {
-            if (!dataItem) return null;
-            if (dataItem.processed_data && dataItem.processed_data.hasOwnProperty(fieldName)) {
-                return dataItem.processed_data[fieldName];
+        const args = []; // Values to pass to the function
+        const argNames = []; // Variable names inside the function
+
+        fieldNames.forEach((fieldName, index) => {
+            const cleanArgName = `arg${index}`; 
+            argNames.push(cleanArgName);
+
+            // Replace placeholder in expression with the safe variable name
+            const placeholderRegex = new RegExp(`\\{${fieldName.replace(/[-\/\\^$*+?.()|[\]]/g, '\\$&')}\\}`, 'g');
+            expression = expression.replace(placeholderRegex, cleanArgName);
+
+            // Get the value from the item (check top-level and processed_data)
+            let value = null;
+            if (availableFields.has(fieldName)) { // Check if field should be available
+                if (item.hasOwnProperty(fieldName) && fieldName !== 'processed_data') {
+                    value = item[fieldName];
+                } else if (item.processed_data && item.processed_data.hasOwnProperty(fieldName)) {
+                    value = item.processed_data[fieldName];
+                }
+            } else {
+                 console.warn(`Field '{${fieldName}}' used in expression is not available at this stage for ticker ${item.ticker}. Using null.`);
+                 // Value remains null
             }
-            if (dataItem.hasOwnProperty(fieldName) && fieldName !== 'processed_data') {
-                return dataItem[fieldName];
-            }
-            return null;
-        };
-        
-        const numRawValue = getValue(item, numField);
-        const denRawValue = getValue(item, denField);
-
-        // --- Validate values --- 
-        const numValue = Number(numRawValue);
-        const denValue = Number(denRawValue);
-
-        if (numRawValue === null || numRawValue === undefined || String(numRawValue).trim() === '' || isNaN(numValue)) {
-            console.debug(`Ratio Rule: Invalid or missing numerator value for field '{${numField}}' (value: ${numRawValue}) in ticker ${item.ticker}. Result will be null.`);
-            return null;
-        }
-        if (denRawValue === null || denRawValue === undefined || String(denRawValue).trim() === '' || isNaN(denValue)) {
-            console.debug(`Ratio Rule: Invalid or missing denominator value for field '{${denField}}' (value: ${denRawValue}) in ticker ${item.ticker}. Result will be null.`);
-            return null;
-        }
-
-        // --- Check for zero denominator --- 
-        if (denValue === 0) {
-            console.debug(`Ratio Rule: Zero denominator encountered for field '{${denField}}' in ticker ${item.ticker}. Result will be null.`);
-            return null; // Avoid division by zero, return null
-        }
-
-        // --- Calculate ratio --- 
-        const result = numValue / denValue;
-
-        // Check for non-finite results (just in case)
-        if (!Number.isFinite(result)) {
-            console.debug(`Ratio Rule: Calculation resulted in non-finite number (NaN/Infinity) for ticker ${item.ticker}. Returning null.`);
-            return null;
-        }
-
-        return result;
-    }
-    // --- END NEW Execution Handler ---
-
-    // --- NEW: Execution Handler for Weighted Sum Rule ---
-    function executeWeightedSumRule(item, params, availableFields) {
-        if (!params || !params.fieldWeightsInput) {
-            throw new Error("Missing fieldWeightsInput parameter for weighted sum rule.");
-        }
-        const inputString = params.fieldWeightsInput;
-        let weightedSum = 0;
-        let parseError = false;
-        let fieldsProcessed = 0;
-
-        // Split into pairs (e.g., "FieldA: 0.5, FieldB: 0.5")
-        const pairs = inputString.split(',').map(p => p.trim()).filter(p => p);
-
-        if (pairs.length === 0) {
-             console.warn(`Weighted Sum Rule: No valid field:weight pairs found in input "${inputString}". Result is 0.`);
-             return 0; // Or null? Let's return 0 if no fields specified.
-        }
-
-        pairs.forEach(pair => {
-            if (parseError) return; // Stop processing if an error occurred
-
-            const parts = pair.split(':').map(part => part.trim());
-            if (parts.length !== 2) {
-                console.warn(`Weighted Sum Rule: Invalid pair format "${pair}" in input "${inputString}". Skipping pair.`);
-                return; // Skip malformed pair
-            }
-
-            const fieldName = parts[0];
-            const weightStr = parts[1];
-            const weight = Number(weightStr);
-
-            // Validate weight
-            if (isNaN(weight)) {
-                 console.warn(`Weighted Sum Rule: Invalid weight "${weightStr}" for field '{${fieldName}}' in input "${inputString}". Skipping rule calculation.`);
-                 parseError = true;
-                 return;
-            }
-
-            // Check field availability
-            if (!availableFields.has(fieldName)) {
-                 console.warn(`Weighted Sum Rule: Field '{${fieldName}}' is not available at this stage for ticker ${item.ticker}. Skipping rule calculation.`);
-                 parseError = true;
-                 return;
-            }
-
-            // Get and validate field value
-            const getValue = (dataItem, fn) => { // Local helper
-                 if (!dataItem) return null;
-                 if (dataItem.processed_data && dataItem.processed_data.hasOwnProperty(fn)) return dataItem.processed_data[fn];
-                 if (dataItem.hasOwnProperty(fn) && fn !== 'processed_data') return dataItem[fn];
-                 return null;
-            };
-            const rawValue = getValue(item, fieldName);
-            const numValue = Number(rawValue);
-
-            if (rawValue === null || rawValue === undefined || String(rawValue).trim() === '' || isNaN(numValue)) {
-                console.warn(`Weighted Sum Rule: Invalid or missing value for field '{${fieldName}}' (value: ${rawValue}) in ticker ${item.ticker}. Skipping rule calculation.`);
-                parseError = true;
-                return;
-            }
-
-            // Accumulate sum
-            weightedSum += numValue * weight;
-            fieldsProcessed++;
+            
+            // Convert null/undefined to empty string for basic safety in string ops,
+            // but pass raw value otherwise to allow type checking/conversion in expression
+            const argValue = (value === null || value === undefined) ? '' : value; 
+            args.push(argValue);
         });
 
-        // Check if any errors occurred during processing or if no fields ended up being processed
-        if (parseError || fieldsProcessed === 0) {
-             console.debug(`Weighted Sum Rule: Calculation could not be completed for ticker ${item.ticker} due to errors or no valid fields processed. Input: "${inputString}". Returning null.`);
-             return null;
-        }
+        // --- Translate custom function calls to JS method calls --- ADDED
+        let translatedExpression = expression;
+        try {
+             // UPPERCASE(argN) -> (argN).toUpperCase()
+            translatedExpression = translatedExpression.replace(/UPPERCASE\s*\(([^)]+)\)/gi, '($1).toUpperCase()');
+             // LOWERCASE(argN) -> (argN).toLowerCase()
+            translatedExpression = translatedExpression.replace(/LOWERCASE\s*\(([^)]+)\)/gi, '($1).toLowerCase()');
+            // TRIM(argN) -> (argN).trim()
+            translatedExpression = translatedExpression.replace(/TRIM\s*\(([^)]+)\)/gi, '($1).trim()');
+            // SUBSTRING(argN, start, end) -> (argN).substring(start, end)
+            // translatedExpression = translatedExpression.replace(/SUBSTRING\s*\(([^,]+)\s*,([^,]+)\s*,([^)]+)\)/gi, '($1).substring($2, $3)'); // REMOVED OLD SUBSTRING
+            
+            // EXTRACT_BY_DELIMITER(argN, delimPairStr, indexStr) -> extractDelimitedSubstring(argN, delimPairStr, indexInt)
+            // This requires careful parsing of arguments within the translation step
+            translatedExpression = translatedExpression.replace(
+                /EXTRACT_BY_DELIMITER\s*\(([^,]+)\s*,\s*("[^"\\]*(?:\\.[^"\\]*)*"|\'[^\'\\]*(?:\\.[^\'\\]*)*\')\s*,\s*(\d+)\s*\)/gi,
+                (match, argName, delimStr, indexStr) => {
+                    try {
+                        console.log(`[Translation] Matched EXTRACT_BY_DELIMITER. Arg: ${argName}, Delim: ${delimStr}, Index: ${indexStr}`); // Log Inputs
+                        // Basic validation/parsing
+                        const index = parseInt(indexStr, 10);
+                        // Delimiter string includes quotes, remove them for the function call
+                        const delimiterPair = delimStr.slice(1, -1);
+                        if (!isNaN(index) && index > 0 && delimiterPair.length === 2) {
+                            // Construct the function call string
+                            const callString = `extractDelimitedSubstring(${argName}, "${delimiterPair}", ${index})`;
+                            console.log(`[Translation] Constructing call: ${callString}`); // Log Constructed Call
+                            return callString;
+                        } else {
+                            console.warn(`[Text Rule Translation] Invalid parameters for EXTRACT_BY_DELIMITER: Arg=${argName}, Delim=${delimStr}, Index=${indexStr}. Replacing with null.`);
+                            return 'null'; // Replace with null string if params invalid
+                        }
+                    } catch (e) {
+                         console.error(`[Text Rule Translation] Error processing EXTRACT_BY_DELIMITER(${argName}, ${delimStr}, ${indexStr}): ${e}. Replacing with null.`);
+                         return 'null';
+                    }
+                }
+            );
 
-        // Final check for finite result
-        if (!Number.isFinite(weightedSum)) {
-            console.debug(`Weighted Sum Rule: Calculation resulted in non-finite number for ticker ${item.ticker}. Input: "${inputString}". Returning null.`);
-            return null;
-        }
+            // NUMERIC(argN) -> convertToNumeric(argN)
+            translatedExpression = translatedExpression.replace(/NUMERIC\s*\(([^)]+)\)/gi, 'convertToNumeric($1)');
 
-        return weightedSum;
+            // Add more translations here if needed
+            
+            console.log(`[Text Rule] Original Expression: ${expression}`);
+            console.log(`[Text Rule] Translated Expression: ${translatedExpression}`);
+
+        } catch (transError) {
+             throw new Error(`Text Manipulation function translation failed: ${transError.message}. Original Expression: ${expression}`);
+        }
+        // --- End Translation ---
+
+        // Use the Function constructor for safe execution of the *translated* expression
+        try {
+            if (translatedExpression.trim() === '') {
+                throw new Error("Expression is empty after translation.");
+            }
+            // Execute the translated expression
+            const dynamicFunction = new Function(...argNames, `"use strict"; return (${translatedExpression});`); 
+            const result = dynamicFunction(...args);
+
+            // Return the result directly
+            return result;
+        } catch (e) {
+            throw new Error(`Text Manipulation execution failed: ${e.message}. Translated Expression: ${translatedExpression}`);
+        }
     }
      // --- END NEW Execution Handler ---
 
@@ -1418,6 +1418,130 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             // --- END Add helper buttons ---
 
+            // --- Add helper buttons specifically for Text Manipulation expression textarea --- ADDED
+            else if (ruleType === 'text_manipulation' && param.id === 'expression') {
+                const helpersContainer = document.createElement('div');
+                helpersContainer.className = 'mt-2 d-flex flex-wrap gap-1'; // Spacing and wrapping
+
+                // --- Field Picker --- 
+                const fieldPickerGroup = document.createElement('div');
+                fieldPickerGroup.className = 'btn-group';
+                const fieldPickerBtn = document.createElement('button');
+                fieldPickerBtn.type = 'button';
+                fieldPickerBtn.className = 'btn btn-sm btn-outline-secondary dropdown-toggle';
+                fieldPickerBtn.dataset.bsToggle = 'dropdown';
+                fieldPickerBtn.innerHTML = '<i class="bi bi-list-ul"></i> Fields';
+                const fieldPickerMenu = document.createElement('ul');
+                fieldPickerMenu.className = 'dropdown-menu dropdown-menu-sm'; // Add -sm for smaller font
+                fieldPickerMenu.innerHTML = '<li><span class="dropdown-item-text text-muted small">Loading...</span></li>'; // Placeholder
+
+                // Get ALL available fields (including non-numeric)
+                let allAvailableFields = [];
+                try {
+                    const mainModule = window.AnalyticsMainModule;
+                    if (mainModule && typeof mainModule.getAvailableFields === 'function') {
+                        allAvailableFields = mainModule.getAvailableFields(); 
+                        console.log("[Text Field Picker] Populating with fields:", allAvailableFields);
+                    } else {
+                         console.error("[Text Field Picker] AnalyticsMainModule or getAvailableFields not found.");
+                         allAvailableFields = [];
+                    }
+                } catch (e) {
+                    console.error("[Text Field Picker] Error getting fields from main module:", e);
+                    allAvailableFields = [];
+                }
+
+                // Clear placeholder and populate
+                fieldPickerMenu.innerHTML = ''; 
+                if (allAvailableFields.length > 0) {
+                    allAvailableFields.sort().forEach(fieldName => {
+                        const li = document.createElement('li');
+                        const button = document.createElement('button');
+                        button.type = 'button';
+                        button.className = 'dropdown-item btn btn-link btn-sm py-0 text-start';
+                        button.textContent = fieldName;
+                        button.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            // Use the correct textarea ID (should be inputElement)
+                            insertTextAtCursor(inputElement, `{${fieldName}}`); 
+                        });
+                        li.appendChild(button);
+                        fieldPickerMenu.appendChild(li);
+                    });
+                } else {
+                    fieldPickerMenu.innerHTML = '<li><span class="dropdown-item-text text-muted small">(No fields found)</span></li>';
+                }
+
+                fieldPickerGroup.appendChild(fieldPickerBtn);
+                fieldPickerGroup.appendChild(fieldPickerMenu);
+                helpersContainer.appendChild(fieldPickerGroup);
+                // --- End Field Picker ---
+                
+                // --- Operation Buttons --- 
+                const ops = [
+                    // Keep standard operators/functions as simple inserts
+                    { text: '+', insert: ' + ', title: 'Concatenate (Add Strings)' }, // No selection needed
+                    { text: `''`, insert: `''`, title: 'Insert Empty String' },
+                    // { text: 'parseFloat()', insert: 'parseFloat()', title: 'Convert to Number (Decimal)', select: '' }, // REMOVED
+                    // { text: 'parseInt()', insert: 'parseInt()', title: 'Convert to Number (Integer)', select: '' }, // REMOVED
+                    // Use function style for methods, selecting {FieldName}
+                    { text: 'UPPERCASE()', insert: 'UPPERCASE({FieldName})', title: 'Convert field to Uppercase', select: '{FieldName}' },
+                    { text: 'LOWERCASE()', insert: 'LOWERCASE({FieldName})', title: 'Convert field to Lowercase', select: '{FieldName}' },
+                    { text: 'TRIM()', insert: 'TRIM({FieldName})', title: 'Remove Whitespace from field', select: '{FieldName}' },
+                    // Renamed SUBSTRING to EXTRACT_BY_DELIMITER
+                    { text: 'EXTRACT_BY_DELIMITER()', insert: 'EXTRACT_BY_DELIMITER({FieldName}, "()", 1)', title: 'Extract Nth text between delimiters (e.g., "()", "[]")', select: '{FieldName}' }, 
+                    // Generic NUMERIC conversion - Corrected to use placeholder
+                    { text: 'NUMERIC()', insert: 'NUMERIC({FieldName})', title: 'Convert field value to Number (handles %, etc.)', select: '{FieldName}' }
+                ];
+
+                ops.forEach(op => {
+                    const opBtn = document.createElement('button');
+                    opBtn.type = 'button';
+                    opBtn.className = 'btn btn-sm btn-outline-secondary';
+                    opBtn.textContent = op.text;
+                    opBtn.title = op.title;
+                    opBtn.addEventListener('click', () => {
+                         const startPos = inputElement.selectionStart; 
+                         const textToInsert = op.insert;
+                         insertTextAtCursor(inputElement, textToInsert);
+                         
+                         // Handle selection logic
+                         if (op.select !== undefined) { 
+                             let selectStartOffset, selectEndOffset;
+                             if (op.select === '{FieldName}') {
+                                // Find the start of {FieldName} within the inserted text
+                                selectStartOffset = textToInsert.indexOf('{FieldName}');
+                                selectEndOffset = selectStartOffset + '{FieldName}'.length;
+                             } else if (op.select === '') { 
+                                 // Select inside parentheses if select is empty string
+                                 selectStartOffset = textToInsert.indexOf('(') + 1;
+                                 selectEndOffset = textToInsert.indexOf(')');
+                                 if (selectEndOffset <= selectStartOffset) { // Handle cases like `` or '' where ) might not exist or be first
+                                     selectEndOffset = selectStartOffset; 
+                                 }
+                             } else { 
+                                 // Select a specific substring like 'start, end'
+                                 selectStartOffset = textToInsert.indexOf(op.select);
+                                 selectEndOffset = selectStartOffset + op.select.length;
+                             }
+
+                             // Calculate final selection range based on original cursor position
+                             if (selectStartOffset >= 0) { // Only select if found
+                                 const finalSelectStart = startPos + selectStartOffset;
+                                 const finalSelectEnd = startPos + selectEndOffset;
+                                 inputElement.setSelectionRange(finalSelectStart, finalSelectEnd);
+                             }
+                         }
+                         // Else: no selection needed (like for '+')
+                     });
+                    helpersContainer.appendChild(opBtn);
+                });
+                // --- End Operation Buttons ---
+
+                formGroup.appendChild(helpersContainer); // Append all helpers
+            }
+            // --- END Add Text helper buttons ---
+
             transformParametersContainer.appendChild(formGroup);
         });
     }
@@ -1637,5 +1761,53 @@ document.addEventListener('DOMContentLoaded', function() {
         renderTransformedDataPreview: renderTransformedDataPreview // Allow external update of preview
     };
     console.log("AnalyticsTransformModule initialized and exposed.");
+
+    // --- END NEW Helper ---
+
+    // --- NEW: Helper function to attempt conversion to a numeric value ---
+    function convertToNumeric(value) {
+        if (value === null || value === undefined) {
+            return null;
+        }
+        // If it's already a number, return it
+        if (typeof value === 'number' && !isNaN(value)) {
+            return value;
+        }
+        // If it's not a string, we can't parse further (unless specific types added later)
+        if (typeof value !== 'string') {
+             console.warn(`[convertToNumeric] Input is not a string or number: type=${typeof value}, value=${value}. Returning null.`);
+            return null;
+        }
+
+        const cleanedValue = value.trim();
+        if (cleanedValue === '') {
+            return null;
+        }
+
+        // Handle Percentage
+        if (cleanedValue.endsWith('%')) {
+            const numPart = cleanedValue.slice(0, -1).trim();
+            const num = parseFloat(numPart);
+            // Return decimal representation (e.g., "55%" -> 0.55)
+            return !isNaN(num) ? num / 100.0 : null;
+        }
+
+        // Handle potential K/M/B/T suffixes? (OPTIONAL - Keep simple for now)
+        // Example (can be expanded later):
+        // let multiplier = 1;
+        // let numPart = cleanedValue;
+        // if (cleanedValue.endsWith('K')) { multiplier = 1000; numPart = cleanedValue.slice(0,-1); } 
+        // else if ... 
+        // const num = parseFloat(numPart);
+        // return !isNaN(num) ? num * multiplier : null;
+        
+        // Handle plain number (allow commas? No, parseFloat handles basic format)
+        const num = parseFloat(cleanedValue);
+        return !isNaN(num) ? num : null; 
+    }
+    window.convertToNumeric = convertToNumeric; // Make globally accessible
+    // --- END NEW Helper ---
+
+    // --- Make helper globally accessible for dynamic function execution --- 
 
 }); 
