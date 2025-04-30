@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() { // No longer needs to be async
-    console.log("Analytics.js: DOMContentLoaded event fired. Script execution started."); // <<< ADD THIS LINE
+    console.log("Analytics.js: DOMContentLoaded event fired. Script execution started."); // Keep script load log
     // --- Global variables ---
     let fullProcessedData = [];
     let currentFilters = [];
@@ -13,6 +13,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     let currentSortDirection = 'asc';
     let outputDataTable = null; // <<< ADDED: For DataTable instance
     let lastAppliedHeaders = []; // <<< ADDED: To track changes for DataTable re-init
+    let filteredDataForChart = []; // Holds the data currently used by the chart (before transformation)
+    let finalDataForAnalysis = []; // Holds the data AFTER transformations, used by Analyze tab
 
     const FILTER_STORAGE_KEY = 'analyticsAnalyticsFilters';
     // const WEIGHT_STORAGE_KEY = 'analyticsAnalyticsFieldWeights'; // REMOVED
@@ -50,7 +52,6 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     let reportChartInstance = null;
     const reportSizeSelector = document.getElementById('report-size-selector'); // NEW Size selector
     const resetChartBtn = document.getElementById('reset-chart-btn'); // NEW Reset button
-    let filteredDataForChart = []; // Holds the data currently used by the chart
     const swapAxesBtn = document.getElementById('swap-axes-btn'); // NEW Swap button
 
     // --- File Handling Logic (Import Tab) ---
@@ -99,7 +100,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     }
                     
                     // finvizUploadStatus.textContent = '';
-                    console.log("Tickers from file:", uploadedTickers);
+                    // console.log("Tickers from file:", uploadedTickers); // Remove detail log
                 } else {
                     textSpan.textContent = `File: ${file.name} - No valid tickers found.`; // Use textContent
                     iconSpan.className = 'status-icon bi bi-exclamation-triangle-fill me-2 align-middle text-warning'; // Warning icon + color
@@ -263,7 +264,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         } // <<< Closing brace for 'else' associated with 'if (!finvizStatus)'
     } else {
         // This else corresponds to if (finvizButton)
-        console.error("[DEBUG] Could not find finvizButton element (#run-finviz-btn). Listener not attached."); // Corrected error message
+        console.error("Could not find finvizButton element (#run-finviz-btn). Listener not attached."); 
     }
 
     // 2. Fetch for Uploaded Tickers
@@ -287,7 +288,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                  let eventSourceUpload = null; // Variable for this button's EventSource
 
                  try {
-                     console.log("Calling endpoint /api/analytics/start-finviz-fetch-upload with tickers:", uploadedTickers);
+                     console.log("Calling endpoint /api/analytics/start-finviz-fetch-upload...");
 
                      const response = await fetch('/api/analytics/start-finviz-fetch-upload', { // <-- Use new endpoint
                          method: 'POST',
@@ -642,7 +643,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                 break;
         }
 
-        console.log(`[parseFormattedValue] Input: ${inputValue}, Format: ${format}, Parsed Raw: ${rawValue}`);
+        // console.log(`[parseFormattedValue] Input: ${inputValue}, Format: ${format}, Parsed Raw: ${rawValue}`);
         return rawValue;
     }
     // --- END NEW Parsing Helper ---
@@ -744,12 +745,12 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     });
                     
                     // --- Add log to show datalist content ---
-                    console.log(`[Datalist] Populating datalist #${datalistId} for field '${fieldName}' with options:`, metadata.uniqueValues);
+                    // console.log(`[Datalist] Populating datalist #${datalistId} for field '${fieldName}' with options:`, metadata.uniqueValues); // Remove detail log
                     // --- End log ---
 
                     // Append datalist to the same wrapper as the input
                     inputWrapper.appendChild(datalist); 
-                    console.log(`Created datalist ${datalistId} for field ${fieldName} with ${metadata.uniqueValues.length} options.`);
+                    // console.log(`Created datalist ${datalistId} for field ${fieldName} with ${metadata.uniqueValues.length} options.`); // Remove detail log
                 }
                 // --- END DATALIST ---
             }
@@ -779,7 +780,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- Render UI Functions (Preparation Tab) ---
     function renderFilterUI() {
-        console.log("Rendering filter UI. Available fields:", availableFields, "Enabled Status:", fieldEnabledStatus);
+        console.log("Rendering filter UI...");
         if (!filterControlsContainer) return; // Check if container exists
         filterControlsContainer.innerHTML = ''; // Clear existing rows
 
@@ -937,7 +938,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     }
 
     function renderFieldConfigUI() {
-        console.log("Rendering Field Config UI"); // Updated log message
+        console.log("Rendering Field Config UI...");
         if (!fieldConfigContainer) return;
 
         fieldConfigContainer.innerHTML = ''; // Clear previous content
@@ -1205,7 +1206,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- Apply Filters Function (Preparation Tab) ---
     function applyFilters() {
-        console.log("Applying filters:", JSON.parse(JSON.stringify(currentFilters)));
+        console.log("Applying filters...");
         console.log("Data to filter:", fullProcessedData.length);
         console.log("Enabled status:", fieldEnabledStatus);
 
@@ -1449,9 +1450,14 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
          filterResultsCount.textContent = `Showing ${filteredData.length} matching records (out of ${fullProcessedData.length}).`; // Count based on filtered records
 
          // --- Update data used for chart and render --- 
-         filteredDataForChart = filteredData; // Store the data before transformation
-         renderChart(); // Update chart when filters change 
-         // --- End Chart Update --- 
+         filteredDataForChart = filteredData;
+
+         // By default, analysis uses filtered data until transformations are applied
+         // finalDataForAnalysis = [...filteredDataForChart]; // <<< DO NOT RESET HERE
+
+         updateAvailableFieldsAndMetadata(filteredDataForChart); // <-- Update fields based on FILTERED data here
+         updateAnalyticsUI(); // Update chart & other UI based on filtered data
+         // --- End Chart Update ---
     }
     // --- END applyFilters definition ---
 
@@ -1571,18 +1577,28 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
         // Find the actual field name (case-insensitive) if it exists and is enabled
         const nameFieldActualCase = enabledFields.find(f => f.toLowerCase() === defaultColorFieldLower);
+        // <<< FIX: Perform a case-insensitive check here too >>>
+        const isNameFieldAvailableAndEnabled = enabledFields.some(f => f.toLowerCase() === defaultColorFieldLower);
 
         console.log(`[populateReportColorSelector] Found 'name' field with actual case: ${nameFieldActualCase}`);
 
-        if (nameFieldActualCase) { // CHECK 1: Does 'name' (any case) exist and is enabled?
+        // if (nameFieldActualCase) { // CHECK 1: Does 'name' (any case) exist and is enabled? // <<< OLD CHECK
+        if (isNameFieldAvailableAndEnabled) { // <<< NEW CHECK: Use the case-insensitive result
             // If previous value was valid and *not* the default 'name' (case-insensitive check), restore it
-            if (previousValue && previousValue.toLowerCase() !== defaultColorFieldLower && enabledFields.includes(previousValue)) { // CHECK 2
+            if (previousValue && previousValue.toLowerCase() !== defaultColorFieldLower && enabledFields.includes(previousValue)) { // CHECK 2 (includes() check is fine here as previousValue holds the exact case)
                 reportColorSelector.value = previousValue;
                 console.log(`[populateReportColorSelector] Restoring previous value: ${previousValue}`);
             } else {
                 // Otherwise, set to the desired default 'name' using the actual case found
-                reportColorSelector.value = nameFieldActualCase;
-                console.log(`[populateReportColorSelector] Setting default value to actual case: ${nameFieldActualCase}`);
+                // Make sure nameFieldActualCase is not null/undefined before assigning
+                if (nameFieldActualCase) {
+                    reportColorSelector.value = nameFieldActualCase;
+                    console.log(`[populateReportColorSelector] Setting default value to actual case: ${nameFieldActualCase}`);
+                } else {
+                     // Fallback if somehow nameFieldActualCase is null despite isNameFieldAvailableAndEnabled being true (shouldn't happen)
+                     reportColorSelector.value = ""; 
+                     console.log(`[populateReportColorSelector] 'name' field was reported available but not found with specific case. Setting to empty.`);
+                }
             }
         } else if (previousValue && enabledFields.includes(previousValue)) { // CHECK 3: 'name' not enabled, but previous valid value exists?
             // If 'name' isn't available, but previous value is, restore it
@@ -1600,6 +1616,16 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // --- RENAMED: Render Chart (previously Render Scatter Plot) --- 
     function renderChart() {
         console.log("Rendering chart..."); 
+        // <<< LOG THE DATA SOURCE AT THE START >>>
+        if (finalDataForAnalysis && finalDataForAnalysis.length > 0) {
+            console.log("RenderChart using finalDataForAnalysis. First item:", JSON.parse(JSON.stringify(finalDataForAnalysis[0])));
+            if (!finalDataForAnalysis[0]?.processed_data?.['test 2']) { // Check specifically if 'test 2' is missing
+                console.warn("WARNING: 'test 2' field is MISSING from first item in finalDataForAnalysis at start of renderChart!");
+            }
+        } else {
+            console.log("RenderChart called with empty or missing finalDataForAnalysis.");
+        }
+
         if (!reportFieldSelector || !reportXAxisSelector || !reportChartCanvas || !chartStatus || !reportColorSelector || !reportSizeSelector || !reportChartTypeSelector) { // Added Size selector check
             console.error("Report tab elements not found.");
             return;
@@ -1617,14 +1643,24 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         let missingItemCount = 0; // Track missing items
         // --- End variable declarations --- 
 
-        // Helper function to get value from item
+        // Helper function to get value from item, prioritizing processed_data
         const getValue = (item, field) => {
             if (!item) return null;
-            if (field === 'source') return item.source;
+
+            // 1. Check inside processed_data (where original AND synthetic fields live)
             if (item.processed_data && item.processed_data.hasOwnProperty(field)) {
                 return item.processed_data[field];
             }
-            return null; // Field not found
+
+            // 2. Check top-level fields (like ticker, source, error) - unlikely for numeric charts
+            if (item.hasOwnProperty(field) && field !== 'processed_data') {
+                 console.debug(`[getValue] Field '${field}' found at top level.`);
+                 return item[field];
+            }
+
+            // 3. Field not found anywhere
+            // console.debug(`[getValue] Field '${field}' not found in item.`);
+            return null;
         };
 
         const selectedYField = reportFieldSelector.value;
@@ -1671,7 +1707,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             return;
         }
 
-        if (!filteredDataForChart || filteredDataForChart.length === 0) {
+        if (!finalDataForAnalysis || finalDataForAnalysis.length === 0) { 
             chartStatus.textContent = 'No data available to plot (apply filters or load data).';
             if (reportChartInstance) {
                 reportChartInstance.destroy();
@@ -1684,7 +1720,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         let minSize = Infinity;
         let maxSize = -Infinity;
         if (selectedChartType === 'bubble' && sizeField) {
-            filteredDataForChart.forEach(item => {
+            // <<< USE finalDataForAnalysis >>>
+            finalDataForAnalysis.forEach(item => { 
                 if (item) {
                     const sizeValue = getValue(item, sizeField);
                     const numericSize = Number(sizeValue);
@@ -1736,403 +1773,422 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         nonNumericSizeCount = 0; // Reset size count too
         missingItemCount = 0;
         
-        filteredDataForChart.forEach((item, index) => {
-            let pointColor = defaultColor;
-            let colorValue = null;
+        // <<< USE finalDataForAnalysis >>>
+        finalDataForAnalysis.forEach((item, index) => { 
+            // <<< START DEBUG LOGGING >>>
+            if (index < 5) { // Log first 5 items
+                console.log(`--- Chart Processing Item ${index} (Ticker: ${item?.ticker}) ---`);
+                console.log("Processed Data Object:", item?.processed_data);
+                const rawX = getValue(item, selectedXField);
+                const rawY = getValue(item, selectedYField);
+                const numX = Number(rawX);
+                const numY = Number(rawY);
+                const isXNumeric = !isNaN(numX) && rawX !== null && String(rawX).trim() !== '';
+                const isYNumeric = !isNaN(numY) && rawY !== null && String(rawY).trim() !== '';
+                console.log(`X Field ('${selectedXField}'): Raw='${rawX}', Num=${numX}, isNumeric=${isXNumeric}`);
+                console.log(`Y Field ('${selectedYField}'): Raw='${rawY}', Num=${numY}, isNumeric=${isYNumeric}`);
+            }
+            // <<< END DEBUG LOGGING >>>
+ 
+             let pointColor = defaultColor;
+             let colorValue = null;
+ 
+             if (item) {
+                 // Get Y-axis value
+                 const rawYValue = getValue(item, selectedYField);
+                 const numericYValue = Number(rawYValue);
+                 const isYNumeric = !isNaN(numericYValue) && rawYValue !== null && String(rawYValue).trim() !== '';
+                 
+                 // Get X-axis value (only if needed for scatter/line)
+                 let rawXValue = null;
+                 let numericXValue = null;
+                 let isXNumeric = false;
+                 // Determine X value based on selection or default index
+                 if (selectedChartType === 'scatter' || selectedChartType === 'line' || selectedChartType === 'bubble') { // Include bubble
+                     if (useIndexAsX) {
+                         // Use the loop index as the X value
+                         numericXValue = index;
+                         rawXValue = index; // Store index as raw value too for consistency
+                         isXNumeric = true; // Index is always numeric
+                     } else {
+                         // Use the selected field for X value
+                         rawXValue = getValue(item, selectedXField);
+                         numericXValue = Number(rawXValue);
+                         isXNumeric = !isNaN(numericXValue) && rawXValue !== null && String(rawXValue).trim() !== '';
+                     }
+                 }
 
-            if (item) {
-                // Get Y-axis value
-                const rawYValue = getValue(item, selectedYField);
-                const numericYValue = Number(rawYValue);
-                const isYNumeric = !isNaN(numericYValue) && rawYValue !== null && String(rawYValue).trim() !== '';
-                
-                // Get X-axis value (only if needed for scatter/line)
-                let rawXValue = null;
-                let numericXValue = null;
-                let isXNumeric = false;
-                // Determine X value based on selection or default index
-                if (selectedChartType === 'scatter' || selectedChartType === 'line' || selectedChartType === 'bubble') { // Include bubble
-                    if (useIndexAsX) {
-                        // Use the loop index as the X value
-                        numericXValue = index;
-                        rawXValue = index; // Store index as raw value too for consistency
-                        isXNumeric = true; // Index is always numeric
-                    } else {
-                        // Use the selected field for X value
-                        rawXValue = getValue(item, selectedXField);
-                        numericXValue = Number(rawXValue);
-                        isXNumeric = !isNaN(numericXValue) && rawXValue !== null && String(rawXValue).trim() !== '';
-                    }
-                }
+                 // Check if data is valid for the *specific chart type*
+                 let isValidPoint = false;
+                 if (selectedChartType === 'scatter' || selectedChartType === 'line') {
+                     isValidPoint = isXNumeric && isYNumeric;
+                     if (!isXNumeric) nonNumericXCount++;
+                     if (!isYNumeric) nonNumericYCount++;
+                 } else if (selectedChartType === 'bar') {
+                     isValidPoint = isYNumeric; // Only Y needs to be numeric for bar
+                     if (!isYNumeric) nonNumericYCount++;
+                 } else if (selectedChartType === 'bubble') {
+                     // Bubble needs valid X, Y, and Size
+                     const rawSizeValue = getValue(item, sizeField);
+                     const numericSizeValue = Number(rawSizeValue);
+                     const isSizeNumericPositive = !isNaN(numericSizeValue) && numericSizeValue > 0;
 
-                // Check if data is valid for the *specific chart type*
-                let isValidPoint = false;
-                if (selectedChartType === 'scatter' || selectedChartType === 'line') {
-                    isValidPoint = isXNumeric && isYNumeric;
-                    if (!isXNumeric) nonNumericXCount++;
-                    if (!isYNumeric) nonNumericYCount++;
-                } else if (selectedChartType === 'bar') {
-                    isValidPoint = isYNumeric; // Only Y needs to be numeric for bar
-                    if (!isYNumeric) nonNumericYCount++;
-                } else if (selectedChartType === 'bubble') {
-                    // Bubble needs valid X, Y, and Size
-                    const rawSizeValue = getValue(item, sizeField);
-                    const numericSizeValue = Number(rawSizeValue);
-                    const isSizeNumericPositive = !isNaN(numericSizeValue) && numericSizeValue > 0;
+                     isValidPoint = isXNumeric && isYNumeric && isSizeNumericPositive;
 
-                    isValidPoint = isXNumeric && isYNumeric && isSizeNumericPositive;
+                     // Increment specific counts for bubble exclusions
+                     if (!isXNumeric) nonNumericXCount++;
+                     if (!isYNumeric) nonNumericYCount++;
+                     if (!isSizeNumericPositive) nonNumericSizeCount++;
+                 }
 
-                    // Increment specific counts for bubble exclusions
-                    if (!isXNumeric) nonNumericXCount++;
-                    if (!isYNumeric) nonNumericYCount++;
-                    if (!isSizeNumericPositive) nonNumericSizeCount++;
-                }
-
-                if (isValidPoint) {
-                    // Get color field value
-                    if (colorField) {
-                        colorValue = getValue(item, colorField);
-                        pointColor = getColorForValue(colorValue);
-                    } else {
-                        pointColor = predefinedColors[0]; // Default if no color field
-                    }
-
-                    // Add data based on chart type
-                    if (selectedChartType === 'scatter' || selectedChartType === 'line') {
-                        const dataPoint = {
-                            x: numericXValue, // Use the actual numeric X value
-                            y: numericYValue,
-                            ticker: item.ticker || 'N/A',
-                            colorValue: colorValue,
-                            originalX: rawXValue, // Store original values for tooltip if needed
-                            originalY: rawYValue
-                        };
-                        plotData.push(dataPoint); 
-                    } else if (selectedChartType === 'bar') {
-                        labels.push(item.ticker || `Index ${index}`); // X is the ticker/label
-                        numericData.push(numericYValue); // Y is the bar height
-                        // Bar colors are pushed later, need to store color value
-                        // We'll handle this by iterating over labels/numericData later
-                    } else if (selectedChartType === 'bubble') {
-                        const rawSizeValue = getValue(item, sizeField);
-                        const numericSizeValue = Number(rawSizeValue);
-                        // Scale radius (ensure min/max are valid)
-                        const minRadius = 5;
-                        const maxRadius = 30;
-                        let radius = minRadius; // Default size if scaling fails
-                        if (maxSize > minSize) { // Avoid division by zero
-                            radius = minRadius + ((numericSizeValue - minSize) / (maxSize - minSize)) * (maxRadius - minRadius);
-                        }
-                        radius = Math.max(minRadius, radius); // Ensure minimum radius
-
-                        const dataPoint = {
-                            x: numericXValue,
-                            y: numericYValue,
-                            r: radius, // Calculated radius
-                            ticker: item.ticker || 'N/A',
-                            colorValue: colorValue,
-                            originalX: rawXValue,
-                            originalY: rawYValue,
-                            originalSize: rawSizeValue // Store original size value for tooltip
-                        };
-                        plotData.push(dataPoint);
-                    }
-
-                    // Push colors (only needed for scatter/line here, bar handled later)
-                     if (selectedChartType !== 'bar') {
-                         pointBackgroundColors.push(pointColor);
-                         pointBorderColors.push(pointColor.replace(/0\.\d+\)/, '1)')); 
+                 if (isValidPoint) {
+                     // Get color field value
+                     if (colorField) {
+                         colorValue = getValue(item, colorField);
+                         pointColor = getColorForValue(colorValue);
+                     } else {
+                         pointColor = predefinedColors[0]; // Default if no color field
                      }
 
-                } 
-                // No else block needed here for invalid points, counts incremented above
+                     // Add data based on chart type
+                     if (selectedChartType === 'scatter' || selectedChartType === 'line') {
+                         const dataPoint = {
+                             x: numericXValue, // Use the actual numeric X value
+                             y: numericYValue,
+                             ticker: item.ticker || 'N/A',
+                             colorValue: colorValue,
+                             originalX: rawXValue, // Store original values for tooltip if needed
+                             originalY: rawYValue
+                         };
+                         plotData.push(dataPoint); 
+                     } else if (selectedChartType === 'bar') {
+                         labels.push(item.ticker || `Index ${index}`); // X is the ticker/label
+                         numericData.push(numericYValue); // Y is the bar height
+                         // Bar colors are pushed later, need to store color value
+                         // We'll handle this by iterating over labels/numericData later
+                     } else if (selectedChartType === 'bubble') {
+                         const rawSizeValue = getValue(item, sizeField);
+                         const numericSizeValue = Number(rawSizeValue);
+                         // Scale radius (ensure min/max are valid)
+                         const minRadius = 5;
+                         const maxRadius = 30;
+                         let radius = minRadius; // Default size if scaling fails
+                         if (maxSize > minSize) { // Avoid division by zero
+                             radius = minRadius + ((numericSizeValue - minSize) / (maxSize - minSize)) * (maxRadius - minRadius);
+                         }
+                         radius = Math.max(minRadius, radius); // Ensure minimum radius
 
-            } else {
-                 missingItemCount++; // Missing item entirely
-            }
-        });
-        
-        // --- Handle Bar Chart Colors ---
-         if (selectedChartType === 'bar') {
-             // We need to iterate through the generated labels/numericData
-             // and find the corresponding original item to get the color value
-             labels.forEach((label, index) => {
-                 // Find the original item - this assumes labels are unique tickers or unique indices
-                 const originalItem = filteredDataForChart.find(item => 
-                     (item && item.ticker === label) || (item && !item.ticker && label === `Index ${index}`)
-                 );
-                 let pointColor = defaultColor;
-                 if (originalItem && colorField) {
-                     const colorValue = getValue(originalItem, colorField);
-                     pointColor = getColorForValue(colorValue);
-                 } else if (originalItem) {
-                     pointColor = predefinedColors[0]; // Default if no color field
-                 }
-                 pointBackgroundColors.push(pointColor);
-                 pointBorderColors.push(pointColor.replace(/0\.\d+\)/, '1)'));
-             });
-         }
-        // --- End Bar Chart Colors ---
+                         const dataPoint = {
+                             x: numericXValue,
+                             y: numericYValue,
+                             r: radius, // Calculated radius
+                             ticker: item.ticker || 'N/A',
+                             colorValue: colorValue,
+                             originalX: rawXValue,
+                             originalY: rawYValue,
+                             originalSize: rawSizeValue // Store original size value for tooltip
+                         };
+                         plotData.push(dataPoint);
+                     }
 
-        // Check if any valid data points were found for the selected type
-        console.log('Type of plotData before hasData:', typeof plotData, 'Value:', plotData); // DEBUG LOG
-        const hasData = (selectedChartType === 'bar' ? numericData.length > 0 : (plotData && plotData.length > 0)); // Simplified check
-        if (!hasData) {
-            chartStatus.textContent = `No valid numeric data found for the selected axes (${selectedXField ? 'X:'+selectedXField+', ' : ''}Y:${selectedYField}) in the current filtered data.`;
-             if (reportChartInstance) {
-                reportChartInstance.destroy();
-                reportChartInstance = null;
-            }
-            return;
-        }
-        
-        // Construct status message about excluded points
-        let excludedMessages = [];
-        if (missingItemCount > 0) excludedMessages.push(`${missingItemCount} missing records`);
-        // Only report non-numeric X for scatter/line
-        // Only report non-numeric X if a specific field (not index) was selected
-        if (!useIndexAsX && (selectedChartType === 'scatter' || selectedChartType === 'line') && nonNumericXCount > 0) {
-            excludedMessages.push(`${nonNumericXCount} non-numeric X values ('${selectedXField}')`);
-        }
-         if (nonNumericYCount > 0) { // Relevant for all types
-             excludedMessages.push(`${nonNumericYCount} non-numeric Y values ('${selectedYField}')`);
-         }
-         if (selectedChartType === 'bubble' && nonNumericSizeCount > 0) {
-             excludedMessages.push(`${nonNumericSizeCount} invalid Size values ('${sizeField}')`);
-         }
+                     // Push colors (only needed for scatter/line here, bar handled later)
+                      if (selectedChartType !== 'bar') {
+                          pointBackgroundColors.push(pointColor);
+                          pointBorderColors.push(pointColor.replace(/0\.\d+\)/, '1)')); 
+                      }
 
-        const plottedCount = hasData ? (selectedChartType === 'bar' ? numericData.length : plotData.length) : 0;
-        if (excludedMessages.length > 0) {
-            chartStatus.textContent = `Plotting ${plottedCount} points. ${excludedMessages.join(', ')} were excluded.`;
-        } else {
-            chartStatus.textContent = `Plotting ${plottedCount} points.`;
-        }
+                 } 
+                 // No else block needed here for invalid points, counts incremented above
 
-        const ctx = reportChartCanvas.getContext('2d');
+             } else {
+                  missingItemCount++; // Missing item entirely
+             }
+         });
+         
+         // --- Handle Bar Chart Colors ---
+          if (selectedChartType === 'bar') {
+              // We need to iterate through the generated labels/numericData
+              // and find the corresponding original item to get the color value
+              labels.forEach((label, index) => {
+                  // Find the original item - this assumes labels are unique tickers or unique indices
+                  // <<< USE finalDataForAnalysis >>>
+                  const originalItem = finalDataForAnalysis.find(item => 
+                      (item && item.ticker === label) || (item && !item.ticker && label === `Index ${index}`)
+                  );
+                  let pointColor = defaultColor;
+                  if (originalItem && colorField) {
+                      const colorValue = getValue(originalItem, colorField);
+                      pointColor = getColorForValue(colorValue);
+                  } else if (originalItem) {
+                      pointColor = predefinedColors[0]; // Default if no color field
+                  }
+                  pointBackgroundColors.push(pointColor);
+                  pointBorderColors.push(pointColor.replace(/0\.\d+\)/, '1)'));
+              });
+          }
+         // --- End Bar Chart Colors ---
 
-        // Destroy previous chart instance if it exists
-        if (reportChartInstance) {
-            reportChartInstance.destroy();
-        }
-
-        // Determine data structure based on chart type
-        let chartDataConfig;
-        let xAxisConfig; // Define X-axis config separately
-
-        if (selectedChartType === 'scatter' || selectedChartType === 'line') {
-            chartDataConfig = {
-                datasets: [{
-                    label: `${selectedYField} vs ${selectedXField}`, // Combined label
-                    data: plotData, // Use {x, y, ...} data
-                    backgroundColor: pointBackgroundColors,
-                    borderColor: pointBorderColors,
-                    pointRadius: selectedChartType === 'scatter' ? 5 : 3, 
-                    pointHoverRadius: selectedChartType === 'scatter' ? 7 : 5,
-                    borderWidth: selectedChartType === 'line' ? 2 : 1, 
-                    fill: selectedChartType === 'line' ? false : undefined, 
-                    tension: selectedChartType === 'line' ? 0.1 : undefined 
-                }]
-            };
-            xAxisConfig = { // Define X-axis for scatter/line
-                 title: {
-                     display: true,
-                     text: useIndexAsX ? 'Record Index' : selectedXField // Use selected X field name or default
-                 },
-                 type: 'linear', // Numeric axis
-                 position: 'bottom'
-            };
-        } else if (selectedChartType === 'bar') {
-            chartDataConfig = {
-                labels: labels, // Use ticker labels for categories
-                datasets: [{
-                    label: selectedYField, // Y field is the value
-                    data: numericData, // Use numeric array for bar heights
-                    backgroundColor: pointBackgroundColors, // Use generated colors
-                    borderColor: pointBorderColors,
-                    borderWidth: 1
-                }]
-            };
-            xAxisConfig = { // Define X-axis for bar
-                 title: {
-                     display: true,
-                     text: 'Ticker / Record' // Generic label for categories
-                 },
-                 type: 'category', // Categorical axis
-                 position: 'bottom'
-            };
-        } else if (selectedChartType === 'bubble') {
-            chartDataConfig = {
-                datasets: [{
-                    label: `${selectedYField} vs ${selectedXField}`,
-                    data: plotData,
-                    backgroundColor: pointBackgroundColors,
-                    borderColor: pointBorderColors,
-                    borderWidth: 1
-                }]
-            };
-            xAxisConfig = {
-                title: {
-                    display: true,
-                    text: useIndexAsX ? 'Record Index' : selectedXField
-                },
-                type: 'linear',
-                position: 'bottom'
-            };
-        } else {
-             console.error(`Unsupported chart type: ${selectedChartType}`);
-             chartStatus.textContent = `Unsupported chart type selected: ${selectedChartType}`;
+         // Check if any valid data points were found for the selected type
+         console.log('Type of plotData before hasData:', typeof plotData, 'Value:', plotData); // DEBUG LOG
+         const hasData = (selectedChartType === 'bar' ? numericData.length > 0 : (plotData && plotData.length > 0)); // Simplified check
+         if (!hasData) {
+             chartStatus.textContent = `No valid numeric data found for the selected axes (${selectedXField ? 'X:'+selectedXField+', ' : ''}Y:${selectedYField}) in the current filtered data.`;
+              if (reportChartInstance) {
+                 reportChartInstance.destroy();
+                 reportChartInstance = null;
+             }
              return;
-        }
+         }
+         
+         // Construct status message about excluded points
+         let excludedMessages = [];
+         if (missingItemCount > 0) excludedMessages.push(`${missingItemCount} missing records`);
+         // Only report non-numeric X for scatter/line
+         // Only report non-numeric X if a specific field (not index) was selected
+         if (!useIndexAsX && (selectedChartType === 'scatter' || selectedChartType === 'line') && nonNumericXCount > 0) {
+             excludedMessages.push(`${nonNumericXCount} non-numeric X values ('${selectedXField}')`);
+         }
+          if (nonNumericYCount > 0) { // Relevant for all types
+              excludedMessages.push(`${nonNumericYCount} non-numeric Y values ('${selectedYField}')`);
+          }
+          if (selectedChartType === 'bubble' && nonNumericSizeCount > 0) {
+              excludedMessages.push(`${nonNumericSizeCount} invalid Size values ('${sizeField}')`);
+          }
 
-        // Create the chart
-        reportChartInstance = new Chart(ctx, {
-            type: selectedChartType, // Use selected type
-            data: chartDataConfig, // Use the prepared config
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: xAxisConfig, // Use the defined X-axis config
-                    y: {
-                        // <<< Apply formatting to Y-axis ticks >>>
-                        ticks: {
-                            callback: function(value, index, ticks) {
-                                // Get format for the Y field
-                                const yField = reportFieldSelector.value;
-                                const format = (yField && fieldNumericFormats[yField]) ? fieldNumericFormats[yField] : 'default';
-                                return formatNumericValue(value, format);
-                            }
-                        },
-                        title: {
-                            display: true,
-                            text: selectedYField // Y-axis label is the selected Y field
-                        }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        display: true, 
-                        position: 'top',
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                console.log("Tooltip callback executed (Step 3 - Full)");
-                                let labelLines = []; // Use an array for multi-line labels
-                                const chartType = context.chart.config.type;
-                                const pointData = context.raw; // Available for scatter/line
+         const plottedCount = hasData ? (selectedChartType === 'bar' ? numericData.length : plotData.length) : 0;
+         if (excludedMessages.length > 0) {
+             chartStatus.textContent = `Plotting ${plottedCount} points. ${excludedMessages.join(', ')} were excluded.`;
+         } else {
+             chartStatus.textContent = `Plotting ${plottedCount} points.`;
+         }
 
-                                if (chartType === 'bar') {
-                                    // Bar chart: X is category (label), Y is value
-                                    labelLines.push(`Ticker: ${context.label || 'N/A'}`); // Ticker is the category label
-                                    //labelLines.push(`${context.dataset.label || 'Value'}: ${context.parsed.y}`); // Y value
-                                    // <<< Format Y value for bar chart tooltip >>>
-                                    const yField = reportFieldSelector.value;
-                                    const yFormat = (yField && fieldNumericFormats[yField]) ? fieldNumericFormats[yField] : 'default';
-                                    const formattedY = formatNumericValue(context.parsed.y, yFormat);
-                                    labelLines.push(`${yField || 'Value'}: ${formattedY} (Raw: ${context.parsed.y})`);
+         const ctx = reportChartCanvas.getContext('2d');
+
+         // Destroy previous chart instance if it exists
+         if (reportChartInstance) {
+             reportChartInstance.destroy();
+         }
+
+         // Determine data structure based on chart type
+         let chartDataConfig;
+         let xAxisConfig; // Define X-axis config separately
+
+         if (selectedChartType === 'scatter' || selectedChartType === 'line') {
+             chartDataConfig = {
+                 datasets: [{
+                     label: `${selectedYField} vs ${selectedXField}`, // Combined label
+                     data: plotData, // Use {x, y, ...} data
+                     backgroundColor: pointBackgroundColors,
+                     borderColor: pointBorderColors,
+                     pointRadius: selectedChartType === 'scatter' ? 5 : 3, 
+                     pointHoverRadius: selectedChartType === 'scatter' ? 7 : 5,
+                     borderWidth: selectedChartType === 'line' ? 2 : 1, 
+                     fill: selectedChartType === 'line' ? false : undefined, 
+                     tension: selectedChartType === 'line' ? 0.1 : undefined 
+                 }]
+             };
+             xAxisConfig = { // Define X-axis for scatter/line
+                  title: {
+                      display: true,
+                      text: useIndexAsX ? 'Record Index' : selectedXField // Use selected X field name or default
+                  },
+                  type: 'linear', // Numeric axis
+                  position: 'bottom'
+             };
+         } else if (selectedChartType === 'bar') {
+             chartDataConfig = {
+                 labels: labels, // Use ticker labels for categories
+                 datasets: [{
+                     label: selectedYField, // Y field is the value
+                     data: numericData, // Use numeric array for bar heights
+                     backgroundColor: pointBackgroundColors, // Use generated colors
+                     borderColor: pointBorderColors,
+                     borderWidth: 1
+                 }]
+             };
+             xAxisConfig = { // Define X-axis for bar
+                  title: {
+                      display: true,
+                      text: 'Ticker / Record' // Generic label for categories
+                  },
+                  type: 'category', // Categorical axis
+                  position: 'bottom'
+             };
+         } else if (selectedChartType === 'bubble') {
+             chartDataConfig = {
+                 datasets: [{
+                     label: `${selectedYField} vs ${selectedXField}`,
+                     data: plotData,
+                     backgroundColor: pointBackgroundColors,
+                     borderColor: pointBorderColors,
+                     borderWidth: 1
+                 }]
+             };
+             xAxisConfig = {
+                 title: {
+                     display: true,
+                     text: useIndexAsX ? 'Record Index' : selectedXField
+                 },
+                 type: 'linear',
+                 position: 'bottom'
+             };
+         } else {
+              console.error(`Unsupported chart type: ${selectedChartType}`);
+              chartStatus.textContent = `Unsupported chart type selected: ${selectedChartType}`;
+              return;
+         }
+
+         // Create the chart
+         reportChartInstance = new Chart(ctx, {
+             type: selectedChartType, // Use selected type
+             data: chartDataConfig, // Use the prepared config
+             options: {
+                 responsive: true,
+                 maintainAspectRatio: false,
+                 scales: {
+                     x: xAxisConfig, // Use the defined X-axis config
+                     y: {
+                         // <<< Apply formatting to Y-axis ticks >>>
+                         ticks: {
+                             callback: function(value, index, ticks) {
+                                 // Get format for the Y field
+                                 const yField = reportFieldSelector.value;
+                                 const format = (yField && fieldNumericFormats[yField]) ? fieldNumericFormats[yField] : 'default';
+                                 return formatNumericValue(value, format);
+                             }
+                         },
+                         title: {
+                             display: true,
+                             text: selectedYField // Y-axis label is the selected Y field
+                         }
+                     }
+                 },
+                 plugins: {
+                     legend: {
+                         display: true, 
+                         position: 'top',
+                     },
+                     tooltip: {
+                         callbacks: {
+                             label: function(context) {
+                                 console.log("Tooltip callback executed (Step 3 - Full)");
+                                 let labelLines = []; // Use an array for multi-line labels
+                                 const chartType = context.chart.config.type;
+                                 const pointData = context.raw; // Available for scatter/line
+
+                                 if (chartType === 'bar') {
+                                     // Bar chart: X is category (label), Y is value
+                                     labelLines.push(`Ticker: ${context.label || 'N/A'}`); // Ticker is the category label
+                                     //labelLines.push(`${context.dataset.label || 'Value'}: ${context.parsed.y}`); // Y value
+                                     // <<< Format Y value for bar chart tooltip >>>
+                                     const yField = reportFieldSelector.value;
+                                     const yFormat = (yField && fieldNumericFormats[yField]) ? fieldNumericFormats[yField] : 'default';
+                                     const formattedY = formatNumericValue(context.parsed.y, yFormat);
+                                     labelLines.push(`${yField || 'Value'}: ${formattedY} (Raw: ${context.parsed.y})`);
  
-                                    // Add color field info for bar charts (find original item)
-                                    if (colorField) {
-                                        const dataIndex = context.dataIndex;
-                                        // Find the original item matching the label/index
-                                        const originalItem = filteredDataForChart.find(item => 
-                                            (item && item.ticker === context.label) || (item && !item.ticker && context.label === `Index ${dataIndex}`)
-                                        );
-                                        if (originalItem) {
-                                            const colorValue = getValue(originalItem, colorField);
-                                            if (colorValue !== null && colorValue !== undefined) {
-                                                 labelLines.push(`${colorField}: ${colorValue}`);
-                                            }
-                                        }
-                                    }
-                                } else if (pointData) { 
-                                    // Scatter/Line chart: pointData contains {x, y, ticker, colorValue, originalX, originalY}
-                                    if (pointData.ticker) {
-                                        labelLines.push(`Ticker: ${pointData.ticker}`);
-                                    }
-                                    // Use selected field names for axes labels or default
-                                    const xLabel = useIndexAsX ? 'Index' : selectedXField;
-                                    //const xValueDisplay = useIndexAsX ? pointData.x : `${pointData.x} ${pointData.originalX != pointData.x ? '('+pointData.originalX+')' : ''}`;
-                                    // <<< Format X and Y values for scatter/line/bubble tooltip >>>
-                                    const xFormat = (selectedXField && fieldNumericFormats[selectedXField]) ? fieldNumericFormats[selectedXField] : 'default';
-                                    const yFormatTooltip = (selectedYField && fieldNumericFormats[selectedYField]) ? fieldNumericFormats[selectedYField] : 'default';
-                                    
-                                    const formattedX = useIndexAsX ? pointData.x : formatNumericValue(pointData.x, xFormat); 
-                                    const formattedYTooltip = formatNumericValue(pointData.y, yFormatTooltip);
+                                     // Add color field info for bar charts (find original item)
+                                     if (colorField) {
+                                         const dataIndex = context.dataIndex;
+                                         // Find the original item matching the label/index
+                                         // <<< USE finalDataForAnalysis >>>
+                                         const originalItem = finalDataForAnalysis.find(item => 
+                                             (item && item.ticker === context.label) || (item && !item.ticker && context.label === `Index ${dataIndex}`)
+                                         );
+                                         if (originalItem) {
+                                             const colorValue = getValue(originalItem, colorField);
+                                             if (colorValue !== null && colorValue !== undefined) {
+                                                  labelLines.push(`${colorField}: ${colorValue}`);
+                                             }
+                                         }
+                                     }
+                                 } else if (pointData) { 
+                                     // Scatter/Line chart: pointData contains {x, y, ticker, colorValue, originalX, originalY}
+                                     if (pointData.ticker) {
+                                         labelLines.push(`Ticker: ${pointData.ticker}`);
+                                     }
+                                     // Use selected field names for axes labels or default
+                                     const xLabel = useIndexAsX ? 'Index' : selectedXField;
+                                     //const xValueDisplay = useIndexAsX ? pointData.x : `${pointData.x} ${pointData.originalX != pointData.x ? '('+pointData.originalX+')' : ''}`;
+                                     // <<< Format X and Y values for scatter/line/bubble tooltip >>>
+                                     const xFormat = (selectedXField && fieldNumericFormats[selectedXField]) ? fieldNumericFormats[selectedXField] : 'default';
+                                     const yFormatTooltip = (selectedYField && fieldNumericFormats[selectedYField]) ? fieldNumericFormats[selectedYField] : 'default';
+                                     
+                                     const formattedX = useIndexAsX ? pointData.x : formatNumericValue(pointData.x, xFormat); 
+                                     const formattedYTooltip = formatNumericValue(pointData.y, yFormatTooltip);
 
-                                    labelLines.push(`${xLabel}: ${formattedX} ${!useIndexAsX && pointData.originalX != pointData.x ? '(Raw: '+pointData.originalX+')' : ''}`);
-                                    labelLines.push(`${selectedYField}: ${formattedYTooltip} ${pointData.originalY != pointData.y ? '(Raw: '+pointData.originalY+')' : ''}`);
+                                     labelLines.push(`${xLabel}: ${formattedX} ${!useIndexAsX && pointData.originalX != pointData.x ? '(Raw: '+pointData.originalX+')' : ''}`);
+                                     labelLines.push(`${selectedYField}: ${formattedYTooltip} ${pointData.originalY != pointData.y ? '(Raw: '+pointData.originalY+')' : ''}`);
 
-                                    // Add color field info if available
-                                    if (colorField && pointData.colorValue !== null && pointData.colorValue !== undefined) {
-                                        labelLines.push(`${colorField}: ${pointData.colorValue}`);
-                                    }
+                                     // Add color field info if available
+                                     if (colorField && pointData.colorValue !== null && pointData.colorValue !== undefined) {
+                                         labelLines.push(`${colorField}: ${pointData.colorValue}`);
+                                     }
 
-                                    // Add size field info for bubble charts
-                                    if (chartType === 'bubble' && sizeField && pointData.originalSize !== null && pointData.originalSize !== undefined) {
-                                        //labelLines.push(`${sizeField} (Size): ${pointData.originalSize}`);
-                                        // <<< Format Size value for bubble tooltip >>>
-                                        const sizeFormat = fieldNumericFormats[sizeField] || 'default';
-                                        const formattedSize = formatNumericValue(pointData.originalSize, sizeFormat);
-                                        labelLines.push(`${sizeField} (Size): ${formattedSize} (Raw: ${pointData.originalSize})`);
-                                    }
-                                } else {
-                                     // Fallback if pointData isn't available (shouldn't happen often)
-                                     labelLines.push(`${context.dataset.label || 'Data'}: (${context.parsed.x}, ${context.parsed.y})`);
-                                }
-                                
-                                return labelLines; // Return array for multi-line tooltip
-                            }
-                        }
-                    },
-                    zoom: {
-                        pan: {
-                            enabled: true,
-                            mode: 'xy', // Allow panning on both axes
-                            threshold: 5, // Minimum drag distance to trigger pan
-                            overscroll: true, // Explicitly set overscroll mode
-                        },
-                        zoom: {
-                            wheel: {
-                                enabled: true, // Enable zooming via mouse wheel
-                            },
-                            pinch: {
-                                enabled: true // Enable zooming via pinch gesture (requires Hammer.js for touch)
-                            },
-                            drag: {
-                                 enabled: true, // Enable zooming via drag selection 
-                                 modifierKey: 'shift', // Optional: Require Shift key for drag zoom
-                            },
-                            mode: 'xy', // Allow zooming on both axes
-                        }
-                    }
-                }
-            }
-        });
+                                     // Add size field info for bubble charts
+                                     if (chartType === 'bubble' && sizeField && pointData.originalSize !== null && pointData.originalSize !== undefined) {
+                                         //labelLines.push(`${sizeField} (Size): ${pointData.originalSize}`);
+                                         // <<< Format Size value for bubble tooltip >>>
+                                         const sizeFormat = fieldNumericFormats[sizeField] || 'default';
+                                         const formattedSize = formatNumericValue(pointData.originalSize, sizeFormat);
+                                         labelLines.push(`${sizeField} (Size): ${formattedSize} (Raw: ${pointData.originalSize})`);
+                                     }
+                                 } else {
+                                      // Fallback if pointData isn't available (shouldn't happen often)
+                                      labelLines.push(`${context.dataset.label || 'Data'}: (${context.parsed.x}, ${context.parsed.y})`);
+                                 }
+                                 
+                                 return labelLines; // Return array for multi-line tooltip
+                             }
+                         }
+                     },
+                     zoom: {
+                         pan: {
+                             enabled: true,
+                             mode: 'xy', // Allow panning on both axes
+                             threshold: 5, // Minimum drag distance to trigger pan
+                             overscroll: true, // Explicitly set overscroll mode
+                         },
+                         zoom: {
+                             wheel: {
+                                 enabled: true, // Enable zooming via mouse wheel
+                             },
+                             pinch: {
+                                 enabled: true // Enable zooming via pinch gesture (requires Hammer.js for touch)
+                             },
+                             drag: {
+                                  enabled: true, // Enable zooming via drag selection 
+                                  modifierKey: 'shift', // Optional: Require Shift key for drag zoom
+                             },
+                             mode: 'xy', // Allow zooming on both axes
+                         }
+                     }
+                 }
+             }
+         });
 
-        // Force an update after initial render - might help plugin init
-        if (reportChartInstance) {
-            reportChartInstance.update(); 
-            // Trigger resize event after update
-            window.dispatchEvent(new Event('resize')); 
-            console.log("Forced chart update and dispatched resize event.");
-        }
+         // Force an update after initial render - might help plugin init
+         if (reportChartInstance) {
+             reportChartInstance.update(); 
+             // Trigger resize event after update
+             window.dispatchEvent(new Event('resize')); 
+             console.log("Forced chart update and dispatched resize event.");
+         }
 
-        console.log(`Chart rendered successfully as ${selectedChartType}.`); // Updated log
+         console.log(`Chart rendered successfully as ${selectedChartType}.`); // Updated log
 
-        console.log(`Generating ${selectedChartType} plot for field: ${selectedYField} with ${filteredDataForChart.length} filtered records.`); // Corrected variable name
+         // <<< USE finalDataForAnalysis >>>
+         console.log(`Generating ${selectedChartType} plot for field: ${selectedYField} with ${finalDataForAnalysis.length} records.`); // Corrected variable name and length source
 
-        // Prepare data for chart
-        // For Scatter/Line: [{ x: index, y: value, ticker: ticker, colorValue: colorValue }]
-        // For Bar: labels: [ticker1, ticker2,...], data: [value1, value2,...]
-        // Use let instead of const
-        // plotData = []; 
-        // labels = []; 
-        // numericData = []; 
-        // pointBackgroundColors = [];
-        // pointBorderColors = [];
-        // nonNumericCount = 0; 
+         // Prepare data for chart
+         // For Scatter/Line: [{ x: index, y: value, ticker: ticker, colorValue: colorValue }]
+         // For Bar: labels: [ticker1, ticker2,...], data: [value1, value2,...]
+         // Use let instead of const
+         // plotData = []; 
+         // labels = []; 
+         // numericData = []; 
+         // pointBackgroundColors = [];
+         // pointBorderColors = [];
+         // nonNumericCount = 0; 
     }
     // --- END Render Chart --- 
 
@@ -2329,21 +2385,21 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     }
 
     // Process Data Button (Load from DB)
-    console.log("[DEBUG] Locating processButton element..."); // Updated log
+    console.log("Locating processButton element..."); // Updated log
     // Use processButton declared earlier
-    console.log("[DEBUG] processButton element:", processButton);
+    console.log("processButton element:", processButton);
 
     // Check if the button element exists before proceeding
     if (processButton) {
         // <<< MOVE processStatus declaration HERE >>>
         const processStatus = document.getElementById('process-analytics-status');
-        console.log("[DEBUG] Locating processStatus element just before adding listener:", processStatus); // <<< ADD LOG
+        console.log("Locating processStatus element just before adding listener:", processStatus); // <<< ADD LOG
         
         // Check if status element was found before adding listener
         if (processStatus) {
-            console.log("[DEBUG] Adding event listener to processButton."); 
+            console.log("Adding event listener to processButton."); 
             processButton.addEventListener('click', async function() {
-                console.log("[DEBUG] processButton clicked!"); 
+                console.log("processButton clicked!"); 
                 processButton.disabled = true;
                 showSpinner(processButton); // Show spinner
                 // Use the processStatus variable captured just above
@@ -2392,11 +2448,12 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
                     // Step 3: Process loaded data (extract fields, init weights/status)
                     console.log("Processing loaded data and updating state...");
-                    processLoadedDataAndUpdateState();
+                    processLoadedDataAndUpdateState(); // Initial processing
+                    finalDataForAnalysis = [...fullProcessedData]; // Initialize final data
 
                     // Step 4: Display initial unfiltered data (or apply loaded filters)
                     console.log("Applying initial filters...");
-                    applyFilters();
+                    applyFilters(); // This updates filteredDataForChart and calls renderChart
 
                 } catch (error) {
                     console.error('Error during Finviz data processing/fetching:', error);
@@ -2407,6 +2464,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     fullProcessedData = []; // Clear data on error
                     processLoadedDataAndUpdateState(); // Re-render UIs (will show empty state)
                     applyFilters(); // Clear table on error
+                    finalDataForAnalysis = []; // Clear final data on error
                 } finally {
                      processButton.disabled = false;
                      console.log("Processing/fetching finished.");
@@ -2414,10 +2472,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                  }
              });
         } else {
-             console.error("[DEBUG] Could not find processStatus element (#process-analytics-status). Listener not attached."); // Specific error message
+             console.error("Could not find processStatus element (#process-analytics-status). Listener not attached."); // Specific error message
         }
     } else {
-        console.error("[DEBUG] Could not find processButton element (#process-analytics-data-btn). Listener not attached."); 
+        console.error("Could not find processButton element (#process-analytics-data-btn). Listener not attached."); 
     }
 
     // --- Helper functions to toggle button spinner/text --- 
@@ -2567,5 +2625,186 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         });
     }
     // --- END Swap Axes Button Listener ---
+
+    // --- Integration with Transformation Module ---
+    function runTransformations() {
+        console.log("Main: runTransformations called.");
+        const transformModule = window.AnalyticsTransformModule; // Access directly
+
+        if (!transformModule) {
+            console.error("Transformation module not available.");
+            // Optionally update a status element
+            return;
+        }
+
+        const rules = transformModule.getTransformationRules();
+        console.log("Main: Retrieved transformation rules:", rules);
+
+        // Use the data that resulted from filtering as input
+        const inputData = filteredDataForChart;
+        if (!inputData || inputData.length === 0) {
+            console.warn("Main: No data available from filtering stage to transform.");
+            // Optionally update status
+            finalDataForAnalysis = []; // Ensure final data is clear
+            updateAvailableFieldsAndMetadata(finalDataForAnalysis); // Update fields based on empty data
+           // updateAnalyticsUI(); // Re-render components
+            transformModule.renderTransformedDataPreview(finalDataForAnalysis);
+            return;
+        }
+
+        console.log(`Main: Applying ${rules.length} rules to ${inputData.length} records...`);
+        // Apply transformations using the exposed function
+        finalDataForAnalysis = transformModule.applyTransformations(inputData, rules);
+        console.log(`Main: Transformation complete. Result has ${finalDataForAnalysis.length} records.`);
+
+        // Update fields, metadata, and UI based on the transformed data
+        updateAvailableFieldsAndMetadata(finalDataForAnalysis);
+        updateAnalyticsUI();
+
+        // Update the preview panel in the transform tab
+        transformModule.renderTransformedDataPreview(finalDataForAnalysis);
+
+        // <<< LOG FINAL DATA BEFORE UI UPDATE >>>
+        if (finalDataForAnalysis && finalDataForAnalysis.length > 0) {
+            console.log("End of runTransformations. finalDataForAnalysis[0]:", JSON.parse(JSON.stringify(finalDataForAnalysis[0])));
+            if (!finalDataForAnalysis[0]?.processed_data?.['test 2']) {
+                 console.error("CRITICAL WARNING: 'test 2' MISSING from finalDataForAnalysis immediately after transformation!");
+            }
+        } else {
+             console.log("End of runTransformations. finalDataForAnalysis is empty.");
+        }
+
+        // updateAnalyticsUI(); // <<< REMOVE THIS FINAL CALL
+    }
+
+    function updateAvailableFieldsAndMetadata(data) {
+        console.log("Updating available fields and metadata based on provided data...");
+        if (!data || data.length === 0) {
+            availableFields = [];
+            fieldMetadata = {};
+            console.log("No data provided, fields and metadata cleared.");
+            // Don't clear enabled status or formats here, preserve user settings
+            return;
+        }
+
+        // --- Discover Fields (including synthetic ones) --- 
+        const discoveredFields = new Set();
+        data.forEach(item => {
+             if (item) {
+                 // Add top-level keys (ticker, source, error)
+                 Object.keys(item).forEach(key => {
+                      if (key !== 'processed_data') discoveredFields.add(key);
+                  });
+                  // Add keys from processed_data (original + synthetic)
+                  if (item.processed_data) {
+                      Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
+                  }
+             }
+        });
+         
+        // Remove 'processed_data' itself if it accidentally got added
+        discoveredFields.delete('processed_data'); 
+        availableFields = [...discoveredFields].sort();
+        console.log("Discovered fields (post-transform):", availableFields);
+
+        // --- Calculate Metadata --- 
+        // Reusing most of the logic from processLoadedDataAndUpdateState
+        const newFieldMetadata = {};
+        const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100; // Limit for text dropdowns
+
+        availableFields.forEach(field => {
+            let numericCount = 0;
+            let existingValueCount = 0;
+            let min = Infinity;
+            let max = -Infinity;
+            const allUniqueTextValues = new Set();
+
+            data.forEach(item => {
+                // Get value (check top-level, then processed_data)
+                let value = null;
+                 if (item) {
+                      if (item.hasOwnProperty(field) && field !== 'processed_data') {
+                          value = item[field];
+                      } else if (item.processed_data && item.processed_data.hasOwnProperty(field)) {
+                          value = item.processed_data[field];
+                      }
+                  }
+                 
+                // Check if the value exists and is not null/undefined/empty string/placeholder '-'
+                const valueExists = value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-';
+
+                if (valueExists) {
+                    existingValueCount++;
+                    const num = Number(value);
+                    if (!isNaN(num)) {
+                        numericCount++;
+                        if (num < min) min = num;
+                        if (num > max) max = num;
+                    } else {
+                        allUniqueTextValues.add(String(value));
+                    }
+                }
+            });
+
+            // Determine field type and store metadata
+            if (existingValueCount === 0) {
+                newFieldMetadata[field] = { type: 'empty', existingValueCount: 0 };
+            } else if (numericCount / existingValueCount >= 0.8) { // Heuristic: >= 80% numeric?
+                newFieldMetadata[field] = { type: 'numeric', min: min === Infinity ? null : min, max: max === -Infinity ? null : max, existingValueCount: existingValueCount };
+            } else {
+                const totalUniqueCount = allUniqueTextValues.size;
+                const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
+                newFieldMetadata[field] = { type: 'text', uniqueValues: uniqueValuesForDropdown, totalUniqueCount: totalUniqueCount, existingValueCount: existingValueCount };
+            }
+        });
+        fieldMetadata = newFieldMetadata;
+        console.log("Calculated field metadata (post-transform):", fieldMetadata);
+
+         // --- Initialize Enabled Status & Formats for New Fields --- 
+         // (Similar logic to processLoadedDataAndUpdateState)
+        let statusChanged = false;
+        let formatStatusChanged = false;
+        availableFields.forEach(field => {
+            if (!(field in fieldEnabledStatus)) {
+                fieldEnabledStatus[field] = true;
+                statusChanged = true;
+            }
+            const meta = fieldMetadata[field] || {};
+            if (meta.type === 'numeric' && !(field in fieldNumericFormats)) {
+                fieldNumericFormats[field] = 'default'; 
+                formatStatusChanged = true;
+            }
+        });
+        // Don't clean up here - preserve settings even if field temporarily disappears
+        if (statusChanged) saveEnabledStatusToStorage();
+        if (formatStatusChanged) saveNumericFormatsToStorage();
+    }
+
+    function updateAnalyticsUI() {
+         console.log("Updating Analytics UI components...");
+         // Re-render components that depend on availableFields or fieldMetadata
+         renderFieldConfigUI(); 
+         renderFilterUI(); // Filters operate on pre-transform data, but dropdown needs updated fields
+         populateReportFieldSelector(); // Uses availableFields
+         populateReportColorSelector(); // Uses availableFields
+         renderChart(); // Uses finalDataForAnalysis
+         // DataTable in applyFilters needs to be updated separately if we want it to show transformed data
+         // For now, leave DataTable showing pre-transform data.
+    }
+
+    // Initial render based on loaded state (data is empty initially)
+    renderFilterUI(); // Render Prep tab UI elements
+    renderFieldConfigUI(); // <<< ADD THIS CALL HERE
+    // Optionally trigger the "Load Data from DB" automatically on page load?
+    // processButton.click(); // Uncomment to auto-load data
+    
+    // --- Expose Main Module Functionality --- 
+    // IMPORTANT: This should be one of the LAST things done in this listener
+    window.AnalyticsMainModule = {
+        runTransformations: runTransformations,
+        getCurrentFilteredData: () => filteredDataForChart // Expose getter for input data
+        // Add other functions here if needed by other modules
+    };
+    console.log("AnalyticsMainModule initialized and exposed."); // <<< ADD CONFIRMATION LOG
 
 }); 
