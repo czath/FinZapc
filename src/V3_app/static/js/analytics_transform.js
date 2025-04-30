@@ -50,6 +50,35 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             ]
         },
+        'set_field_conditionally': {
+            name: 'Set Field Conditionally (IF/THEN/ELSE)', // Updated Name
+            description: 'Set the value of this new output field based on a logical condition.', // Updated Description
+            parameters: [
+                {
+                    id: 'condition',
+                    name: 'Condition (evaluates to true/false)',
+                    type: 'textarea',
+                    placeholder: 'Example: {P/E} > 30 && {Market Cap} > 0',
+                    required: true
+                },
+                {
+                    // Renamed parameter id and name
+                    id: 'output_value_if_true',
+                    name: 'Output Value / Expression if True',
+                    type: 'textarea',
+                    placeholder: 'Example: "High" or {Price} * 1.1', // Clarified placeholder
+                    required: true
+                },
+                 {
+                    // Renamed parameter id and name
+                    id: 'output_value_if_false',
+                    name: 'Output Value / Expression if False',
+                    type: 'textarea',
+                    placeholder: 'Example: "Low" or {Price}', // Clarified placeholder
+                    required: true
+                }
+            ]
+        },
         // Add other types like 'normalization', etc. later
     };
 
@@ -359,8 +388,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         case 'text_manipulation':
                             newValue = executeTextManipulationRule(item, rule.parameters, availableFieldsDuringTransform);
                             break;
-                        // case 'ratio': ... removed ...
-                        // case 'weighted_sum': ... removed ...
+                        case 'set_field_conditionally':
+                            newValue = executeSetFieldConditionallyRule(item, rule.parameters, availableFieldsDuringTransform, aggregateResults);
+                            break;
                         // Add cases for other rule types (normalize, etc.) here
                         default:
                             // This case should technically not be hit due to filtering validRules above
@@ -911,12 +941,91 @@ document.addEventListener('DOMContentLoaded', function() {
             const result = dynamicFunction(...args);
 
             // Return the result directly
-            return result;
+        return result;
         } catch (e) {
             throw new Error(`Text Manipulation execution failed: ${e.message}. Translated Expression: ${translatedExpression}`);
         }
     }
-     // --- END NEW Execution Handler ---
+    // --- END NEW Execution Handler ---
+
+    // --- Execution Handler for Set Field Conditionally Rule --- RENAMED
+    function executeSetFieldConditionallyRule(item, params, availableFields, aggregateResults) { // RENAMED function
+        // Check for renamed parameters
+        if (!params || !params.condition || params.output_value_if_true === undefined || params.output_value_if_false === undefined) {
+            throw new Error("Missing condition, output_value_if_true, or output_value_if_false parameter for Set Field Conditionally rule.");
+        }
+        
+        let conditionExpr = params.condition;
+        let trueExpr = params.output_value_if_true; // Use renamed param
+        let falseExpr = params.output_value_if_false; // Use renamed param
+        
+        // Combine all expressions to find all unique placeholders
+        const combinedExpr = conditionExpr + ' ' + trueExpr + ' ' + falseExpr;
+        const fieldPlaceholders = combinedExpr.match(/\{([^{}]+)\}/g) || [];
+        // Use a Set to get unique field names, then convert to array
+        const fieldNames = [...new Set(fieldPlaceholders.map(ph => ph.substring(1, ph.length - 1)))];
+
+        const args = []; // Values to pass to the function
+        const argNames = []; // Variable names inside the function
+
+        // Substitute placeholders in all three expressions
+        fieldNames.forEach((fieldName, index) => {
+            const cleanArgName = `arg${index}`; 
+            argNames.push(cleanArgName);
+            
+            const placeholderRegex = new RegExp(`\\{${fieldName.replace(/[-\/\\^$*+?.()|[\]]/g, '\\$&')}\\}`, 'g');
+            conditionExpr = conditionExpr.replace(placeholderRegex, cleanArgName);
+            trueExpr = trueExpr.replace(placeholderRegex, cleanArgName);
+            falseExpr = falseExpr.replace(placeholderRegex, cleanArgName);
+
+            // Get the value from the item (check top-level and processed_data)
+            let value = null;
+            if (availableFields.has(fieldName)) {
+                if (item.hasOwnProperty(fieldName) && fieldName !== 'processed_data') {
+                    value = item[fieldName];
+                } else if (item.processed_data && item.processed_data.hasOwnProperty(fieldName)) {
+                    value = item.processed_data[fieldName];
+                }
+            } else {
+                 console.warn(`[Conditional Rule] Field '{${fieldName}}' used in expression is not available for ticker ${item.ticker}. Using null.`);
+            }
+            // For conditional logic, it's often better to pass the raw value (including null)
+            // rather than converting null to empty string like in text manipulation.
+            args.push(value); 
+        });
+        
+        // TODO: Add aggregate substitution for trueExpr and falseExpr if needed later.
+        // Example using the replacer logic from arithmetic (would need careful integration):
+        // trueExpr = trueExpr.replace(aggregateRegex, replacerFunction); 
+        // falseExpr = falseExpr.replace(aggregateRegex, replacerFunction); 
+        
+        // Use the Function constructor for safe execution
+        try {
+             // Construct the body carefully to evaluate condition then return appropriate expr
+             const functionBody = `
+                "use strict";
+                try {
+                    const conditionResult = (${conditionExpr});
+                    if (conditionResult) {
+                        return (${trueExpr});
+                    } else {
+                        return (${falseExpr});
+                    }
+                } catch (evalError) {
+                    console.error('Error during conditional rule evaluation: Condition="${conditionExpr}", TrueExpr="${trueExpr}", FalseExpr="${falseExpr}". Error:', evalError);
+                    return null; // Return null if evaluation inside the dynamic function fails
+                }
+            `;
+            const dynamicFunction = new Function(...argNames, functionBody); 
+            const result = dynamicFunction(...args);
+            return result; 
+
+        } catch (constructError) {
+            // Error creating the dynamic function itself (likely syntax error in generated body)
+            throw new Error(`Set Field Conditionally function construction failed: ${constructError.message}. Condition: ${params.condition}, True: ${params.output_value_if_true}, False: ${params.output_value_if_false}`); // Updated error message
+        }
+    }
+    // --- END Execution Handler ---
 
     // --- Functions for Rendering UI --- 
     function renderTransformationRules() {
@@ -1067,23 +1176,55 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log("Transform: Rendering transformed data preview...");
         if (!transformedDataOutput) return;
         
-        // Use the passed data, or the global transformedData if none provided
-        const data = dataToPreview || transformedData; 
+        const data = dataToPreview || []; // Use passed data or empty array
 
         if (!data || data.length === 0) {
-            transformedDataOutput.textContent = 'No transformed data to display. Apply transformations first.';
+            transformedDataOutput.textContent = 'No transformed data to display.'; // Updated message
             return;
         }
         
-        // Display first 10 rows as JSON string
-        const previewData = data.slice(0, 10);
+        // Get enabled status from main module to filter preview
+        let enabledStatus = {};
         try {
-            // Use JSON.stringify with a replacer to handle potential BigInts if they ever occur
+             const mainModule = window.AnalyticsMainModule;
+             if (mainModule && typeof mainModule.getFieldEnabledStatus === 'function') {
+                 enabledStatus = mainModule.getFieldEnabledStatus() || {};
+             } else {
+                 console.warn("[Preview] Cannot get field enabled status from main module.");
+             }
+        } catch (e) {
+             console.error("[Preview] Error getting field enabled status:", e);
+        }
+        
+        // Display first 10 rows as JSON string, filtering out disabled fields
+        const previewData = data.slice(0, 10).map(item => {
+            if (!item) return null; // Handle null items just in case
+            const filteredItem = {};
+            // Include top-level fields by default (ticker, source, error)
+            if (item.ticker !== undefined) filteredItem.ticker = item.ticker;
+            if (item.source !== undefined) filteredItem.source = item.source;
+            if (item.error !== undefined) filteredItem.error = item.error;
+            
+            // Include processed_data fields only if enabled
+            if (item.processed_data) {
+                filteredItem.processed_data = {};
+                for (const field in item.processed_data) {
+                    // Default to true if status is missing (for new fields created by transform)
+                    const isEnabled = enabledStatus[field] !== false; 
+                    if (isEnabled) {
+                        filteredItem.processed_data[field] = item.processed_data[field];
+                    }
+                }
+            }
+            return filteredItem;
+        }).filter(item => item !== null); // Remove any null items from map result
+
+        try {
             transformedDataOutput.textContent = JSON.stringify(previewData, (key, value) =>
                 typeof value === 'bigint' ? value.toString() : value, 
             2);
         } catch (e) {
-             console.error("Error stringifying transformed data for preview:", e);
+             console.error("Error stringifying filtered transformed data for preview:", e);
              transformedDataOutput.textContent = "Error displaying preview. Check console.";
         }
     }
@@ -1215,6 +1356,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 const fieldPickerMenu = document.createElement('ul');
                 fieldPickerMenu.className = 'dropdown-menu dropdown-menu-sm'; // Add -sm for smaller font
                 fieldPickerMenu.id = 'arithmetic-field-picker-dropdown'; // ID used for populating
+                // <<< ADD scrolling styles >>>
+                fieldPickerMenu.style.maxHeight = '250px'; // Limit height
+                fieldPickerMenu.style.overflowY = 'auto'; // Enable vertical scroll
                 fieldPickerMenu.innerHTML = '<li><span class="dropdown-item-text text-muted small">Loading...</span></li>'; // Placeholder
 
                 // Get available fields (needs access to main module data)
@@ -1433,6 +1577,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 fieldPickerBtn.innerHTML = '<i class="bi bi-list-ul"></i> Fields';
                 const fieldPickerMenu = document.createElement('ul');
                 fieldPickerMenu.className = 'dropdown-menu dropdown-menu-sm'; // Add -sm for smaller font
+                fieldPickerMenu.id = 'arithmetic-field-picker-dropdown'; // ID used for populating
+                // <<< ADD scrolling styles >>>
+                fieldPickerMenu.style.maxHeight = '250px'; // Limit height
+                fieldPickerMenu.style.overflowY = 'auto'; // Enable vertical scroll
                 fieldPickerMenu.innerHTML = '<li><span class="dropdown-item-text text-muted small">Loading...</span></li>'; // Placeholder
 
                 // Get ALL available fields (including non-numeric)
@@ -1542,6 +1690,121 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             // --- END Add Text helper buttons ---
 
+            // --- Add helper buttons specifically for Conditional Assignment textareas --- ADDED
+            else if (ruleType === 'set_field_conditionally') { // Apply to all params: condition, value_if_true, value_if_false
+                 const helpersContainer = document.createElement('div');
+                 helpersContainer.className = 'mt-1 d-flex flex-wrap gap-1'; // Smaller margin, spacing 
+
+                 // Determine target textarea based on the parameter ID
+                 const targetTextarea = inputElement; // Assumes inputElement is the current textarea
+                 
+                 // --- Field Picker (All Fields) --- 
+                 const fieldPickerGroup = document.createElement('div');
+                 fieldPickerGroup.className = 'btn-group';
+                 const fieldPickerBtn = document.createElement('button');
+                 fieldPickerBtn.type = 'button';
+                 fieldPickerBtn.className = 'btn btn-sm btn-outline-secondary dropdown-toggle';
+                 fieldPickerBtn.dataset.bsToggle = 'dropdown';
+                 fieldPickerBtn.innerHTML = '<i class="bi bi-list-ul"></i> Fields';
+                 const fieldPickerMenu = document.createElement('ul');
+                 fieldPickerMenu.className = 'dropdown-menu dropdown-menu-sm';
+                 // <<< ADD scrolling styles >>>
+                 fieldPickerMenu.style.maxHeight = '250px'; // Limit height
+                 fieldPickerMenu.style.overflowY = 'auto'; // Enable vertical scroll
+                 fieldPickerMenu.innerHTML = '<li><span class="dropdown-item-text text-muted small">Loading...</span></li>';
+
+                 // Get ALL available fields
+                 let allAvailableFields = [];
+                 try {
+                     const mainModule = window.AnalyticsMainModule;
+                     if (mainModule && typeof mainModule.getAvailableFields === 'function') {
+                         allAvailableFields = mainModule.getAvailableFields(); 
+                     } else { allAvailableFields = []; }
+                 } catch (e) { allAvailableFields = []; }
+
+                 fieldPickerMenu.innerHTML = ''; 
+                 if (allAvailableFields.length > 0) {
+                     allAvailableFields.sort().forEach(fieldName => {
+                         const li = document.createElement('li');
+                         const button = document.createElement('button');
+                         button.type = 'button';
+                         button.className = 'dropdown-item btn btn-link btn-sm py-0 text-start';
+                         button.textContent = fieldName;
+                         button.addEventListener('click', (e) => {
+                             e.preventDefault();
+                             insertTextAtCursor(targetTextarea, `{${fieldName}}`); 
+                         });
+                         li.appendChild(button);
+                         fieldPickerMenu.appendChild(li);
+                     });
+                 } else {
+                     fieldPickerMenu.innerHTML = '<li><span class="dropdown-item-text text-muted small">(No fields)</span></li>';
+                 }
+                 fieldPickerGroup.appendChild(fieldPickerBtn);
+                 fieldPickerGroup.appendChild(fieldPickerMenu);
+                 helpersContainer.appendChild(fieldPickerGroup);
+                 // --- End Field Picker ---
+
+                 // --- Operator / Value Buttons --- 
+                 let ops = [];
+                 if (param.id === 'condition') {
+                     // Operators for Condition
+                     ops = [
+                         { text: '===', insert: ' === ', title: 'Strict Equals' },
+                         { text: '!==', insert: ' !== ', title: 'Strict Not Equals' },
+                         { text: '>', insert: ' > ', title: 'Greater Than' },
+                         { text: '<', insert: ' < ', title: 'Less Than' },
+                         { text: '>=', insert: ' >= ', title: 'Greater Than or Equal' },
+                         { text: '<=', insert: ' <= ', title: 'Less Than or Equal' },
+                         { text: '&&', insert: ' && ', title: 'Logical AND' },
+                         { text: '||', insert: ' || ', title: 'Logical OR' },
+                         { text: '!', insert: '!', title: 'Logical NOT' },
+                         { text: '()', insert: '()' , title: 'Parentheses', select: '' },
+                         { text: 'null', insert: 'null', title: 'Insert null value' },
+                         { text: 'true', insert: 'true', title: 'Insert true value' },
+                         { text: 'false', insert: 'false', title: 'Insert false value' },
+                         { text: `''`, insert: `''`, title: 'Insert Empty String' },
+                         { text: `0`, insert: `0`, title: 'Insert Zero' }
+                     ];
+                 } else { // For value_if_true and value_if_false
+                     // Allow basic operators, functions, values
+                     ops = [
+                         // Basic Arithmetic (more complex handled by dedicated type)
+                         { text: '+', insert: ' + ', title: 'Add / Concatenate' },
+                         { text: '-', insert: ' - ', title: 'Subtract' },
+                         { text: '*', insert: ' * ', title: 'Multiply' },
+                         { text: '/', insert: ' / ', title: 'Divide' },
+                         { text: '()', insert: '()', title: 'Parentheses', select: '' },
+                          // Basic values
+                         { text: 'null', insert: 'null', title: 'Insert null value' },
+                         { text: `''`, insert: `''`, title: 'Insert Empty String' },
+                         { text: `0`, insert: `0`, title: 'Insert Zero' },
+                         // TODO: Add Aggregate function buttons here later if needed (AVG, SUM etc)
+                     ];
+                 }
+
+                 ops.forEach(op => {
+                     const opBtn = document.createElement('button');
+                     opBtn.type = 'button';
+                     opBtn.className = 'btn btn-sm btn-outline-secondary';
+                     opBtn.textContent = op.text;
+                     opBtn.title = op.title;
+                     opBtn.addEventListener('click', () => {
+                          const startPos = targetTextarea.selectionStart; 
+                          insertTextAtCursor(targetTextarea, op.insert);
+                          if (op.select !== undefined && op.select === '') { // Select inside parens
+                               const finalSelectStart = startPos + op.insert.indexOf('(') + 1;
+                               targetTextarea.setSelectionRange(finalSelectStart, finalSelectStart);
+                          }
+                      });
+                     helpersContainer.appendChild(opBtn);
+                 });
+                 // --- End Operator Buttons ---
+
+                 formGroup.appendChild(helpersContainer); 
+            }
+            // --- END Add Conditional helper buttons ---
+
             transformParametersContainer.appendChild(formGroup);
         });
     }
@@ -1586,14 +1849,74 @@ document.addEventListener('DOMContentLoaded', function() {
     if (applyTransformationsButton) {
         applyTransformationsButton.addEventListener('click', () => {
             console.log("Apply Transformations button clicked.");
-            // Trigger the main analytics module to run the transformation process
-            if (window.AnalyticsMainModule && typeof window.AnalyticsMainModule.runTransformations === 'function') {
-                 window.AnalyticsMainModule.runTransformations();
+            
+            // <<< Define related buttons to disable >>>
+            const buttonsToDisable = [
+                applyTransformationsButton,
+                addRuleButton,
+                saveRulesButton,
+                loadRulesButton
+                // Add export/import buttons here if they exist later
+            ];
+
+            // <<< Show spinner and disable buttons >>>
+            if (typeof window.showSpinner === 'function') {
+                window.showSpinner(applyTransformationsButton, null); // Pass null as we handle disabling others manually
+                buttonsToDisable.forEach(btn => { if(btn) btn.disabled = true; });
             } else {
-                console.error("AnalyticsMainModule or runTransformations function not found.");
-                alert("Error: Cannot trigger transformation process. Main module not available.");
-                 if(transformStatus) transformStatus.textContent = "Error: Main analytics module not found.";
+                console.error("Global showSpinner function not found!");
+                // Fallback: just disable the main button
+                applyTransformationsButton.disabled = true;
             }
+            if(transformStatus) transformStatus.textContent = "Applying transformations..."; // Update status
+
+            try {
+                // Trigger the main analytics module to run the transformation process
+                // <<< Use setTimeout to allow UI repaint before starting work >>>
+                setTimeout(() => {
+                    try {
+                        if (window.AnalyticsMainModule && typeof window.AnalyticsMainModule.runTransformations === 'function') {
+                             window.AnalyticsMainModule.runTransformations();
+                             // Status message will be updated by the main module's runTransformations
+                        } else {
+                            console.error("AnalyticsMainModule or runTransformations function not found.");
+                            alert("Error: Cannot trigger transformation process. Main module not available.");
+                             if(transformStatus) transformStatus.textContent = "Error: Main analytics module not found.";
+                        }
+                    } catch (innerError) {
+                        // Catch errors *during* the transformation run
+                        console.error("Error during transformation execution:", innerError);
+                        if(transformStatus) transformStatus.textContent = `Error: ${innerError.message}`;
+                    } finally {
+                        // <<< Hide spinner and re-enable buttons AFTER the timeout finishes >>>
+                        if (typeof window.hideSpinner === 'function') {
+                            window.hideSpinner(applyTransformationsButton, null); // Pass null as we handle enabling others manually
+                            buttonsToDisable.forEach(btn => { if(btn) btn.disabled = false; });
+                        } else {
+                             console.error("Global hideSpinner function not found!");
+                             // Fallback: just re-enable the main button
+                             applyTransformationsButton.disabled = false;
+                        }
+                    }
+                }, 0); // Timeout of 0 ms yields control briefly
+
+            } catch (error) {
+                 // Catch errors specifically from triggering the process (e.g., showSpinner errors - unlikely now)
+                 console.error("Error setting up transformation process:", error);
+                 if(transformStatus) transformStatus.textContent = `Error: ${error.message}`;
+                 // <<< Need to hide spinner/enable buttons here too if setup fails >>>
+                 if (typeof window.hideSpinner === 'function') {
+                     window.hideSpinner(applyTransformationsButton, null);
+                     buttonsToDisable.forEach(btn => { if(btn) btn.disabled = false; });
+                 } else {
+                     applyTransformationsButton.disabled = false;
+                 }
+            } 
+            // <<< REMOVE finally block from outer try...catch >>>
+            // finally {
+            //      // <<< Hide spinner and re-enable buttons >>>
+            //      ...
+            // }
         });
     }
 

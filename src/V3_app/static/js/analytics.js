@@ -395,6 +395,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         if (savedFilters) {
             try {
                 loaded = JSON.parse(savedFilters);
+                 // <<< Log parsed data >>>
+                 console.log("[loadFiltersFromStorage] Parsed from localStorage:", JSON.parse(JSON.stringify(loaded)));
                 if (!Array.isArray(loaded)) loaded = [];
             } catch (e) {
                 console.error("Error parsing saved filters:", e);
@@ -415,6 +417,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         }));
 
         console.log("Processed loaded/default filters:", currentFilters);
+        // <<< Log final currentFilters state >>>
+        console.log("[loadFiltersFromStorage] State of currentFilters AFTER loading/mapping:", JSON.parse(JSON.stringify(currentFilters)));
 
         // Add default blank filter if none loaded
         if (currentFilters.length === 0) {
@@ -651,7 +655,13 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // --- Helper to update value input based on field metadata (Preparation Tab) ---
     function updateValueInputUI(index, fieldName, inputWrapper, hintSpan) {
         const metadata = fieldMetadata[fieldName];
+        // <<< ADD LOG: Check if metadata exists >>>
+        console.log(`[updateValueInputUI] Checking metadata for field '${fieldName}':`, metadata ? 'Found' : 'NOT FOUND');
+        
         inputWrapper.innerHTML = ''; // Clear previous input/select
+        // <<< ADD LOG: Log the filter value being used >>>
+        const filterValueForUI = currentFilters[index]?.value;
+        console.log(`[updateValueInputUI] Rendering value for filter index ${index} (Field: ${fieldName}). Loaded Value:`, filterValueForUI);
         
         // --- Update hint text using the new descriptor function (which now includes formatting) --- 
         let hintText = fieldName ? getFieldDescriptor(fieldName) : '';
@@ -706,6 +716,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             inputWrapper.appendChild(select);
             currentInput = select;
 
+            // <<< Log details before setting dropdown selection >>>
+            console.log(`[updateValueInputUI] Dropdown - Filter index ${index}, Field: ${fieldName}, Saved value type: ${typeof currentFilters[index]?.value}, Saved value:`, currentFilters[index]?.value);
+
         } else {
              // --- Create Text/Number Input (Fallback for text with many values, or non-text types) ---
             const input = document.createElement('input');
@@ -720,6 +733,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                                 : (filterVal !== null && filterVal !== undefined ? String(filterVal) : '');
             }
             input.value = initialValue;
+            // <<< Log details before setting input value >>>
+            console.log(`[updateValueInputUI] Input - Filter index ${index}, Field: ${fieldName}, Saved value:`, currentFilters[index]?.value, `InitialValue set: '${initialValue}'`);
 
             // Set input type based on metadata (hint is set above)
             // No change needed here, hint updated above covers numeric range display
@@ -781,6 +796,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // --- Render UI Functions (Preparation Tab) ---
     function renderFilterUI() {
         console.log("Rendering filter UI...");
+        // <<< ADD LOG: Show currentFilters state before rendering >>>
+        console.log("[renderFilterUI] State of currentFilters at START of function:", JSON.parse(JSON.stringify(currentFilters)));
+        // console.log("[renderFilterUI] State of currentFilters before rendering loop:", JSON.parse(JSON.stringify(currentFilters))); // Keep this one too?
+
         if (!filterControlsContainer) return; // Check if container exists
         filterControlsContainer.innerHTML = ''; // Clear existing rows
 
@@ -809,6 +828,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         ];
 
         currentFilters.forEach((filter, index) => {
+            // <<< ADD LOG: Show filter being rendered >>>
+            console.log(`[renderFilterUI] Rendering row for filter index ${index}:`, JSON.parse(JSON.stringify(filter)));
+
             const filterId = filter.id;
             const row = document.createElement('div');
             // Use d-flex for the main row container
@@ -831,13 +853,6 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                 if (filter.field === fieldName) option.selected = true;
                 fieldSelect.appendChild(option);
             });
-            // If the currently selected filter field is no longer enabled, reset it
-            if (filter.field && !enabledFields.includes(filter.field)) {
-                 console.log(`Filter field '${filter.field}' is no longer enabled, resetting filter row ${index}.`);
-                 filter.field = '';
-                 filter.value = ''; // Reset value too
-                 // Might need to save here? Or wait for Apply
-            }
             filterRowDiv.appendChild(fieldSelect);
 
             // Operator Select (fixed width)
@@ -946,6 +961,11 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         // --- Create Header Row ---
         const headerRow = document.createElement('div');
         headerRow.className = 'd-flex align-items-center mb-2 p-2 border-bottom fw-bold text-muted small';
+        // <<< ADD STICKY HEADER STYLES >>>
+        headerRow.style.position = 'sticky';
+        headerRow.style.top = '0';
+        headerRow.style.backgroundColor = 'var(--bs-body-bg, white)'; // Use CSS variable for background, fallback to white
+        headerRow.style.zIndex = '10'; // Ensure it stays above scrolling content
         
         const headers = [
             { key: 'name', text: 'Field name', width: '150px', align: 'start', extraClasses: 'me-3' }, 
@@ -1408,6 +1428,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
              outputDataTable.clear();
              outputDataTable.rows.add(tableData);
              outputDataTable.draw();
++            // <<< Force column width recalculation after updating data >>>
++            outputDataTable.columns.adjust().draw(false); // draw(false) prevents resetting paging
          } else {
              // Initialize DataTable for the first time or after destruction
              console.log("Initializing DataTable.");
@@ -1434,6 +1456,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                      //      "<'row'<'col-sm-12'tr>>" +
                      //      "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>",
                  });
++                // <<< Force column width recalculation after initialization >>>
++                outputDataTable.columns.adjust().draw();
              } catch (error) {
                  console.error("Error initializing DataTable:", error);
                  // Handle initialization error (e.g., display message to user)
@@ -1455,8 +1479,13 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
          // By default, analysis uses filtered data until transformations are applied
          // finalDataForAnalysis = [...filteredDataForChart]; // <<< DO NOT RESET HERE
 
-         updateAvailableFieldsAndMetadata(filteredDataForChart); // <-- Update fields based on FILTERED data here
-         updateAnalyticsUI(); // Update chart & other UI based on filtered data
+         // <<< REMOVE CALLS TO UPDATE GLOBAL STATE AND FULL UI REFRESH >>>
+         // updateAvailableFieldsAndMetadata(filteredDataForChart); // <-- REMOVE THIS
+         // updateAnalyticsUI(); // <-- REMOVE THIS
+         // Instead, just update the chart based on the filtered (pre-transform) data
+         // The Analyze tab UI will be updated *after* transformations run.
+         console.log("ApplyFilters finished. Triggering chart render with pre-transform data.");
+         renderChart(); // Re-render chart based on filteredDataForChart (initially)
          // --- End Chart Update ---
     }
     // --- END applyFilters definition ---
@@ -1466,6 +1495,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         console.log("Populating report field selectors (X and Y)...");
         if (!reportFieldSelector || !reportXAxisSelector) return; // Check both selectors
 
+        // <<< USE POST-TRANSFORM FIELDS (finalAvailableFields) >>>
+        const fieldsToUse = finalAvailableFields; // Use post-transform fields
+        const metadataToUse = finalFieldMetadata; // Use post-transform metadata
+
         const previousYValue = reportFieldSelector.value; // Remember selection
         const previousXValue = reportXAxisSelector.value; // Remember selection for X
         reportFieldSelector.innerHTML = '<option value="">-- Select Y Field --</option>'; // Clear and add default
@@ -1474,18 +1507,18 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         // Add default option for Size selector
         reportSizeSelector.innerHTML = '<option value="">-- Select Field (Bubble Only) --</option>';
 
-        if (!availableFields || availableFields.length === 0) {
-            console.log("No available fields to populate report selectors.");
+        if (!fieldsToUse || fieldsToUse.length === 0) {
+            console.log("No available fields (post-transform) to populate report selectors.");
             return;
         }
 
-        // Filter available fields based on enabled status
-        const enabledFields = availableFields.filter(field => fieldEnabledStatus[field] === true);
-        console.log("Populating report selectors with enabled fields:", enabledFields);
+        // Filter available fields based on enabled status (still use the single shared status)
+        const enabledFields = fieldsToUse.filter(field => fieldEnabledStatus[field] === true);
+        console.log("Populating report selectors with enabled (post-transform) fields:", enabledFields);
 
         // --- Separate check for numeric fields (optional, but helpful) ---
-        const numericFields = enabledFields.filter(field => fieldMetadata[field]?.type === 'numeric' || field === 'index'); // Treat 'index' as numeric conceptually
-        console.log("Numeric fields identified for selectors:", numericFields);
+        const numericFields = enabledFields.filter(field => metadataToUse[field]?.type === 'numeric' || field === 'index'); // Treat 'index' as numeric conceptually
+        console.log("Numeric fields (post-transform) identified for selectors:", numericFields);
         
         // Populate X, Y, and Size selectors
         enabledFields.forEach(field => {
@@ -1502,8 +1535,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             reportXAxisSelector.appendChild(optionX);
 
             // Size-axis option (Only add numeric fields)
-            // Check if the field type is numeric according to metadata
-            if (fieldMetadata[field]?.type === 'numeric') {
+            // Check if the field type is numeric according to post-transform metadata
+            if (metadataToUse[field]?.type === 'numeric') {
                 const optionSize = document.createElement('option');
                 optionSize.value = field;
                 optionSize.textContent = field;
@@ -1525,7 +1558,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
         // Restore Size selector if possible
         const previousSizeValue = reportSizeSelector.value;
-        if (previousSizeValue && fieldMetadata[previousSizeValue]?.type === 'numeric' && enabledFields.includes(previousSizeValue)) {
+        if (previousSizeValue && metadataToUse[previousSizeValue]?.type === 'numeric' && enabledFields.includes(previousSizeValue)) {
             reportSizeSelector.value = previousSizeValue;
         } else {
             reportSizeSelector.value = ""; // Reset if previous not valid/numeric/enabled
@@ -1547,17 +1580,20 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         console.log("Populating report color selector...");
         if (!reportColorSelector) return;
 
+        // <<< USE POST-TRANSFORM FIELDS (finalAvailableFields) >>>
+        const fieldsToUse = finalAvailableFields;
+
         const previousValue = reportColorSelector.value; // Remember selection
         reportColorSelector.innerHTML = '<option value="">-- No Color Variation --</option>'; // Clear and add default
 
-        if (!availableFields || availableFields.length === 0) {
-            console.log("No available fields to populate color selector.");
+        if (!fieldsToUse || fieldsToUse.length === 0) {
+            console.log("No available fields (post-transform) to populate color selector.");
             return;
         }
 
-        // Use the same enabled fields as the main selector
-        const enabledFields = availableFields.filter(field => fieldEnabledStatus[field] === true);
-        console.log("[populateReportColorSelector] Enabled fields:", enabledFields);
+        // Use the same enabled fields as the main selector (based on post-transform fields)
+        const enabledFields = fieldsToUse.filter(field => fieldEnabledStatus[field] === true);
+        console.log("[populateReportColorSelector] Enabled fields (post-transform):", enabledFields);
         console.log("[populateReportColorSelector] Does 'name' exist and is enabled?", enabledFields.includes('name'));
         console.log("[populateReportColorSelector] Previous value:", previousValue);
 
@@ -1627,7 +1663,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
            if (finalDataForAnalysis.length > 0 && finalDataForAnalysis[0]) {
                 // Simple log showing keys for the first item
-                console.log("RenderChart: First item keys:", Object.keys(finalDataForAnalysis[0]), "Processed_data keys:", Object.keys(finalDataForAnalysis[0].processed_data || {}));
+                console.log("RenderChart using finalDataForAnalysis. First item keys:", Object.keys(finalDataForAnalysis[0]), "Processed_data keys:", Object.keys(finalDataForAnalysis[0].processed_data || {}));
                 
             } else {
                 console.log("RenderChart called with empty or missing finalDataForAnalysis.");
@@ -1679,6 +1715,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         const sizeField = reportSizeSelector.value; // NEW: Get size field
         const selectedChartType = reportChartTypeSelector.value;
         const useIndexAsX = (!selectedXField || selectedXField === 'index'); // Check if default X is used
+        // <<< USE POST-TRANSFORM METADATA if available, otherwise pre-transform >>>
+        const currentMetadata = (finalFieldMetadata && Object.keys(finalFieldMetadata).length > 0) ? finalFieldMetadata : fieldMetadata;
         console.log(`Selected X:${useIndexAsX ? 'Index' : selectedXField}, Y:${selectedYField}, Color:${colorField || '-'}, Size:${sizeField || '-'}, Type:${selectedChartType}`);
 
         chartStatus.textContent = ''; // Clear previous status
@@ -2351,11 +2389,11 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
          if (formatStatusChanged) saveNumericFormatsToStorage();
          // --- End Initialize Numeric Format Status ---
 
-         // --- Re-render UIs --- 
-         renderFieldConfigUI(); // Render config first (populates fieldEnabledStatus)
-         renderFilterUI(); // Then render filters (uses fieldEnabledStatus)
-         populateReportFieldSelector(); // Populates BOTH X and Y now
-         populateReportColorSelector(); 
+         // --- REMOVE Re-render UIs --- 
+         // renderFieldConfigUI(); // Render config first (populates fieldEnabledStatus)
+         // renderFilterUI(); // Then render filters (uses fieldEnabledStatus)
+         // populateReportFieldSelector(); // Populates BOTH X and Y now
+         // populateReportColorSelector(); 
      }
 
     // --- Button Listeners (Preparation Tab) ---
@@ -2410,8 +2448,13 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             console.log("Adding event listener to processButton."); 
             processButton.addEventListener('click', async function() {
                 console.log("processButton clicked!"); 
-                processButton.disabled = true;
-                showSpinner(processButton); // Show spinner
+                // <<< Show spinner and disable button >>>
+                if (typeof window.showSpinner === 'function') {
+                    window.showSpinner(processButton);
+                } else {
+                    console.error("Global showSpinner function not found!");
+                    processButton.disabled = true; // Fallback
+                }
                 // Use the processStatus variable captured just above
                 processStatus.textContent = 'Processing data...';
                 processStatus.className = 'ms-2 text-info';
@@ -2457,13 +2500,21 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     fullProcessedData = processedData;
 
                     // Step 3: Process loaded data (extract fields, init weights/status)
-                    console.log("Processing loaded data and updating state...");
-                    processLoadedDataAndUpdateState(); // Initial processing
+                    console.log("Processing loaded data and updating PRE-transform state...");
+                    processLoadedDataAndUpdateState(fullProcessedData); // Calculate PRE-transform state
+ 
+                    // Step 3.5: Initialize FINAL state based on loaded data
+                    console.log("Initializing final state based on loaded data...");
                     finalDataForAnalysis = [...fullProcessedData]; // Initialize final data
-
-                    // Step 4: Display initial unfiltered data (or apply loaded filters)
+                    updateFinalFieldsAndMetadata(finalDataForAnalysis); // Calculate POST-transform state
+ 
+                    // Step 4: Apply initial filters (updates Prep table and filteredDataForChart)
                     console.log("Applying initial filters...");
                     applyFilters(); // This updates filteredDataForChart and calls renderChart
+ 
+                    // Step 5: Update ALL UI components now that both states are populated
+                    console.log("Rendering initial UI...");
+                    updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: true });
 
                 } catch (error) {
                     console.error('Error during Finviz data processing/fetching:', error);
@@ -2472,13 +2523,26 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     processStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
                     processStatus.className = 'ms-2 text-danger';
                     fullProcessedData = []; // Clear data on error
-                    processLoadedDataAndUpdateState(); // Re-render UIs (will show empty state)
-                    applyFilters(); // Clear table on error
+                    // <<< Clear BOTH pre- and post-transform states on error >>>
+                    availableFields = [];
+                    fieldMetadata = {};
+                    finalAvailableFields = []; 
+                    finalFieldMetadata = {};
                     finalDataForAnalysis = []; // Clear final data on error
+                    
+                    // processLoadedDataAndUpdateState(); // Re-render UIs (will show empty state) // <<< Don't call this anymore
+                    applyFilters(); // Clear table on error
+                    updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: true }); // Update UI to show empty state
                 } finally {
                      processButton.disabled = false;
                      console.log("Processing/fetching finished.");
-                     hideSpinner(processButton); // Hide spinner
+                     // <<< Hide spinner and re-enable button >>>
+                     if (typeof window.hideSpinner === 'function') {
+                         window.hideSpinner(processButton);
+                     } else {
+                         console.error("Global hideSpinner function not found!");
+                         processButton.disabled = false; // Fallback
+                     }
                  }
              });
         } else {
@@ -2496,6 +2560,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         if (text) text.style.display = 'none';
         button.disabled = true;
         if (otherButton) otherButton.disabled = true; // Disable other button too
+        // <<< ADD LOG: Check if elements were found >>>
+        console.log("[showSpinner] Found spinner element:", spinner ? 'Yes' : 'NO');
+        console.log("[showSpinner] Found text element:", text ? 'Yes' : 'NO');
     }
 
     function hideSpinner(button, otherButton) {
@@ -2528,6 +2595,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // loadWeightsFromStorage(); // REMOVED
     loadEnabledStatusFromStorage();
     loadNumericFormatsFromStorage(); // <<< ADD THIS CALL HERE
+    // <<< REMOVE Immediate filter render - wait for data/metadata >>>
+    // renderFilterUI();
 
     // --- Register Chart.js Plugins --- 
     if (window.ChartZoom) { // Check if plugin loaded
@@ -2667,11 +2736,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         finalDataForAnalysis = transformModule.applyTransformations(inputData, rules);
         console.log(`Main: Transformation complete. Result has ${finalDataForAnalysis.length} records.`);
 
-        // Update fields, metadata, and UI based on the transformed data
-        updateAvailableFieldsAndMetadata(finalDataForAnalysis);
-        updateAnalyticsUI();
-
-        // Update the preview panel in the transform tab
+        // Update the preview panel in the transform tab (this is okay)
         transformModule.renderTransformedDataPreview(finalDataForAnalysis);
 
         // <<< LOG FINAL DATA BEFORE UI UPDATE >>>
@@ -2688,15 +2753,17 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
              console.log("End of runTransformations. finalDataForAnalysis is empty.");
         }
 
-        // updateAnalyticsUI(); // <<< REMOVE THIS FINAL CALL
+        // <<< UPDATE POST-TRANSFORM STATE and Analyze UI >>>
+        updateFinalFieldsAndMetadata(finalDataForAnalysis); // Update the *final* fields/metadata
+        updateAnalyticsUI({ updatePrepUI: false, updateAnalyzeUI: true }); // Trigger ONLY Analyze UI update
     }
 
-    function updateAvailableFieldsAndMetadata(data) {
-        console.log("Updating available fields and metadata based on provided data...");
+    function updateFinalFieldsAndMetadata(data) {
+        console.log("Updating FINAL available fields and metadata based on provided data...");
         if (!data || data.length === 0) {
-            availableFields = [];
-            fieldMetadata = {};
-            console.log("No data provided, fields and metadata cleared.");
+            finalAvailableFields = []; // <<< Update final state
+            finalFieldMetadata = {};   // <<< Update final state
+            console.log("No data provided for final state, fields and metadata cleared.");
             // Don't clear enabled status or formats here, preserve user settings
             return;
         }
@@ -2705,28 +2772,29 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         const discoveredFields = new Set();
         data.forEach(item => {
              if (item) {
-                 // Add top-level keys (ticker, source, error)
-                 Object.keys(item).forEach(key => {
-                      if (key !== 'processed_data') discoveredFields.add(key);
-                  });
-                  // Add keys from processed_data (original + synthetic)
-                  if (item.processed_data) {
-                      Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
-                  }
+                 // --- REMOVE adding top-level keys ---
+                 // Object.keys(item).forEach(key => {
+                 //      if (key !== 'processed_data') discoveredFields.add(key);
+                 //  });
+                 // --- Add keys ONLY from processed_data ---
+                 if (item.processed_data) {
+                     Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
+                 }
              }
         });
-         
+
         // Remove 'processed_data' itself if it accidentally got added
-        discoveredFields.delete('processed_data'); 
-        availableFields = [...discoveredFields].sort();
-        console.log("Discovered fields (post-transform):", availableFields);
+        // discoveredFields.delete('processed_data'); // <<< This should no longer be necessary
+        // <<< Update final state variable >>>
+        finalAvailableFields = [...discoveredFields].sort();
+        console.log("Discovered final fields (post-transform, processed_data only):", finalAvailableFields);
 
         // --- Calculate Metadata --- 
         // Reusing most of the logic from processLoadedDataAndUpdateState
-        const newFieldMetadata = {};
+        const newFinalFieldMetadata = {}; // Use separate temp variable
         const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100; // Limit for text dropdowns
 
-        availableFields.forEach(field => {
+        finalAvailableFields.forEach(field => {
             let numericCount = 0;
             let existingValueCount = 0;
             let min = Infinity;
@@ -2762,28 +2830,28 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
             // Determine field type and store metadata
             if (existingValueCount === 0) {
-                newFieldMetadata[field] = { type: 'empty', existingValueCount: 0 };
+                newFinalFieldMetadata[field] = { type: 'empty', existingValueCount: 0 }; // Store in temp var
             } else if (numericCount / existingValueCount >= 0.8) { // Heuristic: >= 80% numeric?
-                newFieldMetadata[field] = { type: 'numeric', min: min === Infinity ? null : min, max: max === -Infinity ? null : max, existingValueCount: existingValueCount };
+                newFinalFieldMetadata[field] = { type: 'numeric', min: min === Infinity ? null : min, max: max === -Infinity ? null : max, existingValueCount: existingValueCount };
             } else {
                 const totalUniqueCount = allUniqueTextValues.size;
                 const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
-                newFieldMetadata[field] = { type: 'text', uniqueValues: uniqueValuesForDropdown, totalUniqueCount: totalUniqueCount, existingValueCount: existingValueCount };
+                newFinalFieldMetadata[field] = { type: 'text', uniqueValues: uniqueValuesForDropdown, totalUniqueCount: totalUniqueCount, existingValueCount: existingValueCount };
             }
         });
-        fieldMetadata = newFieldMetadata;
-        console.log("Calculated field metadata (post-transform):", fieldMetadata);
+        finalFieldMetadata = newFinalFieldMetadata;
+        console.log("Calculated final field metadata (post-transform):", finalFieldMetadata);
 
          // --- Initialize Enabled Status & Formats for New Fields --- 
          // (Similar logic to processLoadedDataAndUpdateState)
         let statusChanged = false;
         let formatStatusChanged = false;
-        availableFields.forEach(field => {
+        finalAvailableFields.forEach(field => {
             if (!(field in fieldEnabledStatus)) {
                 fieldEnabledStatus[field] = true;
                 statusChanged = true;
             }
-            const meta = fieldMetadata[field] || {};
+            const meta = finalFieldMetadata[field] || {};
             if (meta.type === 'numeric' && !(field in fieldNumericFormats)) {
                 fieldNumericFormats[field] = 'default'; 
                 formatStatusChanged = true;
@@ -2794,33 +2862,80 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         if (formatStatusChanged) saveNumericFormatsToStorage();
     }
 
-    function updateAnalyticsUI() {
-         console.log("Updating Analytics UI components...");
-         // Re-render components that depend on availableFields or fieldMetadata
-         renderFieldConfigUI(); 
-         renderFilterUI(); // Filters operate on pre-transform data, but dropdown needs updated fields
-         populateReportFieldSelector(); // Uses availableFields
-         populateReportColorSelector(); // Uses availableFields
-         renderChart(); // Uses finalDataForAnalysis
+    // <<< REFACTOR UI UPDATE FUNCTION >>>
+    function updateAnalyticsUI({ updatePrepUI = false, updateAnalyzeUI = false } = {}) {
+         console.log(`Updating Analytics UI components... Prep: ${updatePrepUI}, Analyze: ${updateAnalyzeUI}`);
+
+         if (updatePrepUI) {
+             console.log("Updating Preparation Tab UI...");
+             // Re-render PREP components that depend on PRE-transform availableFields or fieldMetadata
+             renderFieldConfigUI(); // Uses availableFields, fieldMetadata
+             renderFilterUI(); // Uses availableFields, fieldMetadata
+             // Apply filters handles the output table using availableFields/filteredDataForChart
+             // No need to call applyFilters here unless specifically intended
+         }
+
+         if (updateAnalyzeUI) {
+              console.log("Updating Analyze Tab UI...");
+              // Re-render ANALYZE components that depend on FINAL fields/metadata
+              populateReportFieldSelector(); // Uses finalAvailableFields, finalFieldMetadata
+              populateReportColorSelector(); // Uses finalAvailableFields
+              renderChart(); // Uses finalDataForAnalysis, finalFieldMetadata
+         }
+
          // DataTable in applyFilters needs to be updated separately if we want it to show transformed data
          // For now, leave DataTable showing pre-transform data.
+         console.log("Analytics UI update finished.");
     }
 
     // Initial render based on loaded state (data is empty initially)
-    renderFilterUI(); // Render Prep tab UI elements
-    renderFieldConfigUI(); // <<< ADD THIS CALL HERE
+    // <<< Initial rendering should only update Prep UI >>>
+    updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: false });
+    // renderFilterUI(); // Render Prep tab UI elements // Handled by updateAnalyticsUI
+    // renderFieldConfigUI(); // <<< ADD THIS CALL HERE // Handled by updateAnalyticsUI
     // Optionally trigger the "Load Data from DB" automatically on page load?
     // processButton.click(); // Uncomment to auto-load data
-    
+
     // --- Expose Main Module Functionality --- 
     // IMPORTANT: This should be one of the LAST things done in this listener
     window.AnalyticsMainModule = {
         runTransformations: runTransformations,
         getCurrentFilteredData: () => filteredDataForChart, // Expose getter for input data
-        getAvailableFields: () => availableFields, // <<< ADDED
-        getFieldMetadata: () => fieldMetadata     // <<< ADDED
+        getAvailableFields: () => availableFields, // <<< PRE-TRANSFORM FIELDS
+        getFieldMetadata: () => fieldMetadata,     // <<< PRE-TRANSFORM METADATA
+        // --- Add getters for FINAL state ---
+        getFinalAvailableFields: () => finalAvailableFields, // <<< POST-TRANSFORM FIELDS
+        getFinalFieldMetadata: () => finalFieldMetadata,   // <<< POST-TRANSFORM METADATA
+        // --- End added getters ---
+        getFieldEnabledStatus: () => fieldEnabledStatus // <<< ADDED (Shared status)
         // Add other functions here if needed by other modules
     };
     console.log("AnalyticsMainModule initialized and exposed."); // <<< ADD CONFIRMATION LOG
+
+    // --- Add event listener for the Filters & Output tab to adjust DataTable columns --- ADDED
+    const filterTabTrigger = document.getElementById('filter-subtab');
+    if (filterTabTrigger) {
+        filterTabTrigger.addEventListener('shown.bs.tab', function (event) {
+            console.log("Filters & Output tab shown. Adjusting DataTable columns.");
+            if (outputDataTable) {
+                try {
+                     // Use setTimeout to ensure rendering is complete before adjusting
+                     setTimeout(() => {
+                          outputDataTable.columns.adjust().draw(false); // Use draw(false) to avoid resetting paging
+                          console.log("DataTable columns adjusted.");
+                     }, 0); 
+                } catch (e) {
+                    console.error("Error adjusting DataTable columns on tab show:", e);
+                }
+            }
+        });
+    } else {
+        console.warn("Could not find filter sub-tab trigger (#filter-subtab) to attach column adjust listener.");
+    }
+    // --- End DataTable Tab Listener --- ADDED
+
+    // --- End Helper Functions --- 
+    window.showSpinner = showSpinner; // Expose globally
+    window.hideSpinner = hideSpinner; // Expose globally
 
 }); 

@@ -181,7 +181,10 @@
                         <h6>Load Data</h6>
                         <p class="small text-muted">Load and process all raw analytics data currently stored in the database.</p>
                         {# Moved Button and Status Here #}
-                        <button id="process-analytics-data-btn" class="btn btn-secondary me-2">Load Data from DB</button>
+                        <button id="process-analytics-data-btn" class="btn btn-secondary me-2">
+                            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span> <!-- Spinner -->
+                            <span class="button-text">Load Data from DB</span> <!-- Text -->
+                        </button>
                         <span id="process-analytics-status" class="ms-2"></span> {# Status for the processing action #}
                     </div>
                     {# --- End Load Data Sub-Tab Pane --- #}
@@ -271,7 +274,9 @@
                                 <i class="bi bi-plus-lg"></i> Add Rule
                             </button>
                             <button id="apply-transformations-btn" class="btn btn-sm btn-primary me-2">
-                                <i class="bi bi-play-fill"></i> Apply Transformations
+                                <i class="bi bi-play-fill"></i> 
+                                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span> <!-- Spinner -->
+                                <span class="button-text">Apply Transformations</span> <!-- Text -->
                             </button>
                              {# Placeholder for future buttons #}
                             <button id="save-transform-rules-btn" class="btn btn-sm btn-outline-secondary me-1" title="Save Rules to Browser"><i class="bi bi-save"></i></button>
@@ -356,49 +361,31 @@
             <p>Generate reports, visualizations, or summaries based on the prepared data.</p>
             
             {# --- Chart Controls & Display --- #}
-            <div class="my-3 p-3 border rounded bg-body-tertiary">
-                <div class="row mb-3 gy-2 gx-2 align-items-end"> <!-- Add gutters (gx-2, gy-2) and align items end -->
-                    <!-- X-axis Selector (Expands) -->
-                    <div class="col-md">
-                        <label for="report-x-axis-selector" class="form-label mb-1">X-axis:</label>
+            <div class="container-fluid mt-3">
+                <div class="row g-2 mb-3 align-items-end"> <!-- Added align-items-end -->
+                    <!-- Reordered Columns -->
+                    <div class="col-md-auto"> <!-- X-Axis -->
+                        <label for="report-x-axis-selector" class="form-label form-label-sm mb-1">X Axis</label>
                         <select id="report-x-axis-selector" class="form-select form-select-sm">
-                            <option value="index" selected>-- Record Index (Default) --</option> {# Ensure selected #}
-                            {# Options will be populated by JavaScript #}
+                            <option value="index" selected>-- Record Index (Default) --</option>
+                            <!-- Options populated by JS -->
                         </select>
                     </div>
-                    <!-- Swap Button (Fixed Width) -->
-                    <div class="col-auto">
-                        <button id="swap-axes-btn" class="btn btn-sm btn-outline-secondary" title="Swap X and Y axes">
-                            <i class="bi bi-arrow-left-right"></i>
+                    <!-- Moved Swap Button Here -->
+                    <div class="col-md-auto"> 
+                        <button id="swap-axes-btn" class="btn btn-sm btn-outline-secondary" title="Swap X and Y Axes">
+                            <i class="bi bi-arrow-left-right"></i> Swap
                         </button>
                     </div>
-                    <!-- Y-axis Selector (Expands) -->
-                    <div class="col-md">
-                        <label for="report-field-selector" class="form-label mb-1">Y-axis:</label>
+                    <div class="col-md-auto"> <!-- Y-Axis -->
+                        <label for="report-field-selector" class="form-label form-label-sm mb-1">Y Axis</label>
                         <select id="report-field-selector" class="form-select form-select-sm">
-                            <option value="">-- Select Field --</option>
-                            {# Options will be populated by JavaScript #}
+                            <option value="" selected>-- Select Field --</option>
+                            <!-- Options populated by JS -->
                         </select>
                     </div>
-                    <!-- Color Selector (Fixed Width) -->
-                    <div class="col-md-2">
-                        <label for="report-color-selector" class="form-label mb-1">Color By:</label>
-                        <select id="report-color-selector" class="form-select form-select-sm">
-                            <option value="">-- None --</option> {# Simplified default text #}
-                            {# Options will be populated by JavaScript #}
-                        </select>
-                    </div>
-                    <!-- Size Selector (Fixed Width) -->
-                    <div class="col-md-2">
-                        <label for="report-size-selector" class="form-label mb-1">Size By:</label>
-                        <select id="report-size-selector" class="form-select form-select-sm" disabled>
-                            <option value="">-- Bubble Only --</option> {# Simplified default text #}
-                            {# Options will be populated by JavaScript #}
-                        </select>
-                    </div>
-                    <!-- Chart Type Selector (Fixed Width) -->
-                    <div class="col-md-2">
-                        <label for="report-chart-type-selector" class="form-label mb-1">Type:</label>
+                    <div class="col-md-auto"> <!-- Chart Type -->
+                        <label for="report-chart-type-selector" class="form-label form-label-sm mb-1">Type</label>
                         <select id="report-chart-type-selector" class="form-select form-select-sm">
                             <option value="scatter" selected>Scatter</option>
                             <option value="line">Line</option>
@@ -406,15 +393,34 @@
                             <option value="bubble">Bubble</option>
                         </select>
                     </div>
-                    <!-- Reset Button (Fixed Width) -->
-                    <div class="col-auto">
-                        <button id="reset-chart-btn" class="btn btn-sm btn-outline-secondary" title="Reset Zoom/Pan">Reset View</button> {# Changed title and text #}
+                    <div class="col-md-auto"> <!-- Size By (for Bubble) -->
+                        <label for="report-size-selector" class="form-label form-label-sm mb-1">Size By <small class="text-muted">(Bubble)</small></label>
+                        <select id="report-size-selector" class="form-select form-select-sm" disabled> <!-- Disabled initially -->
+                            <option value="" selected>-- Select Field --</option>
+                            <!-- Options populated by JS -->
+                        </select>
+                    </div>
+                    <div class="col-md-auto"> <!-- Color By -->
+                        <label for="report-color-selector" class="form-label form-label-sm mb-1">Color By</label>
+                        <select id="report-color-selector" class="form-select form-select-sm">
+                            <option value="">-- No Color Variation --</option>
+                            <!-- Options populated by JS -->
+                        </select>
+                    </div>
+                    <!-- End Reordered Columns -->
+
+                    <!-- Reset Button at the end -->
+                    <div class="col-md-auto ms-md-auto"> <!-- Push reset button to the right -->
+                        <button id="reset-chart-btn" class="btn btn-sm btn-outline-secondary" title="Reset Zoom/Pan">
+                            <i class="bi bi-aspect-ratio"></i> Reset View
+                        </button>
                     </div>
                 </div>
-                <div id="report-chart-container" style="position: relative; height:40vh; width:80vw">
+
+                <div class="chart-container mb-3" style="position: relative; height:50vh; width:100%;">
                     <canvas id="report-chart-canvas"></canvas>
                 </div>
-                <div id="chart-status" class="mt-2 small text-muted"></div>
+                <div id="chart-status" class="form-text text-muted small">Select fields to generate the chart.</div>
             </div>
             {# --- End Chart Controls & Display --- #}
 
