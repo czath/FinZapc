@@ -20,6 +20,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // const WEIGHT_STORAGE_KEY = 'analyticsAnalyticsFieldWeights'; // REMOVED
     const FIELD_ENABLED_STORAGE_KEY = 'analyticsAnalyticsFieldEnabled'; // New key
     const FIELD_NUMERIC_FORMAT_STORAGE_KEY = 'analyticsNumericFieldFormats'; // <<< ADDED
+    const FIELD_INFO_TIPS_STORAGE_KEY = 'analyticsFieldInfoTips'; // New storage key
+    let fieldInfoTips = {}; // New global variable for in-memory storage
     const TEXT_FILTER_DROPDOWN_THRESHOLD = 30; // <<< ADD THIS CONSTANT
 
     // --- Element References ---
@@ -968,11 +970,12 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         headerRow.style.zIndex = '10'; // Ensure it stays above scrolling content
         
         const headers = [
-            { key: 'name', text: 'Field name', width: '150px', align: 'start', extraClasses: 'me-3' }, 
+            { key: 'name', text: 'Field name', width: '150px', align: 'start', extraClasses: 'me-3' },
             { key: 'count', text: 'Occured', width: '80px', align: 'end', extraClasses: 'me-3 text-end' }, // Updated text and width
             { key: 'descriptor', text: 'Data descriptor', width: 'auto', align: 'start', extraClasses: 'flex-grow-1 me-3' },
             { key: 'format', text: 'Format', width: '140px', align: 'start', extraClasses: 'me-3' }, // <<< Increased width
-            { key: 'enabled', text: 'Included', width: '70px', align: 'center', extraClasses: 'text-center' } 
+            { key: 'info', text: 'Info', width: '150px', align: 'start', extraClasses: 'me-3' }, // <<< ADDED INFO HEADER DEFINITION
+            { key: 'enabled', text: 'Included', width: '70px', align: 'center', extraClasses: 'text-center' }
         ];
 
         headers.forEach(headerInfo => {
@@ -1122,6 +1125,29 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                  formatWrapper.classList.add('text-muted', 'text-center');
             }
             row.appendChild(formatWrapper); // Add format selector/placeholder
+
+            // 4.5. <<< NEW: Info Text Input >>>
+            const infoWrapper = document.createElement('div');
+            infoWrapper.className = 'me-3'; // Match header spacing
+            infoWrapper.style.minWidth = '150px'; // Match header width
+            infoWrapper.style.flexBasis = '150px';
+            infoWrapper.style.flexShrink = '0';
+
+            const infoInput = document.createElement('input');
+            infoInput.type = 'text';
+            infoInput.className = 'form-control form-control-sm field-info-input'; // Added specific class
+            infoInput.placeholder = 'Tooltip text...';
+            infoInput.value = fieldInfoTips[field] || ''; // Get value from global map
+            infoInput.title = 'Enter tooltip text for this field';
+
+            infoInput.addEventListener('input', (e) => {
+                fieldInfoTips[field] = e.target.value.trim(); // Update global map
+                saveInfoTipsToStorage(); // Persist change
+            });
+
+            infoWrapper.appendChild(infoInput);
+            row.appendChild(infoWrapper); // Add info input wrapper to row
+            // <<< END NEW >>>
 
             // 5. Enabled Checkbox (was 4)
             const enabledWrapper = document.createElement('div');
@@ -1417,6 +1443,23 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
              currentHeaders.forEach(headerText => {
                  const th = document.createElement('th');
                  th.textContent = headerText;
+
+                 // <<< NEW: Add Tooltip Attributes (Step 6) >>>
+                 if (headerText !== 'Ticker') { // Don't add tooltips to the 'Ticker' column itself
+                     const infoText = fieldInfoTips[headerText] || ''; // Get info text using headerText as field name
+                     if (infoText) {
+                         th.title = infoText;
+                         th.dataset.bsToggle = 'tooltip';
+                         th.dataset.bsPlacement = 'top';
+                     } else {
+                         // Important: Remove attributes if infoText is empty
+                         th.removeAttribute('title');
+                         th.removeAttribute('data-bs-toggle');
+                         th.removeAttribute('data-bs-placement');
+                     }
+                 }
+                 // <<< END NEW >>>
+
                  theadRow.appendChild(th);
              });
          }
@@ -1487,6 +1530,12 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
          console.log("ApplyFilters finished. Triggering chart render with pre-transform data.");
          renderChart(); // Re-render chart based on filteredDataForChart (initially)
          // --- End Chart Update ---
+
+        // <<< NEW: Initialize/Update Tooltips After Table Draw (Step 7 Call) >>>
+        initializeTooltips('#output-table thead');
+        // <<< END NEW >>>
+
+        console.log("Filter application complete.");
     }
     // --- END applyFilters definition ---
 
@@ -2595,6 +2644,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // loadWeightsFromStorage(); // REMOVED
     loadEnabledStatusFromStorage();
     loadNumericFormatsFromStorage(); // <<< ADD THIS CALL HERE
+    loadInfoTipsFromStorage(); // <<< ADD THIS CALL HERE FOR STEP 4
     // <<< REMOVE Immediate filter render - wait for data/metadata >>>
     // renderFilterUI();
 
@@ -2937,5 +2987,64 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // --- End Helper Functions --- 
     window.showSpinner = showSpinner; // Expose globally
     window.hideSpinner = hideSpinner; // Expose globally
+
+    // --- NEW: Load Info Tips Function ---
+    function loadInfoTipsFromStorage() {
+        console.log("Loading field info tips from localStorage..."); // Log start
+        const savedTips = localStorage.getItem(FIELD_INFO_TIPS_STORAGE_KEY);
+        if (savedTips) {
+            try {
+                const parsedTips = JSON.parse(savedTips);
+                // Ensure we load an object, even if stored data is invalid/null
+                if (parsedTips && typeof parsedTips === 'object') {
+                    fieldInfoTips = parsedTips;
+                     console.log("Successfully parsed info tips:", fieldInfoTips);
+                } else {
+                    console.warn("Stored info tips data was not a valid object. Resetting to empty.");
+                    fieldInfoTips = {};
+                }
+            } catch (e) {
+                console.error("Error parsing field info tips from localStorage:", e);
+                fieldInfoTips = {}; // Reset to default on error
+                 localStorage.removeItem(FIELD_INFO_TIPS_STORAGE_KEY); // Clear invalid data
+            }
+        } else {
+            console.log("No saved info tips found in localStorage.");
+            fieldInfoTips = {}; // Initialize empty if nothing saved
+        }
+    }
+    // --- END NEW ---
+
+    // --- NEW: Save Info Tips Function ---
+    function saveInfoTipsToStorage() {
+        console.log("Saving field info tips to localStorage..."); // Log start
+        try {
+            const tipsString = JSON.stringify(fieldInfoTips);
+            localStorage.setItem(FIELD_INFO_TIPS_STORAGE_KEY, tipsString);
+            console.log("Successfully saved info tips:", fieldInfoTips);
+        } catch (e) {
+            console.error("Error saving field info tips to localStorage:", e);
+            // Optionally, add a user-facing warning here if storage is full
+        }
+    }
+    // --- END NEW ---
+
+    // --- NEW: Tooltip Initializer Helper (Step 7) ---
+    function initializeTooltips(containerSelector) {
+        console.log(`Initializing tooltips for selector: ${containerSelector}`);
+        const tooltipTriggerList = document.querySelectorAll(`${containerSelector} [data-bs-toggle="tooltip"]`);
+        // Dispose existing tooltips first
+        tooltipTriggerList.forEach(tooltipTriggerEl => {
+            const existingTooltip = bootstrap.Tooltip.getInstance(tooltipTriggerEl);
+            if (existingTooltip) {
+                // console.log("Disposing existing tooltip for:", tooltipTriggerEl); // Debug log if needed
+                existingTooltip.dispose();
+            }
+        });
+        // Initialize new tooltips
+        const newTooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+        console.log(`Initialized ${newTooltipList.length} tooltips.`);
+    }
+    // --- END NEW ---
 
 }); 
