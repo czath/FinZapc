@@ -128,7 +128,10 @@
             <button class="nav-link" id="transform-tab" data-bs-toggle="tab" data-bs-target="#transform-tab-pane" type="button" role="tab" aria-controls="transform-tab-pane" aria-selected="false"><i class="bi bi-gear me-1"></i> Transform</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="analyze-present-tab" data-bs-toggle="tab" data-bs-target="#analyze-present-tab-pane" type="button" role="tab" aria-controls="analyze-present-tab-pane" aria-selected="false"><i class="bi bi-bar-chart-line me-1"></i> Analyze & Present</button>
+            <button class="nav-link" id="data-visual-tab" data-bs-toggle="tab" data-bs-target="#data-visual-pane" type="button" role="tab" aria-controls="data-visual-pane" aria-selected="false"><i class="bi bi-bar-chart-line me-1"></i> Data Visual</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="data-table-tab" data-bs-toggle="tab" data-bs-target="#data-table-pane" type="button" role="tab" aria-controls="data-table-pane" aria-selected="false"><i class="bi bi-table me-1"></i> Data Table</button>
         </li>
         {# <<< REMOVED Top-Level Filtered Data Tab Button >>> #}
     </ul>
@@ -478,9 +481,9 @@
         {# --- End Transform Tab Pane --- #}
 
         {# --- Data Report Tab Pane --- #}
-        <div class="tab-pane fade" id="analyze-present-tab-pane" role="tabpanel" aria-labelledby="analyze-present-tab" tabindex="0">
-            <h5>Analyze & Present Data</h5>
-            <p>Generate reports, visualizations, or summaries based on the prepared data.</p>
+        <div class="tab-pane fade" id="data-visual-pane" role="tabpanel" aria-labelledby="data-visual-tab" tabindex="0">
+            <h5>Data Visualization</h5>
+            <p>Generate visualizations based on the prepared data.</p>
             
             {# --- Chart Controls & Display --- #}
             <div class="container-fluid mt-3">
@@ -550,7 +553,19 @@
         </div>
         {# --- End Data Report Tab Pane --- #}
 
-        {# <<< REMOVED Top-Level Filtered Data Tab Pane >>> #}
+        {# --- NEW: Data Table Tab Pane --- #}
+        <div class="tab-pane fade" id="data-table-pane" role="tabpanel" aria-labelledby="data-table-tab" tabindex="0">
+            <h5>Transformed Data Exploration</h5>
+            <p>Explore the final dataset using the interactive pivot table below.</p>
+            <div id="pivot-table-output" class="mt-3" style="min-height: 500px;">
+                <!-- Pivot table library will render its UI inside this div -->
+                <p class="text-muted small p-3">Pivot table will be rendered here after data is transformed.</p> {# Added placeholder text #}
+            </div>
+            <div id="pivot-table-status" class="mt-2 small text-muted">
+                <!-- Status messages like 'Loading...', 'No data...' -->
+            </div>
+        </div>
+        {# --- END NEW: Data Table Tab Pane --- #}
 
     </div>
     {# --- End Main Tab Content --- #}

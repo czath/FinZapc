@@ -1623,13 +1623,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
          // By default, analysis uses filtered data until transformations are applied
          // finalDataForAnalysis = [...filteredDataForChart]; // <<< DO NOT RESET HERE
 
-         // <<< REMOVE CALLS TO UPDATE GLOBAL STATE AND FULL UI REFRESH >>>
-         // updateAvailableFieldsAndMetadata(filteredDataForChart); // <-- REMOVE THIS
-         // updateAnalyticsUI(); // <-- REMOVE THIS
          // Instead, just update the chart based on the filtered (pre-transform) data
          // The Analyze tab UI will be updated *after* transformations run.
          console.log("ApplyFilters finished. Triggering chart render with pre-transform data.");
-         renderChart(); // Re-render chart based on filteredDataForChart (initially)
+         // renderChart(); // <<< REMOVED: Chart should only update after transformations (using finalDataForAnalysis)
          // --- End Chart Update ---
 
         // <<< NEW: Initialize/Update Tooltips After Table Draw (Step 7 Call) >>>
@@ -2676,6 +2673,18 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     console.log("Rendering initial UI...");
                     updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: true });
 
+                    // <<< NEW: Initialize Pivot Table Placeholder >>>
+                    console.log("Placeholder: Pivot table initialization would happen here after initial load.");
+                    // TODO: Add logic here to initialize the pivot table
+                    //       in the '#pivot-table-output' div using the initial 'finalDataForAnalysis' data.
+                    //       Example using a hypothetical 'initializePivotTable' function:
+                    // initializePivotTable(finalDataForAnalysis);
+                    const initialPivotStatus = document.getElementById('pivot-table-status');
+                    if (initialPivotStatus) {
+                        initialPivotStatus.textContent = `Initial data processed. Pivot table library integration needed to display ${finalDataForAnalysis.length} records.`;
+                    }
+                    // <<< END NEW >>>
+
                 } catch (error) {
                     console.error('Error during Finviz data processing/fetching:', error);
                     // outputArea.textContent = `An error occurred. Check console for details. \nError: ${error.message}`; // No longer using outputArea
@@ -2917,6 +2926,18 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         // <<< UPDATE POST-TRANSFORM STATE and Analyze UI >>>
         updateFinalFieldsAndMetadata(finalDataForAnalysis); // Update the *final* fields/metadata
         updateAnalyticsUI({ updatePrepUI: false, updateAnalyzeUI: true }); // Trigger ONLY Analyze UI update
+
+        // <<< NEW: Update Pivot Table >>>
+        // TODO: Add logic here to initialize or update the pivot table
+        //       in the '#pivot-table-output' div using the 'finalDataForAnalysis' data.
+        //       Example using a hypothetical 'updatePivotTable' function:
+        // updatePivotTable(finalDataForAnalysis);
+        console.log("Placeholder: Pivot table update would happen here.");
+        const pivotStatus = document.getElementById('pivot-table-status');
+        if (pivotStatus) {
+            pivotStatus.textContent = `Data transformed. Pivot table library integration needed to display ${finalDataForAnalysis.length} records.`;
+        }
+        // <<< END NEW >>>
     }
 
     function updateFinalFieldsAndMetadata(data) {
