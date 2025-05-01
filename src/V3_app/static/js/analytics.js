@@ -15,6 +15,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     let lastAppliedHeaders = []; // <<< ADDED: To track changes for DataTable re-init
     let filteredDataForChart = []; // Holds the data currently used by the chart (before transformation)
     let finalDataForAnalysis = []; // Holds the data AFTER transformations, used by Analyze tab
+    // <<< ADDED: To store previous chart selections >>>
+    let previousXValue = null;
+    let previousYValue = null;
+    let previousSizeValue = null;
 
     const FILTER_STORAGE_KEY = 'analyticsAnalyticsFilters';
     // const WEIGHT_STORAGE_KEY = 'analyticsAnalyticsFieldWeights'; // REMOVED
@@ -1654,6 +1658,21 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         const xSelector = reportXAxisSelector;
         const ySelector = reportFieldSelector;
 
+        if (!xSelector || !ySelector || !reportSizeSelector) {
+            console.error("Report axis selectors not found!");
+            return;
+        }
+
+        // <<< Assign to existing variables BEFORE clearing selectors >>>
+        previousXValue = xSelector.value;
+        previousYValue = ySelector.value; 
+        previousSizeValue = reportSizeSelector.value; 
+
+        // Clear existing options
+        xSelector.innerHTML = '<option value="index" selected>-- Record Index (Default) --</option>';
+        ySelector.innerHTML = '<option value="" selected>-- Select Field --</option>';
+        reportSizeSelector.innerHTML = '<option value="" selected>-- Select Field --</option>';
+
         // <<< FIX: Check fieldsToUse instead of fields >>>
         if (!fieldsToUse || fieldsToUse.length === 0) { 
             console.log(`No available fields (${sourceMsg}) to populate report selectors.`); // Log source
@@ -1706,7 +1725,6 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         }
 
         // Restore Size selector if possible
-        const previousSizeValue = reportSizeSelector.value;
         if (previousSizeValue && metadataToUse[previousSizeValue]?.type === 'numeric' && enabledFields.includes(previousSizeValue)) {
             reportSizeSelector.value = previousSizeValue;
         } else {
