@@ -11,6 +11,8 @@
     {# --- End Chart.js CDN --- #}
     {# --- DataTables CSS --- #}
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
+    {# <<< ADD DataTables Buttons CSS >>> #}
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
     {# --- End DataTables CSS --- #}
     <style>
         /* Style for filter rows */
@@ -58,6 +60,46 @@
             margin-bottom: 0;
             color: var(--bs-body-color); /* Use main body color for better contrast */
         }
+
+        /* <<< NEW: Filtered Table UI Improvements >>> */
+        /* Remove column separators in filtered table */
+        #output-table th,
+        #output-table td {
+            border-right: none;
+        }
+        #output-table th:first-child,
+        #output-table td:first-child {
+            border-left: none; /* Also remove left border on first column */
+        }
+        /* Cross-highlight styles - UPDATED COLORS */
+        #output-table tbody tr.row-highlight td,
+        #output-table tbody td.col-highlight {
+            background-color: var(--bs-primary-bg-subtle) !important; /* Use subtle primary blue for row/col */
+        }
+        #output-table tbody tr.row-highlight td.col-highlight {
+            background-color: var(--bs-info-bg-subtle) !important;    /* Use subtle info (usually lighter blue/cyan) for intersection */
+        }
+        /* Ensure text contrast on highlight, especially dark mode */
+        [data-bs-theme="dark"] #output-table tbody tr.row-highlight td,
+        [data-bs-theme="dark"] #output-table tbody td.col-highlight,
+        [data-bs-theme="dark"] #output-table tbody tr.row-highlight td.col-highlight {
+            color: var(--bs-body-emphasis-color) !important; /* Ensure contrast for all highlights */
+        }
+
+        /* Optional: slightly shift buttons down to align better with search */
+        div.dataTables_wrapper div.dt-buttons {
+            padding-top: 0.25rem; /* Adjust as needed */
+            margin-left: 0.5rem; /* Add space from search */
+        }
+        /* <<< END NEW >>> */
+
+        /* <<< NEW: Style for negative numbers >>> */
+        .text-negative {
+            color: var(--bs-danger) !important; /* Use Bootstrap's danger color (red) */
+            /* font-weight: bold; */ /* Optional: Make it bold */
+        }
+        /* <<< END NEW >>> */
+
     </style>
 {% endblock %}
 
@@ -69,10 +111,10 @@
     {# --- Main Workflow Tabs --- #}
     <ul class="nav nav-tabs mt-3" id="mainWorkflowTabs" role="tablist">
         <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="fetch-tab" data-bs-toggle="tab" data-bs-target="#fetch-tab-pane" type="button" role="tab" aria-controls="fetch-tab-pane" aria-selected="true"><i class="bi bi-cloud-arrow-down me-1"></i>Fetch</button>
+            <button class="nav-link" id="fetch-tab" data-bs-toggle="tab" data-bs-target="#fetch-tab-pane" type="button" role="tab" aria-controls="fetch-tab-pane" aria-selected="false"><i class="bi bi-cloud-arrow-down me-1"></i>Fetch</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="stage-prepare-tab" data-bs-toggle="tab" data-bs-target="#stage-prepare-tab-pane" type="button" role="tab" aria-controls="stage-prepare-tab-pane" aria-selected="false"><i class="bi bi-filter-square me-1"></i>Stage & Prepare</button>
+            <button class="nav-link active" id="stage-prepare-tab" data-bs-toggle="tab" data-bs-target="#stage-prepare-tab-pane" type="button" role="tab" aria-controls="stage-prepare-tab-pane" aria-selected="true"><i class="bi bi-filter-square me-1"></i>Stage & Prepare</button>
         </li>
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="transform-tab" data-bs-toggle="tab" data-bs-target="#transform-tab-pane" type="button" role="tab" aria-controls="transform-tab-pane" aria-selected="false"><i class="bi bi-gear me-1"></i>Transform</button>
@@ -80,6 +122,7 @@
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="analyze-present-tab" data-bs-toggle="tab" data-bs-target="#analyze-present-tab-pane" type="button" role="tab" aria-controls="analyze-present-tab-pane" aria-selected="false"><i class="bi bi-bar-chart-line me-1"></i>Analyze & Present</button>
         </li>
+        {# <<< REMOVED Top-Level Filtered Data Tab Button >>> #}
     </ul>
     {# --- End Main Workflow Tabs --- #}
 
@@ -87,7 +130,7 @@
     <div class="tab-content pt-3" id="mainWorkflowTabsContent">
 
         {# --- Data Import Tab Pane --- #}
-        <div class="tab-pane fade show active" id="fetch-tab-pane" role="tabpanel" aria-labelledby="fetch-tab" tabindex="0">
+        <div class="tab-pane fade" id="fetch-tab-pane" role="tabpanel" aria-labelledby="fetch-tab" tabindex="0">
             <h5>Data Import Sources</h5>
             <p>Import raw data from external sources.</p>
 
@@ -149,13 +192,13 @@
         {# --- End Data Import Tab Pane --- #}
 
         {# --- Data Preparation Tab Pane --- #}
-        <div class="tab-pane fade" id="stage-prepare-tab-pane" role="tabpanel" aria-labelledby="stage-prepare-tab" tabindex="0">
+        <div class="tab-pane fade show active" id="stage-prepare-tab-pane" role="tabpanel" aria-labelledby="stage-prepare-tab" tabindex="0">
             <h5>Data Preparation Steps</h5>
             <p>Process, clean, filter, and configure the imported data.</p>
 
             {# --- Raw Analytics Data Processing, Filtering & Configuration --- #}
             <div class="my-3 p-3 border rounded bg-body-tertiary">
-                <h6>Process, Filter & Configure Raw Analytics Data</h6>
+                {# REMOVED <h6>Process, Filter & Configure Raw Analytics Data</h6> #}
 
                 {# --- Sub-Tab Navigation for Prep Steps --- #}
                 <ul class="nav nav-tabs mt-3" id="prepStepsTabs" role="tablist">
@@ -168,8 +211,13 @@
                         <button class="nav-link" id="config-subtab" data-bs-toggle="tab" data-bs-target="#config-subtab-pane" type="button" role="tab" aria-controls="config-subtab-pane" aria-selected="false">Field Configuration</button> {# Removed active, set aria-selected false #}
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="filter-subtab" data-bs-toggle="tab" data-bs-target="#filter-subtab-pane" type="button" role="tab" aria-controls="filter-subtab-pane" aria-selected="false">Filters & Output</button>
+                        <button class="nav-link" id="filter-subtab" data-bs-toggle="tab" data-bs-target="#filter-subtab-pane" type="button" role="tab" aria-controls="filter-subtab-pane" aria-selected="false">Filters</button> {# Renamed from Filters & Output #}
                     </li>
+                    {# <<< NEW: Filtered Data Sub-Tab Button >>> #}
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="filtered-data-subtab" data-bs-toggle="tab" data-bs-target="#filtered-data-subtab-pane" type="button" role="tab" aria-controls="filtered-data-subtab-pane" aria-selected="false">Filtered Data</button>
+                    </li>
+                    {# <<< END NEW >>> #}
                 </ul>
                 {# --- End Sub-Tab Navigation --- #}
 
@@ -209,7 +257,6 @@
 
                         {# Filter Controls #}
                         <div class="mb-3">
-                            <h6>Filter Criteria:</h6>
                             <div id="filter-controls-container">
                                 <!-- Filter rows will be added here dynamically -->
                             </div>
@@ -218,9 +265,16 @@
                             <button id="reset-filters-btn" class="btn btn-sm btn-outline-danger">Reset Filters</button>
                         </div>
 
-                        {# Display area for processed output #}
+                        {# Display area for processed output - MOVED TO SEPARATE SUB-TAB #}
+
+                    </div>
+                    {# --- End Filters Sub-Tab Pane --- #}
+
+                    {# <<< NEW: Filtered Data Sub-Tab Pane >>> #}
+                    <div class="tab-pane fade" id="filtered-data-subtab-pane" role="tabpanel" aria-labelledby="filtered-data-subtab" tabindex="0">
+                        {# Content moved here #}
                         <div id="processed-analytics-output-container" class="mt-3">
-                            <h6>Filtered Output:</h6> <span id="filter-results-count" class="ms-2 small text-muted"></span>
+                            <span id="filter-results-count" class="ms-2 small text-muted"></span>
                             <div class="table-responsive mt-2"> {# Make table horizontally scrollable on small screens #}
                                 <table id="output-table" class="table table-striped table-bordered table-sm compact display" style="width:100%">
                                      <thead>
@@ -241,9 +295,8 @@
                             </div>
                             {# --- End Table --- #}
                         </div>
-
                     </div>
-                    {# --- End Filters & Output Sub-Tab Pane --- #}
+                    {# <<< END NEW >>> #}
 
                 </div>
                 {# --- End Sub-Tab Content --- #}
@@ -428,6 +481,8 @@
         </div>
         {# --- End Data Report Tab Pane --- #}
 
+        {# <<< REMOVED Top-Level Filtered Data Tab Pane >>> #}
+
     </div>
     {# --- End Main Tab Content --- #}
 
@@ -489,16 +544,27 @@
 {% endblock %}
 
 {% block scripts %}
-    {# --- jQuery (must come before DataTables) --- #}
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    {# --- DataTables JS (including Bootstrap 5 integration) --- #}
+    {# Keep the page-specific JavaScript here #}
+    {# --- DataTables JS (Core + Bootstrap 5) --- #}
+    <script src="https://code.jquery.com/jquery-3.7.0.js"></script>
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+    {# <<< ADD DataTables Buttons JS >>> #}
+    <!-- JSZip (required for Excel export) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- DataTables Buttons JS -->
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script> <!-- Needed for copy, csv, excel -->
+    {# <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script> #} <!-- Optional: Print button commented out -->
+    {# --- End DataTables JS --- #}
 
-    {# Add any page-specific JavaScript here if needed later #}
-    <!-- Original script block removed, content moved to /static/js/analytics.js -->
-    <script src="/static/js/analytics.js"></script>
-    <script src="/static/js/analytics_transform.js"></script>
+    {# --- Analytics Specific JS --- #}
+    <script src="{{ url_for('static', path='/js/analytics.js') }}"></script>
+    <script src="{{ url_for('static', path='/js/analytics_transform.js') }}"></script> {# <<< ADDED #}
+
+    {# Theme Toggle Script is now in base.html #}
+
 {% endblock %}
 
 <!-- Popper.js -->

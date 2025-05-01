@@ -1443,14 +1443,17 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
              const row = [item.ticker || 'N/A']; // Start with ticker
              enabledFields.forEach(field => {
                  let value = ''; // Default to empty string
+                 let rawValue = null; // <<< Initialize rawValue
                  if (field === 'source') { // Handle 'source' if it becomes enabled
-                     value = item.source || '';
+                     rawValue = item.source;
+                     value = rawValue || ''; // Use raw value for source directly
                  } else if (item.processed_data && item.processed_data.hasOwnProperty(field)) {
-                     const rawValue = item.processed_data[field];
+                     rawValue = item.processed_data[field];
                      // Apply formatting for display in the table
                      const format = fieldNumericFormats[field] || 'default';
                      if (fieldMetadata[field]?.type === 'numeric') { 
-                        value = formatNumericValue(rawValue, format); // Use existing formatting function
+                        // value = formatNumericValue(rawValue, format); // OLD: Formatted value
+                        value = rawValue; // <<< CORRECTED: Push RAW value for numeric types
                      } else {
                          value = (rawValue === null || rawValue === undefined) ? '' : String(rawValue);
                      }
@@ -1534,10 +1537,68 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                          emptyTable: "No matching records found based on current filters.",
                          zeroRecords: "No matching records found"
                      },
-                     // Optional: Add Bootstrap 5 styling integration
-                     // dom: "<'row'<'col-sm-12 col-md-6'l><'col-sm-12 col-md-6'f>>" +
-                     //      "<'row'<'col-sm-12'tr>>" +
-                     //      "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>",
+                     // <<< Add dom and buttons configuration >>>
+                     dom: "<'row'<'col-sm-12 col-md-6'l><'col-sm-12 col-md-6 d-flex justify-content-end align-items-center'fB>>" +
+                          "<'row'<'col-sm-12'tr>>" +
+                          "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>", // Add B for Buttons near filter f
+                     buttons: [
+                        // 'copyHtml5', // OLD
+                        // 'excelHtml5', // OLD
+                        // 'csvHtml5' // OLD
+                        // PDF export excluded as requested
+                         {
+                            extend: 'copyHtml5',
+                            filename: function() { return generateTimestampedFilename('FilteredData_Copy'); },
+                            title: function() { return `Filtered Data (${new Date().toLocaleString()})`; } // Optional: Title for copy
+                        },
+                        {
+                            extend: 'excelHtml5',
+                            filename: function() { return generateTimestampedFilename('FilteredData'); },
+                            title: function() { return `Filtered Data (${new Date().toLocaleString()})`; } // Optional: Title for Excel sheet
+                        },
+                        {
+                            extend: 'csvHtml5',
+                            filename: function() { return generateTimestampedFilename('FilteredData'); },
+                            title: function() { return `Filtered Data (${new Date().toLocaleString()})`; } // Optional: Title for CSV
+                        }
+                    ],
+                    // <<< NEW: columnDefs for negative number styling >>>
+                    columnDefs: currentHeaders.map((headerText, index) => {
+                        // Skip 'Ticker' column (index 0)
+                        if (index === 0) {
+                            return null; // Return null for columns we don't want to define specifically
+                        }
+                        
+                        const fieldName = headerText; // For non-ticker columns, headerText is fieldName
+                        const meta = fieldMetadata[fieldName] || {};
+                        
+                        if (meta.type === 'numeric') {
+                            const format = fieldNumericFormats[fieldName] || 'default';
+                            return {
+                                targets: index, // Target this specific column index
+                                render: function (data, type, row) { // 'data' is the cell's original data
+                                    // Apply styling only for display rendering
+                                    if (type === 'display') {
+                                        const rawValue = data; // Use the 'data' parameter directly (should be raw number)
+                                        const num = Number(rawValue);
+                                        const formattedValue = formatNumericValue(rawValue, format); // <<< CORRECTED: Always format here for display
+                                        
+                                        // Check if the raw number is negative
+                                        if (!isNaN(num) && num < 0) {
+                                            return `<span class="text-negative">${formattedValue}</span>`; // Wrap the formatted value
+                                        } else {
+                                            return formattedValue; // Return formatted value without span
+                                        }
+                                    }
+                                    // For sorting, filtering, type detection etc., return the raw data
+                                    return data; // Return original data (raw number or string)
+                                }
+                            };
+                        } else {
+                            return null; // Return null for non-numeric columns
+                        }
+                    }).filter(def => def !== null) // Remove null entries from the array
+                    // <<< END columnDefs >>>
                  });
 +                // <<< Force column width recalculation after initialization >>>
 +                outputDataTable.columns.adjust().draw();
@@ -3021,6 +3082,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     console.log("AnalyticsMainModule initialized and exposed."); // <<< ADD CONFIRMATION LOG
 
     // --- Add event listener for the Filters & Output tab to adjust DataTable columns --- ADDED
+    // <<< Remove listener from old tab >>>
+    /*
     const filterTabTrigger = document.getElementById('filter-subtab');
     if (filterTabTrigger) {
         filterTabTrigger.addEventListener('shown.bs.tab', function (event) {
@@ -3040,7 +3103,30 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     } else {
         console.warn("Could not find filter sub-tab trigger (#filter-subtab) to attach column adjust listener.");
     }
+    */
     // --- End DataTable Tab Listener --- ADDED
+
+    // <<< NEW: Attach listener to Filtered Data Tab >>>
+    const filteredDataTabTrigger = document.getElementById('filtered-data-subtab'); // <<< UPDATED ID
+    if (filteredDataTabTrigger) {
+        filteredDataTabTrigger.addEventListener('shown.bs.tab', function (event) {
+            console.log("Filtered Data sub-tab shown. Adjusting DataTable columns."); // <<< UPDATED Log Message
+            if (outputDataTable) {
+                try {
+                     // Use setTimeout to ensure rendering is complete before adjusting
+                     setTimeout(() => {
+                          outputDataTable.columns.adjust().draw(false); // Use draw(false) to avoid resetting paging
+                          console.log("DataTable columns adjusted.");
+                     }, 0); 
+                } catch (e) {
+                    console.error("Error adjusting DataTable columns on tab show:", e);
+                }
+            }
+        });
+    } else {
+        console.warn("Could not find filtered data sub-tab trigger (#filtered-data-subtab) to attach column adjust listener."); // <<< UPDATED ID & Message
+    }
+    // <<< END NEW >>>
 
     // --- End Helper Functions --- 
     window.showSpinner = showSpinner; // Expose globally
@@ -3104,5 +3190,57 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         console.log(`Initialized ${newTooltipList.length} tooltips.`);
     }
     // --- END NEW ---
+
+    // --- NEW: Timestamped Filename Helper ---
+    function generateTimestampedFilename(baseName = 'Export') {
+        const now = new Date();
+        const pad = (num) => num.toString().padStart(2, '0');
+        // Format: ddmmyyhhmm
+        const timestamp = `${pad(now.getDate())}${pad(now.getMonth() + 1)}${now.getFullYear().toString().slice(-2)}${pad(now.getHours())}${pad(now.getMinutes())}`;
+        return `${baseName}_${timestamp}`;
+    }
+    // --- END NEW ---
+
+    // --- Add Hover Listeners for Cross-Highlighting --- 
+    const outputTableBody = document.querySelector('#output-table tbody');
+    if (outputTableBody) {
+        outputTableBody.addEventListener('mouseenter', (event) => {
+            if (event.target.tagName === 'TD') {
+                const cell = event.target;
+                const row = cell.parentElement;
+                const cellIndex = cell.cellIndex;
+
+                // Highlight row
+                row.classList.add('row-highlight');
+
+                // Highlight column
+                const table = row.closest('table');
+                const rows = table.querySelectorAll('tbody tr');
+                rows.forEach(r => {
+                    const cells = r.querySelectorAll('td');
+                    if (cells.length > cellIndex) {
+                        cells[cellIndex].classList.add('col-highlight');
+                    }
+                });
+            }
+        }, true); // Use capture phase to ensure listener fires
+
+        outputTableBody.addEventListener('mouseleave', (event) => {
+            if (event.target.tagName === 'TD') {
+                const cell = event.target;
+                const row = cell.parentElement;
+                const cellIndex = cell.cellIndex;
+
+                // Remove row highlight
+                row.classList.remove('row-highlight');
+
+                // Remove column highlight
+                const table = row.closest('table');
+                const highlightedCols = table.querySelectorAll('td.col-highlight');
+                highlightedCols.forEach(c => c.classList.remove('col-highlight'));
+            }
+        }, true); // Use capture phase
+    }
+    // --- END Hover Listeners --- 
 
 }); 
