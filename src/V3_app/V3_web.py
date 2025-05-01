@@ -1598,6 +1598,12 @@ def create_app():
                    # Decide if you want to reject or just use path ID. Using path ID here.
                    del update_data['account_id'] # Remove account_id from payload if present
                 
+                # <<< START FIX: Explicitly remove 'currency' if present >>>
+                if 'currency' in update_data:
+                    logger.debug(f"Removing 'currency' key from update data for account {account_id} before DB update.")
+                    del update_data['currency']
+                # <<< END FIX >>>
+
                 updated = await repository.update_account(account_id, update_data) # Assumes update_account exists
                 
                 if updated:

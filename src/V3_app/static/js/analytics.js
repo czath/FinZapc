@@ -1115,7 +1115,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             
             if (metadata.type === 'numeric') {
                 const formatSelect = document.createElement('select');
-                formatSelect.className = 'form-select form-select-sm';
+                formatSelect.className = 'form-select form-select-sm format-select'; // <<< ADDED format-select class
                 formatSelect.title = 'Select numeric format';
                 
                 const formats = [ // Updated text labels
@@ -3076,7 +3076,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         getFinalAvailableFields: () => finalAvailableFields, // <<< POST-TRANSFORM FIELDS
         getFinalFieldMetadata: () => finalFieldMetadata,   // <<< POST-TRANSFORM METADATA
         // --- End added getters ---
-        getFieldEnabledStatus: () => fieldEnabledStatus // <<< ADDED (Shared status)
+        getFieldEnabledStatus: () => fieldEnabledStatus, // <<< ADDED (Shared status)
+        // --- Add Setters for direct state update ---
+        loadFilters: loadFilters,
+        loadFieldSettings: loadFieldSettings
         // Add other functions here if needed by other modules
     };
     console.log("AnalyticsMainModule initialized and exposed."); // <<< ADD CONFIRMATION LOG
@@ -3242,5 +3245,69 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         }, true); // Use capture phase
     }
     // --- END Hover Listeners --- 
+
+    // --- NEW: Functions to Load State Directly --- 
+    function loadFilters(filtersArray) {
+        console.log("[AnalyticsMain] Loading filters directly:", filtersArray);
+        if (!Array.isArray(filtersArray)) {
+            console.error("[AnalyticsMain] Invalid filters data provided for direct load.", filtersArray);
+            currentFilters = [{ id: Date.now() + Math.random(), field: '', operator: '=', value: '', comment: '' }]; // Reset to default
+        } else {
+            // Basic validation/mapping of loaded filters
+            currentFilters = filtersArray.map(f => ({
+                id: f.id || Date.now() + Math.random(),
+                field: f.field || '',
+                operator: f.operator || '=',
+                value: f.value !== undefined ? f.value : '',
+                comment: f.comment || ''
+            }));
+            if (currentFilters.length === 0) {
+                currentFilters.push({ id: Date.now() + Math.random(), field: '', operator: '=', value: '', comment: '' });
+            }
+        }
+        // No need to save to storage here, this is for direct activation
+        renderFilterUI(); // Re-render the filter controls
+        applyFilters();   // Re-apply filters to the data table & chart input
+        console.log("[AnalyticsMain] Filters loaded and applied.");
+    }
+
+    function loadFieldSettings(enabledStatus, numericFormats, infoTips) {
+        console.log("[AnalyticsMain] Loading field settings directly...");
+        // Enabled Status
+        if (enabledStatus && typeof enabledStatus === 'object' && !Array.isArray(enabledStatus)) {
+            fieldEnabledStatus = enabledStatus;
+            // Ensure boolean values
+            for (const field in fieldEnabledStatus) {
+                if (fieldEnabledStatus.hasOwnProperty(field)) {
+                    fieldEnabledStatus[field] = Boolean(fieldEnabledStatus[field]);
+                }
+            }
+        } else {
+             console.warn("[AnalyticsMain] Invalid enabledStatus provided, resetting.");
+             fieldEnabledStatus = {};
+        }
+        // Numeric Formats
+        if (numericFormats && typeof numericFormats === 'object' && !Array.isArray(numericFormats)) {
+            fieldNumericFormats = numericFormats;
+        } else {
+             console.warn("[AnalyticsMain] Invalid numericFormats provided, resetting.");
+             fieldNumericFormats = {};
+        }
+        // Info Tips
+        if (infoTips && typeof infoTips === 'object' && !Array.isArray(infoTips)) {
+            fieldInfoTips = infoTips;
+        } else {
+             console.warn("[AnalyticsMain] Invalid infoTips provided, resetting.");
+             fieldInfoTips = {};
+        }
+        // No need to save to storage here
+        // Re-render relevant UI components
+        renderFieldConfigUI(); // Uses enabledStatus, numericFormats, infoTips
+        renderFilterUI();      // Filter dropdowns depend on enabledStatus
+        applyFilters();        // Table rendering/formatting depends on settings
+        updateAnalyticsUI({ updatePrepUI: false, updateAnalyzeUI: true }); // Update chart axes/tooltips if formats changed
+        console.log("[AnalyticsMain] Field settings loaded and UI updated.");
+    }
+    // --- END NEW Direct Load Functions ---
 
 }); 

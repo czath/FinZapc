@@ -2390,7 +2390,8 @@ document.addEventListener('DOMContentLoaded', function() {
     window.AnalyticsTransformModule = {
         applyTransformations: applyTransformations,
         getTransformationRules: () => transformationRules, // Return current rules
-        renderTransformedDataPreview: renderTransformedDataPreview // Allow external update of preview
+        renderTransformedDataPreview: renderTransformedDataPreview, // Allow external update of preview
+        loadTransformationRules: loadTransformationRules // <<< ADDED Setter
     };
     console.log("AnalyticsTransformModule initialized and exposed.");
 
@@ -2441,5 +2442,21 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- END NEW Helper ---
 
     // --- Make helper globally accessible for dynamic function execution --- 
+
+    // --- NEW: Function to Load Rules Directly ---
+    function loadTransformationRules(rulesArray) {
+        console.log("[Transform] Loading rules directly:", rulesArray);
+        if (!Array.isArray(rulesArray)) {
+            console.error("[Transform] Invalid rules data provided for direct load.", rulesArray);
+            transformationRules = []; // Reset to empty array
+        } else {
+            // Basic validation/mapping could be added here if needed (e.g., ensure ID, type, etc.)
+            transformationRules = rulesArray;
+        }
+        // No need to save to storage here
+        renderTransformationRules(); // Re-render the rules list UI
+        console.log("[Transform] Rules loaded and UI updated.");
+    }
+    // --- END NEW Function ---
 
 }); 

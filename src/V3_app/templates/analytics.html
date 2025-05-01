@@ -110,17 +110,25 @@
 
     {# --- Main Workflow Tabs --- #}
     <ul class="nav nav-tabs mt-3" id="mainWorkflowTabs" role="tablist">
+        {# === Renamed Configuration -> Scenarios Tab === #}
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="fetch-tab" data-bs-toggle="tab" data-bs-target="#fetch-tab-pane" type="button" role="tab" aria-controls="fetch-tab-pane" aria-selected="false"><i class="bi bi-cloud-arrow-down me-1"></i>Fetch</button>
+            {# REMOVED active, set aria-selected false #}
+            <button class="nav-link" id="config-tab" data-bs-toggle="tab" data-bs-target="#config-tab-pane" type="button" role="tab" aria-controls="config-tab-pane" aria-selected="false"><i class="bi bi-file-earmark-text me-1"></i> Scenarios</button> {# Renamed Text #}
+        </li>
+        {# === END: Scenarios Tab === #}
+        <li class="nav-item" role="presentation">
+            {# Renamed Fetch -> Data Sources, removed active, updated target/controls #}
+            <button class="nav-link" id="data-sources-tab" data-bs-toggle="tab" data-bs-target="#data-sources-tab-pane" type="button" role="tab" aria-controls="data-sources-tab-pane" aria-selected="false"><i class="bi bi-cloud-arrow-down me-1"></i> Data Sources</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="stage-prepare-tab" data-bs-toggle="tab" data-bs-target="#stage-prepare-tab-pane" type="button" role="tab" aria-controls="stage-prepare-tab-pane" aria-selected="true"><i class="bi bi-filter-square me-1"></i>Stage & Prepare</button>
+             {# ADDED active, set aria-selected true #}
+            <button class="nav-link active" id="stage-prepare-tab" data-bs-toggle="tab" data-bs-target="#stage-prepare-tab-pane" type="button" role="tab" aria-controls="stage-prepare-tab-pane" aria-selected="true"><i class="bi bi-filter-square me-1"></i> Stage & Prepare</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="transform-tab" data-bs-toggle="tab" data-bs-target="#transform-tab-pane" type="button" role="tab" aria-controls="transform-tab-pane" aria-selected="false"><i class="bi bi-gear me-1"></i>Transform</button>
+            <button class="nav-link" id="transform-tab" data-bs-toggle="tab" data-bs-target="#transform-tab-pane" type="button" role="tab" aria-controls="transform-tab-pane" aria-selected="false"><i class="bi bi-gear me-1"></i> Transform</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="analyze-present-tab" data-bs-toggle="tab" data-bs-target="#analyze-present-tab-pane" type="button" role="tab" aria-controls="analyze-present-tab-pane" aria-selected="false"><i class="bi bi-bar-chart-line me-1"></i>Analyze & Present</button>
+            <button class="nav-link" id="analyze-present-tab" data-bs-toggle="tab" data-bs-target="#analyze-present-tab-pane" type="button" role="tab" aria-controls="analyze-present-tab-pane" aria-selected="false"><i class="bi bi-bar-chart-line me-1"></i> Analyze & Present</button>
         </li>
         {# <<< REMOVED Top-Level Filtered Data Tab Button >>> #}
     </ul>
@@ -129,8 +137,68 @@
     {# --- Main Tab Content --- #}
     <div class="tab-content pt-3" id="mainWorkflowTabsContent">
 
-        {# --- Data Import Tab Pane --- #}
-        <div class="tab-pane fade" id="fetch-tab-pane" role="tabpanel" aria-labelledby="fetch-tab" tabindex="0">
+        {# === Renamed Configuration -> Scenarios Tab Pane === #}
+        {# REMOVED show active #}
+        <div class="tab-pane fade" id="config-tab-pane" role="tabpanel" aria-labelledby="config-tab" tabindex="0">
+            <h5>Manage Scenarios</h5> {# Renamed Heading #}
+            <p>Manage saved sets of Filters, Field Settings, and Transformation Rules.</p>
+            
+            {# --- Scenario Table --- #}
+            <div class="table-responsive mt-3 mb-3" style="max-height: 300px; overflow-y: auto;">
+                <table class="table table-sm table-hover" id="analytics-scenarios-table">
+                    <thead class="sticky-top"> {# Sticky header, REMOVED table-light #}
+                        <tr>
+                            <th scope="col">Scenario Name</th>
+                            <th scope="col" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {# Scenario rows will be populated by JS #}
+                    </tbody>
+                </table>
+            </div>
+            {# --- End Scenario Table --- #}
+
+            {# <<< Reorganized Save/Import section - MOVED BELOW >>> #}
+
+            {# --- Moved Import Section --- #}
+            <div class="row mb-3 align-items-center">
+                
+                {# Left Column: Import Text #}
+                <div class="col-md-4"> {# Adjusted width #}
+                    <h6>Import Scenario</h6>
+                    <p class="small text-muted mb-2">Import a previously exported scenario (.json file).</p>
+                </div>
+
+                {# Center Column: Drop Zone #}
+                <div class="col-md-6"> {# Adjusted width #}
+                    {# Hidden File Input for Import #}
+                    <input type="file" id="analytics-scenario-import-input" accept=".json" style="display: none;">
+                    {# Import Drop Zone #}
+                    <div id="analytics-scenario-import-drop-zone" class="border rounded p-4 text-center mb-0" style="cursor: pointer; border-style: dashed !important; background-color: var(--bs-tertiary-bg);"> 
+                        <p class="mb-0">
+                            <span class="status-icon bi bi-cloud-arrow-up me-2 align-middle"></span>
+                            <span class="status-text">Drag & drop .json file here, or click to select</span>
+                        </p>
+                    </div>
+                </div>
+
+                {# Right Column: (Empty) #}
+                <div class="col-md-2 d-flex justify-content-center"> {# Adjusted width #}
+                    {# Intentionally Empty #}
+                </div>
+
+            </div> {# <<< End row >>> #}
+            
+            {# Status for import (now below the row) #}
+            <div id="analytics-import-status" class="small text-muted text-center mb-3"></div> 
+            {# --- End Moved Import Section --- #}
+
+        </div>
+        {# === END: Scenarios Tab Pane === #}
+
+        {# --- Data Sources Tab Pane (Renamed from Fetch) --- #}
+        <div class="tab-pane fade" id="data-sources-tab-pane" role="tabpanel" aria-labelledby="data-sources-tab" tabindex="0">
             <h5>Data Import Sources</h5>
             <p>Import raw data from external sources.</p>
 
@@ -167,10 +235,10 @@
                         <input type="file" id="ticker-file-input" accept=".txt" style="display: none;">
 
                         {# Drag and Drop Zone Below Button #}
-                        <div id="drop-zone" class="mb-2" style="max-width: 200px;"> {# Apply max-width #}
-                            <p>
-                                <span class="status-icon bi bi-cloud-arrow-up me-2 align-middle"></span> {# Icon holder #}
-                                <span class="status-text">Drag & drop .txt file or click</span> {# Text holder #}
+                        <div id="drop-zone" class="border rounded p-4 text-center" style="cursor: pointer; border-style: dashed !important; background-color: var(--bs-tertiary-bg);">
+                            <p class="mb-0">
+                                <span class="status-icon bi bi-cloud-arrow-up me-2 align-middle"></span>
+                                <span class="status-text">Drag & drop .txt file or click</span>
                             </p>
                         </div>
                         
@@ -189,9 +257,10 @@
             {# --- End Placeholder --- #}
 
         </div>
-        {# --- End Data Import Tab Pane --- #}
+        {# --- End Data Sources Tab Pane --- #}
 
         {# --- Data Preparation Tab Pane --- #}
+        {# ADDED show active #}
         <div class="tab-pane fade show active" id="stage-prepare-tab-pane" role="tabpanel" aria-labelledby="stage-prepare-tab" tabindex="0">
             <h5>Data Preparation Steps</h5>
             <p>Process, clean, filter, and configure the imported data.</p>
@@ -541,6 +610,31 @@
     </div>
     {# --- End Modal --- #}
 
+    {# --- NEW: Reload Scenario Confirmation Modal --- #}
+    <div class="modal fade" id="reloadScenarioModal" tabindex="-1" aria-labelledby="reloadScenarioModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="reloadScenarioModalLabel">Reload Scenario</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Loading scenario "<strong id="reload-scenario-name"></strong>" will apply its settings immediately, overwriting your current Filters, Field Configuration, and Transformation Rules.</p>
+                    <p class="small text-warning" id="reload-warning-text"><i class="bi bi-exclamation-triangle-fill me-1"></i> Any unsaved changes to the current settings will be lost unless you save them first.</p>
+                </div>
+                <div class="modal-footer justify-content-between"> {# Align buttons #}
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <div> {# Group the action buttons #}
+                        <button type="button" class="btn btn-sm btn-warning" id="reload-scenario-save-btn">Save Changes & Reload</button>
+                        <button type="button" class="btn btn-sm btn-primary" id="reload-scenario-discard-btn">Discard Changes & Reload</button>
+                        <button type="button" class="btn btn-sm btn-primary" id="reload-scenario-load-btn" style="display: none;">Load</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {# --- End Reload Scenario Confirmation Modal --- #}
+
 {% endblock %}
 
 {% block scripts %}
@@ -562,6 +656,7 @@
     {# --- Analytics Specific JS --- #}
     <script src="{{ url_for('static', path='/js/analytics.js') }}"></script>
     <script src="{{ url_for('static', path='/js/analytics_transform.js') }}"></script> {# <<< ADDED #}
+    <script src="{{ url_for('static', path='/js/analytics_config_manager.js') }}"></script> {# <<< ADDED Scenario Manager #}
 
     {# Theme Toggle Script is now in base.html #}
 
