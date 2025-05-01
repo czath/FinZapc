@@ -1638,30 +1638,32 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // --- END applyFilters definition ---
 
     // --- NEW: Populate Report Field Selector --- 
-    function populateReportFieldSelector() { // Renamed implicitly, now handles both X and Y
-        console.log("Populating report field selectors (X and Y)...");
-        if (!reportFieldSelector || !reportXAxisSelector) return; // Check both selectors
+    function populateReportFieldSelector() {
+        console.log("Populating report field selectors (X, Y, Size)...");
 
-        // <<< USE POST-TRANSFORM FIELDS (finalAvailableFields) >>>
-        const fieldsToUse = finalAvailableFields; // Use post-transform fields
-        const metadataToUse = finalFieldMetadata; // Use post-transform metadata
+        // Determine which field list to use: final post-transform if available, otherwise pre-transform
+        // <<< ADDED typeof check >>>
+        const useFinalFields = typeof finalAvailableFields !== 'undefined' && Array.isArray(finalAvailableFields) && finalAvailableFields.length > 0;
+        const fieldsToUse = useFinalFields ? finalAvailableFields : availableFields;
+        // Also get the correct metadata source
+        // <<< ADDED typeof check >>>
+        const metadataToUse = (typeof finalFieldMetadata !== 'undefined' && Object.keys(finalFieldMetadata).length > 0) ? finalFieldMetadata : fieldMetadata;
+        const sourceMsg = useFinalFields ? "post-transform" : "pre-transform";
+        console.log(`Using ${sourceMsg} fields:`, fieldsToUse);
 
-        const previousYValue = reportFieldSelector.value; // Remember selection
-        const previousXValue = reportXAxisSelector.value; // Remember selection for X
-        reportFieldSelector.innerHTML = '<option value="">-- Select Y Field --</option>'; // Clear and add default
-        // Add default index option first
-        reportXAxisSelector.innerHTML = '<option value="index" selected>-- Record Index (Default) --</option>'; // Make default selected initially
-        // Add default option for Size selector
-        reportSizeSelector.innerHTML = '<option value="">-- Select Field (Bubble Only) --</option>';
+        const xSelector = reportXAxisSelector;
+        const ySelector = reportFieldSelector;
 
-        if (!fieldsToUse || fieldsToUse.length === 0) {
-            console.log("No available fields (post-transform) to populate report selectors.");
+        // <<< FIX: Check fieldsToUse instead of fields >>>
+        if (!fieldsToUse || fieldsToUse.length === 0) { 
+            console.log(`No available fields (${sourceMsg}) to populate report selectors.`); // Log source
             return;
         }
 
         // Filter available fields based on enabled status (still use the single shared status)
-        const enabledFields = fieldsToUse.filter(field => fieldEnabledStatus[field] === true);
-        console.log("Populating report selectors with enabled (post-transform) fields:", enabledFields);
+        // <<< FIX: Filter fieldsToUse instead of fields >>>
+        const enabledFields = fieldsToUse.filter(field => fieldEnabledStatus[field] !== false); // Use !== false to include undefined/true
+        console.log(`Populating report selectors with enabled (${sourceMsg}) fields:`, enabledFields);
 
         // --- Separate check for numeric fields (optional, but helpful) ---
         const numericFields = enabledFields.filter(field => metadataToUse[field]?.type === 'numeric' || field === 'index'); // Treat 'index' as numeric conceptually
@@ -1673,13 +1675,13 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             const optionY = document.createElement('option');
             optionY.value = field;
             optionY.textContent = field;
-            reportFieldSelector.appendChild(optionY);
+            ySelector.appendChild(optionY);
             
             // X-axis option
             const optionX = document.createElement('option');
             optionX.value = field;
             optionX.textContent = field;
-            reportXAxisSelector.appendChild(optionX);
+            xSelector.appendChild(optionX);
 
             // Size-axis option (Only add numeric fields)
             // Check if the field type is numeric according to post-transform metadata
@@ -1693,14 +1695,14 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
         // Try to restore previous selections (if they weren't the default index)
         if (enabledFields.includes(previousYValue)) {
-            reportFieldSelector.value = previousYValue;
+            ySelector.value = previousYValue;
         }
         // Restore X only if it's an enabled field and not the default 'index'
         if (previousXValue && previousXValue !== 'index' && enabledFields.includes(previousXValue)) {
-            reportXAxisSelector.value = previousXValue;
+            xSelector.value = previousXValue;
         } else {
             // Otherwise, ensure the default 'index' option is selected
-            reportXAxisSelector.value = 'index';
+            xSelector.value = 'index';
         }
 
         // Restore Size selector if possible
@@ -1725,33 +1727,38 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // --- NEW: Populate Report Color Selector --- 
     function populateReportColorSelector() {
         console.log("Populating report color selector...");
+
+        // Determine which field list to use
+        // <<< ADDED typeof check >>>
+        const useFinalFields = typeof finalAvailableFields !== 'undefined' && Array.isArray(finalAvailableFields) && finalAvailableFields.length > 0;
+        const fieldsToUse = useFinalFields ? finalAvailableFields : availableFields;
+        // <<< ADDED typeof check >>>
+        const metadataToUse = (typeof finalFieldMetadata !== 'undefined' && Object.keys(finalFieldMetadata).length > 0) ? finalFieldMetadata : fieldMetadata; // Keep metadata check consistent
+        const sourceMsg = useFinalFields ? "post-transform" : "pre-transform";
+        console.log(`Using ${sourceMsg} fields/metadata for color selector:`, fieldsToUse);
+
         if (!reportColorSelector) return;
 
-        // <<< USE POST-TRANSFORM FIELDS (finalAvailableFields) >>>
-        const fieldsToUse = finalAvailableFields;
-
-        const previousValue = reportColorSelector.value; // Remember selection
+        const previousValue = reportColorSelector.value;
         reportColorSelector.innerHTML = '<option value="">-- No Color Variation --</option>'; // Clear and add default
-
+ 
         if (!fieldsToUse || fieldsToUse.length === 0) {
             console.log("No available fields (post-transform) to populate color selector.");
             return;
         }
-
-        // Use the same enabled fields as the main selector (based on post-transform fields)
-        const enabledFields = fieldsToUse.filter(field => fieldEnabledStatus[field] === true);
-        console.log("[populateReportColorSelector] Enabled fields (post-transform):", enabledFields);
-        console.log("[populateReportColorSelector] Does 'name' exist and is enabled?", enabledFields.includes('name'));
-        console.log("[populateReportColorSelector] Previous value:", previousValue);
-
+ 
+        // Filter for enabled fields (using shared status)
+        const enabledFields = fieldsToUse.filter(field => fieldEnabledStatus[field] !== false); // Check !== false
+        console.log("Populating color selector with enabled (post-transform) fields:", enabledFields);
+ 
+        // Sort fields alphabetically
+        enabledFields.sort();
+ 
+        // Populate selector (allow non-numeric fields for color)
         enabledFields.forEach(field => {
             const option = document.createElement('option');
             option.value = field;
             option.textContent = field;
-            // Maybe exclude the currently selected Y-axis field?
-            // if (reportFieldSelector && field === reportFieldSelector.value) {
-            //     option.disabled = true;
-            // }
             reportColorSelector.appendChild(option);
         });
 
@@ -1798,6 +1805,34 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- RENAMED: Render Chart (previously Render Scatter Plot) --- 
     function renderChart() {
+        const canvas = document.getElementById('report-chart-canvas');
+        const ctx = canvas?.getContext('2d');
+        const statusElement = document.getElementById('chart-status');
+
+        if (!canvas || !ctx || !statusElement) {
+            console.error('Chart canvas, context, or status element not found!');
+            return;
+        }
+
+        // --- NEW: Check if post-transformation data is ready --- 
+        if (!finalDataForAnalysis || !Array.isArray(finalDataForAnalysis) || finalDataForAnalysis.length === 0 || !finalFieldMetadata || Object.keys(finalFieldMetadata).length === 0) {
+            console.log('renderChart: Post-transformation data (finalDataForAnalysis / finalFieldMetadata) not ready. Clearing chart.');
+            statusElement.textContent = 'Load data and run transformations to generate the chart.';
+            // Destroy existing chart instance if it exists
+            if (reportChartInstance) { // <<< CORRECTED VARIABLE NAME
+                reportChartInstance.destroy(); // <<< CORRECTED VARIABLE NAME
+                reportChartInstance = null; // <<< CORRECTED VARIABLE NAME
+                console.log('Previous chart instance destroyed.');
+            }
+            // Optionally clear the canvas explicitly, though destroy usually handles it
+            // ctx.clearRect(0, 0, canvas.width, canvas.height);
+            return; // Exit function early
+        }
+        // --- END NEW CHECK --- 
+
+        const xAxisField = reportXAxisSelector.value || 'index';
+        const yAxisField = reportFieldSelector.value;
+
         console.log("Rendering chart..."); 
         // <<< LOG THE DATA SOURCE AT THE START >>>
         if (finalDataForAnalysis && finalDataForAnalysis.length > 0) {
@@ -2157,7 +2192,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
              chartStatus.textContent = `Plotting ${plottedCount} points.`;
          }
 
-         const ctx = reportChartCanvas.getContext('2d');
+         // const ctx = reportChartCanvas.getContext('2d'); // <<< REMOVED: ctx is already defined at the top
 
          // Destroy previous chart instance if it exists
          if (reportChartInstance) {
