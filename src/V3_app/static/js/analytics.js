@@ -532,14 +532,26 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
         switch (metadata.type) {
             case 'numeric':
-                const min = metadata.min !== undefined ? metadata.min : 'N/A';
-                const max = metadata.max !== undefined ? metadata.max : 'N/A';
-                // <<< NEW: Get format and apply it >>>
-                const format = fieldNumericFormats[fieldName] || 'default';
-                const formattedMin = formatNumericValue(min, format);
-                const formattedMax = formatNumericValue(max, format);
-                // const numericCountDisplay = typeof count === 'number' ? `(${count} records)` : '(count N/A)'; // REMOVED count display
-                return `Numeric, Min: ${formattedMin} to Max: ${formattedMax}`;
+                const min = metadata.min; // Already handles null from step 2
+                const max = metadata.max; // Already handles null from step 2
+                const average = metadata.average; // <<< ADDED
+                const median = metadata.median;   // <<< ADDED
+                const format = fieldNumericFormats[fieldName] || 'default'; // Use specific field format
+
+                // Inline helper for consistent formatting
+                const formatNumberForDescriptor = (num) => {
+                    if (num === null || num === undefined) return 'N/A';
+                    // Use the field's specific format for min/max/avg/median display
+                    return formatNumericValue(num, format);
+                };
+
+                const minFormatted = formatNumberForDescriptor(min);
+                const maxFormatted = formatNumberForDescriptor(max);
+                const avgFormatted = formatNumberForDescriptor(average);     // <<< ADDED
+                const medianFormatted = formatNumberForDescriptor(median); // <<< ADDED
+
+                // <<< Modified return string >>>
+                return `Numeric | Min: ${minFormatted} | Max: ${maxFormatted} | Avg: ${avgFormatted} | Median: ${medianFormatted}`;
             case 'text':
                 const uniqueCount = metadata.totalUniqueCount !== undefined ? metadata.totalUniqueCount : 'N/A';
                 // const textCountDisplay = typeof count === 'number' ? `(${count} records)` : '(count N/A)'; // REMOVED count display
@@ -653,6 +665,25 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         return rawValue;
     }
     // --- END NEW Parsing Helper ---
+
+    // --- NEW: Helper function to calculate Median ---
+    function calculateMedian(numericValues) {
+        if (!numericValues || numericValues.length === 0) {
+            return null;
+        }
+        // Create a copy and sort numbers numerically
+        const sortedValues = [...numericValues].sort((a, b) => a - b);
+        const mid = Math.floor(sortedValues.length / 2);
+
+        if (sortedValues.length % 2 === 0) {
+            // Even number of values: average the two middle ones
+            return (sortedValues[mid - 1] + sortedValues[mid]) / 2;
+        } else {
+            // Odd number of values: return the middle one
+            return sortedValues[mid];
+        }
+    }
+    // --- END NEW Helper ---
 
     // --- Helper to update value input based on field metadata (Preparation Tab) ---
     function updateValueInputUI(index, fieldName, inputWrapper, hintSpan) {
@@ -970,11 +1001,11 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         headerRow.style.zIndex = '10'; // Ensure it stays above scrolling content
         
         const headers = [
-            { key: 'name', text: 'Field name', width: '150px', align: 'start', extraClasses: 'me-3' },
+            { key: 'name', text: 'Field name', width: '120px', align: 'start', extraClasses: 'me-3' }, // <<< DECREASED WIDTH
             { key: 'count', text: 'Occured', width: '80px', align: 'end', extraClasses: 'me-3 text-end' }, // Updated text and width
             { key: 'descriptor', text: 'Data descriptor', width: 'auto', align: 'start', extraClasses: 'flex-grow-1 me-3' },
             { key: 'format', text: 'Format', width: '140px', align: 'start', extraClasses: 'me-3' }, // <<< Increased width
-            { key: 'info', text: 'Info', width: '150px', align: 'start', extraClasses: 'me-3' }, // <<< ADDED INFO HEADER DEFINITION
+            { key: 'info', text: 'Info', width: '300px', align: 'start', extraClasses: 'me-3' }, // <<< INCREASED WIDTH
             { key: 'enabled', text: 'Included', width: '70px', align: 'center', extraClasses: 'text-center' }
         ];
 
@@ -1042,7 +1073,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
             const row = document.createElement('div');
             // Add specific class for data rows
-            row.className = 'd-flex align-items-center mb-2 p-2 border-bottom field-data-row'; 
+            row.className = 'd-flex align-items-center mb-2 p-2 border-bottom field-data-row small'; // <<< ADDED .small CLASS
             row.dataset.fieldName = field; 
             if (!isEnabled) {
                 row.style.opacity = '0.6'; 
@@ -1053,8 +1084,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             const nameSpan = document.createElement('span');
             nameSpan.textContent = field;
             nameSpan.className = 'fw-bold me-3'; // Match header spacing
-            nameSpan.style.minWidth = '150px';
-            nameSpan.style.flexBasis = '150px';
+            nameSpan.style.minWidth = '120px'; // <<< DECREASED WIDTH
+            nameSpan.style.flexBasis = '120px'; // <<< DECREASED WIDTH
             nameSpan.style.flexShrink = '0';
             nameSpan.title = field; 
             row.appendChild(nameSpan);
@@ -1129,8 +1160,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             // 4.5. <<< NEW: Info Text Input >>>
             const infoWrapper = document.createElement('div');
             infoWrapper.className = 'me-3'; // Match header spacing
-            infoWrapper.style.minWidth = '150px'; // Match header width
-            infoWrapper.style.flexBasis = '150px';
+            infoWrapper.style.minWidth = '300px'; // <<< INCREASED WIDTH
+            infoWrapper.style.flexBasis = '300px'; // <<< INCREASED WIDTH
             infoWrapper.style.flexShrink = '0';
 
             const infoInput = document.createElement('input');
@@ -1175,6 +1206,15 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             });
             enabledWrapper.appendChild(enabledCheckbox);
             row.appendChild(enabledWrapper);
+
+            // <<< NEW: Add Hover Effect Listeners >>>
+            row.addEventListener('mouseover', () => {
+                row.style.backgroundColor = 'var(--bs-tertiary-bg)'; // Use Bootstrap variable for hover color
+            });
+            row.addEventListener('mouseout', () => {
+                row.style.backgroundColor = ''; // Reset background color
+            });
+            // <<< END NEW >>>
 
             fieldConfigContainer.appendChild(row);
         });
@@ -2325,6 +2365,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             let existingValueCount = 0; // <<< Initialize counter for existing values
             let min = Infinity;
             let max = -Infinity;
+            let sum = 0; // <<< ADDED for average
+            let numericValues = []; // <<< ADDED for median
             const allUniqueTextValues = new Set(); // <<< Use Set to get ALL unique text values
 
             fullProcessedData.forEach(item => {
@@ -2349,6 +2391,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                          numericCount++;
                          if (num < min) min = num;
                          if (num > max) max = num;
+                         sum += num; // <<< ADDED
+                         numericValues.push(num); // <<< ADDED
                      } else {
                          // Collect ALL unique non-numeric strings
                          allUniqueTextValues.add(String(value)); // Store as string
@@ -2363,11 +2407,17 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     existingValueCount: 0 
                 }; // Field exists but no valid values
             } else if (numericCount / existingValueCount >= 0.8) { // Heuristic: >= 80% numeric?
-                newFieldMetadata[field] = { 
-                    type: 'numeric', 
-                    min: min === Infinity ? 'N/A' : min, 
-                    max: max === -Infinity ? 'N/A' : max, 
-                    existingValueCount: existingValueCount 
+                // <<< Calculate average and median BEFORE creating metadata object >>>
+                const average = (numericCount > 0) ? sum / numericCount : null;
+                const median = calculateMedian(numericValues);
+
+                newFieldMetadata[field] = {
+                    type: 'numeric',
+                    min: min === Infinity ? null : min, // Store null
+                    max: max === -Infinity ? null : max, // Store null
+                    average: average, // <<< ADDED
+                    median: median,   // <<< ADDED
+                    existingValueCount: existingValueCount
                 };
             } else {
                 const totalUniqueCount = allUniqueTextValues.size; // <<< Get total unique count
@@ -2849,7 +2899,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             let existingValueCount = 0;
             let min = Infinity;
             let max = -Infinity;
-            const allUniqueTextValues = new Set();
+            let sum = 0; // <<< ADDED for average
+            let numericValues = []; // <<< ADDED for median
+            const allUniqueTextValues = new Set(); // <<< Use Set to get ALL unique text values
 
             data.forEach(item => {
                 // Get value (check top-level, then processed_data)
@@ -2872,6 +2924,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                         numericCount++;
                         if (num < min) min = num;
                         if (num > max) max = num;
+                        sum += num; // <<< ADDED
+                        numericValues.push(num); // <<< ADDED
                     } else {
                         allUniqueTextValues.add(String(value));
                     }
@@ -2882,7 +2936,11 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             if (existingValueCount === 0) {
                 newFinalFieldMetadata[field] = { type: 'empty', existingValueCount: 0 }; // Store in temp var
             } else if (numericCount / existingValueCount >= 0.8) { // Heuristic: >= 80% numeric?
-                newFinalFieldMetadata[field] = { type: 'numeric', min: min === Infinity ? null : min, max: max === -Infinity ? null : max, existingValueCount: existingValueCount };
+                // <<< Calculate average and median BEFORE creating metadata object >>>
+                const average = (numericCount > 0) ? sum / numericCount : null;
+                const median = calculateMedian(numericValues);
+
+                newFinalFieldMetadata[field] = { type: 'numeric', min: min === Infinity ? null : min, max: max === -Infinity ? null : max, average: average, median: median, existingValueCount: existingValueCount };
             } else {
                 const totalUniqueCount = allUniqueTextValues.size;
                 const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
