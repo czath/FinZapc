@@ -683,6 +683,12 @@
 
                     <!-- Reset Button at the end -->
                     <div class="col-md-auto ms-md-auto"> <!-- Push reset button to the right -->
+                        {# --- NEW: Ticker Search --- #}
+                        <div class="input-group input-group-sm me-2" style="max-width: 180px;"> 
+                            <span class="input-group-text" id="chart-ticker-search-addon"><i class="bi bi-search"></i></span>
+                            <input type="text" id="chart-ticker-search" class="form-control form-control-sm" placeholder="Highlight Ticker..." aria-label="Highlight Ticker" aria-describedby="chart-ticker-search-addon">
+                        </div>
+                        {# --- END NEW --- #}
                         <button id="reset-chart-btn" class="btn btn-sm btn-outline-secondary" title="Reset Zoom/Pan">
                             <i class="bi bi-aspect-ratio"></i> Reset View
                         </button>
@@ -692,7 +698,10 @@
                 <div class="chart-container mb-3" style="position: relative; height:50vh; width:100%;">
                     <canvas id="report-chart-canvas"></canvas>
                 </div>
-                <div id="chart-status" class="form-text text-muted small">Select fields to generate the chart.</div>
+                <div class="d-flex justify-content-between"> {# Align status messages #}
+                    <div id="chart-status" class="form-text text-muted small">Select fields to generate the chart.</div>
+                    <div id="chart-search-status" class="form-text text-primary small"></div> {# Search status #}
+                </div>
             </div>
             {# --- End Chart Controls & Display --- #}
 

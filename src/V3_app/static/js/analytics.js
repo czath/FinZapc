@@ -65,6 +65,14 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     const swapAxesBtn = document.getElementById('swap-axes-btn'); // NEW Swap button
     const dataVisualTabTrigger = document.getElementById('data-visual-tab'); // <<< ADDED for tab refresh
 
+    // --- NEW: Chart Interaction State ---
+    let currentChartPlotData = []; // Holds plot data ({x, y, ticker,...}) for current chart
+    let highlightedPointIndex = -1;
+    let originalPointStyle = null;
+    let chartSearchTimeout;
+    const HIGHLIGHT_COLOR = 'rgba(255, 255, 0, 1)'; // Bright yellow
+    const HIGHLIGHT_RADIUS_INCREASE = 3;
+
     // --- File Handling Logic (Import Tab) ---
     function handleFile(file) {
         const dropZoneP = dropZone.querySelector('p');
@@ -1927,6 +1935,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         const statusElement = document.getElementById('chart-status');
 
         // <<< ADDED: Fetch Post-Transform Settings >>>
+        let localPlotDataForSearch = [];
         let postTransformEnabledStatus = {};
         let postTransformNumericFormats = {};
         let postTransformFieldInfoTips = {};
@@ -2015,6 +2024,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         let nonNumericSizeCount = 0; // Track non-numeric/non-positive Size
         let missingItemCount = 0; // Track missing items
         // --- End variable declarations --- 
+
+        // <<< NEW: Reset chart data used for searching >>>
+        // localPlotDataForSearch = []; // <<< REMOVED: Redundant reassignment
 
         // Helper function to get value from item, prioritizing processed_data
         const getValue = (item, field) => {
@@ -2599,8 +2611,222 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
          // pointBackgroundColors = [];
          // pointBorderColors = [];
          // nonNumericCount = 0; 
+
+         // <<< NEW: Assign final plot data for search functionality >>>
+         currentChartPlotData = plotData; // Use the generated plotData
+         console.log(`[renderChart] Updated currentChartPlotData with ${currentChartPlotData.length} points.`);
     }
     // --- END Render Chart --- 
+
+    // --- NEW: Chart Ticker Highlight Functions ---
+    function resetChartHighlight() {
+        if (!reportChartInstance || highlightedPointIndex < 0 || !originalPointStyle) {
+            return; // Nothing to reset or chart not ready
+        }
+        try {
+            // Assuming highlight affects the first dataset
+            const dataset = reportChartInstance.data.datasets[0];
+            if (!dataset) { // Simplified check
+                console.warn("[resetChartHighlight] Dataset not found. Cannot reset style.");
+                return;
+            }
+
+            // Restore original style (handle array/single value for each property)
+            const propsToRestore = ['backgroundColor', 'borderColor', 'borderWidth', 'radius', 'pointStyle'];
+            propsToRestore.forEach(prop => {
+                if (originalPointStyle.hasOwnProperty(prop)) {
+                    if (Array.isArray(dataset[prop])) {
+                        if (dataset[prop].length > highlightedPointIndex) {
+                             dataset[prop][highlightedPointIndex] = originalPointStyle[prop];
+                        }
+                    } else {
+                        dataset[prop] = originalPointStyle[prop];
+                    }
+                }
+            });
+
+            reportChartInstance.update('none'); // Update without animation
+            console.log(`[ChartHighlight] Reset highlight for index ${highlightedPointIndex}`);
+        } catch (error) {
+            console.error("[resetChartHighlight] Error resetting highlight:", error);
+        } finally {
+            // Clear state regardless of success/failure
+            highlightedPointIndex = -1;
+            originalPointStyle = null;
+            const searchStatus = document.getElementById('chart-search-status');
+            if (searchStatus) searchStatus.textContent = ''; // Clear status message
+        }
+    }
+
+    function highlightTickerOnChart(tickerToFind) {
+        console.log("[ChartHighlight] highlightTickerOnChart function entered."); 
+        resetChartHighlight(); // Reset previous highlight first
+        const searchStatus = document.getElementById('chart-search-status');
+
+        // Wrap reset call in try-catch
+        try {
+            // resetChartHighlight(); // Called above, remove duplicate
+            console.log("[ChartHighlight] resetChartHighlight completed successfully.");
+        } catch (resetError) {
+            console.error("[ChartHighlight] Error occurred within resetChartHighlight call:", resetError);
+        }
+
+        console.log(`[ChartHighlight] BEFORE Check 1: reportChartInstance valid? ${!!reportChartInstance}, currentChartPlotData valid? ${!!currentChartPlotData}, data length: ${currentChartPlotData?.length}`);
+        if (!reportChartInstance || !currentChartPlotData || currentChartPlotData.length === 0) {
+            console.log("[ChartHighlight] EXITING at Check 1 (Chart/data not ready).");
+            if (searchStatus) searchStatus.textContent = 'Chart/data not ready.';
+            return;
+        }
+        console.log(`[ChartHighlight] Checking chart type. Instance type: '${reportChartInstance?.config?.type}'`);
+        const chartType = reportChartInstance.config.type;
+        // Allow highlight on bar charts too now, though pointStyle won't apply
+        if (chartType !== 'scatter' && chartType !== 'bubble' && chartType !== 'line' && chartType !== 'bar') { 
+            if (searchStatus) searchStatus.textContent = 'Highlighting not supported for this chart type.';
+            return;
+        }
+
+        const upperTicker = tickerToFind.toUpperCase().trim();
+        if (!upperTicker) {
+            if (searchStatus) searchStatus.textContent = '';
+            return;
+        }
+
+        // --- Find Index --- Find index based on chart type
+        let foundIndex = -1;
+        if (chartType === 'bar') {
+            // For bar charts, find the index in the labels array
+            const labels = reportChartInstance.data.labels || [];
+            foundIndex = labels.findIndex(label => label && label.toUpperCase() === upperTicker);
+        } else {
+            // For other chart types, use currentChartPlotData (scatter, line, bubble)
+            foundIndex = currentChartPlotData.findIndex(p => p && p.ticker && p.ticker.toUpperCase() === upperTicker);
+        }
+
+        if (foundIndex > -1) {
+            try {
+                const dataset = reportChartInstance.data.datasets[0];
+                if (!dataset) throw new Error("Dataset not found");
+                const dataLength = (chartType === 'bar') ? (dataset.data?.length ?? 0) : currentChartPlotData.length;
+                if (dataLength === 0) throw new Error("Dataset has no data");
+
+                // --- Store Original Styles --- 
+                originalPointStyle = {};
+                const propsToStoreAndModify = ['backgroundColor', 'borderColor', 'borderWidth', 'radius', 'pointStyle'];
+
+                // Helper to get original value (array or single)
+                const getOriginalValue = (prop) => {
+                    if (!dataset.hasOwnProperty(prop)) return undefined; // Property doesn't exist
+                    const propValue = dataset[prop];
+                    return Array.isArray(propValue) ? (propValue[foundIndex] ?? undefined) : propValue;
+                };
+
+                propsToStoreAndModify.forEach(prop => {
+                     originalPointStyle[prop] = getOriginalValue(prop);
+                });
+                
+                // Define fallbacks for potentially missing originals
+                const fallbacks = {
+                    backgroundColor: 'rgba(128,128,128,0.1)',
+                    borderColor: 'rgba(128,128,128,1)',
+                    borderWidth: 1,
+                    radius: (chartType === 'bar') ? undefined : 3, // No default radius for bars
+                    pointStyle: (chartType === 'bar') ? undefined : 'circle' // No default pointStyle for bars
+                };
+
+                // Apply fallbacks if original was undefined
+                for (const prop in fallbacks) {
+                    if (originalPointStyle[prop] === undefined) {
+                        originalPointStyle[prop] = fallbacks[prop];
+                    }
+                }
+                // Ensure we don't store undefined if a property was truly missing
+                Object.keys(originalPointStyle).forEach(key => {
+                    if (originalPointStyle[key] === undefined) delete originalPointStyle[key];
+                });
+                
+                console.log("[ChartHighlight] Stored original styles:", JSON.parse(JSON.stringify(originalPointStyle)));
+
+                // --- Apply Highlight Styles --- 
+                const HIGHLIGHT_BORDER_WIDTH = 4; // Increased border
+                const HIGHLIGHT_RADIUS_INCREASE = 6; // Increased radius bump
+                const HIGHLIGHT_POINT_STYLE = 'star';
+
+                // Calculate new radius safely (only if original radius exists)
+                let newRadius = originalPointStyle.radius; // Start with original
+                if (typeof originalPointStyle.radius === 'number') { // Check if it was a number
+                     newRadius = originalPointStyle.radius + HIGHLIGHT_RADIUS_INCREASE;
+                }
+                
+                // Styles to apply
+                const highlightStyles = {
+                    // backgroundColor: HIGHLIGHT_COLOR, // Optional: Change background too?
+                    borderColor: HIGHLIGHT_COLOR,
+                    borderWidth: HIGHLIGHT_BORDER_WIDTH,
+                    radius: newRadius, // Apply calculated new radius
+                    pointStyle: (chartType === 'bubble' || chartType === 'bar') ? originalPointStyle.pointStyle : HIGHLIGHT_POINT_STYLE // Don't apply star to bubble/bar
+                };
+
+                // Helper to ensure property is an array and set the value
+                const ensureArrayAndSet = (prop, valueToSet) => {
+                    if (!dataset.hasOwnProperty(prop) && !originalPointStyle.hasOwnProperty(prop)) {
+                         console.warn(`[Highlight] Skipping property '${prop}' as it doesn't exist in dataset or originals.`);
+                         return; // Don't try to set properties that don't exist
+                    }
+                    
+                    let currentArray = dataset[prop];
+                    const original = originalPointStyle[prop]; // Use stored original
+
+                    if (!Array.isArray(currentArray)) {
+                        // If not an array, create one, filling with original/fallback
+                        console.log(`[Highlight] Converting '${prop}' to array.`);
+                        currentArray = new Array(dataLength).fill(original);
+                        dataset[prop] = currentArray; // Assign the new array back to the dataset
+                    }
+                    
+                    // Ensure array is long enough (might happen with dynamic data)
+                    if (currentArray.length < dataLength) {
+                        console.warn(`[Highlight] Array for '${prop}' is shorter than data length. Extending...`);
+                        const originalFill = currentArray[0] !== undefined ? currentArray[0] : original; // Use first element or original as fill
+                        while(currentArray.length < dataLength) {
+                            currentArray.push(originalFill);
+                        }
+                    }
+
+                    // Set the value at the specific index
+                    if (foundIndex < currentArray.length) {
+                        currentArray[foundIndex] = valueToSet;
+                        console.log(`[Highlight] Set ${prop}[${foundIndex}] = ${valueToSet}`);
+                    } else {
+                         console.error(`[Highlight] foundIndex ${foundIndex} is out of bounds for '${prop}' array (length ${currentArray.length})`);
+                    }
+                };
+
+                // Apply the highlight styles using the helper
+                for (const prop in highlightStyles) {
+                    // Only apply radius/pointStyle if they existed originally or make sense for chart type
+                    if (prop === 'radius' && originalPointStyle.radius === undefined) continue;
+                    if (prop === 'pointStyle' && originalPointStyle.pointStyle === undefined) continue;
+                    
+                    ensureArrayAndSet(prop, highlightStyles[prop]);
+                }
+
+                highlightedPointIndex = foundIndex;
+                reportChartInstance.update('none'); // Update chart without animation
+                if (searchStatus) searchStatus.textContent = `Ticker ${tickerToFind.toUpperCase()} highlighted.`;
+                console.log(`[ChartHighlight] Highlight applied to index ${foundIndex} for ticker ${tickerToFind}`);
+
+            } catch (error) {
+                console.error(`[ChartHighlight] Error applying highlight for ${tickerToFind}:`, error);
+                if (searchStatus) searchStatus.textContent = `Error highlighting ${tickerToFind}.`;
+                highlightedPointIndex = -1;
+                originalPointStyle = null;
+            }
+        } else {
+            if (searchStatus) searchStatus.textContent = `Ticker ${tickerToFind.toUpperCase()} not found in chart data.`;
+            console.log(`[ChartHighlight] Ticker ${tickerToFind} not found.`);
+        }
+    }
+    // --- END Highlight Functions ---
 
     // --- Data Loading & State Update (Preparation Tab) ---
      function processLoadedDataAndUpdateState() {
@@ -3760,5 +3986,26 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         console.warn("Could not find Data Table tab trigger (#data-table-tab) to attach refresh listener.");
     }
     // --- END NEW --- 
+
+    // --- NEW: Add Listener for Chart Ticker Search ---
+    const chartTickerSearchInput = document.getElementById('chart-ticker-search');
+    if (chartTickerSearchInput) {
+        console.log("[ChartSearch] Attaching listener to search input."); // Verify listener attachment
+        chartTickerSearchInput.addEventListener('input', () => {
+            clearTimeout(chartSearchTimeout);
+            const searchTerm = chartTickerSearchInput.value;
+            console.log(`[ChartSearch] Input event: searchTerm = '${searchTerm}'`); // Log search term
+            chartSearchTimeout = setTimeout(() => {
+                if (searchTerm.trim() === '') {
+                    console.log("[ChartSearch] Search term empty, resetting highlight.");
+                    resetChartHighlight();
+                } else {
+                    console.log(`[ChartSearch] Debounced search, calling highlightTickerOnChart('${searchTerm}')`);
+                    highlightTickerOnChart(searchTerm);
+                }
+            }, 500); // Debounce search by 500ms
+        });
+    }
+    // --- END NEW ---
 
 }); 

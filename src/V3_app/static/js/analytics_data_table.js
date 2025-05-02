@@ -186,17 +186,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const thead = tableElement.querySelector('thead') || tableElement.createTHead();
         thead.innerHTML = ''; // Clear existing header
         const theadRow = thead.insertRow();
-        currentHeaders.forEach(headerText => {
-            const th = document.createElement('th');
+            currentHeaders.forEach(headerText => {
+                const th = document.createElement('th');
             th.textContent = (headerText === 'ticker' ? 'Ticker' : headerText);
-            const tip = infoTips[headerText];
-            if (tip) {
-                th.title = tip;
-                th.dataset.bsToggle = 'tooltip';
-                th.dataset.bsPlacement = 'top';
-            }
-            theadRow.appendChild(th);
-        });
+                const tip = infoTips[headerText];
+                if (tip) {
+                    th.title = tip;
+                    th.dataset.bsToggle = 'tooltip';
+                    th.dataset.bsPlacement = 'top';
+                }
+                theadRow.appendChild(th);
+            });
 
         // Ensure tbody exists
         let tbody = tableElement.querySelector('tbody');
@@ -343,8 +343,8 @@ document.addEventListener('DOMContentLoaded', function() {
                  // Initialize DataTable for the first time or after destruction
                  console.log("[DataTableModule] Initializing DataTable.");
                  finalDataTableInstance = $(tableElement).DataTable(dtOptions);
-                 // Adjust columns after initial draw
-                 finalDataTableInstance.columns.adjust().draw();
+                // Adjust columns after initial draw
+                finalDataTableInstance.columns.adjust().draw();
                  // Update group by options
                  populateGroupBySelector(currentHeaders);
              }
@@ -678,7 +678,7 @@ document.addEventListener('DOMContentLoaded', function() {
             updateFinalDataTable(); // Re-render table with new grouping
         });
     }
-
+    
     // --- Initial Setup (Optional - Placeholder) ---
     // If the table needs to load immediately (e.g., if data might be ready from cache):
     // updateFinalDataTable();
