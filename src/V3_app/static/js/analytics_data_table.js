@@ -237,8 +237,52 @@ document.addEventListener('DOMContentLoaded', function() {
                      dtOptions.rowGroup = {
                          dataSrc: groupIndex,
                          startRender: function (rows, group) {
-                             return $('<tr class="group bg-secondary-subtle">')
-                                 .append('<td colspan="' + rows.columns().count() + '">' + group + ' (' + rows.count() + ' rows)</td>')
+                             var table = $(tableElement).DataTable();
+                             var columns = table.columns();
+                             var visibleColumnCount = 0;
+                             columns.every(function() { if (this.visible()) visibleColumnCount++; });
+
+                             var summaryData = {};
+                             const modules = getRequiredModules();
+                             const finalMetadata = modules?.mainModule?.getFinalFieldMetadata ? modules.mainModule.getFinalFieldMetadata() : {};
+                             const postTransformNumericFormats = modules?.postTransformModule?.getPostTransformNumericFormats ? modules.postTransformModule.getPostTransformNumericFormats() : {};
+                             const preTransformNumericFormats = modules?.mainModule?.getNumericFieldFormats ? modules.mainModule.getNumericFieldFormats() : {};
+                             const formatNumericValue = modules?.mainModule?.formatNumericValue || ((val, fmt) => val);
+
+                             // Calculate summaries (only need stats, not HTML)
+                             columns.every(function (colIdx) {
+                                 const header = currentHeaders[colIdx];
+                                 const meta = finalMetadata[header] || {};
+                                 if (meta.type === 'numeric') {
+                                     var colDataArray = rows.data().pluck(colIdx).toArray();
+                                     var colData = colDataArray.map(parseFloat).filter(val => !isNaN(val));
+                                     if (colData.length > 0) {
+                                         var sum = colData.reduce((a, b) => a + b, 0);
+                                         var min = Math.min(...colData);
+                                         var max = Math.max(...colData);
+                                         var avg = sum / colData.length;
+                                         const effectiveFormat = postTransformNumericFormats.hasOwnProperty(header) 
+                                                                 ? postTransformNumericFormats[header] 
+                                                                 : (preTransformNumericFormats[header] || 'default');
+                                         // Store raw and formatted values for the modal
+                                         summaryData[header] = { 
+                                             raw: { sum: sum, min: min, max: max, count: colData.length, avg: avg },
+                                             formatted: { 
+                                                 sum: formatNumericValue(sum, effectiveFormat),
+                                                 min: formatNumericValue(min, effectiveFormat),
+                                                 max: formatNumericValue(max, effectiveFormat),
+                                                 avg: formatNumericValue(avg, effectiveFormat)
+                                             }
+                                         };
+                                     }
+                                 }
+                             });
+
+                             // Create the group header row
+                             return $('<tr class="group-header-row bg-secondary-subtle" style="cursor: pointer;">')
+                                 .attr('data-group', group)
+                                 .attr('data-summary', JSON.stringify(summaryData))
+                                 .append('<td colspan="' + visibleColumnCount + '"><i class="bi bi-info-circle me-2"></i>' + group + ' (' + rows.count() + ' rows)</td>')
                                  .get(0);
                          }
                      };
@@ -256,8 +300,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // 6. Initialize tooltips on header
             initializeFinalTableTooltips();
 
-            // <<< ADDED: Attach DataTables/jQuery hover listeners >>>
-            attachHoverHighlights(tableElement);
+            // Attach hover highlights AND the new click listener
+            attachTableListeners(tableElement);
 
             // 7. Update Status
             statusElement.textContent = `Showing ${finalData.length} records.`;
@@ -292,11 +336,13 @@ document.addEventListener('DOMContentLoaded', function() {
          console.log(`[DataTableModule] Initialized ${newTooltipList.length} tooltips.`);
     }
 
-    // --- NEW: Hover Highlight Function using jQuery/DataTables events ---
-    function attachHoverHighlights(tableElem) {
+    // --- NEW: Combined Listener Attachment Function --- <<< RENAMED & UPDATED >>>
+    function attachTableListeners(tableElem) {
         // Remove previous listeners to prevent duplicates if table is updated
         $(tableElem).off('mouseenter', 'tbody td');
         $(tableElem).off('mouseleave', 'tbody td');
+
+        $(tableElem).off('click', 'tbody tr.group-header-row'); // Remove previous click listener
 
         // Attach new listeners using jQuery delegation
         $(tableElem).on('mouseenter', 'tbody td', function() {
@@ -332,9 +378,61 @@ document.addEventListener('DOMContentLoaded', function() {
                 $(this).find('td').eq(cellIndex).removeClass('col-highlight');
             });
         });
-        console.log("[DataTableModule] Hover highlight listeners attached via jQuery/DataTables.");
+
+        // --- NEW: Attach Click Listener for Group Summary Modal ---
+        $(tableElem).on('click', 'tbody tr.group-header-row', function(e) {
+            e.preventDefault();
+            console.log("[DataTableModule] Group header clicked.");
+
+            const groupName = $(this).data('group');
+            // Use .attr() to reliably get the raw attribute value
+            const summaryJson = $(this).attr('data-summary'); 
+            let summaryData = {};
+            try {
+                summaryData = JSON.parse(summaryJson || '{}');
+            } catch (err) {
+                console.error("[DataTableModule] Error parsing summary data from attribute:", err);
+            }
+
+            // Get modal elements
+            const modalElement = document.getElementById('groupSummaryModal');
+            const modalTitle = document.getElementById('groupSummaryModalLabel');
+            const modalBody = document.getElementById('groupSummaryModalBody');
+
+            if (!modalElement || !modalTitle || !modalBody) {
+                console.error("[DataTableModule] Group summary modal elements not found.");
+                return;
+            }
+
+            // Populate Modal
+            modalTitle.textContent = `Summary for Group: ${groupName}`;
+
+            let bodyHtml = '<dl class="row">'; // Use definition list for layout
+            if (Object.keys(summaryData).length > 0) {
+                for (const header in summaryData) {
+                    if (summaryData.hasOwnProperty(header)) {
+                        const stats = summaryData[header].formatted;
+                        bodyHtml += `<dt class="col-sm-4 border-top pt-1">${header}</dt>`;
+                        bodyHtml += `<dd class="col-sm-8 border-top pt-1">`;
+                        bodyHtml += `<span class="me-3">Avg: ${stats.avg}</span>`;
+                        bodyHtml += `<span class="me-3">Sum: ${stats.sum}</span>`;
+                        bodyHtml += `<span class="me-3">Min: ${stats.min}</span>`;
+                        bodyHtml += `<span>Max: ${stats.max}</span>`;
+                        bodyHtml += `</dd>`;
+                    }
+                }
+            } else {
+                bodyHtml += '<p class="text-muted">No numeric data found for summary in this group.</p>';
+            }
+            bodyHtml += '</dl>';
+            modalBody.innerHTML = bodyHtml;
+
+            // Show Modal
+            const bsModal = bootstrap.Modal.getOrCreateInstance(modalElement);
+            bsModal.show();
+        });
+        console.log("[DataTableModule] Group summary click listener attached.");
     }
-    // --- END NEW Hover Function ---
 
     // --- Expose Public API ---
     window.AnalyticsDataTableModule = {

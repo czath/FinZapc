@@ -783,6 +783,26 @@
     </div>
     {# --- End Reload Scenario Confirmation Modal --- #}
 
+    {# --- NEW: Group Summary Modal --- #}
+    <div class="modal fade" id="groupSummaryModal" tabindex="-1" aria-labelledby="groupSummaryModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable"> {# Large and scrollable #}
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="groupSummaryModalLabel">Group Summary</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="groupSummaryModalBody">
+                    {# Content will be populated by JS #}
+                    <p class="text-center text-muted">Loading summary...</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {# --- End Group Summary Modal --- #}
+
 {% endblock %}
 
 {% block scripts %}
