@@ -517,7 +517,7 @@ window.AnalyticsConfigManager = (function() {
             const unsavedRow = tableBody.insertRow(0); // Insert at the top
             
             const nameCell = unsavedRow.insertCell();
-            nameCell.innerHTML = '<i>(Unsaved Changes)</i>';
+            nameCell.innerHTML = '<span class="badge rounded-pill bg-danger-subtle text-danger-emphasis fw-normal">(Unsaved Changes)</span>';
             nameCell.colSpan = 1; 
 
             const actionsCell = unsavedRow.insertCell();

@@ -203,16 +203,10 @@ document.addEventListener('DOMContentLoaded', function() {
             } // Else: currentTip remains '', isTipInherited remains false
             // --- END Tip Inheritance Logic ---
 
-            // --- Helper function to create indicator ---
-            const createInheritanceIndicator = () => {
-                const indicator = document.createElement('i');
-                indicator.className = 'bi bi-arrow-down-left-square text-muted small ms-1 align-middle'; // Added align-middle
-                indicator.title = 'Value inherited from pre-transform settings';
-                indicator.dataset.bsToggle = 'tooltip';
-                indicator.dataset.bsPlacement = 'top';
-                return indicator;
-            };
+            // --- REMOVE Helper function (we'll use innerHTML) ---
+            // const createInheritanceIndicator = () => { ... };
             // ---
+            const inheritanceIconHTML = '<i class="bi bi-arrow-down-left-square text-primary small ms-1 align-middle" title="Value inherited from pre-transform settings" data-bs-toggle="tooltip" data-bs-placement="top"></i>';
 
             // Cell 1: Field Name (using final metadata)
             const nameCell = row.insertCell();
@@ -228,41 +222,51 @@ document.addEventListener('DOMContentLoaded', function() {
             // Cell 2: Enabled Toggle
             const enableCell = row.insertCell();
             enableCell.className = 'text-center';
-            const enableSwitchContainer = document.createElement('div'); // Wrapper for switch and indicator
-            enableSwitchContainer.className = 'd-inline-flex align-items-center'; // Use flex to align switch and icon
-            const enableSwitch = document.createElement('div');
-            enableSwitch.className = 'form-check form-switch'; // Removed d-inline-block
+            const enableCellContent = document.createElement('div'); // Parent flex container
+            enableCellContent.className = 'd-flex align-items-center justify-content-center'; // Center content
+            const enableSwitchContainer = document.createElement('div');
+            enableSwitchContainer.className = 'form-check form-switch'; // Switch itself
             const enableInput = document.createElement('input');
             enableInput.type = 'checkbox';
             enableInput.className = 'form-check-input';
             enableInput.role = 'switch';
             enableInput.checked = isEnabled;
             enableInput.id = `post-transform-enable-${fieldName.replace(/\W/g, '_')}`;
+
+            const enableIndicatorPlaceholder = document.createElement('span');
+            enableIndicatorPlaceholder.className = 'inheritance-indicator';
+            enableIndicatorPlaceholder.style.minWidth = '20px'; // Fixed width for placeholder
+            enableIndicatorPlaceholder.style.display = 'inline-block'; // Ensure it takes space
+            enableIndicatorPlaceholder.style.textAlign = 'center';
+            if (isEnabledInherited) {
+                enableIndicatorPlaceholder.innerHTML = inheritanceIconHTML;
+            }
+
             enableInput.addEventListener('change', (e) => {
                 const field = row.dataset.fieldName;
                 const checked = e.target.checked;
                 console.log(`[PostTransform] Enable toggled for ${field}: ${checked}`);
                 postTransformFieldEnabledStatus[field] = checked;
                 savePostTransformEnabledStatusToStorage();
-                // Remove inheritance indicator if it exists when user makes a change
-                const indicator = enableSwitchContainer.querySelector('.bi-arrow-down-left-square');
-                if (indicator) indicator.remove();
+                // Clear inheritance indicator placeholder when user makes a change
+                enableIndicatorPlaceholder.innerHTML = '';
                 // <<< Explicitly re-attach modification listeners >>>
                 if (window.AnalyticsConfigManager?.initializeModificationDetection) {
-                    window.AnalyticsConfigManager.initializeModificationDetection();
+                     window.AnalyticsConfigManager.initializeModificationDetection();
                 }
             });
-            enableSwitch.appendChild(enableInput);
-            enableSwitchContainer.appendChild(enableSwitch);
-            if (isEnabledInherited) {
-                enableSwitchContainer.appendChild(createInheritanceIndicator());
-            }
-            enableCell.appendChild(enableSwitchContainer); // Append the container
+            enableSwitchContainer.appendChild(enableInput);
+            enableCellContent.appendChild(enableSwitchContainer); // Add switch
+            enableCellContent.appendChild(enableIndicatorPlaceholder); // Add placeholder
+            enableCell.appendChild(enableCellContent); // Add container to cell
 
             // Cell 3: Format Select/Button
             const formatCell = row.insertCell();
-            const formatContentWrapper = document.createElement('div'); // Wrapper for content and indicator
-            formatContentWrapper.className = 'd-flex align-items-center'; // Align select/text and icon
+            const formatCellContent = document.createElement('div'); // Parent flex container
+            formatCellContent.className = 'd-flex align-items-center';
+            const formatControlWrapper = document.createElement('div'); // Wrapper for the select/text
+            formatControlWrapper.className = 'flex-grow-1'; // Allow control to take space
+
             if (isNumeric) {
                 const formatSelect = document.createElement('select');
                 formatSelect.className = 'form-select form-select-sm';
@@ -296,10 +300,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                         e.target.value = currentFormat; // Reset select visually
                     } else {
-                        postTransformNumericFieldFormats[field] = selectedFormat; 
-                        savePostTransformNumericFormatsToStorage(); 
+                        postTransformNumericFieldFormats[field] = selectedFormat;
+                        savePostTransformNumericFormatsToStorage();
                         formatSelect.title = `Current format: ${selectedFormat}`;
-                        const customOpt = formatSelect.querySelector(`option[value^="custom:"]`); 
+                        const customOpt = formatSelect.querySelector(`option[value^="custom:"]`);
                         if(customOpt && customOpt.value !== selectedFormat) {
                              formatSelect.removeChild(customOpt);
                         }
@@ -312,66 +316,81 @@ document.addEventListener('DOMContentLoaded', function() {
                                 formatSelect.appendChild(newCustomOption);
                             }
                         }
-                         // Remove inheritance indicator if it exists when user makes a change
-                        const indicator = formatContentWrapper.querySelector('.bi-arrow-down-left-square');
-                        if (indicator) indicator.remove();
-                        // <<< Explicitly re-attach modification listeners >>>
-                        if (window.AnalyticsConfigManager?.initializeModificationDetection) {
-                            window.AnalyticsConfigManager.initializeModificationDetection();
-                        }
+                         // Clear inheritance indicator placeholder when user makes a change
+                         formatIndicatorPlaceholder.innerHTML = '';
+                         // <<< Explicitly re-attach modification listeners >>>
+                         if (window.AnalyticsConfigManager?.initializeModificationDetection) {
+                             window.AnalyticsConfigManager.initializeModificationDetection();
+                         }
                     }
                 });
-                formatContentWrapper.appendChild(formatSelect);
-                if (isFormatInherited) {
-                    formatContentWrapper.appendChild(createInheritanceIndicator());
-                }
+                formatControlWrapper.appendChild(formatSelect);
             } else {
                 const naSpan = document.createElement('span');
                 naSpan.className = 'text-muted small';
                 naSpan.textContent = 'N/A';
-                formatContentWrapper.appendChild(naSpan);
-                // No indicator for N/A
+                formatControlWrapper.appendChild(naSpan);
             }
-            formatCell.appendChild(formatContentWrapper);
+
+            const formatIndicatorPlaceholder = document.createElement('span');
+            formatIndicatorPlaceholder.className = 'inheritance-indicator';
+            formatIndicatorPlaceholder.style.minWidth = '20px';
+            formatIndicatorPlaceholder.style.display = 'inline-block';
+            formatIndicatorPlaceholder.style.textAlign = 'center';
+            if (isFormatInherited) {
+                formatIndicatorPlaceholder.innerHTML = inheritanceIconHTML;
+            }
+
+            formatCellContent.appendChild(formatControlWrapper); // Add control
+            formatCellContent.appendChild(formatIndicatorPlaceholder); // Add placeholder
+            formatCell.appendChild(formatCellContent); // Add container to cell
 
             // Cell 4: Info Tip
             const tipCell = row.insertCell();
             tipCell.style.position = 'relative';
-            const tipContentWrapper = document.createElement('div'); // Wrapper for input and indicator
-            tipContentWrapper.className = 'd-flex align-items-center'; // Align input and icon
-            const tipGroup = document.createElement('div');
-            tipGroup.className = 'input-group input-group-sm flex-grow-1'; // Allow input group to grow
+            const tipCellContent = document.createElement('div'); // Parent flex container
+            tipCellContent.className = 'd-flex align-items-center';
+            const tipControlWrapper = document.createElement('div'); // Wrapper for input group
+            tipControlWrapper.className = 'input-group input-group-sm flex-grow-1'; // Grow input group
             const tipInput = document.createElement('input');
             tipInput.type = 'text';
             tipInput.className = 'form-control form-control-sm field-info-input';
             tipInput.placeholder = 'Add hover tip...';
             tipInput.value = currentTip;
             tipInput.title = currentTip || 'No info tip set';
+
+            const tipIndicatorPlaceholder = document.createElement('span');
+            tipIndicatorPlaceholder.className = 'inheritance-indicator';
+            tipIndicatorPlaceholder.style.minWidth = '20px';
+            tipIndicatorPlaceholder.style.display = 'inline-block'; // Use inline-block if needed next to input-group
+            tipIndicatorPlaceholder.style.textAlign = 'center';
+             tipIndicatorPlaceholder.classList.add('ms-1'); // Add margin start
+            if (isTipInherited) {
+                tipIndicatorPlaceholder.innerHTML = inheritanceIconHTML;
+            }
+
             let saveTimeout;
             tipInput.addEventListener('input', (e) => {
                 clearTimeout(saveTimeout);
                 const field = row.dataset.fieldName;
                 const value = e.target.value;
-                tipInput.title = value || 'No info tip set'; 
+                tipInput.title = value || 'No info tip set';
                 saveTimeout = setTimeout(() => {
                     console.log(`[PostTransform] Info tip updated for ${field}: ${value}`);
-                    postTransformFieldInfoTips[field] = value; 
-                    savePostTransformInfoTipsToStorage(); 
-                }, 750); 
-                // Remove inheritance indicator if it exists when user makes a change
-                const indicator = tipContentWrapper.querySelector('.bi-arrow-down-left-square');
-                if (indicator) indicator.remove();
+                    postTransformFieldInfoTips[field] = value;
+                    savePostTransformInfoTipsToStorage();
+                }, 750);
+                // Clear inheritance indicator placeholder when user makes a change
+                tipIndicatorPlaceholder.innerHTML = '';
                 // <<< Explicitly re-attach modification listeners >>>
                 if (window.AnalyticsConfigManager?.initializeModificationDetection) {
-                    window.AnalyticsConfigManager.initializeModificationDetection();
+                     window.AnalyticsConfigManager.initializeModificationDetection();
                 }
             });
-            tipGroup.appendChild(tipInput);
-            tipContentWrapper.appendChild(tipGroup); // Add input group to wrapper
-            if (isTipInherited) {
-                tipContentWrapper.appendChild(createInheritanceIndicator());
-            }
-            tipCell.appendChild(tipContentWrapper);
+            tipControlWrapper.appendChild(tipInput);
+            tipCellContent.appendChild(tipControlWrapper); // Add input group wrapper
+            tipCellContent.appendChild(tipIndicatorPlaceholder); // Add placeholder
+            tipCell.appendChild(tipCellContent);
         });
 
         console.log("[PostTransform] Finished rendering UI.");

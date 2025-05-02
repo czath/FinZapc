@@ -3437,6 +3437,16 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         fieldInfoTips = mergedTips; // Assign the merged result
         console.log("[loadFieldSettings] Merged infoTips. After merge:", JSON.parse(JSON.stringify(fieldInfoTips)));
 
+        // Info Tips - Revert to direct assignment for scenario load
+        console.log("[loadFieldSettings] Overwriting infoTips. Received from scenario:", JSON.parse(JSON.stringify(infoTips)));
+        if (infoTips && typeof infoTips === 'object' && !Array.isArray(infoTips)) {
+            fieldInfoTips = { ...infoTips }; // Create a shallow copy to prevent mutation issues
+        } else {
+             console.warn("[loadFieldSettings] Invalid infoTips provided, resetting.");
+             fieldInfoTips = {};
+        }
+        console.log("[loadFieldSettings] infoTips after assignment:", JSON.parse(JSON.stringify(fieldInfoTips)));
+
         // No need to save to storage here
         // Re-render relevant UI components
         renderFieldConfigUI(); // Uses enabledStatus, numericFormats, infoTips
