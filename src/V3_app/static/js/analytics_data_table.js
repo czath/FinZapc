@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     let finalDataTableInstance = null;
     let lastAppliedHeaders = [];
+    let currentHeaders = [];
     const tableElement = document.getElementById('final-data-table');
     const statusElement = document.getElementById('final-table-status');
     const tableContainer = document.getElementById('final-data-table-container'); // For visibility checks
@@ -90,7 +91,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // 1. Determine Headers/Columns: Use finalAvailableFields & filter by Post-Transform Status
         const finalAvailableFields = mainModule.getFinalAvailableFields() || [];
         const postTransformEnabledStatus = postTransformModule.getPostTransformEnabledStatus() || {}; // Get post-transform status
-        let currentHeaders = finalAvailableFields.filter(field => 
+        currentHeaders = finalAvailableFields.filter(field => 
             postTransformEnabledStatus[field] !== false // Filter by post-transform status (default true)
         );
 
@@ -193,6 +194,7 @@ document.addEventListener('DOMContentLoaded', function() {
                  const dtOptions = {
                      data: tableData,
                      columns: currentHeaders.map(header => ({ title: (header === 'ticker' ? 'Ticker' : header) })),
+                     order: [[0, 'asc']], // Default dynamic order (will be overridden by fixed if grouping)
                      columnDefs: columnDefs,
                      deferRender: true,
                      paging: true,
@@ -203,7 +205,6 @@ document.addEventListener('DOMContentLoaded', function() {
                      scrollY: '500px', // Adjust as needed
                      scrollCollapse: true,
                      stateSave: false,
-                     order: [[(groupIndex >= 0 ? groupIndex : 0), 'asc']], // Sort by group column or first column
                      language: {
                          emptyTable: "No data available after transformations and filtering.",
                          zeroRecords: "No matching records found"
@@ -232,26 +233,30 @@ document.addEventListener('DOMContentLoaded', function() {
                      destroy: true // Important to allow re-initialization
                  };
 
+                 // Conditionally add orderFixed
+                 if (groupIndex >= 0) {
+                    dtOptions.orderFixed = { pre: [[groupIndex, 'asc']] };
+                 }
+
                  // Conditionally add rowGroup option
                  if (groupIndex >= 0) {
                      dtOptions.rowGroup = {
                          dataSrc: groupIndex,
                          startRender: function (rows, group) {
-                             var table = $(tableElement).DataTable();
-                             var columns = table.columns();
+                             var table = $(tableElement).DataTable(); 
+                             var columns = table.columns(); 
                              var visibleColumnCount = 0;
                              columns.every(function() { if (this.visible()) visibleColumnCount++; });
-
-                             var summaryData = {};
+ 
+                             var summaryData = {}; 
                              const modules = getRequiredModules();
                              const finalMetadata = modules?.mainModule?.getFinalFieldMetadata ? modules.mainModule.getFinalFieldMetadata() : {};
                              const postTransformNumericFormats = modules?.postTransformModule?.getPostTransformNumericFormats ? modules.postTransformModule.getPostTransformNumericFormats() : {};
                              const preTransformNumericFormats = modules?.mainModule?.getNumericFieldFormats ? modules.mainModule.getNumericFieldFormats() : {};
                              const formatNumericValue = modules?.mainModule?.formatNumericValue || ((val, fmt) => val);
-
-                             // Calculate summaries (only need stats, not HTML)
+ 
                              columns.every(function (colIdx) {
-                                 const header = currentHeaders[colIdx];
+                                 const header = currentHeaders[colIdx]; 
                                  const meta = finalMetadata[header] || {};
                                  if (meta.type === 'numeric') {
                                      var colDataArray = rows.data().pluck(colIdx).toArray();
@@ -264,7 +269,6 @@ document.addEventListener('DOMContentLoaded', function() {
                                          const effectiveFormat = postTransformNumericFormats.hasOwnProperty(header) 
                                                                  ? postTransformNumericFormats[header] 
                                                                  : (preTransformNumericFormats[header] || 'default');
-                                         // Store raw and formatted values for the modal
                                          summaryData[header] = { 
                                              raw: { sum: sum, min: min, max: max, count: colData.length, avg: avg },
                                              formatted: { 
@@ -277,12 +281,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                      }
                                  }
                              });
-
-                             // Create the group header row
-                             return $('<tr class="group-header-row bg-secondary-subtle" style="cursor: pointer;">')
+                             return $('<tr class="group-header-row bg-secondary-subtle dt-group-title">>')
                                  .attr('data-group', group)
                                  .attr('data-summary', JSON.stringify(summaryData))
-                                 .append('<td colspan="' + visibleColumnCount + '"><i class="bi bi-info-circle me-2"></i>' + group + ' (' + rows.count() + ' rows)</td>')
+                                 .append('<td colspan="' + visibleColumnCount + '">' + group + ' (' + rows.count() + ' rows)</td>')
                                  .get(0);
                          }
                      };
@@ -342,7 +344,14 @@ document.addEventListener('DOMContentLoaded', function() {
         $(tableElem).off('mouseenter', 'tbody td');
         $(tableElem).off('mouseleave', 'tbody td');
 
+        // Remove previous click listeners
         $(tableElem).off('click', 'tbody tr.group-header-row'); // Remove previous click listener
+
+        // Remove potential old popover listeners
+        $(tableElem).off('click', 'tbody tr:not(.group-header-row) td');
+
+        // Remove previous header click listener
+        $(tableElem).off('click', 'thead th');
 
         // Attach new listeners using jQuery delegation
         $(tableElem).on('mouseenter', 'tbody td', function() {
@@ -379,59 +388,118 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
 
-        // --- NEW: Attach Click Listener for Group Summary Modal ---
-        $(tableElem).on('click', 'tbody tr.group-header-row', function(e) {
+        // --- NEW: Attach Click Listener for Cell Summary Popover ---
+        $(tableElem).on('click', 'tbody tr:not(.group-header-row) td', function(e) {
             e.preventDefault();
-            console.log("[DataTableModule] Group header clicked.");
+            console.log("[DataTableModule] Data cell clicked.");
 
-            const groupName = $(this).data('group');
-            // Use .attr() to reliably get the raw attribute value
-            const summaryJson = $(this).attr('data-summary'); 
+            const cellElement = this;
+            const $cell = $(cellElement);
+            const $row = $cell.parent('tr');
+            const cellIndex = cellElement.cellIndex;
+
+            // Find the preceding group header row to get summary data
+            const $groupHeaderRow = $row.prevAll('tr.group-header-row').first();
+
+            if ($groupHeaderRow.length === 0) {
+                console.warn("[DataTableModule] Could not find preceding group header row.");
+                return;
+            }
+
+            const groupName = $groupHeaderRow.data('group');
+            const summaryJson = $groupHeaderRow.attr('data-summary'); // Use attr
             let summaryData = {};
             try {
                 summaryData = JSON.parse(summaryJson || '{}');
             } catch (err) {
                 console.error("[DataTableModule] Error parsing summary data from attribute:", err);
+                return; // Stop if summary data is bad
             }
 
-            // Get modal elements
-            const modalElement = document.getElementById('groupSummaryModal');
-            const modalTitle = document.getElementById('groupSummaryModalLabel');
-            const modalBody = document.getElementById('groupSummaryModalBody');
+            // Get column header for the clicked cell
+            const tableApi = $(tableElem).DataTable();
+            const headerText = tableApi.column(cellIndex).header().textContent; // Get header text
+            const actualHeaderKey = currentHeaders[cellIndex]; // Get the key used in summaryData
 
-            if (!modalElement || !modalTitle || !modalBody) {
-                console.error("[DataTableModule] Group summary modal elements not found.");
-                return;
-            }
+            console.log(`Clicked cell: Header='${headerText}', Key='${actualHeaderKey}', Group='${groupName}'`);
 
-            // Populate Modal
-            modalTitle.textContent = `Summary for Group: ${groupName}`;
+            // Check if summary exists for this specific column
+            if (summaryData.hasOwnProperty(actualHeaderKey)) {
+                const stats = summaryData[actualHeaderKey].formatted;
+                const contentHtml = 
+                    `<div>Avg: ${stats.avg}</div>` +
+                    `<div>Sum: ${stats.sum}</div>` +
+                    `<div>Min: ${stats.min}</div>` +
+                    `<div>Max: ${stats.max}</div>`;
 
-            let bodyHtml = '<dl class="row">'; // Use definition list for layout
-            if (Object.keys(summaryData).length > 0) {
-                for (const header in summaryData) {
-                    if (summaryData.hasOwnProperty(header)) {
-                        const stats = summaryData[header].formatted;
-                        bodyHtml += `<dt class="col-sm-4 border-top pt-1">${header}</dt>`;
-                        bodyHtml += `<dd class="col-sm-8 border-top pt-1">`;
-                        bodyHtml += `<span class="me-3">Avg: ${stats.avg}</span>`;
-                        bodyHtml += `<span class="me-3">Sum: ${stats.sum}</span>`;
-                        bodyHtml += `<span class="me-3">Min: ${stats.min}</span>`;
-                        bodyHtml += `<span>Max: ${stats.max}</span>`;
-                        bodyHtml += `</dd>`;
-                    }
-                }
+                // Destroy any existing popovers on this table before creating a new one
+                $(tableElem).find('[data-bs-toggle="popover"]').each(function() {
+                     const existingPopover = bootstrap.Popover.getInstance(this);
+                     if (existingPopover) {
+                         existingPopover.dispose();
+                     }
+                     // Clean up attributes if needed
+                     // $(this).removeAttr('data-bs-toggle data-bs-original-title title data-bs-content');
+                });
+
+                // Initialize and show Popover on the clicked cell
+                const popover = new bootstrap.Popover(cellElement, {
+                    title: `Group Summary: ${groupName}<br><small>Column: ${headerText}</small>`, // Title with group and column
+                    content: contentHtml,
+                    html: true,
+                    trigger: 'manual', // We control show/hide
+                    placement: 'auto',
+                    fallbackPlacements: ['bottom', 'top', 'right', 'left'],
+                    customClass: 'analytics-summary-popover', // Optional class for styling
+                    sanitize: false // Allow basic HTML in content/title
+                });
+
+                // Add attribute to mark this cell as having an active popover trigger
+                // This helps the destroy logic above
+                $(cellElement).attr('data-bs-toggle', 'popover');
+
+                popover.show();
+
+                // Optional: Hide popover on click outside?
+                // $(document).one('click', function() { popover.hide(); });
             } else {
-                bodyHtml += '<p class="text-muted">No numeric data found for summary in this group.</p>';
+                console.log(`[DataTableModule] No summary data found for column '${actualHeaderKey}' in group '${groupName}'.`);
+                // Optionally show a temporary message or do nothing
             }
-            bodyHtml += '</dl>';
-            modalBody.innerHTML = bodyHtml;
-
-            // Show Modal
-            const bsModal = bootstrap.Modal.getOrCreateInstance(modalElement);
-            bsModal.show();
         });
-        console.log("[DataTableModule] Group summary click listener attached.");
+        console.log("[DataTableModule] Cell summary popover listener attached.");
+
+        // --- NEW: Attach Click Listener for Header Sorting (within groups) ---
+        $(tableElem).on('click', 'thead th', function() {
+            if (!finalDataTableInstance) return; // No table instance
+
+            const groupIndex = parseInt(groupBySelector?.value);
+            if (groupIndex < 0) return; // Grouping not active, allow default sorting
+
+            const headerElement = this;
+            const clickedColumnIndex = finalDataTableInstance.column(headerElement).index();
+
+            if (clickedColumnIndex === undefined || clickedColumnIndex === groupIndex) {
+                // Don't allow sorting by the grouping column itself via header click
+                return; 
+            }
+
+            console.log(`[DataTableModule] Header clicked for column index: ${clickedColumnIndex}, Grouping active on index: ${groupIndex}`);
+
+            // Determine new sort direction
+            let currentOrder = finalDataTableInstance.order(); // Get current full order
+            let newDirection = 'asc';
+            // Check if the clicked column is already the secondary sort
+            if (currentOrder.length > 1 && currentOrder[1][0] === clickedColumnIndex) {
+                newDirection = currentOrder[1][1] === 'asc' ? 'desc' : 'asc';
+            }
+
+            // Apply only the dynamic secondary sort (fixed order handles the primary)
+            finalDataTableInstance.order([[clickedColumnIndex, newDirection]]).draw();
+            console.log(`[DataTableModule] Applied secondary sort: Column ${clickedColumnIndex}, Direction ${newDirection}`);
+
+        });
+        console.log("[DataTableModule] Header click listener for secondary sorting attached.");
     }
 
     // --- Expose Public API ---
