@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let finalDataTableInstance = null;
     let lastAppliedHeaders = [];
     let currentHeaders = [];
+    let globalSummaryData = {};
     const tableElement = document.getElementById('final-data-table');
     const statusElement = document.getElementById('final-table-status');
     const tableContainer = document.getElementById('final-data-table-container'); // For visibility checks
@@ -61,6 +62,9 @@ document.addEventListener('DOMContentLoaded', function() {
             finalDataTableInstance = null;
         }
 
+        // --- ADDED: Clear global summary at the start ---
+        globalSummaryData = {};
+
         statusElement.textContent = 'Processing data for table...';
 
         // --- Handle No Data --- 
@@ -116,6 +120,52 @@ document.addEventListener('DOMContentLoaded', function() {
             $(tableElement).find('thead tr').empty();
         }
         lastAppliedHeaders = [...currentHeaders]; // Store current headers
+
+        // --- ADDED: Calculate Global Summaries if NOT Grouping ---
+        const groupIndex = parseInt(groupBySelector?.value);
+        if (groupIndex < 0 && finalData.length > 0) {
+            console.log("[DataTableModule] Calculating global summary statistics...");
+            const modules = getRequiredModules(); // Need modules here too
+            const finalMetadata = modules?.mainModule?.getFinalFieldMetadata ? modules.mainModule.getFinalFieldMetadata() : {};
+            const postTransformNumericFormats = modules?.postTransformModule?.getPostTransformNumericFormats ? modules.postTransformModule.getPostTransformNumericFormats() : {};
+            const preTransformNumericFormats = modules?.mainModule?.getNumericFieldFormats ? modules.mainModule.getNumericFieldFormats() : {};
+            const formatNumericValue = modules?.mainModule?.formatNumericValue || ((val, fmt) => val);
+
+            currentHeaders.forEach((header, colIdx) => {
+                const meta = finalMetadata[header] || {};
+                if (meta.type === 'numeric') {
+                    // Pluck data for this column from the *entire* finalData set
+                    const colDataArray = finalData.map(item => {
+                        // Handle potential data structure differences if needed
+                        if (header === 'ticker') return item?.ticker;
+                        return item?.processed_data?.[header];
+                    });
+                    const colData = colDataArray.map(parseFloat).filter(val => !isNaN(val));
+
+                    if (colData.length > 0) {
+                        var sum = colData.reduce((a, b) => a + b, 0);
+                        var min = Math.min(...colData);
+                        var max = Math.max(...colData);
+                        var avg = sum / colData.length;
+                        const effectiveFormat = postTransformNumericFormats.hasOwnProperty(header)
+                                                    ? postTransformNumericFormats[header]
+                                                    : (preTransformNumericFormats[header] || 'default');
+                        // Store in the global object
+                        globalSummaryData[header] = {
+                            raw: { sum: sum, min: min, max: max, count: colData.length, avg: avg },
+                            formatted: {
+                                sum: formatNumericValue(sum, effectiveFormat),
+                                min: formatNumericValue(min, effectiveFormat),
+                                max: formatNumericValue(max, effectiveFormat),
+                                avg: formatNumericValue(avg, effectiveFormat)
+                            }
+                        };
+                    }
+                }
+            });
+            console.log("[DataTableModule] Global stats calculated:", globalSummaryData);
+        }
+        // --- END Global Summary Calculation ---
 
         // 3. Format data for DataTable (array of arrays, raw numeric values)
         const tableData = finalData.map(item => {
@@ -397,32 +447,53 @@ document.addEventListener('DOMContentLoaded', function() {
             const $cell = $(cellElement);
             const $row = $cell.parent('tr');
             const cellIndex = cellElement.cellIndex;
+            let groupName = "Overall"; // Default for no grouping
+            let summaryJson = null;
+            let summaryDataSource = null; // To hold either group or global summary
 
-            // Find the preceding group header row to get summary data
-            const $groupHeaderRow = $row.prevAll('tr.group-header-row').first();
+            const groupIndex = parseInt(groupBySelector?.value); // Check current grouping state
 
-            if ($groupHeaderRow.length === 0) {
-                console.warn("[DataTableModule] Could not find preceding group header row.");
-                return;
+            if (groupIndex >= 0) {
+                // --- Grouping Active: Get group summary ---
+                const $groupHeaderRow = $row.prevAll('tr.group-header-row').first();
+                if ($groupHeaderRow.length > 0) {
+                    groupName = $groupHeaderRow.data('group');
+                    summaryJson = $groupHeaderRow.attr('data-summary');
+                    console.log(`[DataTableModule] Using Group Summary for: ${groupName}`);
+                } else {
+                    console.warn("[DataTableModule] Could not find preceding group header row.");
+                    return; // Cannot proceed without group summary
+                }
+            } else {
+                // --- No Grouping: Use global summary ---
+                summaryDataSource = globalSummaryData; // Use the module-scoped global data
+                console.log("[DataTableModule] Using Global Summary.");
             }
 
-            const groupName = $groupHeaderRow.data('group');
-            const summaryJson = $groupHeaderRow.attr('data-summary'); // Use attr
+            // --- Parse Summary Data ---
             let summaryData = {};
-            try {
-                summaryData = JSON.parse(summaryJson || '{}');
-            } catch (err) {
-                console.error("[DataTableModule] Error parsing summary data from attribute:", err);
-                return; // Stop if summary data is bad
+            if (summaryDataSource) {
+                 summaryData = summaryDataSource; // Already an object
+            } else if (summaryJson) {
+                 try {
+                     summaryData = JSON.parse(summaryJson || '{}');
+                 } catch (err) {
+                     console.error("[DataTableModule] Error parsing summary data from attribute:", err);
+                     return; // Stop if summary data is bad
+                 }
+            } else {
+                 console.warn("[DataTableModule] No summary data source found.");
+                 return; // No summary to show
             }
 
             // Get column header for the clicked cell
             const modules = getRequiredModules(); // Get modules to access formatters
             const tableApi = $(tableElem).DataTable();
             const headerText = tableApi.column(cellIndex).header().textContent; // Get header text
-            const actualHeaderKey = currentHeaders[cellIndex]; // Get the key used in summaryData
+            // Ensure actualHeaderKey uses module-scoped currentHeaders
+            const actualHeaderKey = currentHeaders[cellIndex]; // <<< Uses module-scoped currentHeaders
 
-            console.log(`Clicked cell: Header='${headerText}', Key='${actualHeaderKey}', Group='${groupName}'`);
+            console.log(`Clicked cell: Header='${headerText}', Key='${actualHeaderKey}', Context='${groupName}'`);
 
             // Get the formatter function
             const formatNumericValue = modules?.mainModule?.formatNumericValue || ((val, fmt) => val); // Fallback
@@ -491,8 +562,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Initialize and show Popover on the clicked cell
                 const popover = new bootstrap.Popover(cellElement, {
-                    title: `Group Summary: ${groupName}<br><small>Column: ${headerText}</small>`, // Title with group and column
-                    content: popoverContent, // Use combined content
+                    title: `Summary: ${groupName}<br><small>Column: ${headerText}</small>`, // Title with group and column
+                    content: popoverContent,
                     html: true,
                     trigger: 'manual', // We control show/hide
                     placement: 'auto',
@@ -510,7 +581,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Optional: Hide popover on click outside?
                 // $(document).one('click', function() { popover.hide(); });
             } else {
-                console.log(`[DataTableModule] No summary data found for column '${actualHeaderKey}' in group '${groupName}'.`);
+                console.log(`[DataTableModule] No summary data found for column '${actualHeaderKey}' in context '${groupName}'.`);
                 // Optionally show a temporary message or do nothing
             }
         });

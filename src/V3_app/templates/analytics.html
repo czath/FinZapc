@@ -153,17 +153,19 @@
         }
         .summary-marker {
             position: absolute;
-            bottom: 5px; /* Position markers vertically relative to container bottom */
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
+            bottom: 10px; /* Align tip with the line */
+            width: 0;
+            height: 0;
+            border-left: 6px solid transparent; /* Adjust size as needed */
+            border-right: 6px solid transparent; /* Adjust size as needed */
+            border-bottom: none; /* Explicitly no bottom border */
+            /* border-top will set the color and size */
             transform: translateX(-50%); /* Center the marker horizontally */
-            border: 1px solid var(--bs-emphasis-color);
             z-index: 1; /* Ensure markers are above the line */
         }
-        .marker-min, .marker-max { background-color: var(--bs-secondary); }
-        .marker-avg { background-color: var(--bs-warning); border-color: var(--bs-warning-border-subtle);}
-        .marker-value { background-color: var(--bs-primary); }
+        .marker-min, .marker-max { border-top: 8px solid var(--bs-secondary); }
+        .marker-avg { border-top: 8px solid var(--bs-warning); }
+        .marker-value { border-top: 8px solid var(--bs-primary); }
         /* Ensure popover allows enough width */
         .analytics-summary-popover {
             min-width: 250px; /* Adjust as needed */
