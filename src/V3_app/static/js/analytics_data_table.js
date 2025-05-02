@@ -417,20 +417,67 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             // Get column header for the clicked cell
+            const modules = getRequiredModules(); // Get modules to access formatters
             const tableApi = $(tableElem).DataTable();
             const headerText = tableApi.column(cellIndex).header().textContent; // Get header text
             const actualHeaderKey = currentHeaders[cellIndex]; // Get the key used in summaryData
 
             console.log(`Clicked cell: Header='${headerText}', Key='${actualHeaderKey}', Group='${groupName}'`);
 
+            // Get the formatter function
+            const formatNumericValue = modules?.mainModule?.formatNumericValue || ((val, fmt) => val); // Fallback
+
             // Check if summary exists for this specific column
             if (summaryData.hasOwnProperty(actualHeaderKey)) {
                 const stats = summaryData[actualHeaderKey].formatted;
-                const contentHtml = 
-                    `<div>Avg: ${stats.avg}</div>` +
-                    `<div>Sum: ${stats.sum}</div>` +
-                    `<div>Min: ${stats.min}</div>` +
-                    `<div>Max: ${stats.max}</div>`;
+
+                // --- Generate Text Stats --- 
+                const textStatsHtml = 
+                    `<div class="mb-2"><strong>Avg:</strong> ${stats.avg} | <strong>Sum:</strong> ${stats.sum}<br>` +
+                    `<strong>Min:</strong> ${stats.min} | <strong>Max:</strong> ${stats.max}</div>`;
+
+                // --- Generate Visual Summary --- 
+                let visualHtml = '';
+                const rawStats = summaryData[actualHeaderKey]?.raw;
+                const cellData = tableApi.cell(cellElement).data(); // Get raw cell data
+                const cellValue = parseFloat(cellData);
+
+                if (rawStats && !isNaN(cellValue) && typeof rawStats.min === 'number' && typeof rawStats.max === 'number') {
+                    const minVal = rawStats.min;
+                    const maxVal = rawStats.max;
+                    const avgVal = rawStats.avg;
+                    const range = maxVal - minVal;
+
+                    if (range > 0) {
+                        const avgPercent = Math.max(0, Math.min(100, ((avgVal - minVal) / range) * 100));
+                        const valuePercent = Math.max(0, Math.min(100, ((cellValue - minVal) / range) * 100));
+
+                        // Determine effective format for this column
+                        const postTransformNumericFormats = modules?.postTransformModule?.getPostTransformNumericFormats ? modules.postTransformModule.getPostTransformNumericFormats() : {};
+                        const preTransformNumericFormats = modules?.mainModule?.getNumericFieldFormats ? modules.mainModule.getNumericFieldFormats() : {};
+                        const effectiveFormat = postTransformNumericFormats.hasOwnProperty(actualHeaderKey) 
+                                                   ? postTransformNumericFormats[actualHeaderKey] 
+                                                   : (preTransformNumericFormats[actualHeaderKey] || 'default');
+
+                        visualHtml = `
+                            <div class="summary-visual-container mt-2 pt-3 pb-3 position-relative">
+                                <div class="summary-line" title="Range: ${minVal} to ${maxVal}"></div>
+                                <span class="summary-marker marker-min" style="left: 0%;" title="Min: ${stats.min}"></span>
+                                <span class="summary-marker marker-max" style="left: 100%;" title="Max: ${stats.max}"></span>
+                                ${typeof avgVal === 'number' ? `<span class="summary-marker marker-avg" style="left: ${avgPercent.toFixed(1)}%;" title="Avg: ${stats.avg}"></span>` : ''}
+                                <span class="summary-marker marker-value" style="left: ${valuePercent.toFixed(1)}%;" title="Value: ${formatNumericValue(cellValue, effectiveFormat)}"></span> 
+                            </div>
+                        `;
+                        // Use formatted value in title for consistency if needed 
+                        // title="Value: ${formatNumericValue(cellValue, stats.format)}" -> Need to pass format
+                    } else { // Handle case where min === max
+                        visualHtml = `<div class="mt-2 text-center text-muted small">(Min/Max are equal: ${stats.min})</div>`;
+                    }
+                } else {
+                     visualHtml = `<div class="mt-2 text-center text-muted small">(Could not render visual: Invalid data)</div>`;
+                }
+
+                const popoverContent = textStatsHtml + visualHtml;
 
                 // Destroy any existing popovers on this table before creating a new one
                 $(tableElem).find('[data-bs-toggle="popover"]').each(function() {
@@ -445,7 +492,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Initialize and show Popover on the clicked cell
                 const popover = new bootstrap.Popover(cellElement, {
                     title: `Group Summary: ${groupName}<br><small>Column: ${headerText}</small>`, // Title with group and column
-                    content: contentHtml,
+                    content: popoverContent, // Use combined content
                     html: true,
                     trigger: 'manual', // We control show/hide
                     placement: 'auto',
