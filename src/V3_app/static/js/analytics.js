@@ -1749,14 +1749,14 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         enabledFields.forEach(field => {
             // Y-axis option
             const optionY = document.createElement('option');
-            optionY.value = field;
-            optionY.textContent = field;
+            optionY.value = field; // Use actual field name (lowercase ticker)
+            optionY.textContent = (field === 'ticker') ? 'Ticker' : field; // Display uppercase Ticker
             ySelector.appendChild(optionY);
             
             // X-axis option
             const optionX = document.createElement('option');
-            optionX.value = field;
-            optionX.textContent = field;
+            optionX.value = field; // Use actual field name
+            optionX.textContent = (field === 'ticker') ? 'Ticker' : field; // Display uppercase Ticker
             xSelector.appendChild(optionX);
 
             // Size-axis option (Only add numeric fields)
@@ -1847,8 +1847,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         // Populate selector (allow non-numeric fields for color)
         enabledFields.forEach(field => {
             const option = document.createElement('option');
-            option.value = field;
-            option.textContent = field;
+            option.value = field; // Use actual field name (lowercase ticker)
+            option.textContent = (field === 'ticker') ? 'Ticker' : field; // Display uppercase Ticker
             reportColorSelector.appendChild(option);
         });
 
@@ -1856,13 +1856,38 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         const defaultColorFieldLower = 'name'; // Define the desired default in lowercase
 
         // Find the actual field name (case-insensitive) if it exists and is enabled
-        const nameFieldActualCase = enabledFields.find(f => f.toLowerCase() === defaultColorFieldLower);
-        // <<< FIX: Perform a case-insensitive check here too >>>
+        // <<< Update to handle lowercase 'ticker' correctly >>>
+        const nameFieldActualCase = enabledFields.find(f => f.toLowerCase() === defaultColorFieldLower && f !== 'ticker'); // Prefer non-ticker name
+        const tickerFieldExists = enabledFields.includes('ticker');
         const isNameFieldAvailableAndEnabled = enabledFields.some(f => f.toLowerCase() === defaultColorFieldLower);
-
+        
         console.log(`[populateReportColorSelector] Found 'name' field with actual case: ${nameFieldActualCase}`);
+        console.log(`[populateReportColorSelector] Ticker field exists: ${tickerFieldExists}`);
 
-        // if (nameFieldActualCase) { // CHECK 1: Does 'name' (any case) exist and is enabled? // <<< OLD CHECK
+        // Prioritize restoring previous valid selection
+        if (previousValue && enabledFields.includes(previousValue)) {
+            reportColorSelector.value = previousValue;
+            console.log(`[populateReportColorSelector] Restoring previous value: ${previousValue}`);
+        }
+        // Else if 'name' field exists (and wasn't the restored previous value), set to name
+        else if (nameFieldActualCase && previousValue !== nameFieldActualCase) {
+            reportColorSelector.value = nameFieldActualCase;
+            console.log(`[populateReportColorSelector] Setting default value to actual case of 'name': ${nameFieldActualCase}`);
+        }
+        // Else if 'ticker' exists (and wasn't the restored previous value)
+        else if (tickerFieldExists && previousValue !== 'ticker') { 
+            reportColorSelector.value = 'ticker'; // Use lowercase value
+            console.log(`[populateReportColorSelector] 'name' not found/restored, setting default to 'ticker'.`);
+        }
+        // Else (no valid previous, no name, no ticker), set to empty default
+        else {
+            reportColorSelector.value = "";
+            console.log(`[populateReportColorSelector] No default ('name' or 'ticker') or previous value found, setting to empty.`);
+        }
+        // <<< END Update to handle lowercase 'ticker' correctly >>>
+
+        // --- OLD DEFAULT/RESTORE LOGIC ---
+        /*
         if (isNameFieldAvailableAndEnabled) { // <<< NEW CHECK: Use the case-insensitive result
             // If previous value was valid and *not* the default 'name' (case-insensitive check), restore it
             if (previousValue && previousValue.toLowerCase() !== defaultColorFieldLower && enabledFields.includes(previousValue)) { // CHECK 2 (includes() check is fine here as previousValue holds the exact case)
@@ -1889,6 +1914,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             reportColorSelector.value = "";
             console.log(`[populateReportColorSelector] No default or previous value found, setting to empty.`);
         }
+        */
+        // --- END OLD LOGIC ---
         console.log(`[populateReportColorSelector] Final value set: ${reportColorSelector.value}`);
     }
     // --- END Populate Report Color Selector ---
@@ -1993,20 +2020,40 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         const getValue = (item, field) => {
             if (!item) return null;
 
+            // <<< ADD Ticker Debugging >>>
+            let valueFound = null;
+            let foundLocation = null;
+
             // 1. Check inside processed_data (where original AND synthetic fields live)
             if (item.processed_data && item.processed_data.hasOwnProperty(field)) {
-                return item.processed_data[field];
+                // return item.processed_data[field]; // OLD RETURN
+                valueFound = item.processed_data[field];
+                foundLocation = 'processed_data';
+            }
+            // 2. If not found in processed_data, check top-level fields
+            // <<< Use simple property check instead of hasOwnProperty >>>
+            else if (item[field] !== undefined && field !== 'processed_data') {
+                 // console.debug(`[getValue] Field '${field}' found at top level.`); // Keep debug for non-ticker?
+                 // return item[field]; // OLD RETURN
+                 valueFound = item[field];
+                 foundLocation = 'top-level';
             }
 
-            // 2. Check top-level fields (like ticker, source, error) - unlikely for numeric charts
-            if (item.hasOwnProperty(field) && field !== 'processed_data') {
-                 console.debug(`[getValue] Field '${field}' found at top level.`);
-                 return item[field];
+            // <<< ADD Ticker Debugging LOG >>>
+            if (field === 'Ticker') {
+                // <<< Update log to reflect new check >>>
+                console.log(`[getValue DEBUG for Ticker] Checking field '${field}' on item:`, item); // Log the item object
+                try {
+                    console.log(`[getValue DEBUG for Ticker] Object.keys(item):`, Object.keys(item)); // Log keys
+                } catch (e) {
+                    console.log(`[getValue DEBUG for Ticker] Error getting Object.keys(item):`, e);
+                }
+                console.log(`[getValue DEBUG for Ticker] Checked processed_data: ${item.processed_data?.hasOwnProperty('Ticker') ? 'Found' : 'Not Found'}. Checked top-level (item["Ticker"] !== undefined): ${item['Ticker'] !== undefined ? 'Found' : 'Not Found'}. Found Location: ${foundLocation || 'None'}. Value Returning:`, valueFound);
             }
 
-            // 3. Field not found anywhere
-            // console.debug(`[getValue] Field '${field}' not found in item.`);
-            return null;
+            // 3. Return the found value or null if not found anywhere
+            return valueFound;
+            // <<< END Ticker Debugging >>>
         };
 
         const selectedYField = reportFieldSelector.value;
@@ -3150,37 +3197,71 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
         // --- Discover Fields (including synthetic ones) ---
         const discoveredFields = new Set();
+        let tickerFound = false; // Track if ticker was found in the data at all
         data.forEach(item => {
+             if (item?.ticker !== undefined) { // Check specifically for ticker presence
+                tickerFound = true;
+             }
              if (item?.processed_data) { // Safer check
                  Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
              }
         });
-        const allDiscoveredFields = [...discoveredFields].sort();
-        console.log("All discovered fields post-transform:", allDiscoveredFields);
+        const allDiscoveredNonTickerFields = [...discoveredFields].sort(); // Get ONLY non-ticker fields discovered
+        // console.log("All discovered non-ticker fields post-transform:", allDiscoveredNonTickerFields);
 
-        // --- Filter discovered fields based on PRE-TRANSFORM enabled status ---
-        // Get pre-transform status (assuming fieldEnabledStatus is the pre-transform one)
+        // --- Filter discovered non-ticker fields based on PRE-TRANSFORM enabled status ---
         const preTransformEnabledStatus = fieldEnabledStatus; // Use the global pre-transform status map
-        finalAvailableFields = allDiscoveredFields.filter(field => {
+        let tempFinalFields = allDiscoveredNonTickerFields.filter(field => {
             // Keep field if it's enabled pre-transform (or status missing -> default true)
-            // OR if it's a new synthetic field (not in pre-transform status map at all)
             const isEnabledPreTransform = preTransformEnabledStatus[field] !== false; // Default true if undefined/true
             if (!isEnabledPreTransform) {
                 console.log(`[updateFinalFieldsAndMetadata] Excluding field '${field}' because it was disabled pre-transform.`);
             }
             return isEnabledPreTransform;
         });
-        console.log("Final available fields (post-transform, filtered by pre-transform status):", finalAvailableFields);
+        // console.log("Filtered non-ticker fields:", tempFinalFields);
 
+        // --- Prepend 'ticker' (lowercase) to the list if it was found in the original data --- 
+        if (tickerFound) {
+             finalAvailableFields = ['ticker', ...tempFinalFields]; // Use lowercase 'ticker'
+        } else {
+             finalAvailableFields = tempFinalFields; // Ticker was not present, don't add it
+        }
+        // console.log("Final available fields (post-transform, filtered by pre-transform status):", finalAvailableFields);
+        console.log("Final available fields (post-transform, filtered by pre-transform status, Ticker added if present):", finalAvailableFields);
 
         // --- Calculate Metadata based ONLY on the filtered finalAvailableFields ---
+        // <<< Also calculate metadata for 'ticker' if it was found >>>
         const newFinalFieldMetadata = {}; // Use separate temp variable
         const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100; // Limit for text dropdowns
 
-        // --- Iterate over the FILTERED finalAvailableFields ---
-        finalAvailableFields.forEach(field => {
+        // Calculate metadata for 'ticker' separately if it exists
+        if (tickerFound) {
+             const allUniqueTextValues = new Set();
+             let existingValueCount = 0;
+             data.forEach(item => {
+                 const value = item?.ticker;
+                 const valueExists = value !== null && value !== undefined && String(value).trim() !== '';
+                 if (valueExists) {
+                     existingValueCount++;
+                     allUniqueTextValues.add(String(value));
+                 }
+            });
+             const totalUniqueCount = allUniqueTextValues.size;
+             const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
+             newFinalFieldMetadata['ticker'] = { 
+                 type: 'text', 
+                 uniqueValues: uniqueValuesForDropdown, 
+                 totalUniqueCount: totalUniqueCount,   
+                 existingValueCount: existingValueCount 
+             };
+        }
+
+        // --- Iterate over the FILTERED NON-TICKER finalAvailableFields for other metadata ---
+        // Use tempFinalFields here as it doesn't include 'ticker' yet
+        tempFinalFields.forEach(field => {
             // ... (rest of metadata calculation logic remains the same) ...
-            // Ensure this logic only uses `finalAvailableFields`
+            // Ensure this logic only uses `tempFinalFields` (which are guaranteed to be in processed_data)
 
             let numericCount = 0;
             let existingValueCount = 0;
@@ -3277,11 +3358,19 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
          }
 
          if (updateAnalyzeUI) {
-              console.log("Updating Analyze Tab UI...");
+              console.log("Updating Analyze Tab UI (Chart/Selectors/DataTable)...");
               // Re-render ANALYZE components that depend on FINAL fields/metadata
               populateReportFieldSelector(); // Uses finalAvailableFields, finalFieldMetadata
               populateReportColorSelector(); // Uses finalAvailableFields
               renderChart(); // Uses finalDataForAnalysis, finalFieldMetadata
+
+              // <<< ADDED: Trigger final data table update >>>
+              if (window.AnalyticsDataTableModule && typeof window.AnalyticsDataTableModule.updateTable === 'function') {
+                  console.log("[AnalyticsUI] Triggering AnalyticsDataTableModule update...");
+                  window.AnalyticsDataTableModule.updateTable();
+              } else {
+                  console.warn("[AnalyticsUI] AnalyticsDataTableModule or updateTable function not found.");
+              }
          }
 
          // DataTable in applyFilters needs to be updated separately if we want it to show transformed data
@@ -3600,6 +3689,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             'billion': 'in Billions',
             'configure': 'Custom...' // Ensure this matches modal trigger value if needed\n\
         },
+        // --- NEW: Expose functions needed by DataTable Module --- 
+        formatNumericValue: formatNumericValue,
+        generateTimestampedFilename: generateTimestampedFilename
     };
     console.log("AnalyticsMainModule API exposed.", window.AnalyticsMainModule)
 
@@ -3651,5 +3743,22 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         console.warn("Could not find Data Visual tab trigger (#data-visual-tab) to attach refresh listener.");
     }
     // --- END NEW ---
+
+    // --- NEW: Listener for Data Table Tab Shown --- 
+    const dataTableTabTrigger = document.getElementById('data-table-tab'); 
+    if (dataTableTabTrigger) {
+        dataTableTabTrigger.addEventListener('shown.bs.tab', function (event) {
+            console.log("Data Table tab shown. Refreshing Analyze UI components (including table).");
+            // Use setTimeout to allow tab transition to finish smoothly
+            setTimeout(() => {
+                // Call the existing UI update function, targeting only the Analyze tab components
+                // This will call renderChart and AnalyticsDataTableModule.updateTable
+                updateAnalyticsUI({ updatePrepUI: false, updateAnalyzeUI: true });
+            }, 0);
+        });
+    } else {
+        console.warn("Could not find Data Table tab trigger (#data-table-tab) to attach refresh listener.");
+    }
+    // --- END NEW --- 
 
 }); 

@@ -128,24 +128,36 @@ document.addEventListener('DOMContentLoaded', function() {
         // --- Get PRE-transform status (for inheritance) ---
         // <<< FIX: Initialize Post-Transform Status for New/Missing Fields >>>
         let statusChanged = false;
-        const currentPostTransformStatus = postTransformFieldEnabledStatus; // Get current state
+        const currentPostTransformStatus = { ...postTransformFieldEnabledStatus }; // Work on a copy
+        const preTransformEnabledStatus = typeof mainModule?.getFieldEnabledStatus === 'function' ? mainModule.getFieldEnabledStatus() : {};
+
         if (Array.isArray(fields)) {
             fields.forEach(fieldName => {
                 if (!currentPostTransformStatus.hasOwnProperty(fieldName)) {
-                    console.log(`[PostTransform UI Render] Initializing enabled status for new/missing field '${fieldName}' to true.`);
-                    currentPostTransformStatus[fieldName] = true; // Default new fields to true
+                    // Field has no explicit post-transform setting
+                    if (preTransformEnabledStatus.hasOwnProperty(fieldName)) {
+                        // Inherit from pre-transform if it exists
+                        const inheritedStatus = preTransformEnabledStatus[fieldName];
+                        currentPostTransformStatus[fieldName] = inheritedStatus;
+                        console.log(`[PostTransform UI Render] Inheriting enabled status for '${fieldName}' from pre-transform: ${inheritedStatus}.`);
+                    } else {
+                        // New field (not in pre-transform), default to true
+                        currentPostTransformStatus[fieldName] = true; 
+                        console.log(`[PostTransform UI Render] Initializing enabled status for NEW field '${fieldName}' to true.`);
+                    }
                     statusChanged = true;
                 }
+                // Else: Field already has an explicit post-transform setting, do nothing
             });
         }
         if (statusChanged) {
-            postTransformFieldEnabledStatus = currentPostTransformStatus; // Update module state
+            postTransformFieldEnabledStatus = currentPostTransformStatus; // Update module state with the processed copy
             savePostTransformEnabledStatusToStorage(); // Save the updated state
-            console.log("[PostTransform UI Render] Saved updated enabled status with defaults.");
+            console.log("[PostTransform UI Render] Saved updated enabled status after checking inheritance.");
         }
         // <<< END FIX >>>
 
-        const preTransformEnabledStatus = typeof mainModule?.getFieldEnabledStatus === 'function' ? mainModule.getFieldEnabledStatus() : {};
+        // const preTransformEnabledStatus = typeof mainModule?.getFieldEnabledStatus === 'function' ? mainModule.getFieldEnabledStatus() : {}; // Moved up
 
         // --- Get PRE-transform format/tips (for inheritance) --- CORRECTED GETTER CALLS ---
         const preTransformFormats = (typeof mainModule?.getNumericFieldFormats === 'function') ? mainModule.getNumericFieldFormats() : {}; // Call explicit getter
@@ -627,8 +639,8 @@ document.addEventListener('DOMContentLoaded', function() {
     window.AnalyticsPostTransformModule.loadPostTransformFieldSettings = loadPostTransformFieldSettings;
     // Add getters needed for Phase 4 (final data rendering) AND Scenario Saving
     window.AnalyticsPostTransformModule.getPostTransformEnabledStatus = () => ({ ...postTransformFieldEnabledStatus }); // Return shallow copy
-    window.AnalyticsPostTransformModule.getPostTransformNumericFormats = () => ({ ...postTransformNumericFieldFormats }); // <<< ADDED Getter (shallow copy)
-    window.AnalyticsPostTransformModule.getPostTransformInfoTips = () => ({ ...postTransformFieldInfoTips }); // <<< ADDED Getter (shallow copy)
+    window.AnalyticsPostTransformModule.getPostTransformNumericFormats = () => ({ ...postTransformNumericFieldFormats }); // Return shallow copy of ONLY explicit post-transform formats
+    window.AnalyticsPostTransformModule.getPostTransformInfoTips = () => ({ ...postTransformFieldInfoTips }); // Return shallow copy
     // Keep existing getters if they were there before
     window.AnalyticsPostTransformModule.getPostTransformFormat = (fieldName) => postTransformNumericFieldFormats[fieldName] || 'default';
     window.AnalyticsPostTransformModule.getPostTransformInfoTip = (fieldName) => postTransformFieldInfoTips[fieldName] || '';
