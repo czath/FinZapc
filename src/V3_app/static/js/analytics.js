@@ -15,6 +15,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     let lastAppliedHeaders = []; // <<< ADDED: To track changes for DataTable re-init
     let filteredDataForChart = []; // Holds the data currently used by the chart (before transformation)
     let finalDataForAnalysis = []; // Holds the data AFTER transformations, used by Analyze tab
+    // <<< NEW: Declare post-transform state variables globally >>>
+    let finalAvailableFields = [];
+    let finalFieldMetadata = {};
+    // <<< END NEW >>>
     // <<< ADDED: To store previous chart selections >>>
     let previousXValue = null;
     let previousYValue = null;
@@ -1151,6 +1155,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     descriptorSpan.textContent = updatedDescriptorText;
                     // Also re-render chart if needed? Or wait for filter/apply? Let's wait.
                     console.log(`Format for field '${field}' changed to '${newFormat}'. Descriptor updated.`);
+                    // <<< Explicitly re-attach modification listeners >>>
+                    if (window.AnalyticsConfigManager?.initializeModificationDetection) {
+                        window.AnalyticsConfigManager.initializeModificationDetection();
+                    }
                 });
 
                 formatWrapper.appendChild(formatSelect);
@@ -1176,8 +1184,14 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             infoInput.title = 'Enter tooltip text for this field';
 
             infoInput.addEventListener('input', (e) => {
-                fieldInfoTips[field] = e.target.value.trim(); // Update global map
+                const newValue = e.target.value.trim(); // Get trimmed value
+                console.log(`[Analytics Input] Tip changed for '${field}': Setting fieldInfoTips['${field}'] = '${newValue}'`);
+                fieldInfoTips[field] = newValue; // Update global map
                 saveInfoTipsToStorage(); // Persist change
+                // <<< Explicitly re-attach modification listeners >>>
+                if (window.AnalyticsConfigManager?.initializeModificationDetection) {
+                    window.AnalyticsConfigManager.initializeModificationDetection();
+                }
             });
 
             infoWrapper.appendChild(infoInput);
@@ -1207,6 +1221,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                 // Consider a full re-sort/re-render if needed after toggle?
                 renderFilterUI();
                 applyFilters();
+                // <<< Explicitly re-attach modification listeners >>>
+                if (window.AnalyticsConfigManager?.initializeModificationDetection) {
+                    window.AnalyticsConfigManager.initializeModificationDetection();
+                }
             });
             enabledWrapper.appendChild(enabledCheckbox);
             row.appendChild(enabledWrapper);
@@ -2948,16 +2966,18 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             console.warn("Main: No data available from filtering stage to transform.");
             // Optionally update status
             finalDataForAnalysis = []; // Ensure final data is clear
-            updateAvailableFieldsAndMetadata(finalDataForAnalysis); // Update fields based on empty data
+            updateFinalFieldsAndMetadata(finalDataForAnalysis); // Update fields based on empty data
            // updateAnalyticsUI(); // Re-render components
             transformModule.renderTransformedDataPreview(finalDataForAnalysis);
             return;
         }
 
         console.log(`Main: Applying ${rules.length} rules to ${inputData.length} records...`);
+        console.log("[runTransformations] fieldInfoTips BEFORE transformModule.applyTransformations:", JSON.parse(JSON.stringify(fieldInfoTips))); // Log state BEFORE transform logic
         // Apply transformations using the exposed function
         finalDataForAnalysis = transformModule.applyTransformations(inputData, rules);
         console.log(`Main: Transformation complete. Result has ${finalDataForAnalysis.length} records.`);
+        console.log("[runTransformations] fieldInfoTips AFTER transformModule.applyTransformations, BEFORE rendering post-transform UI:", JSON.parse(JSON.stringify(fieldInfoTips))); // Log state AFTER transform logic
 
         // Update the preview panel in the transform tab (this is okay)
         transformModule.renderTransformedDataPreview(finalDataForAnalysis);
@@ -2977,8 +2997,14 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         }
 
         // <<< UPDATE POST-TRANSFORM STATE and Analyze UI >>>
+        // <<< ADD LOGGING BEFORE UPDATE >>>
+        if (finalDataForAnalysis && finalDataForAnalysis.length > 0) {
+            console.log("[Analytics] Data structure BEFORE calling updateFinalFieldsAndMetadata:", JSON.parse(JSON.stringify(finalDataForAnalysis[0])));
+        } else {
+            console.log("[Analytics] finalDataForAnalysis is empty BEFORE calling updateFinalFieldsAndMetadata.");
+        }
         updateFinalFieldsAndMetadata(finalDataForAnalysis); // Update the *final* fields/metadata
-        updateAnalyticsUI({ updatePrepUI: false, updateAnalyzeUI: true }); // Trigger ONLY Analyze UI update
+        // updateAnalyticsUI({ updatePrepUI: false, updateAnalyzeUI: true }); // Trigger ONLY Analyze UI update // <<< Temporarily comment out UI update
 
         // <<< NEW: Update Pivot Table >>>
         // TODO: Add logic here to initialize or update the pivot table
@@ -2991,6 +3017,23 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             pivotStatus.textContent = `Data transformed. Pivot table library integration needed to display ${finalDataForAnalysis.length} records.`;
         }
         // <<< END NEW >>>
+
+        // <<< ADDED: Render the post-transform config UI >>>
+        if (window.AnalyticsPostTransformModule && typeof window.AnalyticsPostTransformModule.renderPostTransformFieldConfigUI === 'function') {
+            console.log("[Analytics] Calling renderPostTransformFieldConfigUI...");
+            window.AnalyticsPostTransformModule.renderPostTransformFieldConfigUI();
+
+            // <<< EXPLICITLY ATTACH/RE-ATTACH MODIFICATION LISTENERS >>>
+            if (window.AnalyticsConfigManager && typeof window.AnalyticsConfigManager.initializeModificationDetection === 'function') {
+                console.log("[Analytics] Attaching/Re-attaching modification listeners after Post-Transform UI update.");
+                window.AnalyticsConfigManager.initializeModificationDetection();
+            } else {
+                 console.warn("[Analytics] AnalyticsConfigManager or initializeModificationDetection not found when trying to attach listeners post Post-Transform UI update.");
+            }
+        } else {
+            console.error("[Analytics] AnalyticsPostTransformModule or render function not found when trying to render post-transform config!");
+        }
+        // <<< END ADDED >>>
     }
 
     function updateFinalFieldsAndMetadata(data) {
@@ -3003,53 +3046,53 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             return;
         }
 
-        // --- Discover Fields (including synthetic ones) --- 
+        // --- Discover Fields (including synthetic ones) ---
         const discoveredFields = new Set();
         data.forEach(item => {
-             if (item) {
-                 // --- REMOVE adding top-level keys ---
-                 // Object.keys(item).forEach(key => {
-                 //      if (key !== 'processed_data') discoveredFields.add(key);
-                 //  });
-                 // --- Add keys ONLY from processed_data ---
-                 if (item.processed_data) {
-                     Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
-                 }
+             if (item?.processed_data) { // Safer check
+                 Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
              }
         });
+        const allDiscoveredFields = [...discoveredFields].sort();
+        console.log("All discovered fields post-transform:", allDiscoveredFields);
 
-        // Remove 'processed_data' itself if it accidentally got added
-        // discoveredFields.delete('processed_data'); // <<< This should no longer be necessary
-        // <<< Update final state variable >>>
-        finalAvailableFields = [...discoveredFields].sort();
-        console.log("Discovered final fields (post-transform, processed_data only):", finalAvailableFields);
+        // --- Filter discovered fields based on PRE-TRANSFORM enabled status ---
+        // Get pre-transform status (assuming fieldEnabledStatus is the pre-transform one)
+        const preTransformEnabledStatus = fieldEnabledStatus; // Use the global pre-transform status map
+        finalAvailableFields = allDiscoveredFields.filter(field => {
+            // Keep field if it's enabled pre-transform (or status missing -> default true)
+            // OR if it's a new synthetic field (not in pre-transform status map at all)
+            const isEnabledPreTransform = preTransformEnabledStatus[field] !== false; // Default true if undefined/true
+            if (!isEnabledPreTransform) {
+                console.log(`[updateFinalFieldsAndMetadata] Excluding field '${field}' because it was disabled pre-transform.`);
+            }
+            return isEnabledPreTransform;
+        });
+        console.log("Final available fields (post-transform, filtered by pre-transform status):", finalAvailableFields);
 
-        // --- Calculate Metadata --- 
-        // Reusing most of the logic from processLoadedDataAndUpdateState
+
+        // --- Calculate Metadata based ONLY on the filtered finalAvailableFields ---
         const newFinalFieldMetadata = {}; // Use separate temp variable
         const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100; // Limit for text dropdowns
 
+        // --- Iterate over the FILTERED finalAvailableFields ---
         finalAvailableFields.forEach(field => {
+            // ... (rest of metadata calculation logic remains the same) ...
+            // Ensure this logic only uses `finalAvailableFields`
+
             let numericCount = 0;
             let existingValueCount = 0;
             let min = Infinity;
             let max = -Infinity;
-            let sum = 0; // <<< ADDED for average
-            let numericValues = []; // <<< ADDED for median
-            const allUniqueTextValues = new Set(); // <<< Use Set to get ALL unique text values
+            let sum = 0;
+            let numericValues = [];
+            const allUniqueTextValues = new Set();
 
             data.forEach(item => {
-                // Get value (check top-level, then processed_data)
                 let value = null;
-                 if (item) {
-                      if (item.hasOwnProperty(field) && field !== 'processed_data') {
-                          value = item[field];
-                      } else if (item.processed_data && item.processed_data.hasOwnProperty(field)) {
-                          value = item.processed_data[field];
-                      }
-                  }
-                 
-                // Check if the value exists and is not null/undefined/empty string/placeholder '-'
+                 if (item?.processed_data && item.processed_data.hasOwnProperty(field)) { // Check only processed_data
+                     value = item.processed_data[field];
+                 }
                 const valueExists = value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-';
 
                 if (valueExists) {
@@ -3059,8 +3102,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                         numericCount++;
                         if (num < min) min = num;
                         if (num > max) max = num;
-                        sum += num; // <<< ADDED
-                        numericValues.push(num); // <<< ADDED
+                        sum += num;
+                        numericValues.push(num);
                     } else {
                         allUniqueTextValues.add(String(value));
                     }
@@ -3069,35 +3112,40 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
             // Determine field type and store metadata
             if (existingValueCount === 0) {
-                newFinalFieldMetadata[field] = { type: 'empty', existingValueCount: 0 }; // Store in temp var
-            } else if (numericCount / existingValueCount >= 0.8) { // Heuristic: >= 80% numeric?
-                // <<< Calculate average and median BEFORE creating metadata object >>>
+                newFinalFieldMetadata[field] = { type: 'empty', existingValueCount: 0 };
+            } else if (numericCount / existingValueCount >= 0.8) {
                 const average = (numericCount > 0) ? sum / numericCount : null;
                 const median = calculateMedian(numericValues);
-
                 newFinalFieldMetadata[field] = { type: 'numeric', min: min === Infinity ? null : min, max: max === -Infinity ? null : max, average: average, median: median, existingValueCount: existingValueCount };
             } else {
+                // const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100; // Defined elsewhere or remove if not needed here
                 const totalUniqueCount = allUniqueTextValues.size;
                 const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
                 newFinalFieldMetadata[field] = { type: 'text', uniqueValues: uniqueValuesForDropdown, totalUniqueCount: totalUniqueCount, existingValueCount: existingValueCount };
             }
         });
-        finalFieldMetadata = newFinalFieldMetadata;
-        console.log("Calculated final field metadata (post-transform):", finalFieldMetadata);
+        finalFieldMetadata = newFinalFieldMetadata; // Update the final metadata object
+        console.log("Calculated final field metadata (post-transform, based on filtered fields):", finalFieldMetadata);
 
-         // --- Initialize Enabled Status & Formats for New Fields --- 
-         // (Similar logic to processLoadedDataAndUpdateState)
+
+        // --- Initialize Enabled Status & Formats for New Fields ---
+        // (Similar logic to processLoadedDataAndUpdateState)
         let statusChanged = false;
         let formatStatusChanged = false;
         finalAvailableFields.forEach(field => {
+            // Initialize enabled status only if field truly doesn't exist pre-transform
+            // (It will already exist if it was enabled pre-transform)
             if (!(field in fieldEnabledStatus)) {
-                fieldEnabledStatus[field] = true;
-                statusChanged = true;
+                 fieldEnabledStatus[field] = true; // Default *new* fields to true
+                 statusChanged = true;
+                 console.log(`[updateFinalFieldsAndMetadata] Initialized enabled status for NEW field '${field}' to true.`);
             }
+            // Initialize format for numeric fields if not already set
             const meta = finalFieldMetadata[field] || {};
             if (meta.type === 'numeric' && !(field in fieldNumericFormats)) {
-                fieldNumericFormats[field] = 'default'; 
+                fieldNumericFormats[field] = 'default';
                 formatStatusChanged = true;
+                 console.log(`[updateFinalFieldsAndMetadata] Initialized numeric format for field '${field}' to 'default'.`);
             }
         });
         // Don't clean up here - preserve settings even if field temporarily disappears
@@ -3116,6 +3164,14 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
              renderFilterUI(); // Uses availableFields, fieldMetadata
              // Apply filters handles the output table using availableFields/filteredDataForChart
              // No need to call applyFilters here unless specifically intended
+
+             // <<< EXPLICITLY ATTACH MODIFICATION LISTENERS >>>
+             if (window.AnalyticsConfigManager && typeof window.AnalyticsConfigManager.initializeModificationDetection === 'function') {
+                 console.log("[AnalyticsUI] Attaching modification listeners after Prep UI update.");
+                 window.AnalyticsConfigManager.initializeModificationDetection();
+             } else {
+                  console.warn("[AnalyticsUI] AnalyticsConfigManager or initializeModificationDetection not found when trying to attach listeners post Prep UI update.");
+             }
          }
 
          if (updateAnalyzeUI) {
@@ -3367,13 +3423,20 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
              console.warn("[AnalyticsMain] Invalid numericFormats provided, resetting.");
              fieldNumericFormats = {};
         }
-        // Info Tips
-        if (infoTips && typeof infoTips === 'object' && !Array.isArray(infoTips)) {
-            fieldInfoTips = infoTips;
-        } else {
-             console.warn("[AnalyticsMain] Invalid infoTips provided, resetting.");
-             fieldInfoTips = {};
+        // Info Tips - MERGE instead of assign
+        console.log("[loadFieldSettings] Merging infoTips. Before merge:", JSON.parse(JSON.stringify(fieldInfoTips)));
+        console.log("[loadFieldSettings] Tips received from scenario:", JSON.parse(JSON.stringify(infoTips)));
+        const loadedTips = (infoTips && typeof infoTips === 'object' && !Array.isArray(infoTips)) ? infoTips : {};
+        // Create a new object to avoid modifying the original in unexpected ways if it's passed by reference elsewhere
+        const mergedTips = { ...fieldInfoTips }; // Start with current tips
+        for (const field in loadedTips) {
+            if (loadedTips.hasOwnProperty(field)) {
+                mergedTips[field] = loadedTips[field]; // Overwrite/add tips from loaded scenario
+            }
         }
+        fieldInfoTips = mergedTips; // Assign the merged result
+        console.log("[loadFieldSettings] Merged infoTips. After merge:", JSON.parse(JSON.stringify(fieldInfoTips)));
+
         // No need to save to storage here
         // Re-render relevant UI components
         renderFieldConfigUI(); // Uses enabledStatus, numericFormats, infoTips
@@ -3383,5 +3446,48 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         console.log("[AnalyticsMain] Field settings loaded and UI updated.");
     }
     // --- END NEW Direct Load Functions ---
+
+    // --- Expose Public API --- 
+    console.log("Exposing AnalyticsMainModule API...");
+    window.AnalyticsMainModule = {
+        // Data access
+        getFullProcessedData: () => fullProcessedData,
+        getFilteredData: () => filteredDataForChart, // Expose pre-transform filtered data
+        getFinalDataForAnalysis: () => finalDataForAnalysis, // Expose post-transform data
+        getAvailableFields: () => availableFields, // Pre-transform fields
+        getFieldMetadata: () => fieldMetadata, // Pre-transform metadata
+        getFinalAvailableFields: () => finalAvailableFields, // Post-transform fields
+        getFinalFieldMetadata: () => finalFieldMetadata, // Post-transform metadata
+        getFieldEnabledStatus: () => fieldEnabledStatus,
+        getNumericFieldFormats: () => fieldNumericFormats, // Pre-transform formats
+        getFieldInfoTips: () => fieldInfoTips, // Pre-transform tips
+
+        // UI Updaters / Actions
+        updateAnalyticsUI: updateAnalyticsUI,
+        runTransformations: runTransformations,
+        applyFilters: applyFilters, // Allow triggering filters externally if needed
+        renderChart: renderChart, // Allow triggering chart render
+
+        // Scenario Management Hooks
+        loadFilters: loadFilters, // Load filter data
+        loadFieldSettings: loadFieldSettings, // Load pre-transform settings
+
+        // --- Items needed by PostTransform Module (use getters) ---\n\
+        // Getter for pre-transform numeric formats (already correct)\n\
+        // Getter for pre-transform info tips (already correct)\n\
+        // Getter for final available fields (already correct)\n\
+        // Getter for final field metadata (already correct)\n\
+        // openNumericFormatModal: openNumericFormatModal, // Exposing the function to open the modal - KEEP IF NEEDED\n\
+        formatOptions: {                          // Exposing the format options object\n\
+            'raw':     'raw data',
+            'integer': 'integer',
+            'default': 'decimal',
+            'percent': 'in %',
+            'million': 'in Millions',
+            'billion': 'in Billions',
+            'configure': 'Custom...' // Ensure this matches modal trigger value if needed\n\
+        },
+    };
+    console.log("AnalyticsMainModule API exposed.", window.AnalyticsMainModule)
 
 }); 

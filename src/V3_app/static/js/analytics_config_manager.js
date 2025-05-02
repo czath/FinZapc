@@ -22,12 +22,30 @@ window.AnalyticsConfigManager = (function() {
     const OLD_RULES_STORAGE_KEY = 'analyticsTransformationRules'; 
     const MODIFIED_FLAG_STORAGE_KEY = 'analyticsScenarioModified'; // <<< NEW
 
+    // --- NEW: Post-Transform Storage Keys ---
+    const POST_TRANSFORM_FIELD_ENABLED_STORAGE_KEY = 'analyticsPostTransformFieldEnabled';
+    const POST_TRANSFORM_NUMERIC_FORMAT_STORAGE_KEY = 'analyticsPostTransformNumericFormats';
+    const POST_TRANSFORM_FIELD_INFO_TIPS_STORAGE_KEY = 'analyticsPostTransformFieldInfoTips';
+    // --- END NEW ---
+
     // --- Module-level variable to hold validated data from import ---
     // let stagedImportData = null; // No longer needed at module level
     // let stagedImportFilename = null; // No longer needed at module level
     // let importScenarioNameModalInstance = null; // Modal removed
     let reloadScenarioModalInstance = null; // <<< For Bootstrap modal instance
     let scenarioToReload = null; // <<< Store name temporarily for modal actions
+
+    // --- Module-level variables for listener references ---
+    let prepPaneClickListener = null;
+    let prepFieldConfigChangeListener = null;
+    let prepFieldConfigClickListener = null;
+    let transformPaneClickListener = null;
+    let transformPaneChangeListener = null;
+    let transformModalSaveListener = null;
+    let formatModalSaveListener = null;
+    let postTransformChangeListener = null;
+    let postTransformInputListener = null;
+    // ---
 
     // --- Core Utility Functions ---
 
@@ -132,7 +150,8 @@ window.AnalyticsConfigManager = (function() {
         const currentSettings = {
             fieldSettings: { enabled: {}, formats: {}, tips: {} },
             filters: [],
-            rules: []
+            rules: [],
+            postTransformFieldSettings: { enabled: {}, formats: {}, tips: {} } // NEW: Add structure
         };
 
         // Read Filters
@@ -200,6 +219,44 @@ window.AnalyticsConfigManager = (function() {
             }
         } catch (e) { console.error(`[ConfigManager] Error reading/parsing rules from "${OLD_RULES_STORAGE_KEY}":`, e); }
 
+        // --- NEW: Read Post-Transform Settings ---
+        try {
+            const rawPostEnabled = localStorage.getItem(POST_TRANSFORM_FIELD_ENABLED_STORAGE_KEY);
+            if (rawPostEnabled) {
+                const parsed = JSON.parse(rawPostEnabled);
+                 if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    currentSettings.postTransformFieldSettings.enabled = parsed;
+                 } else {
+                     console.warn(`[ConfigManager] Invalid post-transform enabled status data in "${POST_TRANSFORM_FIELD_ENABLED_STORAGE_KEY}". Expected object.`);
+                 }
+            }
+        } catch (e) { console.error(`[ConfigManager] Error reading/parsing post-transform enabled status from "${POST_TRANSFORM_FIELD_ENABLED_STORAGE_KEY}":`, e); }
+
+        try {
+            const rawPostFormats = localStorage.getItem(POST_TRANSFORM_NUMERIC_FORMAT_STORAGE_KEY);
+            if (rawPostFormats) {
+                const parsed = JSON.parse(rawPostFormats);
+                 if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    currentSettings.postTransformFieldSettings.formats = parsed;
+                 } else {
+                    console.warn(`[ConfigManager] Invalid post-transform numeric formats data in "${POST_TRANSFORM_NUMERIC_FORMAT_STORAGE_KEY}". Expected object.`);
+                 }
+            }
+        } catch (e) { console.error(`[ConfigManager] Error reading/parsing post-transform numeric formats from "${POST_TRANSFORM_NUMERIC_FORMAT_STORAGE_KEY}":`, e); }
+
+        try {
+            const rawPostTips = localStorage.getItem(POST_TRANSFORM_FIELD_INFO_TIPS_STORAGE_KEY);
+            if (rawPostTips) {
+                const parsed = JSON.parse(rawPostTips);
+                 if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    currentSettings.postTransformFieldSettings.tips = parsed;
+                 } else {
+                    console.warn(`[ConfigManager] Invalid post-transform info tips data in "${POST_TRANSFORM_FIELD_INFO_TIPS_STORAGE_KEY}". Expected object.`);
+                 }
+            }
+        } catch (e) { console.error(`[ConfigManager] Error reading/parsing post-transform info tips from "${POST_TRANSFORM_FIELD_INFO_TIPS_STORAGE_KEY}":`, e); }
+        // --- END NEW: Read Post-Transform Settings ---
+
         console.log("[ConfigManager] Current app settings read:", currentSettings);
         return currentSettings;
     }
@@ -263,6 +320,13 @@ window.AnalyticsConfigManager = (function() {
             const tips = (fieldSettings.tips && typeof fieldSettings.tips === 'object') ? fieldSettings.tips : {};
             const rules = Array.isArray(configData.rules) ? configData.rules : [];
 
+            // --- NEW: Extract post-transform settings with defaults ---
+            const postTransformSettings = configData.postTransformFieldSettings || {};
+            const postEnabled = postTransformSettings.enabled || {};
+            const postFormats = postTransformSettings.formats || {};
+            const postTips = postTransformSettings.tips || {};
+            // --- END NEW ---
+
             // Write back to OLD keys
             localStorage.setItem(OLD_FILTER_STORAGE_KEY, JSON.stringify(filters));
             localStorage.setItem(OLD_FIELD_ENABLED_STORAGE_KEY, JSON.stringify(enabled));
@@ -272,6 +336,12 @@ window.AnalyticsConfigManager = (function() {
             
             // <<< NEW: Reset modified flag when activating a scenario >>>
             localStorage.setItem(MODIFIED_FLAG_STORAGE_KEY, 'false'); 
+
+            // --- NEW: Write post-transform settings to NEW keys ---
+            localStorage.setItem(POST_TRANSFORM_FIELD_ENABLED_STORAGE_KEY, JSON.stringify(postEnabled));
+            localStorage.setItem(POST_TRANSFORM_NUMERIC_FORMAT_STORAGE_KEY, JSON.stringify(postFormats));
+            localStorage.setItem(POST_TRANSFORM_FIELD_INFO_TIPS_STORAGE_KEY, JSON.stringify(postTips));
+            // --- END NEW ---
             
             console.log(`[ConfigManager] Configuration "${trimmedName}" written to original localStorage keys. Refresh page to apply.`);
             return true;
@@ -284,16 +354,25 @@ window.AnalyticsConfigManager = (function() {
 
     // --- NEW: Function to mark current settings as modified ---
     function _markScenarioAsModified() {
+        console.log("[_markScenarioAsModified DEBUG] Function called."); // Log function entry
         const currentActiveName = localStorage.getItem(ACTIVE_CONFIG_NAME_STORAGE_KEY);
+        console.log(`[_markScenarioAsModified DEBUG] currentActiveName: ${currentActiveName}`); // Log active name
+
         // Only mark as modified if there *is* an active scenario loaded
-        if (currentActiveName) { 
+        if (currentActiveName) {
             const currentModifiedState = localStorage.getItem(MODIFIED_FLAG_STORAGE_KEY) === 'true';
+            console.log(`[_markScenarioAsModified DEBUG] currentModifiedState: ${currentModifiedState}`); // Log current flag state
+
             if (!currentModifiedState) { // Only update if not already marked as modified
-                console.log("[ConfigManager] Change detected. Marking scenario as modified.");
+                console.log("[_markScenarioAsModified DEBUG] Change detected & not already modified. Setting flag to true and refreshing table.");
                 localStorage.setItem(MODIFIED_FLAG_STORAGE_KEY, 'true');
                 // Refresh the table to show the status change immediately
-                populateScenarioTable(); 
+                populateScenarioTable();
+            } else {
+                console.log("[_markScenarioAsModified DEBUG] Scenario already marked as modified. No action taken.");
             }
+        } else {
+            console.log("[_markScenarioAsModified DEBUG] No active scenario name found. Cannot mark as modified.");
         }
     }
 
@@ -323,6 +402,13 @@ window.AnalyticsConfigManager = (function() {
             const infoTips = (fieldSettings.tips && typeof fieldSettings.tips === 'object') ? fieldSettings.tips : {};
             const rules = Array.isArray(configData.rules) ? configData.rules : [];
 
+            // --- NEW: Extract post-transform settings --- 
+            const postTransformSettings = configData.postTransformFieldSettings || {};
+            const postEnabled = postTransformSettings.enabled || {};
+            const postFormats = postTransformSettings.formats || {};
+            const postTips = postTransformSettings.tips || {};
+            // --- END NEW ---
+
             // --- Call Main Analytics Module Setters ---
             const mainModule = window.AnalyticsMainModule;
             if (mainModule) {
@@ -336,6 +422,14 @@ window.AnalyticsConfigManager = (function() {
                 } else {
                      console.error("[ConfigManager] ApplyDirect: loadFilters function not found on AnalyticsMainModule.");
                 }
+
+                // --- NEW: Call Post-Transform Loader --- 
+                if (window.AnalyticsPostTransformModule && typeof window.AnalyticsPostTransformModule.loadPostTransformFieldSettings === 'function') {
+                    window.AnalyticsPostTransformModule.loadPostTransformFieldSettings(postEnabled, postFormats, postTips);
+                } else {
+                    console.error("[ConfigManager] ApplyDirect: AnalyticsPostTransformModule or loadPostTransformFieldSettings function not found.");
+                }
+                // --- END NEW ---
             } else {
                 console.error("[ConfigManager] ApplyDirect: AnalyticsMainModule not found.");
                 updateStatus("Error: Analytics core module not available.", true);
@@ -890,87 +984,167 @@ window.AnalyticsConfigManager = (function() {
 
     // --- NEW: Add listeners to detect changes in other tabs ---
     function initializeModificationDetection() {
-        console.log("[ConfigManager] Initializing modification detection listeners...");
-        
-        // Use event delegation on stable parent elements
-        const prepTabPane = document.getElementById('stage-prepare-tab-pane');
+        console.log("[Modification DEBUG] Initializing/Re-initializing modification detection listeners...");
+
+        // --- Remove existing listeners first --- //
+        const configSubTabPane = document.getElementById('config-subtab-pane');
+        const fieldConfigContainer = configSubTabPane ? configSubTabPane.querySelector('#field-config-container') : null;
         const transformTabPane = document.getElementById('transform-tab-pane');
         const transformModal = document.getElementById('transformationRuleModal');
         const formatModal = document.getElementById('numericFormatModal');
-        
-        if (prepTabPane) {
-            // Filter changes
-            prepTabPane.addEventListener('click', function(event) {
-                // // <<< TEMPORARY DEBUG LOG >>>
-                // console.log(`[ConfigManager DEBUG] Click detected inside prepTabPane. Target:`, event.target);
-                
+        const postTransformConfigContainer = document.getElementById('post-transform-field-config-container');
+
+        if (fieldConfigContainer && prepFieldConfigChangeListener) {
+            fieldConfigContainer.removeEventListener('change', prepFieldConfigChangeListener);
+             console.log("[Modification DEBUG] Removed old prepFieldConfigChangeListener.");
+        }
+        if (fieldConfigContainer && prepFieldConfigClickListener) {
+            fieldConfigContainer.removeEventListener('click', prepFieldConfigClickListener);
+             console.log("[Modification DEBUG] Removed old prepFieldConfigClickListener.");
+        }
+        if (transformTabPane && transformPaneClickListener) {
+            transformTabPane.removeEventListener('click', transformPaneClickListener);
+             console.log("[Modification DEBUG] Removed old transformPaneClickListener.");
+        }
+         if (transformTabPane && transformPaneChangeListener) {
+            transformTabPane.removeEventListener('change', transformPaneChangeListener);
+             console.log("[Modification DEBUG] Removed old transformPaneChangeListener.");
+        }
+        if (transformModal && transformModalSaveListener) {
+            const saveRuleBtn = transformModal.querySelector('#save-transformation-rule-btn');
+            if (saveRuleBtn) saveRuleBtn.removeEventListener('click', transformModalSaveListener);
+             console.log("[Modification DEBUG] Removed old transformModalSaveListener.");
+        }
+        if (formatModal && formatModalSaveListener) {
+            const saveFormatBtn = formatModal.querySelector('#save-format-btn');
+            if (saveFormatBtn) saveFormatBtn.removeEventListener('click', formatModalSaveListener);
+             console.log("[Modification DEBUG] Removed old formatModalSaveListener.");
+        }
+        if (postTransformConfigContainer && postTransformChangeListener) {
+            postTransformConfigContainer.removeEventListener('change', postTransformChangeListener);
+             console.log("[Modification DEBUG] Removed old postTransformChangeListener.");
+        }
+        if (postTransformConfigContainer && postTransformInputListener) {
+            postTransformConfigContainer.removeEventListener('input', postTransformInputListener);
+             console.log("[Modification DEBUG] Removed old postTransformInputListener.");
+        }
+        // --- End Remove existing listeners ---
+
+        // Re-assign listener functions and attach
+        if (configSubTabPane && !prepPaneClickListener) {
+            prepPaneClickListener = function(event) {
                 if (event.target.matches('#apply-filters-btn, #reset-filters-btn, #add-filter-btn, .remove-filter-btn')) {
-                    //  // <<< TEMPORARY DEBUG LOG >>>
-                    // console.log(`[ConfigManager DEBUG] Filter modification button clicked:`, event.target.id || event.target.className);
+                    console.log("[Modification DEBUG] Filter button clicked. Calling _markScenarioAsModified...");
                     _markScenarioAsModified();
                 }
-                // Consider filter input changes? For now, only button clicks.
-            });
+            };
+            configSubTabPane.addEventListener('click', prepPaneClickListener);
+            console.log("[Modification DEBUG] Attached prepPaneClickListener to configSubTabPane.");
+        }
 
-            // Field config changes (delegated from container)
-            const fieldConfigContainer = prepTabPane.querySelector('#field-config-container');
-            if (fieldConfigContainer) {
-                fieldConfigContainer.addEventListener('change', function(event) {
-                    // Check if the change happened on an enable toggle, format select, or info input
-                    const target = event.target;
-                    if (target.matches('input[type=\"checkbox\"].form-check-input') || 
-                        target.matches('select.format-select') || 
-                        target.matches('input.field-info-input')) 
-                    {
-                        console.log(`[ConfigManager] Matched field config change on: ${target.tagName}.${target.className}. Calling _markScenarioAsModified...`);
-                        
-                        // Check if the checkbox is NOT part of a modal (like transformation rule enable toggle)
-                        if (!event.target.closest('.modal')) { 
-                             _markScenarioAsModified();
-                        } else {
-                             console.log("[ConfigManager] Ignoring change inside a modal.");
-                        }
+        if (fieldConfigContainer) {
+            prepFieldConfigChangeListener = function(event) {
+                console.log("[Modification DEBUG] Change event detected in PRE-transform fieldConfigContainer.");
+                const target = event.target;
+                console.log("[Modification DEBUG] Event Target TagName:", target.tagName, "ClassNames:", target.className);
+                if (target.matches('input[type="checkbox"].form-check-input') ||
+                    target.matches('select.format-select') ||
+                    target.matches('input.field-info-input'))
+                {
+                    console.log(`[Modification DEBUG] Matched PRE-transform config change on: ${target.tagName}.${target.className}. Calling _markScenarioAsModified...`);
+                    if (!event.target.closest('.modal')) {
+                         _markScenarioAsModified();
+                    } else {
+                         console.log("[Modification DEBUG] Ignoring change inside a modal.");
                     }
-                });
-                 // Listen for format button clicks (opening the modal isn't a change yet)
-                 fieldConfigContainer.addEventListener('click', function(event) {
-                    // <<< Remove Debug Log >>>
-                    // console.log("[ConfigManager DEBUG] Click event detected in fieldConfigContainer. Target:", event.target);
-                    if (event.target.closest('.configure-format-btn')) { 
-                        // <<< Remove Debug Log >>>
-                        // console.log("[ConfigManager DEBUG] Matched configure-format-btn.");
-                         // The actual change happens on modal save (already handled)
-                    }
-                 });
-            }
+                }
+            };
+            fieldConfigContainer.addEventListener('change', prepFieldConfigChangeListener);
+             console.log("[Modification DEBUG] Attached prepFieldConfigChangeListener to fieldConfigContainer.");
+
+            prepFieldConfigClickListener = function(event) {
+                if (event.target.closest('.configure-format-btn')) {
+                    // No modification here, just logging
+                }
+             };
+            fieldConfigContainer.addEventListener('click', prepFieldConfigClickListener);
+             console.log("[Modification DEBUG] Attached prepFieldConfigClickListener to fieldConfigContainer.");
+        } else {
+             console.warn("[Modification DEBUG] Pre-transform #field-config-container not found. Cannot attach listeners.");
         }
 
         if (transformTabPane) {
-            // Transformation changes
-             transformTabPane.addEventListener('click', function(event) {
-                if (event.target.matches('#apply-transformations-btn, #save-transform-rules-btn, #load-transform-rules-btn, .delete-rule-btn')) { // Added delete rule btn
+            transformPaneClickListener = function(event) {
+                if (event.target.matches('#apply-transformations-btn, #save-transform-rules-btn, #load-transform-rules-btn, .delete-rule-btn, .move-rule-btn')) {
+                    console.log("[Modification DEBUG] Transform control button clicked. Calling _markScenarioAsModified...");
                     _markScenarioAsModified();
                 }
-                // Add Rule button click opens modal, change happens on save
-            });
+            };
+            transformTabPane.addEventListener('click', transformPaneClickListener);
+             console.log("[Modification DEBUG] Attached transformPaneClickListener to transformTabPane.");
+
+            transformPaneChangeListener = function(event) {
+                if (event.target.matches('.list-group-item input[type="checkbox"].form-check-input')) {
+                    console.log("[Modification DEBUG] Transform rule enable toggle changed. Calling _markScenarioAsModified...");
+                    _markScenarioAsModified();
+                }
+            };
+            transformTabPane.addEventListener('change', transformPaneChangeListener);
+             console.log("[Modification DEBUG] Attached transformPaneChangeListener to transformTabPane.");
         }
 
         if (transformModal) {
-            // Transformation Rule Modal Save
             const saveRuleBtn = transformModal.querySelector('#save-transformation-rule-btn');
             if (saveRuleBtn) {
-                saveRuleBtn.addEventListener('click', _markScenarioAsModified);
+                transformModalSaveListener = () => {
+                    console.log("[Modification DEBUG] Transform modal save clicked. Calling _markScenarioAsModified...");
+                    _markScenarioAsModified();
+                };
+                saveRuleBtn.addEventListener('click', transformModalSaveListener);
+                 console.log("[Modification DEBUG] Attached transformModalSaveListener to transformModal.");
             }
         }
 
         if (formatModal) {
-            // Numeric Format Modal Save
             const saveFormatBtn = formatModal.querySelector('#save-format-btn');
             if (saveFormatBtn) {
-                saveFormatBtn.addEventListener('click', _markScenarioAsModified);
+                formatModalSaveListener = () => {
+                     console.log("[Modification DEBUG] Format modal save clicked. Calling _markScenarioAsModified...");
+                    _markScenarioAsModified();
+                };
+                saveFormatBtn.addEventListener('click', formatModalSaveListener);
+                 console.log("[Modification DEBUG] Attached formatModalSaveListener to formatModal.");
             }
         }
-        console.log("[ConfigManager] Modification detection listeners attached.");
+
+        if (postTransformConfigContainer) {
+            console.log("[Modification DEBUG] Attaching listeners to postTransformConfigContainer...");
+            postTransformChangeListener = function(event) {
+                console.log("[Modification DEBUG] Change event detected in POST-transform container.");
+                const target = event.target;
+                 if (target.matches('input[type="checkbox"].form-check-input') || target.matches('select.form-select')) {
+                     console.log(`[Modification DEBUG] Matched POST-transform config change (enable/format) on: ${target.tagName}.${target.className}. Calling _markScenarioAsModified...`);
+                     _markScenarioAsModified();
+                 }
+            };
+            postTransformConfigContainer.addEventListener('change', postTransformChangeListener);
+             console.log("[Modification DEBUG] Attached postTransformChangeListener to postTransformConfigContainer.");
+
+            postTransformInputListener = function(event) {
+                 console.log("[Modification DEBUG] Input event detected in POST-transform container.");
+                const target = event.target;
+                if (target.matches('input.field-info-input')) {
+                    console.log(`[Modification DEBUG] Matched POST-transform info tip input change. Calling _markScenarioAsModified...`);
+                    _markScenarioAsModified();
+                }
+            };
+            postTransformConfigContainer.addEventListener('input', postTransformInputListener);
+             console.log("[Modification DEBUG] Attached postTransformInputListener to postTransformConfigContainer.");
+        } else {
+            console.warn("[ConfigManager] Post-transform config container not found. Cannot attach modification listeners.");
+        }
+
+        console.log("[ConfigManager] Modification detection listeners attached/re-attached.");
     }
 
     // Handler for Reload Button Click
@@ -1184,9 +1358,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.AnalyticsConfigManager) {
         console.log("[ConfigManager] DOM Loaded. Initializing UI bindings.");
         AnalyticsConfigManager.initializeUI();
-        // <<< NEW: Initialize modification detection AFTER main UI setup >>>
-        // Use a small timeout to ensure elements from other scripts are likely ready
-        setTimeout(AnalyticsConfigManager.initializeModificationDetection, 500); 
     } else {
         console.error("[ConfigManager] AnalyticsConfigManager object not found after DOMContentLoaded!");
     }
