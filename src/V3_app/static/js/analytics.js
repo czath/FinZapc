@@ -63,6 +63,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     const reportSizeSelector = document.getElementById('report-size-selector'); // NEW Size selector
     const resetChartBtn = document.getElementById('reset-chart-btn'); // NEW Reset button
     const swapAxesBtn = document.getElementById('swap-axes-btn'); // NEW Swap button
+    const dataVisualTabTrigger = document.getElementById('data-visual-tab'); // <<< ADDED for tab refresh
 
     // --- File Handling Logic (Import Tab) ---
     function handleFile(file) {
@@ -999,15 +1000,31 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
         fieldConfigContainer.innerHTML = ''; // Clear previous content
 
-        // --- Create Header Row ---
+        // --- Create and Prepend Search Input --- //
+        const searchGroup = document.createElement('div');
+        searchGroup.className = 'input-group input-group-sm mb-2 px-2'; // Added padding
+        const searchIcon = document.createElement('span');
+        searchIcon.className = 'input-group-text';
+        searchIcon.innerHTML = '<i class="bi bi-search"></i>';
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.id = 'pre-transform-field-search'; // Unique ID
+        searchInput.className = 'form-control form-control-sm';
+        searchInput.placeholder = 'Search fields...';
+        searchGroup.appendChild(searchIcon);
+        searchGroup.appendChild(searchInput);
+        fieldConfigContainer.appendChild(searchGroup);
+        // --- End Search Input ---
+
+        // --- Create Header Row --- //
         const headerRow = document.createElement('div');
         headerRow.className = 'd-flex align-items-center mb-2 p-2 border-bottom fw-bold text-muted small';
-        // <<< ADD STICKY HEADER STYLES >>>
+        // ... (rest of header row creation remains the same) ...
         headerRow.style.position = 'sticky';
         headerRow.style.top = '0';
         headerRow.style.backgroundColor = 'var(--bs-body-bg, white)'; // Use CSS variable for background, fallback to white
         headerRow.style.zIndex = '10'; // Ensure it stays above scrolling content
-        
+
         const headers = [
             { key: 'name', text: 'Field name', width: '120px', align: 'start', extraClasses: 'me-3' }, // <<< DECREASED WIDTH
             { key: 'count', text: 'Occured', width: '80px', align: 'end', extraClasses: 'me-3 text-end' }, // Updated text and width
@@ -1060,11 +1077,16 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             noDataMsg.className = 'text-muted small mt-2 ms-2'; // Added ms-2 for indent
             noDataMsg.textContent = 'Load data first to configure fields.';
             fieldConfigContainer.appendChild(noDataMsg);
+             // Attach listener even if no data, so it works if data loads later?
+             applyPreTransformSearchListener();
             return;
         }
-        
+
         // --- Render Data Rows (using a separate function now for clarity) ---
-        renderFieldDataRows(availableFields); 
+        renderFieldDataRows(availableFields);
+
+        // --- Attach Search Listener --- //
+        applyPreTransformSearchListener();
     }
 
     // --- NEW: Separate function to render just the data rows ---
@@ -1293,6 +1315,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         // Re-render the rows in the sorted order
         renderFieldDataRows(fieldsToSort);
         updateSortIndicators(); // Update indicators after sort
+        // <<< Ensure search listener is active after re-rendering rows >>>
+        applyPreTransformSearchListener();
     }
     // --- END NEW Sort Function ---
 
@@ -1663,6 +1687,20 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     function populateReportFieldSelector() {
         console.log("Populating report field selectors (X, Y, Size)...");
 
+        // <<< ADDED: Fetch Post-Transform Settings >>>
+        let postTransformEnabledStatus = {};
+        // Fetch other settings if needed later (formats, tips)
+        const postTransformModule = window.AnalyticsPostTransformModule;
+        if (postTransformModule) {
+            if (typeof postTransformModule.getPostTransformEnabledStatus === 'function') {
+                postTransformEnabledStatus = postTransformModule.getPostTransformEnabledStatus() || {};
+            } else { console.warn("[populateReportFieldSelector] getPostTransformEnabledStatus not found on module."); }
+            // Add getters for formats/tips here if needed by this function in the future
+        } else {
+            console.warn("[populateReportFieldSelector] AnalyticsPostTransformModule not found.");
+        }
+        // <<< END ADDED >>>
+
         // Determine which field list to use: final post-transform if available, otherwise pre-transform
         // <<< ADDED typeof check >>>
         const useFinalFields = typeof finalAvailableFields !== 'undefined' && Array.isArray(finalAvailableFields) && finalAvailableFields.length > 0;
@@ -1699,7 +1737,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
         // Filter available fields based on enabled status (still use the single shared status)
         // <<< FIX: Filter fieldsToUse instead of fields >>>
-        const enabledFields = fieldsToUse.filter(field => fieldEnabledStatus[field] !== false); // Use !== false to include undefined/true
+        // const enabledFields = fieldsToUse.filter(field => fieldEnabledStatus[field] !== false); // Use !== false to include undefined/true // <<< OLD: Uses pre-transform status
+        const enabledFields = fieldsToUse.filter(field => postTransformEnabledStatus[field] !== false); // <<< NEW: Use post-transform status
         console.log(`Populating report selectors with enabled (${sourceMsg}) fields:`, enabledFields);
 
         // --- Separate check for numeric fields (optional, but helpful) ---
@@ -1764,6 +1803,20 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     function populateReportColorSelector() {
         console.log("Populating report color selector...");
 
+        // <<< ADDED: Fetch Post-Transform Settings >>>
+        let postTransformEnabledStatus = {};
+        // Fetch other settings if needed later (formats, tips)
+        const postTransformModule = window.AnalyticsPostTransformModule;
+        if (postTransformModule) {
+            if (typeof postTransformModule.getPostTransformEnabledStatus === 'function') {
+                postTransformEnabledStatus = postTransformModule.getPostTransformEnabledStatus() || {};
+            } else { console.warn("[populateReportColorSelector] getPostTransformEnabledStatus not found on module."); }
+            // Add getters for formats/tips here if needed by this function in the future
+        } else {
+            console.warn("[populateReportColorSelector] AnalyticsPostTransformModule not found.");
+        }
+        // <<< END ADDED >>>
+
         // Determine which field list to use
         // <<< ADDED typeof check >>>
         const useFinalFields = typeof finalAvailableFields !== 'undefined' && Array.isArray(finalAvailableFields) && finalAvailableFields.length > 0;
@@ -1784,7 +1837,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         }
  
         // Filter for enabled fields (using shared status)
-        const enabledFields = fieldsToUse.filter(field => fieldEnabledStatus[field] !== false); // Check !== false
+        // const enabledFields = fieldsToUse.filter(field => fieldEnabledStatus[field] !== false); // Check !== false // <<< OLD: Uses pre-transform status
+        const enabledFields = fieldsToUse.filter(field => postTransformEnabledStatus[field] !== false); // <<< NEW: Use post-transform status
         console.log("Populating color selector with enabled (post-transform) fields:", enabledFields);
  
         // Sort fields alphabetically
@@ -1844,6 +1898,34 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         const canvas = document.getElementById('report-chart-canvas');
         const ctx = canvas?.getContext('2d');
         const statusElement = document.getElementById('chart-status');
+
+        // <<< ADDED: Fetch Post-Transform Settings >>>
+        let postTransformEnabledStatus = {};
+        let postTransformNumericFormats = {};
+        let postTransformFieldInfoTips = {};
+        const postTransformModule = window.AnalyticsPostTransformModule;
+
+        if (postTransformModule) {
+            if (typeof postTransformModule.getPostTransformEnabledStatus === 'function') {
+                postTransformEnabledStatus = postTransformModule.getPostTransformEnabledStatus() || {};
+            } else { console.warn("[renderChart] getPostTransformEnabledStatus not found on module."); }
+
+            if (typeof postTransformModule.getPostTransformNumericFormats === 'function') {
+                postTransformNumericFormats = postTransformModule.getPostTransformNumericFormats() || {};
+            } else { console.warn("[renderChart] getPostTransformNumericFormats not found on module."); }
+
+            if (typeof postTransformModule.getPostTransformInfoTips === 'function') {
+                postTransformFieldInfoTips = postTransformModule.getPostTransformInfoTips() || {};
+            } else { console.warn("[renderChart] getPostTransformInfoTips not found on module."); }
+        } else {
+            console.warn("[renderChart] AnalyticsPostTransformModule not found.");
+        }
+
+        // Also fetch pre-transform formats/tips for fallback if needed within renderChart
+        const mainModule = window.AnalyticsMainModule;
+        const preTransformNumericFormats = mainModule?.getNumericFieldFormats ? mainModule.getNumericFieldFormats() : {};
+        const preTransformFieldInfoTips = mainModule?.getFieldInfoTips ? mainModule.getFieldInfoTips() : {};
+        // <<< END ADDED >>>
 
         if (!canvas || !ctx || !statusElement) {
             console.error('Chart canvas, context, or status element not found!');
@@ -2319,7 +2401,11 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                              callback: function(value, index, ticks) {
                                  // Get format for the Y field
                                  const yField = reportFieldSelector.value;
-                                 const format = (yField && fieldNumericFormats[yField]) ? fieldNumericFormats[yField] : 'default';
+                                 // const format = (yField && fieldNumericFormats[yField]) ? fieldNumericFormats[yField] : 'default'; // OLD: Uses only pre-transform
+                                 // <<< NEW: Prioritize post-transform format >>>
+                                 const format = (yField && postTransformNumericFormats.hasOwnProperty(yField))
+                                                  ? postTransformNumericFormats[yField]
+                                                  : ((yField && preTransformNumericFormats[yField]) ? preTransformNumericFormats[yField] : 'default');
                                  return formatNumericValue(value, format);
                              }
                          },
@@ -2337,27 +2423,29 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                      tooltip: {
                          callbacks: {
                              label: function(context) {
-                                 console.log("Tooltip callback executed (Step 3 - Full)");
-                                 let labelLines = []; // Use an array for multi-line labels
+                                 // console.log("Tooltip callback executed."); // Reduced log frequency
+                                 let labelLines = [];
                                  const chartType = context.chart.config.type;
-                                 const pointData = context.raw; // Available for scatter/line
+                                 const pointData = context.raw;
+                                 const yField = reportFieldSelector.value; // Get Y field name
+                                 const xField = reportXAxisSelector.value; // Get X field name
+                                 const useIndexAsX = (!xField || xField === 'index'); // Check if default X is used
+                                 const colorField = reportColorSelector.value; // Get color field name
+                                 const sizeField = reportSizeSelector.value; // Get size field name
 
                                  if (chartType === 'bar') {
-                                     // Bar chart: X is category (label), Y is value
-                                     labelLines.push(`Ticker: ${context.label || 'N/A'}`); // Ticker is the category label
-                                     //labelLines.push(`${context.dataset.label || 'Value'}: ${context.parsed.y}`); // Y value
-                                     // <<< Format Y value for bar chart tooltip >>>
-                                     const yField = reportFieldSelector.value;
-                                     const yFormat = (yField && fieldNumericFormats[yField]) ? fieldNumericFormats[yField] : 'default';
+                                     labelLines.push(`Ticker: ${context.label || 'N/A'}`);
+                                     // Prioritize post-transform format for Y
+                                     const yFormat = (yField && postTransformNumericFormats.hasOwnProperty(yField))
+                                                       ? postTransformNumericFormats[yField]
+                                                       : ((yField && preTransformNumericFormats[yField]) ? preTransformNumericFormats[yField] : 'default');
                                      const formattedY = formatNumericValue(context.parsed.y, yFormat);
                                      labelLines.push(`${yField || 'Value'}: ${formattedY} (Raw: ${context.parsed.y})`);
- 
-                                     // Add color field info for bar charts (find original item)
+
+                                     // Add color field info for bar charts
                                      if (colorField) {
                                          const dataIndex = context.dataIndex;
-                                         // Find the original item matching the label/index
-                                         // <<< USE finalDataForAnalysis >>>
-                                         const originalItem = finalDataForAnalysis.find(item => 
+                                         const originalItem = finalDataForAnalysis.find(item =>
                                              (item && item.ticker === context.label) || (item && !item.ticker && context.label === `Index ${dataIndex}`)
                                          );
                                          if (originalItem) {
@@ -2367,46 +2455,55 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                                              }
                                          }
                                      }
-                                 } else if (pointData) { 
-                                     // Scatter/Line chart: pointData contains {x, y, ticker, colorValue, originalX, originalY}
+                                 } else if (pointData) {
+                                     // Scatter/Line/Bubble chart
                                      if (pointData.ticker) {
                                          labelLines.push(`Ticker: ${pointData.ticker}`);
                                      }
-                                     // Use selected field names for axes labels or default
-                                     const xLabel = useIndexAsX ? 'Index' : selectedXField;
-                                     //const xValueDisplay = useIndexAsX ? pointData.x : `${pointData.x} ${pointData.originalX != pointData.x ? '('+pointData.originalX+')' : ''}`;
-                                     // <<< Format X and Y values for scatter/line/bubble tooltip >>>
-                                     const xFormat = (selectedXField && fieldNumericFormats[selectedXField]) ? fieldNumericFormats[selectedXField] : 'default';
-                                     const yFormatTooltip = (selectedYField && fieldNumericFormats[selectedYField]) ? fieldNumericFormats[selectedYField] : 'default';
-                                     
-                                     const formattedX = useIndexAsX ? pointData.x : formatNumericValue(pointData.x, xFormat); 
+
+                                     const xLabel = useIndexAsX ? 'Index' : xField;
+                                     const yLabel = yField;
+
+                                     // Format X value (Prioritize post-transform)
+                                     const xFormat = (xField && postTransformNumericFormats.hasOwnProperty(xField))
+                                                       ? postTransformNumericFormats[xField]
+                                                       : ((xField && preTransformNumericFormats[xField]) ? preTransformNumericFormats[xField] : 'default');
+                                     const formattedX = useIndexAsX ? pointData.x : formatNumericValue(pointData.x, xFormat);
+
+                                     // Format Y value (Prioritize post-transform)
+                                     const yFormatTooltip = (yLabel && postTransformNumericFormats.hasOwnProperty(yLabel))
+                                                       ? postTransformNumericFormats[yLabel]
+                                                       : ((yLabel && preTransformNumericFormats[yLabel]) ? preTransformNumericFormats[yLabel] : 'default');
                                      const formattedYTooltip = formatNumericValue(pointData.y, yFormatTooltip);
 
+                                     // Push X and Y lines ONCE
                                      labelLines.push(`${xLabel}: ${formattedX} ${!useIndexAsX && pointData.originalX != pointData.x ? '(Raw: '+pointData.originalX+')' : ''}`);
-                                     labelLines.push(`${selectedYField}: ${formattedYTooltip} ${pointData.originalY != pointData.y ? '(Raw: '+pointData.originalY+')' : ''}`);
+                                     labelLines.push(`${yLabel}: ${formattedYTooltip} ${pointData.originalY != pointData.y ? '(Raw: '+pointData.originalY+')' : ''}`);
 
-                                     // Add color field info if available
+                                     // Add color field info
                                      if (colorField && pointData.colorValue !== null && pointData.colorValue !== undefined) {
                                          labelLines.push(`${colorField}: ${pointData.colorValue}`);
                                      }
 
                                      // Add size field info for bubble charts
                                      if (chartType === 'bubble' && sizeField && pointData.originalSize !== null && pointData.originalSize !== undefined) {
-                                         //labelLines.push(`${sizeField} (Size): ${pointData.originalSize}`);
-                                         // <<< Format Size value for bubble tooltip >>>
-                                         const sizeFormat = fieldNumericFormats[sizeField] || 'default';
+                                         // Format Size value (Prioritize post-transform)
+                                         const sizeFormat = (sizeField && postTransformNumericFormats.hasOwnProperty(sizeField))
+                                                           ? postTransformNumericFormats[sizeField]
+                                                           : ((sizeField && preTransformNumericFormats[sizeField]) ? preTransformNumericFormats[sizeField] : 'default');
                                          const formattedSize = formatNumericValue(pointData.originalSize, sizeFormat);
-                                         labelLines.push(`${sizeField} (Size): ${formattedSize} (Raw: ${pointData.originalSize})`);
+                                         labelLines.push(`${sizeField} (Size): ${formattedSize}`); // Removed (Raw: ...) part
                                      }
+
                                  } else {
-                                      // Fallback if pointData isn't available (shouldn't happen often)
+                                      // Fallback
                                       labelLines.push(`${context.dataset.label || 'Data'}: (${context.parsed.x}, ${context.parsed.y})`);
                                  }
-                                 
-                                 return labelLines; // Return array for multi-line tooltip
+
+                                 return labelLines;
                              }
                          }
-                     },
+                     }, // End tooltip callbacks
                      zoom: {
                          pan: {
                              enabled: true,
@@ -3034,6 +3131,11 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             console.error("[Analytics] AnalyticsPostTransformModule or render function not found when trying to render post-transform config!");
         }
         // <<< END ADDED >>>
+
+        // <<< ADDED: Explicitly update Analyze UI after transformations >>>
+        updateAnalyticsUI({ updatePrepUI: false, updateAnalyzeUI: true });
+        console.log("[Analytics] Analyze UI update triggered after transformations.");
+        // <<< END ADDED >>>
     }
 
     function updateFinalFieldsAndMetadata(data) {
@@ -3471,6 +3573,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         getFieldEnabledStatus: () => fieldEnabledStatus,
         getNumericFieldFormats: () => fieldNumericFormats, // Pre-transform formats
         getFieldInfoTips: () => fieldInfoTips, // Pre-transform tips
+        getFilters: () => currentFilters, // <<< ADDED Getter for filters array
 
         // UI Updaters / Actions
         updateAnalyticsUI: updateAnalyticsUI,
@@ -3499,5 +3602,54 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         },
     };
     console.log("AnalyticsMainModule API exposed.", window.AnalyticsMainModule)
+
+    // --- NEW: Pre-Transform Search Functionality ---
+    function applyPreTransformSearchListener() {
+        const searchInput = document.getElementById('pre-transform-field-search');
+        const container = document.getElementById('field-config-container');
+
+        if (!searchInput || !container) {
+            console.warn("[applyPreTransformSearchListener] Search input or container not found. Cannot attach listener.");
+            return;
+        }
+        console.log("[applyPreTransformSearchListener] Attaching listener...");
+
+        let searchTimeout;
+        // Use 'input' event for immediate feedback (debounced)
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                const searchTerm = searchInput.value.toLowerCase().trim();
+                const rows = container.querySelectorAll('.field-data-row'); // Select by specific class
+                console.log(`[PreTransformSearch] Filtering for: ${searchTerm}`);
+                rows.forEach(row => {
+                    const fieldName = row.dataset.fieldName?.toLowerCase() || '';
+                    if (fieldName.includes(searchTerm)) {
+                        // Show row by removing the hidden class
+                        row.classList.remove('search-hidden');
+                    } else {
+                        // Hide row by adding the hidden class
+                        row.classList.add('search-hidden');
+                    }
+                });
+            }, 300); // Debounce search by 300ms
+        });
+    }
+    // --- END NEW Search Functionality ---
+
+    // --- NEW: Listener for Data Visual Tab Shown ---
+    if (dataVisualTabTrigger) {
+        dataVisualTabTrigger.addEventListener('shown.bs.tab', function (event) {
+            console.log("Data Visual tab shown. Refreshing chart and selectors.");
+            // Use setTimeout to allow tab transition to finish smoothly
+            setTimeout(() => {
+                // Call the existing UI update function, targeting only the Analyze tab components
+                updateAnalyticsUI({ updatePrepUI: false, updateAnalyzeUI: true });
+            }, 0);
+        });
+    } else {
+        console.warn("Could not find Data Visual tab trigger (#data-visual-tab) to attach refresh listener.");
+    }
+    // --- END NEW ---
 
 }); 

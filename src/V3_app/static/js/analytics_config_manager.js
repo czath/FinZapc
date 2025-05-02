@@ -140,124 +140,83 @@ window.AnalyticsConfigManager = (function() {
     }
 
     /**
-     * Reads the current application settings (filters, field settings, rules) 
-     * directly from their original localStorage keys.
+     * Reads the current application settings (filters, field settings, rules)
+     * directly from the application's in-memory state via module getters.
      * @returns {object} An object containing the current settings, structured for saving.
-     *                   Returns default empty structures if keys are not found or invalid.
+     *                   Returns default empty structures if modules/getters are unavailable.
      */
     function _readCurrentAppSettings() {
-        console.log("[ConfigManager] Reading current app settings from original localStorage keys...");
+        console.log("[ConfigManager] Reading current app settings from module in-memory state...");
         const currentSettings = {
             fieldSettings: { enabled: {}, formats: {}, tips: {} },
             filters: [],
             rules: [],
-            postTransformFieldSettings: { enabled: {}, formats: {}, tips: {} } // NEW: Add structure
+            postTransformFieldSettings: { enabled: {}, formats: {}, tips: {} }
         };
 
-        // Read Filters
-        try {
-            const rawFilters = localStorage.getItem(OLD_FILTER_STORAGE_KEY);
-            if (rawFilters) {
-                const parsed = JSON.parse(rawFilters);
-                if (Array.isArray(parsed)) {
-                    currentSettings.filters = parsed;
-                } else {
-                     console.warn(`[ConfigManager] Invalid filters data in "${OLD_FILTER_STORAGE_KEY}". Expected array.`);
-                }
-            }
-        } catch (e) { console.error(`[ConfigManager] Error reading/parsing filters from "${OLD_FILTER_STORAGE_KEY}":`, e); }
+        const mainModule = window.AnalyticsMainModule;
+        const transformModule = window.AnalyticsTransformModule;
+        const postTransformModule = window.AnalyticsPostTransformModule;
 
-        // Read Field Enabled Status
-        try {
-            const rawEnabled = localStorage.getItem(OLD_FIELD_ENABLED_STORAGE_KEY);
-            if (rawEnabled) {
-                const parsed = JSON.parse(rawEnabled);
-                 if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                    currentSettings.fieldSettings.enabled = parsed;
-                 } else {
-                     console.warn(`[ConfigManager] Invalid enabled status data in "${OLD_FIELD_ENABLED_STORAGE_KEY}". Expected object.`);
-                 }
-            }
-        } catch (e) { console.error(`[ConfigManager] Error reading/parsing enabled status from "${OLD_FIELD_ENABLED_STORAGE_KEY}":`, e); }
+        // --- Read Pre-Transform Settings from AnalyticsMainModule ---
+        if (mainModule) {
+            try {
+                if (typeof mainModule.getFilters === 'function') { // Use the new getter name if you added one, else use existing one
+                    currentSettings.filters = mainModule.getFilters() || [];
+                } else if (typeof mainModule.getCurrentFilters === 'function') { // Fallback or alternative name check
+                    currentSettings.filters = mainModule.getCurrentFilters() || [];
+                } else { console.warn("[ConfigManager] MainModule.getFilters function not found."); }
 
-        // Read Field Numeric Formats
-        try {
-            const rawFormats = localStorage.getItem(OLD_FIELD_NUMERIC_FORMAT_STORAGE_KEY);
-            if (rawFormats) {
-                const parsed = JSON.parse(rawFormats);
-                 if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                    currentSettings.fieldSettings.formats = parsed;
-                 } else {
-                    console.warn(`[ConfigManager] Invalid numeric formats data in "${OLD_FIELD_NUMERIC_FORMAT_STORAGE_KEY}". Expected object.`);
-                 }
-            }
-        } catch (e) { console.error(`[ConfigManager] Error reading/parsing numeric formats from "${OLD_FIELD_NUMERIC_FORMAT_STORAGE_KEY}":`, e); }
+                if (typeof mainModule.getFieldEnabledStatus === 'function') {
+                    currentSettings.fieldSettings.enabled = mainModule.getFieldEnabledStatus() || {};
+                } else { console.warn("[ConfigManager] MainModule.getFieldEnabledStatus function not found."); }
 
-        // Read Field Info Tips
-        try {
-            const rawTips = localStorage.getItem(OLD_FIELD_INFO_TIPS_STORAGE_KEY);
-            if (rawTips) {
-                const parsed = JSON.parse(rawTips);
-                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                    currentSettings.fieldSettings.tips = parsed;
-                } else {
-                    console.warn(`[ConfigManager] Invalid info tips data in "${OLD_FIELD_INFO_TIPS_STORAGE_KEY}". Expected object.`);
-                }
-            }
-        } catch (e) { console.error(`[ConfigManager] Error reading/parsing info tips from "${OLD_FIELD_INFO_TIPS_STORAGE_KEY}":`, e); }
+                if (typeof mainModule.getNumericFieldFormats === 'function') {
+                    currentSettings.fieldSettings.formats = mainModule.getNumericFieldFormats() || {};
+                } else { console.warn("[ConfigManager] MainModule.getNumericFieldFormats function not found."); }
 
-        // Read Transformation Rules
-        try {
-            const rawRules = localStorage.getItem(OLD_RULES_STORAGE_KEY);
-            if (rawRules) {
-                const parsed = JSON.parse(rawRules);
-                if (Array.isArray(parsed)) {
-                    currentSettings.rules = parsed;
-                } else {
-                    console.warn(`[ConfigManager] Invalid rules data in "${OLD_RULES_STORAGE_KEY}". Expected array.`);
-                }
-            }
-        } catch (e) { console.error(`[ConfigManager] Error reading/parsing rules from "${OLD_RULES_STORAGE_KEY}":`, e); }
+                if (typeof mainModule.getFieldInfoTips === 'function') {
+                    currentSettings.fieldSettings.tips = mainModule.getFieldInfoTips() || {};
+                } else { console.warn("[ConfigManager] MainModule.getFieldInfoTips function not found."); }
 
-        // --- NEW: Read Post-Transform Settings ---
-        try {
-            const rawPostEnabled = localStorage.getItem(POST_TRANSFORM_FIELD_ENABLED_STORAGE_KEY);
-            if (rawPostEnabled) {
-                const parsed = JSON.parse(rawPostEnabled);
-                 if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                    currentSettings.postTransformFieldSettings.enabled = parsed;
-                 } else {
-                     console.warn(`[ConfigManager] Invalid post-transform enabled status data in "${POST_TRANSFORM_FIELD_ENABLED_STORAGE_KEY}". Expected object.`);
-                 }
-            }
-        } catch (e) { console.error(`[ConfigManager] Error reading/parsing post-transform enabled status from "${POST_TRANSFORM_FIELD_ENABLED_STORAGE_KEY}":`, e); }
+            } catch (e) { console.error("[ConfigManager] Error reading settings from AnalyticsMainModule:", e); }
+        } else {
+            console.warn("[ConfigManager] AnalyticsMainModule not found. Cannot read pre-transform settings.");
+        }
 
-        try {
-            const rawPostFormats = localStorage.getItem(POST_TRANSFORM_NUMERIC_FORMAT_STORAGE_KEY);
-            if (rawPostFormats) {
-                const parsed = JSON.parse(rawPostFormats);
-                 if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                    currentSettings.postTransformFieldSettings.formats = parsed;
-                 } else {
-                    console.warn(`[ConfigManager] Invalid post-transform numeric formats data in "${POST_TRANSFORM_NUMERIC_FORMAT_STORAGE_KEY}". Expected object.`);
-                 }
-            }
-        } catch (e) { console.error(`[ConfigManager] Error reading/parsing post-transform numeric formats from "${POST_TRANSFORM_NUMERIC_FORMAT_STORAGE_KEY}":`, e); }
+        // --- Read Transformation Rules from AnalyticsTransformModule ---
+        if (transformModule) {
+            try {
+                if (typeof transformModule.getTransformationRules === 'function') {
+                    currentSettings.rules = transformModule.getTransformationRules() || [];
+                } else { console.warn("[ConfigManager] TransformModule.getTransformationRules function not found."); }
+            } catch (e) { console.error("[ConfigManager] Error reading rules from AnalyticsTransformModule:", e); }
+        } else {
+            console.warn("[ConfigManager] AnalyticsTransformModule not found. Cannot read transformation rules.");
+        }
 
-        try {
-            const rawPostTips = localStorage.getItem(POST_TRANSFORM_FIELD_INFO_TIPS_STORAGE_KEY);
-            if (rawPostTips) {
-                const parsed = JSON.parse(rawPostTips);
-                 if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                    currentSettings.postTransformFieldSettings.tips = parsed;
-                 } else {
-                    console.warn(`[ConfigManager] Invalid post-transform info tips data in "${POST_TRANSFORM_FIELD_INFO_TIPS_STORAGE_KEY}". Expected object.`);
-                 }
-            }
-        } catch (e) { console.error(`[ConfigManager] Error reading/parsing post-transform info tips from "${POST_TRANSFORM_FIELD_INFO_TIPS_STORAGE_KEY}":`, e); }
-        // --- END NEW: Read Post-Transform Settings ---
+        // --- Read Post-Transform Settings from AnalyticsPostTransformModule ---
+        if (postTransformModule) {
+            try {
+                if (typeof postTransformModule.getPostTransformEnabledStatus === 'function') {
+                    currentSettings.postTransformFieldSettings.enabled = postTransformModule.getPostTransformEnabledStatus() || {};
+                } else { console.warn("[ConfigManager] PostTransformModule.getPostTransformEnabledStatus function not found."); }
 
-        console.log("[ConfigManager] Current app settings read:", currentSettings);
+                if (typeof postTransformModule.getPostTransformNumericFormats === 'function') { // <<< Use new getter
+                    currentSettings.postTransformFieldSettings.formats = postTransformModule.getPostTransformNumericFormats() || {};
+                } else { console.warn("[ConfigManager] PostTransformModule.getPostTransformNumericFormats function not found."); }
+
+                if (typeof postTransformModule.getPostTransformInfoTips === 'function') { // <<< Use new getter
+                    currentSettings.postTransformFieldSettings.tips = postTransformModule.getPostTransformInfoTips() || {};
+                } else { console.warn("[ConfigManager] PostTransformModule.getPostTransformInfoTips function not found."); }
+
+            } catch (e) { console.error("[ConfigManager] Error reading settings from AnalyticsPostTransformModule:", e); }
+        } else {
+            console.warn("[ConfigManager] AnalyticsPostTransformModule not found. Cannot read post-transform settings.");
+        }
+        // --- End Read Post-Transform Settings ---
+
+        console.log("[ConfigManager] Current app settings read from memory:", JSON.parse(JSON.stringify(currentSettings))); // Log copy
         return currentSettings;
     }
 
@@ -354,25 +313,29 @@ window.AnalyticsConfigManager = (function() {
 
     // --- NEW: Function to mark current settings as modified ---
     function _markScenarioAsModified() {
-        console.log("[_markScenarioAsModified DEBUG] Function called."); // Log function entry
+        // <<< Added DEBUG prefix to logs >>>
+        console.log("[MARK_MODIFIED DEBUG] Function called."); // Log function entry
         const currentActiveName = localStorage.getItem(ACTIVE_CONFIG_NAME_STORAGE_KEY);
-        console.log(`[_markScenarioAsModified DEBUG] currentActiveName: ${currentActiveName}`); // Log active name
+        console.log(`[MARK_MODIFIED DEBUG] currentActiveName: ${currentActiveName}`); // Log active name
 
         // Only mark as modified if there *is* an active scenario loaded
         if (currentActiveName) {
             const currentModifiedState = localStorage.getItem(MODIFIED_FLAG_STORAGE_KEY) === 'true';
-            console.log(`[_markScenarioAsModified DEBUG] currentModifiedState: ${currentModifiedState}`); // Log current flag state
+            console.log(`[MARK_MODIFIED DEBUG] currentModifiedState (before set): ${currentModifiedState}`); // Log current flag state
 
             if (!currentModifiedState) { // Only update if not already marked as modified
-                console.log("[_markScenarioAsModified DEBUG] Change detected & not already modified. Setting flag to true and refreshing table.");
+                console.log("[MARK_MODIFIED DEBUG] Change detected & not already modified. Setting flag to true and refreshing table.");
                 localStorage.setItem(MODIFIED_FLAG_STORAGE_KEY, 'true');
+                // <<< Add log AFTER setting flag >>>
+                console.log(`[MARK_MODIFIED DEBUG] Flag set. New value in localStorage: ${localStorage.getItem(MODIFIED_FLAG_STORAGE_KEY)}`);
                 // Refresh the table to show the status change immediately
                 populateScenarioTable();
+                console.log("[MARK_MODIFIED DEBUG] populateScenarioTable called.");
             } else {
-                console.log("[_markScenarioAsModified DEBUG] Scenario already marked as modified. No action taken.");
+                console.log("[MARK_MODIFIED DEBUG] Scenario already marked as modified. No action taken.");
             }
         } else {
-            console.log("[_markScenarioAsModified DEBUG] No active scenario name found. Cannot mark as modified.");
+            console.log("[MARK_MODIFIED DEBUG] No active scenario name found. Cannot mark as modified.");
         }
     }
 
@@ -474,14 +437,15 @@ window.AnalyticsConfigManager = (function() {
      * Populates the scenarios table in the UI.
      */
     function populateScenarioTable() {
-        // <<< Add initial state logging >>>
-        console.log(`[ConfigManager DEBUG] populateScenarioTable: Initial activeName = '${localStorage.getItem(ACTIVE_CONFIG_NAME_STORAGE_KEY)}', Initial modifiedFlag = '${localStorage.getItem(MODIFIED_FLAG_STORAGE_KEY)}'`);
+        // <<< Enhanced logging >>>
+        console.log(`[POPULATE_TABLE DEBUG] ~~~ populateScenarioTable START ~~~`);
+        console.log(`[POPULATE_TABLE DEBUG] Reading localStorage - ActiveName: ${localStorage.getItem(ACTIVE_CONFIG_NAME_STORAGE_KEY)}, ModifiedFlag: ${localStorage.getItem(MODIFIED_FLAG_STORAGE_KEY)}`);
 
         const tableBody = document.querySelector('#analytics-scenarios-table tbody');
         const configStatus = document.getElementById('analytics-config-status'); 
         
         if (!tableBody) {
-            console.error("[ConfigManager] Scenario table body not found.");
+            console.error("[ConfigManager] Scenario table body not found during populate.");
             return;
         }
 
@@ -490,22 +454,28 @@ window.AnalyticsConfigManager = (function() {
         let currentActiveNameInMemory = localStorage.getItem(ACTIVE_CONFIG_NAME_STORAGE_KEY); 
         let isModified = localStorage.getItem(MODIFIED_FLAG_STORAGE_KEY) === 'true'; // <<< Initial read
         
+        // <<< Log the state used for rendering decisions >>>
+        console.log(`[POPULATE_TABLE DEBUG] State before default/rendering logic: currentActiveNameInMemory=${currentActiveNameInMemory}, isModified=${isModified}`);
+
         // Ensure a default active name exists if none is set and default exists
         if (!currentActiveNameInMemory && scenarioNames.includes(DEFAULT_CONFIG_NAME)) {
             currentActiveNameInMemory = DEFAULT_CONFIG_NAME;
             localStorage.setItem(ACTIVE_CONFIG_NAME_STORAGE_KEY, currentActiveNameInMemory);
             localStorage.setItem(MODIFIED_FLAG_STORAGE_KEY, 'false'); 
             isModified = false; // <<< Update local variable too
+            console.log(`[POPULATE_TABLE DEBUG] Set default active to '${DEFAULT_CONFIG_NAME}', reset modified flag. isModified is now: ${isModified}`);
         } else if (!currentActiveNameInMemory && scenarioNames.length > 0) {
             // If default doesn't exist, pick the first one
             currentActiveNameInMemory = scenarioNames[0]; 
             localStorage.setItem(ACTIVE_CONFIG_NAME_STORAGE_KEY, currentActiveNameInMemory);
             localStorage.setItem(MODIFIED_FLAG_STORAGE_KEY, 'false'); 
              isModified = false; // <<< Update local variable too
+            console.log(`[POPULATE_TABLE DEBUG] Set default active to '${scenarioNames[0]}', reset modified flag. isModified is now: ${isModified}`);
         } else if (!currentActiveNameInMemory && scenarioNames.length === 0) {
              currentActiveNameInMemory = null;
              localStorage.removeItem(MODIFIED_FLAG_STORAGE_KEY); 
              isModified = false; // <<< Update local variable too
+            console.log(`[POPULATE_TABLE DEBUG] No scenarios, cleared active name and modified flag. isModified is now: ${isModified}`);
         }
         // <<< Note: No need to re-read isModified from localStorage, just update the local variable >>>
 
@@ -543,6 +513,7 @@ window.AnalyticsConfigManager = (function() {
         } 
 
         // --- Loop through and add actual saved scenario rows ---
+        console.log(`[POPULATE_TABLE DEBUG] Looping through ${scenarioNames.length} saved scenarios...`);
         scenarioNames.forEach(name => {
             const row = tableBody.insertRow(); // Appends to end by default
             row.dataset.scenarioName = name; 
@@ -552,14 +523,18 @@ window.AnalyticsConfigManager = (function() {
             nameCell.textContent = name;
             // Status indicator logic only applies if this scenario IS the active one
             if (name === currentActiveNameInMemory) { 
+                // <<< Log right before badge decision >>>
+                console.log(`[POPULATE_TABLE DEBUG] Adding badge for active scenario '${name}'. Checking isModified value: ${isModified}`);
                 const statusSpan = document.createElement('span');
                 statusSpan.className = 'badge rounded-pill ms-2 fw-normal'; 
                 if (isModified) {
                      statusSpan.textContent = 'Last';
                      statusSpan.classList.add('bg-warning-subtle', 'text-warning-emphasis'); 
+                     console.log(`[POPULATE_TABLE DEBUG] ---> Setting badge text to 'Last' for '${name}'.`);
                 } else {
                      statusSpan.textContent = 'Active';
                      statusSpan.classList.add('bg-success-subtle', 'text-success-emphasis'); 
+                     console.log(`[POPULATE_TABLE DEBUG] ---> Setting badge text to 'Active' for '${name}'.`);
                 }
                 nameCell.appendChild(statusSpan);
             }
@@ -595,6 +570,7 @@ window.AnalyticsConfigManager = (function() {
             }
             actionsCell.appendChild(reloadBtn);
         });
+        console.log(`[POPULATE_TABLE DEBUG] ~~~ populateScenarioTable END ~~~`);
     }
     
     /**
@@ -1033,12 +1009,17 @@ window.AnalyticsConfigManager = (function() {
         // Re-assign listener functions and attach
         if (configSubTabPane && !prepPaneClickListener) {
             prepPaneClickListener = function(event) {
-                if (event.target.matches('#apply-filters-btn, #reset-filters-btn, #add-filter-btn, .remove-filter-btn')) {
+                // Check if the click happened within the filter pane specifically
+                const filterPane = document.getElementById('filter-subtab-pane');
+                if (filterPane && filterPane.contains(event.target) && 
+                    event.target.matches('#apply-filters-btn, #reset-filters-btn, #add-filter-btn, .remove-filter-btn')) {
                     console.log("[Modification DEBUG] Filter button clicked. Calling _markScenarioAsModified...");
                     _markScenarioAsModified();
                 }
             };
-            configSubTabPane.addEventListener('click', prepPaneClickListener);
+            // Attach to a parent container that includes the filter pane, or document body as a fallback
+            // Using configSubTabPane might still be okay IF it's a common ancestor, but let's try document for broader capture
+            document.addEventListener('click', prepPaneClickListener); // Attach to document to ensure capture
             console.log("[Modification DEBUG] Attached prepPaneClickListener to configSubTabPane.");
         }
 
@@ -1337,8 +1318,11 @@ window.AnalyticsConfigManager = (function() {
         getConfiguration: getConfiguration,
         // UI Initialization function:
         initializeUI: initializeUI,
-        // <<< NEW: Expose modification detection initializer >>>
-        initializeModificationDetection: initializeModificationDetection
+        // Scenario Application (Directly)
+        applyScenarioSettingsDirectly: applyScenarioSettingsDirectly,
+        // Modification Detection
+        initializeModificationDetection: initializeModificationDetection,
+        _markScenarioAsModified: _markScenarioAsModified
     };
 
 })(); 

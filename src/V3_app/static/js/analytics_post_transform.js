@@ -126,6 +126,25 @@ document.addEventListener('DOMContentLoaded', function() {
         // --- End Get Data ---
 
         // --- Get PRE-transform status (for inheritance) ---
+        // <<< FIX: Initialize Post-Transform Status for New/Missing Fields >>>
+        let statusChanged = false;
+        const currentPostTransformStatus = postTransformFieldEnabledStatus; // Get current state
+        if (Array.isArray(fields)) {
+            fields.forEach(fieldName => {
+                if (!currentPostTransformStatus.hasOwnProperty(fieldName)) {
+                    console.log(`[PostTransform UI Render] Initializing enabled status for new/missing field '${fieldName}' to true.`);
+                    currentPostTransformStatus[fieldName] = true; // Default new fields to true
+                    statusChanged = true;
+                }
+            });
+        }
+        if (statusChanged) {
+            postTransformFieldEnabledStatus = currentPostTransformStatus; // Update module state
+            savePostTransformEnabledStatusToStorage(); // Save the updated state
+            console.log("[PostTransform UI Render] Saved updated enabled status with defaults.");
+        }
+        // <<< END FIX >>>
+
         const preTransformEnabledStatus = typeof mainModule?.getFieldEnabledStatus === 'function' ? mainModule.getFieldEnabledStatus() : {};
 
         // --- Get PRE-transform format/tips (for inheritance) --- CORRECTED GETTER CALLS ---
@@ -242,6 +261,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 enableIndicatorPlaceholder.innerHTML = inheritanceIconHTML;
             }
 
+            // Create and add Reset Button for Enabled
+            const inheritedEnabled = preTransformEnabledStatus.hasOwnProperty(fieldName) ? preTransformEnabledStatus[fieldName] : true;
+            const resetEnabledBtn = document.createElement('button');
+            resetEnabledBtn.className = 'btn btn-sm btn-link text-primary p-0 ms-1 align-middle';
+            resetEnabledBtn.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i>';
+            resetEnabledBtn.title = 'Reset to inherited value';
+            const showInitialResetEnabled = (isEnabled !== inheritedEnabled && postTransformFieldEnabledStatus.hasOwnProperty(fieldName));
+            resetEnabledBtn.style.visibility = showInitialResetEnabled ? 'visible' : 'hidden';
+            resetEnabledBtn.style.pointerEvents = showInitialResetEnabled ? 'auto' : 'none';
+            resetEnabledBtn.addEventListener('click', () => {
+                console.log(`[RESET DEBUG] Resetting enabled status for ${fieldName}.`);
+                console.log(`[RESET DEBUG] Before delete/save. Current postTransformEnabledStatus[${fieldName}]:`, postTransformFieldEnabledStatus[fieldName]);
+                delete postTransformFieldEnabledStatus[fieldName];
+                savePostTransformEnabledStatusToStorage();
+                // Log before calling markModified
+                console.log(`[RESET DEBUG] Before calling _markScenarioAsModified. ActiveName: ${localStorage.getItem('activeAnalyticsConfigurationName')}, ModifiedFlag: ${localStorage.getItem('analyticsScenarioModified')}`);
+                // Mark scenario as modified FIRST
+                 if (window.AnalyticsConfigManager?._markScenarioAsModified) {
+                      window.AnalyticsConfigManager._markScenarioAsModified();
+                      console.log(`[RESET DEBUG] Called _markScenarioAsModified.`);
+                 } else { console.error("[RESET DEBUG] _markScenarioAsModified not found!"); }
+                renderPostTransformFieldConfigUI(); // Re-render table AFTER marking
+                console.log(`[RESET DEBUG] After renderPostTransformFieldConfigUI.`);
+            });
+
             enableInput.addEventListener('change', (e) => {
                 const field = row.dataset.fieldName;
                 const checked = e.target.checked;
@@ -250,14 +294,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 savePostTransformEnabledStatusToStorage();
                 // Clear inheritance indicator placeholder when user makes a change
                 enableIndicatorPlaceholder.innerHTML = '';
+                // Show/hide reset button by VISIBILITY
+                const showReset = (checked !== inheritedEnabled);
+                resetEnabledBtn.style.visibility = showReset ? 'visible' : 'hidden';
+                resetEnabledBtn.style.pointerEvents = showReset ? 'auto' : 'none';
                 // <<< Explicitly re-attach modification listeners >>>
                 if (window.AnalyticsConfigManager?.initializeModificationDetection) {
                      window.AnalyticsConfigManager.initializeModificationDetection();
                 }
+                 // Mark scenario as modified
+                 if (window.AnalyticsConfigManager?._markScenarioAsModified) {
+                      window.AnalyticsConfigManager._markScenarioAsModified();
+                 }
             });
             enableSwitchContainer.appendChild(enableInput);
             enableCellContent.appendChild(enableSwitchContainer); // Add switch
             enableCellContent.appendChild(enableIndicatorPlaceholder); // Add placeholder
+            enableCellContent.appendChild(resetEnabledBtn); // Add reset button
             enableCell.appendChild(enableCellContent); // Add container to cell
 
             // Cell 3: Format Select/Button
@@ -274,6 +327,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 const openModalFn = mainModule?.openNumericFormatModal;
 
                 for (const key in availableFormatOptions) {
+                    if (key === 'configure') {
+                        continue; // Don't add the 'Custom...' option
+                    }
                     const option = document.createElement('option');
                     option.value = key;
                     option.textContent = availableFormatOptions[key];
@@ -293,6 +349,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 formatSelect.addEventListener('change', (e) => {
                     const field = row.dataset.fieldName;
                     const selectedFormat = e.target.value;
+                    const actualInheritedFormat = inheritedFormat || 'default'; // Get actual inherited format
                     console.log(`[PostTransform] Format changed for ${field}: ${selectedFormat}`);
                     if (selectedFormat === 'configure') {
                         if (typeof openModalFn === 'function') {
@@ -318,9 +375,17 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                          // Clear inheritance indicator placeholder when user makes a change
                          formatIndicatorPlaceholder.innerHTML = '';
+                         // Show/hide reset button by VISIBILITY
+                         const showResetFormat = (selectedFormat !== actualInheritedFormat);
+                         resetFormatBtn.style.visibility = showResetFormat ? 'visible' : 'hidden';
+                         resetFormatBtn.style.pointerEvents = showResetFormat ? 'auto' : 'none';
                          // <<< Explicitly re-attach modification listeners >>>
                          if (window.AnalyticsConfigManager?.initializeModificationDetection) {
                              window.AnalyticsConfigManager.initializeModificationDetection();
+                         }
+                          // Mark scenario as modified
+                         if (window.AnalyticsConfigManager?._markScenarioAsModified) {
+                              window.AnalyticsConfigManager._markScenarioAsModified();
                          }
                     }
                 });
@@ -341,8 +406,38 @@ document.addEventListener('DOMContentLoaded', function() {
                 formatIndicatorPlaceholder.innerHTML = inheritanceIconHTML;
             }
 
+            // Create and add Reset Button for Format
+            const resetFormatBtn = document.createElement('button');
+            resetFormatBtn.className = 'btn btn-sm btn-link text-primary p-0 ms-1 align-middle';
+            resetFormatBtn.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i>';
+            resetFormatBtn.title = 'Reset to inherited value';
+            // Set initial visibility
+            let showInitialResetFormat = false;
+            if (isNumeric) {
+                 const actualInheritedFormat = inheritedFormat || 'default';
+                 showInitialResetFormat = (currentFormat !== actualInheritedFormat && postTransformNumericFieldFormats.hasOwnProperty(fieldName));
+                 resetFormatBtn.addEventListener('click', () => {
+                    console.log(`[RESET DEBUG] Resetting format for ${fieldName}.`);
+                    console.log(`[RESET DEBUG] Before delete/save. Current postTransformNumericFieldFormats[${fieldName}]:`, postTransformNumericFieldFormats[fieldName]);
+                    delete postTransformNumericFieldFormats[fieldName];
+                    savePostTransformNumericFormatsToStorage();
+                    // Log before calling markModified
+                    console.log(`[RESET DEBUG] Before calling _markScenarioAsModified. ActiveName: ${localStorage.getItem('activeAnalyticsConfigurationName')}, ModifiedFlag: ${localStorage.getItem('analyticsScenarioModified')}`);
+                    // Mark scenario as modified FIRST
+                    if (window.AnalyticsConfigManager?._markScenarioAsModified) {
+                         window.AnalyticsConfigManager._markScenarioAsModified();
+                         console.log(`[RESET DEBUG] Called _markScenarioAsModified.`);
+                    } else { console.error("[RESET DEBUG] _markScenarioAsModified not found!"); }
+                    renderPostTransformFieldConfigUI(); // Re-render table AFTER marking
+                    console.log(`[RESET DEBUG] After renderPostTransformFieldConfigUI.`);
+                });
+            }
+            resetFormatBtn.style.visibility = showInitialResetFormat ? 'visible' : 'hidden';
+            resetFormatBtn.style.pointerEvents = showInitialResetFormat ? 'auto' : 'none';
+
             formatCellContent.appendChild(formatControlWrapper); // Add control
             formatCellContent.appendChild(formatIndicatorPlaceholder); // Add placeholder
+            formatCellContent.appendChild(resetFormatBtn); // Add reset button
             formatCell.appendChild(formatCellContent); // Add container to cell
 
             // Cell 4: Info Tip
@@ -362,34 +457,67 @@ document.addEventListener('DOMContentLoaded', function() {
             const tipIndicatorPlaceholder = document.createElement('span');
             tipIndicatorPlaceholder.className = 'inheritance-indicator';
             tipIndicatorPlaceholder.style.minWidth = '20px';
-            tipIndicatorPlaceholder.style.display = 'inline-block'; // Use inline-block if needed next to input-group
+            tipIndicatorPlaceholder.style.display = 'inline-block';
             tipIndicatorPlaceholder.style.textAlign = 'center';
-             tipIndicatorPlaceholder.classList.add('ms-1'); // Add margin start
+            tipIndicatorPlaceholder.classList.add('ms-1');
             if (isTipInherited) {
                 tipIndicatorPlaceholder.innerHTML = inheritanceIconHTML;
             }
 
+            // Create and add Reset Button for Tip
+            const actualInheritedTip = inheritedTip || ''; // Get actual inherited tip
+            const resetTipBtn = document.createElement('button');
+            resetTipBtn.className = 'btn btn-sm btn-link text-primary p-0 ms-1 align-middle';
+            resetTipBtn.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i>';
+            resetTipBtn.title = 'Reset to inherited value';
+            // Set initial visibility
+            const showInitialResetTip = (currentTip !== actualInheritedTip && postTransformFieldInfoTips.hasOwnProperty(fieldName));
+            resetTipBtn.style.visibility = showInitialResetTip ? 'visible' : 'hidden';
+            resetTipBtn.style.pointerEvents = showInitialResetTip ? 'auto' : 'none';
+            resetTipBtn.addEventListener('click', () => {
+                console.log(`[RESET DEBUG] Resetting tip for ${fieldName}.`);
+                console.log(`[RESET DEBUG] Before delete/save. Current postTransformFieldInfoTips[${fieldName}]:`, postTransformFieldInfoTips[fieldName]);
+                delete postTransformFieldInfoTips[fieldName];
+                savePostTransformInfoTipsToStorage();
+                 // Log before calling markModified
+                console.log(`[RESET DEBUG] Before calling _markScenarioAsModified. ActiveName: ${localStorage.getItem('activeAnalyticsConfigurationName')}, ModifiedFlag: ${localStorage.getItem('analyticsScenarioModified')}`);
+                 // Mark scenario as modified FIRST
+                if (window.AnalyticsConfigManager?._markScenarioAsModified) {
+                     window.AnalyticsConfigManager._markScenarioAsModified();
+                     console.log(`[RESET DEBUG] Called _markScenarioAsModified.`);
+                } else { console.error("[RESET DEBUG] _markScenarioAsModified not found!"); }
+                renderPostTransformFieldConfigUI(); // Re-render table AFTER marking
+                console.log(`[RESET DEBUG] After renderPostTransformFieldConfigUI.`);
+            });
+
             let saveTimeout;
             tipInput.addEventListener('input', (e) => {
-                clearTimeout(saveTimeout);
                 const field = row.dataset.fieldName;
                 const value = e.target.value;
                 tipInput.title = value || 'No info tip set';
+                clearTimeout(saveTimeout);
                 saveTimeout = setTimeout(() => {
                     console.log(`[PostTransform] Info tip updated for ${field}: ${value}`);
                     postTransformFieldInfoTips[field] = value;
                     savePostTransformInfoTipsToStorage();
+                     // Mark scenario as modified (also needed here on manual input)
+                     // No need to call here if called immediately below?
                 }, 750);
                 // Clear inheritance indicator placeholder when user makes a change
                 tipIndicatorPlaceholder.innerHTML = '';
-                // <<< Explicitly re-attach modification listeners >>>
-                if (window.AnalyticsConfigManager?.initializeModificationDetection) {
-                     window.AnalyticsConfigManager.initializeModificationDetection();
-                }
+                // Show/hide reset button by VISIBILITY
+                const showResetTip = (value !== actualInheritedTip);
+                resetTipBtn.style.visibility = showResetTip ? 'visible' : 'hidden';
+                resetTipBtn.style.pointerEvents = showResetTip ? 'auto' : 'none';
+                // Mark scenario as modified (immediate attempt on input)
+                 if (window.AnalyticsConfigManager?._markScenarioAsModified) {
+                      window.AnalyticsConfigManager._markScenarioAsModified();
+                 }
             });
             tipControlWrapper.appendChild(tipInput);
             tipCellContent.appendChild(tipControlWrapper); // Add input group wrapper
             tipCellContent.appendChild(tipIndicatorPlaceholder); // Add placeholder
+            tipCellContent.appendChild(resetTipBtn); // Add reset button
             tipCell.appendChild(tipCellContent);
         });
 
@@ -453,9 +581,16 @@ document.addEventListener('DOMContentLoaded', function() {
             postTransformFieldInfoTips = {};
         }
 
-        // Re-render the UI to reflect loaded settings
-        renderPostTransformFieldConfigUI();
-        console.log("[PostTransform] Post-transform field settings loaded directly and UI updated.");
+        // --- Clear the UI instead of rendering ---
+        const tableBody = document.getElementById('post-transform-field-config-tbody');
+        if (tableBody) {
+            tableBody.innerHTML = '<tr><td colspan="4" class="text-muted small text-center">Scenario loaded. Run transformations to view/configure post-transform fields.</td></tr>'; // Adjusted colspan
+        } else {
+            console.error("[PostTransform Load] Cannot find table body to clear UI.");
+        }
+        // --- End Clear UI ---
+
+        console.log("[PostTransform] Post-transform field settings state loaded directly. UI cleared.");
     }
 
     // --- NEW: Tooltip Initializer for this specific table ---
@@ -487,11 +622,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Expose Module API ---
     // Ensure the global object exists
-    window.AnalyticsPostTransformModule = window.AnalyticsPostTransformModule || {}; 
+    window.AnalyticsPostTransformModule = window.AnalyticsPostTransformModule || {};
     window.AnalyticsPostTransformModule.renderPostTransformFieldConfigUI = renderPostTransformFieldConfigUI;
     window.AnalyticsPostTransformModule.loadPostTransformFieldSettings = loadPostTransformFieldSettings;
-    // Add getters needed for Phase 4 (final data rendering)
+    // Add getters needed for Phase 4 (final data rendering) AND Scenario Saving
     window.AnalyticsPostTransformModule.getPostTransformEnabledStatus = () => ({ ...postTransformFieldEnabledStatus }); // Return shallow copy
+    window.AnalyticsPostTransformModule.getPostTransformNumericFormats = () => ({ ...postTransformNumericFieldFormats }); // <<< ADDED Getter (shallow copy)
+    window.AnalyticsPostTransformModule.getPostTransformInfoTips = () => ({ ...postTransformFieldInfoTips }); // <<< ADDED Getter (shallow copy)
+    // Keep existing getters if they were there before
     window.AnalyticsPostTransformModule.getPostTransformFormat = (fieldName) => postTransformNumericFieldFormats[fieldName] || 'default';
     window.AnalyticsPostTransformModule.getPostTransformInfoTip = (fieldName) => postTransformFieldInfoTips[fieldName] || '';
 
