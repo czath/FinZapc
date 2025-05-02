@@ -100,6 +100,19 @@
         }
         /* <<< END NEW >>> */
 
+        /* <<< NEW: Class to hide rows for search filter >>> */
+        .search-hidden {
+            display: none !important;
+        }
+        /* <<< END NEW >>> */
+
+        /* <<< NEW: Scenario Table Hover Highlight >>> */
+        #analytics-scenarios-table tbody tr:hover td { /* Target TDs inside hovered TR */
+            background-color: var(--bs-primary-bg-subtle) !important; /* Use subtle primary (usually blue) */
+            color: var(--bs-emphasis-color) !important;         /* Use emphasis color for text contrast */
+        }
+        /* <<< END NEW >>> */
+
     </style>
 {% endblock %}
 
