@@ -11,6 +11,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const dataTableTabTrigger = document.getElementById('data-table-tab'); // ID of the main tab button
     const groupBySelector = document.getElementById('final-table-group-by-selector');
 
+    // --- Module-scoped variables for popover management --- <<< NEW >>>
+    let currentCellPopoverInstance = null;
+    let currentPopoverTriggerElement = null;
+
     // --- Helper: Get necessary functions/data from other modules ---
     function getRequiredModules() {
         const mainModule = window.AnalyticsMainModule;
@@ -25,6 +29,43 @@ document.addEventListener('DOMContentLoaded', function() {
             return null;
         }
         return { mainModule, postTransformModule };
+    }
+
+    // --- Helper: Dispose current popover and remove listener --- <<< NEW >>>
+    function disposeCurrentPopoverAndListener() {
+        if (currentCellPopoverInstance) {
+            console.log("[DataTableModule] Disposing previous popover and removing listener.");
+            document.removeEventListener('click', handleDocumentClickForPopoverDismiss, true); // Remove listener
+            try {
+                currentCellPopoverInstance.dispose();
+            } catch (e) {
+                console.warn("[DataTableModule] Error disposing popover instance:", e);
+            }
+            currentCellPopoverInstance = null;
+            currentPopoverTriggerElement = null;
+        }
+    }
+
+    // --- Helper: Document click handler for popover dismissal --- <<< NEW >>>
+    function handleDocumentClickForPopoverDismiss(event) {
+        if (!currentCellPopoverInstance || !currentPopoverTriggerElement) {
+            // Should not happen if listener is managed correctly, but good safety check
+            document.removeEventListener('click', handleDocumentClickForPopoverDismiss, true);
+            return;
+        }
+
+        const popoverElement = currentCellPopoverInstance.tip; // Get the popover DOM element
+
+        // Check if the click is outside the trigger and the popover itself
+        const clickedTrigger = currentPopoverTriggerElement.contains(event.target);
+        const clickedPopover = popoverElement ? popoverElement.contains(event.target) : false;
+
+        // console.log(`[Doc Click] Trigger clicked: ${clickedTrigger}, Popover clicked: ${clickedPopover}, Target:`, event.target);
+
+        if (!clickedTrigger && !clickedPopover) {
+            // console.log("[DataTableModule] Click outside detected, disposing popover.");
+            disposeCurrentPopoverAndListener();
+        }
     }
 
     // --- Core Update Function --- <<< IMPLEMENTED >>>
@@ -393,14 +434,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Remove previous listeners to prevent duplicates if table is updated
         $(tableElem).off('mouseenter', 'tbody td');
         $(tableElem).off('mouseleave', 'tbody td');
-
-        // Remove previous click listeners
-        $(tableElem).off('click', 'tbody tr.group-header-row'); // Remove previous click listener
-
-        // Remove potential old popover listeners
+        $(tableElem).off('click', 'tbody tr.group-header-row');
         $(tableElem).off('click', 'tbody tr:not(.group-header-row) td');
-
-        // Remove previous header click listener
         $(tableElem).off('click', 'thead th');
 
         // Attach new listeners using jQuery delegation
@@ -438,14 +473,18 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
 
-        // --- NEW: Attach Click Listener for Cell Summary Popover ---
+        // --- UPDATED: Attach Click Listener for Cell Summary Popover ---
         $(tableElem).on('click', 'tbody tr:not(.group-header-row) td', function(e) {
             e.preventDefault();
             console.log("[DataTableModule] Data cell clicked.");
 
-            const cellElement = this;
+            const cellElement = this; // Keep 'this' as the trigger element
+
+            // --- NEW: Dispose previous popover and listener first ---
+            disposeCurrentPopoverAndListener();
+            // --- END NEW ---
+
             const $cell = $(cellElement);
-            const $row = $cell.parent('tr');
             const cellIndex = cellElement.cellIndex;
             let groupName = "Overall"; // Default for no grouping
             let summaryJson = null;
@@ -455,7 +494,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (groupIndex >= 0) {
                 // --- Grouping Active: Get group summary ---
-                const $groupHeaderRow = $row.prevAll('tr.group-header-row').first();
+                const $groupHeaderRow = $cell.parent('tr').prevAll('tr.group-header-row').first();
                 if ($groupHeaderRow.length > 0) {
                     groupName = $groupHeaderRow.data('group');
                     summaryJson = $groupHeaderRow.attr('data-summary');
@@ -532,11 +571,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         visualHtml = `
                             <div class="summary-visual-container mt-2 pt-3 pb-3 position-relative">
-                                <div class="summary-line" title="Range: ${minVal} to ${maxVal}"></div>
-                                <span class="summary-marker marker-min" style="left: 0%;" title="Min: ${stats.min}"></span>
-                                <span class="summary-marker marker-max" style="left: 100%;" title="Max: ${stats.max}"></span>
+                                <div class="summary-line" title="Range: ${minVal} to ${maxVal}" style="height: 1px; background-color: red; width: 100%; position: absolute;"></div>
                                 ${typeof avgVal === 'number' ? `<span class="summary-marker marker-avg" style="left: ${avgPercent.toFixed(1)}%;" title="Avg: ${stats.avg}"></span>` : ''}
-                                <span class="summary-marker marker-value" style="left: ${valuePercent.toFixed(1)}%;" title="Value: ${formatNumericValue(cellValue, effectiveFormat)}"></span> 
+                                <span class="summary-marker marker-value marker-value-large" style="left: ${valuePercent.toFixed(1)}%;" title="Value: ${formatNumericValue(cellValue, effectiveFormat)}"></span> 
                             </div>
                         `;
                         // Use formatted value in title for consistency if needed 
@@ -550,44 +587,50 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 const popoverContent = textStatsHtml + visualHtml;
 
-                // Destroy any existing popovers on this table before creating a new one
+                // --- UPDATED: Destroy *other* existing popovers on this table (redundant if disposeCurrentPopoverAndListener works, but safe) ---
                 $(tableElem).find('[data-bs-toggle="popover"]').each(function() {
-                     const existingPopover = bootstrap.Popover.getInstance(this);
-                     if (existingPopover) {
-                         existingPopover.dispose();
+                     if (this !== cellElement) { // Don't dispose self if somehow marked already
+                         const existingPopover = bootstrap.Popover.getInstance(this);
+                         if (existingPopover) {
+                             existingPopover.dispose();
+                         }
+                         $(this).removeAttr('data-bs-toggle data-bs-original-title title data-bs-content'); // Clean up attributes
                      }
-                     // Clean up attributes if needed
-                     // $(this).removeAttr('data-bs-toggle data-bs-original-title title data-bs-content');
                 });
+                // --- END UPDATE ---
 
-                // Initialize and show Popover on the clicked cell
+                // Initialize Popover on the clicked cell
                 const popover = new bootstrap.Popover(cellElement, {
-                    title: `Summary: ${groupName}<br><small>Column: ${headerText}</small>`, // Title with group and column
+                    title: `Summary: ${groupName}<br><small>Column: ${headerText}</small>`,
                     content: popoverContent,
                     html: true,
-                    trigger: 'manual', // We control show/hide
+                    trigger: 'manual', // Keep manual trigger
                     placement: 'auto',
                     fallbackPlacements: ['bottom', 'top', 'right', 'left'],
-                    customClass: 'analytics-summary-popover', // Optional class for styling
-                    sanitize: false // Allow basic HTML in content/title
+                    customClass: 'analytics-summary-popover',
+                    sanitize: false
                 });
 
-                // Add attribute to mark this cell as having an active popover trigger
-                // This helps the destroy logic above
+                // --- NEW: Store instance, trigger, and add document listener ---
+                currentCellPopoverInstance = popover;
+                currentPopoverTriggerElement = cellElement; // Store the actual clicked cell
+                document.addEventListener('click', handleDocumentClickForPopoverDismiss, true); // Use capture phase
+                // --- END NEW ---
+
+                // Add attribute to mark this cell - useful for cleanup, maybe redundant now
                 $(cellElement).attr('data-bs-toggle', 'popover');
 
                 popover.show();
 
-                // Optional: Hide popover on click outside?
-                // $(document).one('click', function() { popover.hide(); });
             } else {
                 console.log(`[DataTableModule] No summary data found for column '${actualHeaderKey}' in context '${groupName}'.`);
-                // Optionally show a temporary message or do nothing
+                // If no popover is shown, ensure no dangling listener exists
+                disposeCurrentPopoverAndListener(); // Call cleanup just in case
             }
         });
-        console.log("[DataTableModule] Cell summary popover listener attached.");
+        console.log("[DataTableModule] Cell summary popover listener attached (with outside click dismissal).");
 
-        // --- NEW: Attach Click Listener for Header Sorting (within groups) ---
+        // --- Attach Click Listener for Header Sorting (within groups) ---
         $(tableElem).on('click', 'thead th', function() {
             if (!finalDataTableInstance) return; // No table instance
 

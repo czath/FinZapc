@@ -153,10 +153,10 @@
         }
         .summary-marker {
             position: absolute;
-            bottom: 10px; /* Align tip with the line */
+            bottom: 11px; /* Align tip just ABOVE the line */
             width: 0;
             height: 0;
-            border-left: 6px solid transparent; /* Adjust size as needed */
+            border-left: 6px solid transparent; /* Creates left side of triangle */
             border-right: 6px solid transparent; /* Adjust size as needed */
             border-bottom: none; /* Explicitly no bottom border */
             /* border-top will set the color and size */
@@ -170,6 +170,16 @@
         .analytics-summary-popover {
             min-width: 250px; /* Adjust as needed */
             max-width: 350px; /* Adjust as needed */
+        }
+        /* <<< END NEW >>> */
+
+        /* <<< NEW: Styles for the larger value marker >>> */
+        .summary-marker.marker-value-large {
+            border-top-width: 12px; /* Increased height */
+            border-left-width: 9px; /* Increased width */
+            border-right-width: 9px; /* Increased width */
+             /* Keep bottom: 10px; from .summary-marker to align tip */
+             /* Keep transform: translateX(-50%); from .summary-marker */
         }
         /* <<< END NEW >>> */
 
