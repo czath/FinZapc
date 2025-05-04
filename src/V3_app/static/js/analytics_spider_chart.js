@@ -21,8 +21,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const tickerSelect = spiderTabPane.querySelector('#spider-ticker-select');
     const fieldSelect = spiderTabPane.querySelector('#spider-field-select');
     const avgCheckbox = spiderTabPane.querySelector('#spider-agg-avg');
-    const minCheckbox = spiderTabPane.querySelector('#spider-agg-min');
-    const maxCheckbox = spiderTabPane.querySelector('#spider-agg-max');
     const medianCheckbox = spiderTabPane.querySelector('#spider-agg-median');
     const generateBtn = spiderTabPane.querySelector('#generate-spider-chart-btn');
     const canvas = spiderTabPane.querySelector('#spider-chart-canvas');
@@ -901,17 +899,15 @@ document.addEventListener('DOMContentLoaded', function() {
             const selectedTickers = Array.from(tickerSelect.selectedOptions).map(opt => opt.value);
             const selectedFields = Array.from(fieldSelect.selectedOptions).map(opt => opt.value);
             const includeAvg = avgCheckbox.checked;
-            const includeMin = minCheckbox.checked;
-            const includeMax = maxCheckbox.checked;
             const includeMedian = medianCheckbox.checked;
 
             // Basic Validation
-            if (selectedTickers.length < 1) { // Allow 1 ticker + aggregates
+            if (selectedTickers.length < 1) { 
                 if (statusDiv) statusDiv.textContent = 'Please select at least 1 ticker.';
                 return;
             }
-             if (selectedTickers.length === 1 && !includeAvg && !includeMin && !includeMax && !includeMedian) {
-                if (statusDiv) statusDiv.textContent = 'Please select at least 2 tickers OR 1 ticker and an aggregate.';
+             if (selectedTickers.length === 1 && !includeAvg && !includeMedian) {
+                if (statusDiv) statusDiv.textContent = 'Please select at least 2 tickers OR 1 ticker and an aggregate (Average or Median).';
                 return;
             }
             if (selectedFields.length < 3) {
@@ -967,18 +963,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 const currentDatasetIndex = datasets.length; // <<< FIX: Get index
                 datasets.push({ label: 'Average', data: aggValues });
                 originalValuesMap[currentDatasetIndex] = Object.fromEntries(selectedFields.map(f => [f, aggregates[f]?.avg])); // <<< FIX: Use index
-            }
-            if (includeMin) {
-                const aggValues = selectedFields.map(field => normalizeData(aggregates[field]?.min, overallMinMax[field]?.min, overallMinMax[field]?.max));
-                const currentDatasetIndex = datasets.length; // <<< FIX: Get index
-                datasets.push({ label: 'Minimum', data: aggValues });
-                 originalValuesMap[currentDatasetIndex] = Object.fromEntries(selectedFields.map(f => [f, aggregates[f]?.min])); // <<< FIX: Use index
-            }
-             if (includeMax) {
-                const aggValues = selectedFields.map(field => normalizeData(aggregates[field]?.max, overallMinMax[field]?.min, overallMinMax[field]?.max));
-                const currentDatasetIndex = datasets.length; // <<< FIX: Get index
-                datasets.push({ label: 'Maximum', data: aggValues });
-                originalValuesMap[currentDatasetIndex] = Object.fromEntries(selectedFields.map(f => [f, aggregates[f]?.max])); // <<< FIX: Use index
             }
             if (includeMedian) {
                 const aggValues = selectedFields.map(field => normalizeData(aggregates[field]?.median, overallMinMax[field]?.min, overallMinMax[field]?.max));

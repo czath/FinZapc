@@ -168,7 +168,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const postTransformNumericFormats = postTransformModule.getPostTransformNumericFormats() || {};
         const preTransformNumericFormats = mainModule.getNumericFieldFormats() || {};
         const infoTips = mainModule.getFieldInfoTips() || {}; // Use pre-transform tips for headers
-        const formatNumericValue = mainModule.formatNumericValue || ((val, fmt) => val); // Fallback
+        const formatNumericValue = (mainModule && typeof mainModule.getFormatter === 'function')
+                                      ? mainModule.getFormatter()
+                                      : ((val, fmt) => String(val)); // More robust fallback
         const generateFilename = mainModule.generateTimestampedFilename; // Get function reference
 
         // --- Destroy existing instance BEFORE preparing new options ---
@@ -245,10 +247,18 @@ document.addEventListener('DOMContentLoaded', function() {
         if (groupIndex < 0 && finalData.length > 0) {
             console.log("[DataTableModule] Calculating global summary statistics...");
             const modules = getRequiredModules(); // Need modules here too
+            if (!modules) { // <<< ADD check for modules here
+                console.error("[DataTableModule] Cannot calculate global stats: Required modules missing.");
+                return; 
+            }
             const finalMetadata = modules?.mainModule?.getFinalFieldMetadata ? modules.mainModule.getFinalFieldMetadata() : {};
             const postTransformNumericFormats = modules?.postTransformModule?.getPostTransformNumericFormats ? modules.postTransformModule.getPostTransformNumericFormats() : {};
             const preTransformNumericFormats = modules?.mainModule?.getNumericFieldFormats ? modules.mainModule.getNumericFieldFormats() : {};
-            const formatNumericValue = modules?.mainModule?.formatNumericValue || ((val, fmt) => val);
+            // const formatNumericValue = modules?.mainModule?.formatNumericValue || ((val, fmt) => val); // <<< REMOVE old direct access
+            // <<< ADD access via getter INSIDE this block >>>
+            const formatNumericValue = (modules.mainModule && typeof modules.mainModule.getFormatter === 'function')
+                                          ? modules.mainModule.getFormatter()
+                                          : ((val, fmt) => String(val));
 
             currentHeaders.forEach((header, colIdx) => {
                 const meta = finalMetadata[header] || {};
@@ -278,6 +288,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                                     ? postTransformNumericFormats[header]
                                                     : (preTransformNumericFormats[header] || 'default');
                         // Store in the global object
+                        // <<< Use the locally retrieved formatNumericValue >>>
                         globalSummaryData[header] = {
                             raw: {
                                 // sum: sum, // REMOVED
@@ -439,10 +450,17 @@ document.addEventListener('DOMContentLoaded', function() {
  
                              var summaryData = {}; 
                              const modules = getRequiredModules();
+                             if (!modules) { // <<< ADD Check for modules >>>
+                                console.error("[DataTableModule/startRender] Cannot calculate group stats: Required modules missing.");
+                                return group + ' (Error)'; // Return basic group name on error
+                             }
                              const finalMetadata = modules?.mainModule?.getFinalFieldMetadata ? modules.mainModule.getFinalFieldMetadata() : {};
                              const postTransformNumericFormats = modules?.postTransformModule?.getPostTransformNumericFormats ? modules.postTransformModule.getPostTransformNumericFormats() : {};
                              const preTransformNumericFormats = modules?.mainModule?.getNumericFieldFormats ? modules.mainModule.getNumericFieldFormats() : {};
-                             const formatNumericValue = modules?.mainModule?.formatNumericValue || ((val, fmt) => val);
+                              // <<< ADD access via getter INSIDE callback >>>
+                             const formatNumericValue = (modules.mainModule && typeof modules.mainModule.getFormatter === 'function')
+                                                           ? modules.mainModule.getFormatter()
+                                                           : ((val, fmt) => String(val));
  
                              columns.every(function (colIdx) {
                                  const header = currentHeaders[colIdx]; 
@@ -465,6 +483,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                          const effectiveFormat = postTransformNumericFormats.hasOwnProperty(header) 
                                                                  ? postTransformNumericFormats[header] 
                                                                  : (preTransformNumericFormats[header] || 'default');
+                                         // <<< Use the locally retrieved formatNumericValue >>>
                                          summaryData[header] = { 
                                              raw: {
                                                  // sum: sum, // REMOVED
@@ -643,7 +662,14 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             // Get column header for the clicked cell
-            const modules = getRequiredModules(); // Get modules to access formatters
+            const modules = getRequiredModules(); 
+            if (!modules) return; // Stop if modules not found
+            const { mainModule, postTransformModule } = modules;
+            const formatNumericValue = (mainModule && typeof mainModule.getFormatter === 'function')
+                                          ? mainModule.getFormatter()
+                                          : ((val, fmt) => String(val)); // Get formatter here
+            const postTransformNumericFormats = postTransformModule.getPostTransformNumericFormats ? postTransformModule.getPostTransformNumericFormats() : {};
+            const preTransformNumericFormats = mainModule.getNumericFieldFormats ? mainModule.getNumericFieldFormats() : {};
             const tableApi = $(tableElem).DataTable();
             const headerText = tableApi.column(cellIndex).header().textContent; // Get header text
             // Ensure actualHeaderKey uses module-scoped currentHeaders
@@ -651,12 +677,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
             console.log(`Clicked cell: Header='${headerText}', Key='${actualHeaderKey}', Context='${groupName}'`);
 
-            // Get the formatter function
-            const formatNumericValue = modules?.mainModule?.formatNumericValue || ((val, fmt) => val); // Fallback
-
             // Check if summary exists for this specific column
             if (summaryData.hasOwnProperty(actualHeaderKey)) {
                 const stats = summaryData[actualHeaderKey].formatted;
+                const rawStats = summaryData[actualHeaderKey].raw;
 
                 // --- Generate Text Stats --- 
                 const textStatsHtml = 
@@ -666,7 +690,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // --- Generate Visual Summary --- 
                 let visualHtml = '';
-                const rawStats = summaryData[actualHeaderKey]?.raw;
                 const cellData = tableApi.cell(cellElement).data(); // Get raw cell data
                 const cellValue = parseFloat(cellData);
 
@@ -681,23 +704,27 @@ document.addEventListener('DOMContentLoaded', function() {
                         const valuePercent = Math.max(0, Math.min(100, ((cellValue - minVal) / range) * 100));
 
                         // Determine effective format for this column
-                        const postTransformNumericFormats = modules?.postTransformModule?.getPostTransformNumericFormats ? modules.postTransformModule.getPostTransformNumericFormats() : {};
-                        const preTransformNumericFormats = modules?.mainModule?.getNumericFieldFormats ? modules.mainModule.getNumericFieldFormats() : {};
                         const effectiveFormat = postTransformNumericFormats.hasOwnProperty(actualHeaderKey) 
                                                    ? postTransformNumericFormats[actualHeaderKey] 
                                                    : (preTransformNumericFormats[actualHeaderKey] || 'default');
 
+                        // <<< Format values for titles >>>
+                        const formattedMin = formatNumericValue(minVal, effectiveFormat);
+                        const formattedMax = formatNumericValue(maxVal, effectiveFormat);
+                        const formattedAvg = formatNumericValue(avgVal, effectiveFormat);
+                        const formattedValue = formatNumericValue(cellValue, effectiveFormat);
+
                         visualHtml = `
                             <div class="summary-visual-container mt-2 pt-3 pb-3 position-relative">
-                                <div class="summary-line" title="Range: ${minVal} to ${maxVal}" style="height: 1px; background-color: darkred; width: 100%; position: absolute;"></div>
-                                ${typeof avgVal === 'number' ? `<span class="summary-marker marker-avg" style="left: ${avgPercent.toFixed(1)}%;" title="Avg: ${stats.avg}"></span>` : ''}
-                                <span class="summary-marker marker-value marker-value-large" style="left: ${valuePercent.toFixed(1)}%;" title="Value: ${formatNumericValue(cellValue, effectiveFormat)}"></span> 
+                                <div class="summary-line" title="Range: ${formattedMin} to ${formattedMax}" style="height: 1px; background-color: darkred; width: 100%; position: absolute;"></div>
+                                ${typeof avgVal === 'number' ? `<span class="summary-marker marker-avg" style="left: ${avgPercent.toFixed(1)}%;" title="Avg: ${formattedAvg}"></span>` : ''}
+                                <span class="summary-marker marker-value marker-value-large" style="left: ${valuePercent.toFixed(1)}%;" title="Value: ${formattedValue}"></span> 
                             </div>
                         `;
-                        // Use formatted value in title for consistency if needed 
-                        // title="Value: ${formatNumericValue(cellValue, stats.format)}" -> Need to pass format
                     } else { // Handle case where min === max
-                        visualHtml = `<div class="mt-2 text-center text-muted small">(Min/Max are equal: ${stats.min})</div>`;
+                        // <<< Format the single value >>>
+                        const formattedMinMax = formatNumericValue(minVal, postTransformNumericFormats.hasOwnProperty(actualHeaderKey) ? postTransformNumericFormats[actualHeaderKey] : (preTransformNumericFormats[actualHeaderKey] || 'default'));
+                        visualHtml = `<div class="mt-2 text-center text-muted small">(Min/Max are equal: ${formattedMinMax})</div>`;
                     }
                 } else {
                      visualHtml = `<div class="mt-2 text-center text-muted small">(Could not render visual: Invalid data)</div>`;
