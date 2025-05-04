@@ -472,12 +472,11 @@ document.addEventListener('DOMContentLoaded', function() {
         // <<< STEP 2.2: Get access to format functions from main module >>>
         const preTransformFormats = mainModule.getNumericFieldFormats ? mainModule.getNumericFieldFormats() : {};
         // const parseFormattedValueFn = mainModule.parseFormattedValue; // <<< GET PARSER FROM GETTER
-        const parseFormattedValueFn = (mainModule && typeof mainModule.getParser === 'function')
-                                        ? mainModule.getParser()
-                                        : null;
+        const parseFormattedValueFn = mainModule?.parseFormattedValue; // <<< REVERT: Access directly
 
         if (!parseFormattedValueFn) {
-            console.error("[Spider Filter Apply] parseFormattedValue function not found on main module via getter!");
+            // console.error("[Spider Filter Apply] parseFormattedValue function not found on main module via getter!"); // DEBUG REMOVED
+            console.error("[Spider Filter Apply] parseFormattedValue function not found directly on main module!"); // Corrected error message
              if(filterResultsCount) filterResultsCount.textContent = 'Error!';
             return;
         }
