@@ -31,6 +31,84 @@ document.addEventListener('DOMContentLoaded', function() {
         return { mainModule, postTransformModule };
     }
 
+    // --- Helper: Statistical Calculations --- <<< NEW >>>
+    /**
+     * Calculates the median of a numeric array.
+     * @param {number[]} dataArray - Array of numbers.
+     * @returns {number|NaN} The median value or NaN if input is invalid/empty after filtering.
+     */
+    function calculateMedian(dataArray) {
+        if (!Array.isArray(dataArray)) return NaN;
+        const sortedData = dataArray
+            .map(val => Number(val)) // Ensure numeric type
+            .filter(val => !isNaN(val)) // Filter out NaN
+            .sort((a, b) => a - b);
+
+        if (sortedData.length === 0) return NaN;
+
+        const mid = Math.floor(sortedData.length / 2);
+        if (sortedData.length % 2 === 0) {
+            // Even number of elements: average of the two middle elements
+            return (sortedData[mid - 1] + sortedData[mid]) / 2;
+        } else {
+            // Odd number of elements: the middle element
+            return sortedData[mid];
+        }
+    }
+
+    /**
+     * Calculates the sample standard deviation of a numeric array.
+     * @param {number[]} dataArray - Array of numbers.
+     * @returns {number|NaN} The sample standard deviation or NaN if input is invalid or has < 2 valid numbers.
+     */
+    function calculateSampleStandardDeviation(dataArray) {
+        if (!Array.isArray(dataArray)) return NaN;
+        const numericData = dataArray
+            .map(val => Number(val)) // Ensure numeric type
+            .filter(val => !isNaN(val)); // Filter out NaN
+
+        const n = numericData.length;
+        if (n < 2) return NaN; // Sample std dev requires at least 2 points
+
+        const mean = numericData.reduce((acc, val) => acc + val, 0) / n;
+        const variance = numericData.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / (n - 1); // Use n-1 for sample
+
+        return Math.sqrt(variance);
+    }
+
+    /**
+     * Calculates the sample skewness of a numeric array.
+     * Skewness measures the asymmetry of the probability distribution.
+     * Requires at least 3 data points.
+     * @param {number[]} dataArray - Array of numbers.
+     * @returns {number|NaN} The sample skewness or NaN if input is invalid or has < 3 valid numbers.
+     */
+    function calculateSkewness(dataArray) {
+        if (!Array.isArray(dataArray)) return NaN;
+        const numericData = dataArray
+            .map(val => Number(val))
+            .filter(val => !isNaN(val));
+
+        const n = numericData.length;
+        if (n < 3) return NaN; // Skewness requires at least 3 points for sample correction
+
+        const mean = numericData.reduce((acc, val) => acc + val, 0) / n;
+        const stdDev = calculateSampleStandardDeviation(numericData); // Reuse existing helper
+
+        if (isNaN(stdDev) || stdDev === 0) {
+            // If std dev is 0 (all numbers are the same) or NaN, skewness is 0 or undefined.
+            // Define as 0 for the case where stdDev is 0. Return NaN if stdDev calculation failed.
+            return isNaN(stdDev) ? NaN : 0;
+        }
+
+        const skew = numericData.reduce((acc, val) => acc + Math.pow((val - mean) / stdDev, 3), 0);
+
+        // Apply sample correction factor
+        const sampleSkewness = (n / ((n - 1) * (n - 2))) * skew;
+
+        return sampleSkewness;
+    }
+
     // --- Helper: Dispose current popover and remove listener --- <<< NEW >>>
     function disposeCurrentPopoverAndListener() {
         if (currentCellPopoverInstance) {
@@ -184,21 +262,41 @@ document.addEventListener('DOMContentLoaded', function() {
                     const colData = colDataArray.map(parseFloat).filter(val => !isNaN(val));
 
                     if (colData.length > 0) {
-                        var sum = colData.reduce((a, b) => a + b, 0);
+                        // REMOVED: var sum = colData.reduce((a, b) => a + b, 0);
                         var min = Math.min(...colData);
                         var max = Math.max(...colData);
-                        var avg = sum / colData.length;
+                        var avg = colData.reduce((a, b) => a + b, 0) / colData.length; // Keep avg calculation
+                        // --- NEW: Calculate Median and Std Dev --- 
+                        var median = calculateMedian(colData);
+                        var stdDev = calculateSampleStandardDeviation(colData);
+                        // --- END NEW --- 
+                        // --- NEW: Calculate Skewness --- 
+                        var skewness = calculateSkewness(colData);
+                        // --- END NEW --- 
+
                         const effectiveFormat = postTransformNumericFormats.hasOwnProperty(header)
                                                     ? postTransformNumericFormats[header]
                                                     : (preTransformNumericFormats[header] || 'default');
                         // Store in the global object
                         globalSummaryData[header] = {
-                            raw: { sum: sum, min: min, max: max, count: colData.length, avg: avg },
+                            raw: {
+                                // sum: sum, // REMOVED
+                                min: min,
+                                max: max,
+                                count: colData.length,
+                                avg: avg,
+                                median: median, // ADDED
+                                stdDev: stdDev,  // ADDED
+                                skewness: skewness // ADDED
+                            },
                             formatted: {
-                                sum: formatNumericValue(sum, effectiveFormat),
+                                // sum: formatNumericValue(sum, effectiveFormat), // REMOVED
                                 min: formatNumericValue(min, effectiveFormat),
                                 max: formatNumericValue(max, effectiveFormat),
-                                avg: formatNumericValue(avg, effectiveFormat)
+                                avg: formatNumericValue(avg, effectiveFormat),
+                                median: formatNumericValue(median, effectiveFormat), // ADDED
+                                stdDev: formatNumericValue(stdDev, effectiveFormat),  // ADDED
+                                skewness: formatNumericValue(skewness, 'numeric_2') // ADDED - Using 'numeric_2' format for skewness
                             }
                         };
                     }
@@ -353,20 +451,39 @@ document.addEventListener('DOMContentLoaded', function() {
                                      var colDataArray = rows.data().pluck(colIdx).toArray();
                                      var colData = colDataArray.map(parseFloat).filter(val => !isNaN(val));
                                      if (colData.length > 0) {
-                                         var sum = colData.reduce((a, b) => a + b, 0);
+                                         // REMOVED: var sum = colData.reduce((a, b) => a + b, 0);
                                          var min = Math.min(...colData);
                                          var max = Math.max(...colData);
-                                         var avg = sum / colData.length;
+                                         var avg = colData.reduce((a, b) => a + b, 0) / colData.length; // Keep avg calc
+                                         // --- NEW: Calculate Median and Std Dev --- 
+                                         var median = calculateMedian(colData);
+                                         var stdDev = calculateSampleStandardDeviation(colData);
+                                         // --- END NEW --- 
+                                         // --- NEW: Calculate Skewness --- 
+                                         var skewness = calculateSkewness(colData);
+                                         // --- END NEW --- 
                                          const effectiveFormat = postTransformNumericFormats.hasOwnProperty(header) 
                                                                  ? postTransformNumericFormats[header] 
                                                                  : (preTransformNumericFormats[header] || 'default');
                                          summaryData[header] = { 
-                                             raw: { sum: sum, min: min, max: max, count: colData.length, avg: avg },
+                                             raw: {
+                                                 // sum: sum, // REMOVED
+                                                 min: min,
+                                                 max: max,
+                                                 count: colData.length,
+                                                 avg: avg,
+                                                 median: median, // ADDED
+                                                 stdDev: stdDev,  // ADDED
+                                                 skewness: skewness // ADDED
+                                             },
                                              formatted: { 
-                                                 sum: formatNumericValue(sum, effectiveFormat),
+                                                 // sum: formatNumericValue(sum, effectiveFormat), // REMOVED
                                                  min: formatNumericValue(min, effectiveFormat),
                                                  max: formatNumericValue(max, effectiveFormat),
-                                                 avg: formatNumericValue(avg, effectiveFormat)
+                                                 avg: formatNumericValue(avg, effectiveFormat),
+                                                 median: formatNumericValue(median, effectiveFormat), // ADDED
+                                                 stdDev: formatNumericValue(stdDev, effectiveFormat),  // ADDED
+                                                 skewness: formatNumericValue(skewness, 'numeric_2') // ADDED - Using 'numeric_2' format for skewness
                                              }
                                          };
                                      }
@@ -543,8 +660,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // --- Generate Text Stats --- 
                 const textStatsHtml = 
-                    `<div class="mb-2"><strong>Avg:</strong> ${stats.avg} | <strong>Sum:</strong> ${stats.sum}<br>` +
-                    `<strong>Min:</strong> ${stats.min} | <strong>Max:</strong> ${stats.max}</div>`;
+                    `<div class="mb-2"><strong>Avg:</strong> ${stats.avg} | <strong>Median:</strong> ${stats.median}<br>` +
+                    `<strong>Min:</strong> ${stats.min} | <strong>Max:</strong> ${stats.max}<br>` +
+                    `<strong>Std Dev:</strong> ${stats.stdDev} | <strong>Skew:</strong> ${stats.skewness}</div>`;
 
                 // --- Generate Visual Summary --- 
                 let visualHtml = '';
@@ -571,7 +689,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         visualHtml = `
                             <div class="summary-visual-container mt-2 pt-3 pb-3 position-relative">
-                                <div class="summary-line" title="Range: ${minVal} to ${maxVal}" style="height: 1px; background-color: red; width: 100%; position: absolute;"></div>
+                                <div class="summary-line" title="Range: ${minVal} to ${maxVal}" style="height: 1px; background-color: darkred; width: 100%; position: absolute;"></div>
                                 ${typeof avgVal === 'number' ? `<span class="summary-marker marker-avg" style="left: ${avgPercent.toFixed(1)}%;" title="Avg: ${stats.avg}"></span>` : ''}
                                 <span class="summary-marker marker-value marker-value-large" style="left: ${valuePercent.toFixed(1)}%;" title="Value: ${formatNumericValue(cellValue, effectiveFormat)}"></span> 
                             </div>
