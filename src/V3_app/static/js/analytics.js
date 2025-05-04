@@ -3043,7 +3043,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: true });
 
                     // <<< NEW: Initialize Pivot Table Placeholder >>>
-                    console.log("Placeholder: Pivot table initialization would happen here after initial load.");
+                    // console.log("Placeholder: Pivot table initialization would happen here after initial load."); // DEBUG REMOVED
                     // TODO: Add logic here to initialize the pivot table
                     //       in the '#pivot-table-output' div using the initial 'finalDataForAnalysis' data.
                     //       Example using a hypothetical 'initializePivotTable' function:
@@ -3056,9 +3056,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
                     // --- Dispatch Data Ready Event --- 
                     if (finalDataForAnalysis && finalDataForAnalysis.length > 0) {
-                        console.log("Dispatching AnalyticsDataReady event...");
+                        // console.log("Dispatching AnalyticsDataReady event..."); // DEBUG REMOVED
                         window.dispatchEvent(new Event('AnalyticsDataReady'));
-                        console.log("AnalyticsDataReady event dispatched.");
+                        // console.log("AnalyticsDataReady event dispatched."); // DEBUG REMOVED
                     } else {
                         console.warn("Not dispatching AnalyticsDataReady event: finalDataForAnalysis is empty.");
                     }
@@ -3859,7 +3859,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         generateTimestampedFilename: generateTimestampedFilename,
         parseFormattedValue: parseFormattedValue // <<< STEP 1: Expose parsing function
     };
-    console.log("AnalyticsMainModule API exposed.", window.AnalyticsMainModule)
+    // console.log("AnalyticsMainModule API exposed.", window.AnalyticsMainModule) // DEBUG REMOVED
+
+    // --- REMOVE Dispatch event indicating module readiness --- 
+// ... existing code ...
 
     // --- NEW: Pre-Transform Search Functionality ---
     function applyPreTransformSearchListener() {

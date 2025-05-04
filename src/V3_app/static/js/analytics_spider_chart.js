@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (savedFilters) {
             try {
                 loaded = JSON.parse(savedFilters);
-                 console.log("[Spider Filter load] Parsed from localStorage:", JSON.parse(JSON.stringify(loaded)));
+                 // console.log("[Spider Filter load] Parsed from localStorage:", JSON.parse(JSON.stringify(loaded))); // DEBUG REMOVED
                 if (!Array.isArray(loaded)) loaded = [];
             } catch (e) {
                 console.error("[Spider Filter] Error parsing saved filters:", e);
@@ -63,7 +63,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 localStorage.removeItem(SPIDER_FILTER_STORAGE_KEY);
             }
         } else {
-            console.log("[Spider Filter] No saved filters found.");
+            // console.log("[Spider Filter] No saved filters found."); // DEBUG REMOVED
         }
 
         // Ensure structure (id, field, operator, value, comment)
@@ -74,12 +74,12 @@ document.addEventListener('DOMContentLoaded', function() {
             value: f.value !== undefined ? f.value : '',
             comment: f.comment || '' 
         }));
-        console.log("[Spider Filter load] Processed loaded/default filters:", spiderChartFilters);
+        // console.log("[Spider Filter load] Processed loaded/default filters:", spiderChartFilters); // DEBUG REMOVED
 
         // Add default blank filter if none loaded
         if (spiderChartFilters.length === 0) {
             spiderChartFilters.push({ id: Date.now() + Math.random(), field: '', operator: '=', value: '', comment: '' }); 
-            console.log("[Spider Filter] Added default blank filter.");
+            // console.log("[Spider Filter] Added default blank filter."); // DEBUG REMOVED
         }
     }
 
@@ -96,7 +96,7 @@ document.addEventListener('DOMContentLoaded', function() {
              value: f.value,
              comment: f.comment
          }));
-        console.log("[Spider Filter] Saving filters to localStorage:", filtersToSave);
+        // console.log("[Spider Filter] Saving filters to localStorage:", filtersToSave); // DEBUG REMOVED
         try {
              localStorage.setItem(SPIDER_FILTER_STORAGE_KEY, JSON.stringify(filtersToSave));
         } catch (e) {
@@ -110,11 +110,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function initializeSpiderChartModule() {
         // <<< Prevent multiple initializations >>>
         if (isSpiderModuleInitialized) {
-            console.log("Spider Chart Module already initialized. Skipping.");
+            // console.log("Spider Chart Module already initialized. Skipping."); // DEBUG REMOVED
             return;
         }
         isSpiderModuleInitialized = true; // Set flag
-        console.log("Initializing Spider Chart Module (triggered by AnalyticsMainModuleReady)...", performance.now()); // Log timing
+        console.log("Initializing Spider Chart Module (triggered by AnalyticsDataReady)...", performance.now()); // Log timing
         
         mainModule = window.AnalyticsMainModule;
         if (!mainModule) {
@@ -132,13 +132,13 @@ document.addEventListener('DOMContentLoaded', function() {
     // Listener for when the tab becomes active
     if (crossFieldVizTabTrigger) {
         crossFieldVizTabTrigger.addEventListener('shown.bs.tab', function (event) {
-            console.log('Cross-Field Visualization tab shown.');
+            // console.log('Cross-Field Visualization tab shown.'); // DEBUG REMOVED
             // <<< REMOVE initialization call from here >>>
             // initializeSpiderChartModule(); 
             
             // <<< ADDED: Re-render chart if already initialized when tab becomes visible >>>
             if (isSpiderModuleInitialized && spiderChartInstance) {
-                console.log("Tab shown again, forcing chart redraw/resize.");
+                // console.log("Tab shown again, forcing chart redraw/resize."); // DEBUG REMOVED
                 // Might need resize logic if canvas size changes on tab visibility
                 setTimeout(() => { // Use timeout to ensure canvas is visible
                    spiderChartInstance.resize(); 
@@ -148,10 +148,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     } else {
         console.warn('Cross-Field Visualization tab trigger (#cross-field-viz-tab) not found.');
-        // <<< REMOVE immediate initialization attempt >>>
-        // if (spiderTabPane && (spiderTabPane.classList.contains('show') || spiderTabPane.classList.contains('active'))) {
-        //      initializeSpiderChartModule();
-        // }
     }
 
     // --- Listener for Main Module Data Readiness --- 
@@ -161,7 +157,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Function to populate selectors (Chart controls, not filters) ---
     function populateSelectors() {
-        console.log("Populating spider chart controls (Fields)..."); // Renamed log
+        // console.log("Populating spider chart controls (Fields)..."); // DEBUG REMOVED
         if (!mainModule || !fieldSelect) { // Removed tickerSelect check here
             console.error("Cannot populate field selector: Main module or field select element missing.");
             return;
@@ -184,12 +180,12 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             fieldSelect.innerHTML = '<option disabled>No numeric fields found</option>';
         }
-        console.log("Field selector populated.");
+        // console.log("Field selector populated."); // DEBUG REMOVED
     }
 
     // --- STEP 3: Filter UI Rendering --- 
     function renderSpiderFilterUI() {
-        console.log("[Spider Filter] Rendering filter UI...");
+        // console.log("[Spider Filter] Rendering filter UI..."); // DEBUG REMOVED
         if (!filterControlsContainer || !mainModule) {
             console.error("[Spider Filter] Filter container or main module not found.");
             return;
@@ -329,11 +325,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- STEP 3 Helper: Update Value Input UI --- 
     function updateSpiderValueInputUI(index, fieldName, inputWrapper, hintSpan, metadataSource) {
         const metadata = metadataSource[fieldName];
-        console.log(`[Spider Filter UI] Updating value input for filter ${index}, field '${fieldName}'. Metadata found: ${!!metadata}`);
+        // console.log(`[Spider Filter UI] Updating value input for filter ${index}, field '${fieldName}'. Metadata found: ${!!metadata}`); // DEBUG REMOVED
         
         inputWrapper.innerHTML = ''; // Clear previous input/select
         const filterValueForUI = spiderChartFilters[index]?.value;
-        console.log(`[Spider Filter UI] Rendering value input. Loaded Value:`, filterValueForUI);
+        // console.log(`[Spider Filter UI] Rendering value input. Loaded Value:`, filterValueForUI); // DEBUG REMOVED
 
         // Set minimal hint text (field type)
         hintSpan.textContent = metadata ? `(${metadata.type})` : '(?) '; // Show type or ?
@@ -427,7 +423,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function setupFilterEventListeners() {
         if (addFilterBtn) {
             addFilterBtn.addEventListener('click', () => {
-                console.log("[Spider Filter] Add Filter clicked");
+                // console.log("[Spider Filter] Add Filter clicked"); // DEBUG REMOVED
                 spiderChartFilters.push({ id: Date.now() + Math.random(), field: '', operator: '=', value: '', comment: '' });
                 renderSpiderFilterUI();
             });
@@ -435,7 +431,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (resetFiltersBtn) {
             resetFiltersBtn.addEventListener('click', () => {
-                console.log("[Spider Filter] Reset Filters clicked");
+                // console.log("[Spider Filter] Reset Filters clicked"); // DEBUG REMOVED
                 spiderChartFilters = [{ id: Date.now() + Math.random(), field: '', operator: '=', value: '', comment: '' }];
                 saveSpiderFiltersToStorage(); // Save the reset state
                 renderSpiderFilterUI();
@@ -452,7 +448,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (applyFiltersBtn) {
             applyFiltersBtn.addEventListener('click', () => {
-                console.log("[Spider Filter] Apply Filters clicked");
+                // console.log("[Spider Filter] Apply Filters clicked"); // DEBUG REMOVED
                 saveSpiderFiltersToStorage(); // Save current filter definitions
                 applySpiderFilters(); // <<< STEP 4: Call apply function
             });
@@ -462,7 +458,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- STEP 4: Function applySpiderFilters() ---
     function applySpiderFilters() {
-        console.log("[Spider Filter] Applying filters to ticker list...");
+        // console.log("[Spider Filter] Applying filters to ticker list..."); // DEBUG REMOVED
         if (!mainModule) {
             console.error("[Spider Filter Apply] Main module not available.");
             if(filterResultsCount) filterResultsCount.textContent = 'Error!';
@@ -475,16 +471,19 @@ document.addEventListener('DOMContentLoaded', function() {
         const finalMetadata = mainModule.getFinalFieldMetadata ? mainModule.getFinalFieldMetadata() : {};
         // <<< STEP 2.2: Get access to format functions from main module >>>
         const preTransformFormats = mainModule.getNumericFieldFormats ? mainModule.getNumericFieldFormats() : {};
-        const parseFormattedValueFn = mainModule.parseFormattedValue; // Get reference to the function
+        // const parseFormattedValueFn = mainModule.parseFormattedValue; // <<< GET PARSER FROM GETTER
+        const parseFormattedValueFn = (mainModule && typeof mainModule.getParser === 'function')
+                                        ? mainModule.getParser()
+                                        : null;
 
         if (!parseFormattedValueFn) {
-            console.error("[Spider Filter Apply] parseFormattedValue function not found on main module!");
+            console.error("[Spider Filter Apply] parseFormattedValue function not found on main module via getter!");
              if(filterResultsCount) filterResultsCount.textContent = 'Error!';
             return;
         }
 
         if (!fullData || fullData.length === 0) {
-            console.log("[Spider Filter Apply] No data loaded.");
+            console.log("[Spider Filter Apply] No data loaded."); // Keep this info log
             if(filterResultsCount) filterResultsCount.textContent = '(0 matching)';
             updateTickerSelector([]); // Update selector with empty list (Step 5)
             return;
@@ -494,7 +493,7 @@ document.addEventListener('DOMContentLoaded', function() {
         let filteredData = fullData;
 
         if (activeFilters.length > 0) {
-            console.log(`[Spider Filter Apply] Applying ${activeFilters.length} active filters...`);
+            // console.log(`[Spider Filter Apply] Applying ${activeFilters.length} active filters...`); // DEBUG REMOVED
             filteredData = fullData.filter(item => {
                 if (!item) return false;
 
@@ -588,7 +587,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             
                             // <<< STEP 2.5: Validate parse result >>>
                             if (isNaN(filterNum)) {
-                                console.warn(`[Spider Filter Apply] Skipping filter: Could not parse input '${filterValueStr}' for field '${filter.field}' with format '${fieldFormat}'.`);
+                                console.warn(`[Spider Filter Apply] Skipping filter: Could not parse input '${filterValueStr}' for field '${filter.field}' with format '${fieldFormat}'.`); // Keep warning
                                 comparisonResult = false; // Treat unparseable input as non-match
                             } else if (!isNaN(itemNum)) { // Check if item number is valid before comparing
                                  // <<< STEP 2.6: Compare raw itemNum with parsed filterNum >>>
@@ -624,14 +623,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 } // End loop through filters for one item
                 return true; // Item passes all filters
             });
-            console.log(`[Spider Filter Apply] Filtering complete. ${filteredData.length} items match.`);
+            // console.log(`[Spider Filter Apply] Filtering complete. ${filteredData.length} items match.`); // DEBUG REMOVED
         } else {
-             console.log(`[Spider Filter Apply] No active filters. Using all ${fullData.length} items.`);
+             // console.log(`[Spider Filter Apply] No active filters. Using all ${fullData.length} items.`); // DEBUG REMOVED
         }
 
         // Extract unique tickers from the filtered data
         const filteredTickers = [...new Set(filteredData.map(item => item?.ticker).filter(Boolean))].sort();
-        console.log(`[Spider Filter Apply] Found ${filteredTickers.length} unique tickers matching filters.`);
+        // console.log(`[Spider Filter Apply] Found ${filteredTickers.length} unique tickers matching filters.`); // DEBUG REMOVED
 
         // Update results count display
         if (filterResultsCount) {
@@ -649,7 +648,7 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error("[Spider Filter] Ticker select element not found (#spider-ticker-select).");
             return;
         }
-        console.log(`[Spider Filter] Updating ticker selector with ${tickers.length} tickers.`);
+        // console.log(`[Spider Filter] Updating ticker selector with ${tickers.length} tickers.`); // DEBUG REMOVED
         
         // Preserve selected values
         const previouslySelected = Array.from(tickerSelect.selectedOptions).map(opt => opt.value);
@@ -675,7 +674,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Function to calculate aggregates ---
     function calculateAggregates(fullData, selectedFields) {
-        console.log("Calculating aggregates for selected fields:", selectedFields);
+        console.log("Calculating aggregates for selected fields:", selectedFields); // Keep this log
         if (!fullData || fullData.length === 0 || !selectedFields || selectedFields.length === 0) {
             return { aggregates: {}, overallMinMax: {} };
         }
@@ -736,8 +735,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // delete aggregates[field].values; 
         });
 
-        console.log("Aggregates calculated:", aggregates);
-        console.log("Overall Min/Max for Normalization:", overallMinMax);
+        console.log("Aggregates calculated:", aggregates); // Keep this log
+        console.log("Overall Min/Max for Normalization:", overallMinMax); // Keep this log
         return { aggregates, overallMinMax };
     }
 
@@ -752,7 +751,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Function to render the radar chart ---
     function renderSpiderChart(chartLabels, datasets, originalValuesMap) {
-        console.log("Rendering spider chart...");
+        // console.log("Rendering spider chart..."); // DEBUG REMOVED
         if (!canvas) {
             console.error("Spider chart canvas not found!");
             if(statusDiv) statusDiv.textContent = 'Error: Chart canvas element missing.';
@@ -761,10 +760,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const ctx = canvas.getContext('2d');
         if (spiderChartInstance) {
             spiderChartInstance.destroy();
-            console.log("Previous spider chart instance destroyed.");
+            // console.log("Previous spider chart instance destroyed."); // DEBUG REMOVED
         }
 
-        // Ensure access to the formatter function and metadata
         const finalMetadata = window.AnalyticsMainModule?.getFinalFieldMetadata ? window.AnalyticsMainModule.getFinalFieldMetadata() : {};
         const preTransformFormats = window.AnalyticsMainModule?.getNumericFieldFormats ? window.AnalyticsMainModule.getNumericFieldFormats() : {};
 
@@ -807,14 +805,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
                                 // If original value is still not valid, return N/A and log for debugging
                                 if (originalValue === null || originalValue === undefined || isNaN(originalValue)) {
-                                    console.warn(`[Spider Tooltip] Original value for ${datasetLabel} - ${fieldLabel} is invalid or not found. Retrieved:`, originalValue, `Map entry for dataset ${datasetIndex}:`, originalValuesMap?.[datasetIndex]);
+                                    // console.warn(`[Spider Tooltip] Original value for ${datasetLabel} - ${fieldLabel} is invalid or not found. Retrieved:`, originalValue, `Map entry for dataset ${datasetIndex}:`, originalValuesMap?.[datasetIndex]); // DEBUG REMOVED
                                     return `${datasetLabel} - ${fieldLabel}: N/A`;
                                 }
 
                                 // --- Format the original value using hierarchy ---
                                 let formattedValue = originalValue; // Default to raw if formatter fails
                                 // <<< DEBUG LOG: Check if formatter was successfully retrieved >>>
-                                console.log(`[Spider Tooltip Debug] Formatter function retrieved: ${typeof formatNumericValueFn === 'function'}`);
+                                // console.log(`[Spider Tooltip Debug] Formatter function retrieved: ${typeof formatNumericValueFn === 'function'}`); // DEBUG REMOVED
 
                                 // <<< Check if formatter is a valid function >>>
                                 if (typeof formatNumericValueFn === 'function' && finalMetadata && fieldLabel) {
@@ -827,33 +825,33 @@ document.addEventListener('DOMContentLoaded', function() {
                                         format = preTransformFormats[fieldLabel];
                                     }
                                     // <<< DEBUG LOG: Log determined format >>>
-                                    console.log(`[Spider Tooltip Debug] Field: ${fieldLabel}, Determined format: ${format}`);
+                                    // console.log(`[Spider Tooltip Debug] Field: ${fieldLabel}, Determined format: ${format}`); // DEBUG REMOVED
 
                                     try {
                                          // Ensure originalValue is a number before formatting
                                          const numericValue = Number(originalValue);
                                          // <<< DEBUG LOG: Log value before formatting >>>
-                                         console.log(`[Spider Tooltip Debug] Formatting value: ${numericValue} with format: ${format}`);
+                                         // console.log(`[Spider Tooltip Debug] Formatting value: ${numericValue} with format: ${format}`); // DEBUG REMOVED
 
                                          if (!isNaN(numericValue)) {
                                              formattedValue = formatNumericValueFn(numericValue, format);
                                              // <<< DEBUG LOG: Log value AFTER formatting >>>
-                                             console.log(`[Spider Tooltip Debug] Formatted value: ${formattedValue}`);
+                                             // console.log(`[Spider Tooltip Debug] Formatted value: ${formattedValue}`); // DEBUG REMOVED
                                          } else {
                                              // Handle cases where original value might not be numeric (though unlikely for spider chart)
                                              formattedValue = String(originalValue);
-                                             console.warn(`Tooltip Warning: Original value for ${fieldLabel} (${originalValue}) is not numeric. Displaying as string.`);
+                                             console.warn(`Tooltip Warning: Original value for ${fieldLabel} (${originalValue}) is not numeric. Displaying as string.`); // Keep warning
                                          }
                                     } catch (error) {
                                         console.error(`Error formatting tooltip value for ${fieldLabel} with format ${format}:`, error);
                                         formattedValue = originalValue; // Fallback to raw value on error
                                     }
                                 } else {
-                                     console.warn(`Tooltip Warning: Could not format value for ${fieldLabel}. Missing formatter, metadata, or field label.`);
+                                     // console.warn(`Tooltip Warning: Could not format value for ${fieldLabel}. Missing formatter, metadata, or field label.`); // DEBUG REMOVED
                                 }
                                 // --- END NEW ---
 
-                                return `${datasetLabel} - ${fieldLabel}: ${formattedValue}`;
+                                return `${datasetLabel} - ${fieldLabel}: ${formattedValue}`; // Keep debug logs removed
                             }
                         }
                     }
@@ -886,7 +884,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         });
-        console.log("Spider chart rendered/updated.");
+        // console.log("Spider chart rendered/updated."); // DEBUG REMOVED
         if (statusDiv) statusDiv.textContent = 'Chart generated successfully.';
     }
 
