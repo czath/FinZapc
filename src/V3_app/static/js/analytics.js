@@ -3054,6 +3054,16 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     }
                     // <<< END NEW >>>
 
+                    // --- Dispatch Data Ready Event --- 
+                    if (finalDataForAnalysis && finalDataForAnalysis.length > 0) {
+                        console.log("Dispatching AnalyticsDataReady event...");
+                        window.dispatchEvent(new Event('AnalyticsDataReady'));
+                        console.log("AnalyticsDataReady event dispatched.");
+                    } else {
+                        console.warn("Not dispatching AnalyticsDataReady event: finalDataForAnalysis is empty.");
+                    }
+                    // --- End Dispatch ---
+
                 } catch (error) {
                     console.error('Error during Finviz data processing/fetching:', error);
                     // outputArea.textContent = `An error occurred. Check console for details. \nError: ${error.message}`; // No longer using outputArea
@@ -3844,8 +3854,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             'configure': 'Custom...' // Ensure this matches modal trigger value if needed\n\
         },
         // --- NEW: Expose functions needed by DataTable Module --- 
-        formatNumericValue: formatNumericValue,
-        generateTimestampedFilename: generateTimestampedFilename
+        // formatNumericValue: formatNumericValue, // <<< REMOVE direct exposure
+        getFormatter: () => formatNumericValue, // <<< ADD Getter function
+        generateTimestampedFilename: generateTimestampedFilename,
+        parseFormattedValue: parseFormattedValue // <<< STEP 1: Expose parsing function
     };
     console.log("AnalyticsMainModule API exposed.", window.AnalyticsMainModule)
 
