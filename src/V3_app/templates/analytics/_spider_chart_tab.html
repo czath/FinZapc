@@ -1,0 +1,53 @@
+<!-- Placeholder for Cross-Field Visualization (Radar Chart) Tab Content -->
+<div class="row">
+    <div class="col-md-3">
+        <h6>Settings</h6>
+        <!-- Ticker Select -->
+        <div class="mb-3">
+            <label for="spider-ticker-select" class="form-label small">Select Tickers (2+):</label>
+            <select id="spider-ticker-select" class="form-select form-select-sm" multiple size="5">
+                <!-- Options populated by JS -->
+            </select>
+        </div>
+
+        <!-- Field Select -->
+        <div class="mb-3">
+            <label for="spider-field-select" class="form-label small">Select Fields (3+):</label>
+            <select id="spider-field-select" class="form-select form-select-sm" multiple size="8">
+                <!-- Options populated by JS -->
+            </select>
+        </div>
+
+        <!-- Aggregate Select -->
+        <div class="mb-3">
+            <label for="spider-aggregate-select" class="form-label small">Include Aggregates:</label>
+             <div class="form-check small">
+                <input class="form-check-input" type="checkbox" value="avg" id="spider-agg-avg">
+                <label class="form-check-label" for="spider-agg-avg">Overall Average</label>
+            </div>
+             <div class="form-check small">
+                <input class="form-check-input" type="checkbox" value="min" id="spider-agg-min">
+                <label class="form-check-label" for="spider-agg-min">Overall Minimum</label>
+            </div>
+             <div class="form-check small">
+                <input class="form-check-input" type="checkbox" value="max" id="spider-agg-max">
+                <label class="form-check-label" for="spider-agg-max">Overall Maximum</label>
+            </div>
+             <div class="form-check small">
+                <input class="form-check-input" type="checkbox" value="median" id="spider-agg-median">
+                <label class="form-check-label" for="spider-agg-median">Overall Median</label>
+            </div>
+        </div>
+
+        <!-- Generate Button -->
+        <button id="generate-spider-chart-btn" class="btn btn-primary btn-sm w-100">Generate Chart</button>
+
+    </div>
+    <div class="col-md-9">
+        <h6>Radar Chart</h6>
+        <div class="chart-container mb-3" style="position: relative; height:50vh; width:100%">
+            <canvas id="spider-chart-canvas"></canvas>
+        </div>
+        <div id="spider-chart-status" class="small text-muted">Select tickers and fields to generate the chart.</div>
+    </div>
+</div> 

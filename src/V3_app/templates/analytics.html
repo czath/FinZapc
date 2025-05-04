@@ -639,83 +639,103 @@
 
         {# --- Data Report Tab Pane --- #}
         <div class="tab-pane fade" id="data-visual-pane" role="tabpanel" aria-labelledby="data-visual-tab" tabindex="0">
-            <h5>Data Visualization</h5>
-            <p>Generate visualizations based on the prepared data.</p>
+                        <!-- NESTED TABS START -->
+                        <ul class="nav nav-tabs mt-3" id="visualSubTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="field-viz-tab" data-bs-toggle="tab" data-bs-target="#field-viz-tab-pane" type="button" role="tab" aria-controls="field-viz-tab-pane" aria-selected="true">Field Visualization</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="cross-field-viz-tab" data-bs-toggle="tab" data-bs-target="#cross-field-viz-tab-pane" type="button" role="tab" aria-controls="cross-field-viz-tab-pane" aria-selected="false">Cross-Field Visualization</button>
+                            </li>
+                        </ul>
+                        <div class="tab-content" id="visualSubTabContent">
+                            <!-- Nested Tab 1: Field Visualization (Existing Chart) -->
+                            <div class="tab-pane fade show active" id="field-viz-tab-pane" role="tabpanel" aria-labelledby="field-viz-tab" tabindex="0">
+                                <div class="card mt-3">
+                                    <div class="card-header d-flex justify-content-between align-items-center">
+                                         <h5 class="mb-0">Data Chart</h5>
+                                         <span id="chart-status" class="ms-2 small text-muted"></span>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row mb-3">
+                                            <!-- Chart Controls -->
+                                            <div class="col-md-2">
+                                                <label for="report-chart-type-selector" class="form-label form-label-sm">Chart Type</label>
+                                                <select id="report-chart-type-selector" class="form-select form-select-sm">
+                                                    <option value="scatter" selected>Scatter</option>
+                                                    <option value="line">Line</option>
+                                                    <option value="bar">Bar</option>
+                                                    <option value="bubble">Bubble</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <label for="report-x-axis-selector" class="form-label form-label-sm">X-Axis</label>
+                                                <select id="report-x-axis-selector" class="form-select form-select-sm">
+                                                    <option value="index" selected>-- Record Index --</option>
+                                                    <!-- Options populated by JS -->
+                                                </select>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <label for="report-field-selector" class="form-label form-label-sm">Y-Axis</label>
+                                                <select id="report-field-selector" class="form-select form-select-sm">
+                                                    <option value="">-- Select Field --</option>
+                                                    <!-- Options populated by JS -->
+                                                </select>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <label for="report-color-selector" class="form-label form-label-sm">Color by</label>
+                                                <select id="report-color-selector" class="form-select form-select-sm">
+                                                    <option value="">-- No Variation --</option>
+                                                    <!-- Options populated by JS -->
+                                                </select>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <label for="report-size-selector" class="form-label form-label-sm">Size by (Bubble)</label>
+                                                <select id="report-size-selector" class="form-select form-select-sm" disabled>
+                                                    <option value="">-- Select Field --</option>
+                                                    <!-- Options populated by JS -->
+                                                </select>
+                                            </div>
+                                            <div class="col-md-2 d-flex align-items-end">
+                                                 <button id="reset-chart-btn" class="btn btn-sm btn-outline-secondary me-1" title="Reset Zoom/Pan">
+                                                     <i class="bi bi-arrow-counterclockwise"></i>
+                                                 </button>
+                                                 <button id="swap-axes-btn" class="btn btn-sm btn-outline-secondary" title="Swap X and Y Axes">
+                                                     <i class="bi bi-arrow-left-right"></i>
+                                                 </button>
+                                             </div>
+                                        </div>
+                                        <!-- Chart Ticker Search -->
+                                         <div class="row mb-2">
+                                             <div class="col-md-4">
+                                                 <div class="input-group input-group-sm">
+                                                     <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                                     <input type="text" id="chart-ticker-search" class="form-control form-control-sm" placeholder="Highlight Ticker...">
+                                                 </div>
+                                                 <div id="chart-search-status" class="form-text small text-muted"></div>
+                                             </div>
+                                         </div>
+                                         <!-- Chart Canvas -->
+                                         <div class="chart-container mb-3" style="position: relative; height:60vh; width:100%">
+                                            <canvas id="report-chart-canvas"></canvas>
+                                         </div>
+                                    </div>
+                                </div>
+                            </div>
             
-            {# --- Chart Controls & Display --- #}
-            <div class="container-fluid mt-3">
-                <div class="row g-2 mb-3 align-items-end"> <!-- Added align-items-end -->
-                    <!-- Reordered Columns -->
-                    <div class="col-md-auto"> <!-- X-Axis -->
-                        <label for="report-x-axis-selector" class="form-label form-label-sm mb-1">X Axis</label>
-                        <select id="report-x-axis-selector" class="form-select form-select-sm">
-                            <option value="index" selected>-- Record Index (Default) --</option>
-                            <!-- Options populated by JS -->
-                        </select>
-                    </div>
-                    <!-- Moved Swap Button Here -->
-                    <div class="col-md-auto"> 
-                        <button id="swap-axes-btn" class="btn btn-sm btn-outline-secondary" title="Swap X and Y Axes">
-                            <i class="bi bi-arrow-left-right"></i> Swap
-                        </button>
-                    </div>
-                    <div class="col-md-auto"> <!-- Y-Axis -->
-                        <label for="report-field-selector" class="form-label form-label-sm mb-1">Y Axis</label>
-                        <select id="report-field-selector" class="form-select form-select-sm">
-                            <option value="" selected>-- Select Field --</option>
-                            <!-- Options populated by JS -->
-                        </select>
-                    </div>
-                    <div class="col-md-auto"> <!-- Chart Type -->
-                        <label for="report-chart-type-selector" class="form-label form-label-sm mb-1">Type</label>
-                        <select id="report-chart-type-selector" class="form-select form-select-sm">
-                            <option value="scatter" selected>Scatter</option>
-                            <option value="line">Line</option>
-                            <option value="bar">Bar</option>
-                            <option value="bubble">Bubble</option>
-                        </select>
-                    </div>
-                    <div class="col-md-auto"> <!-- Size By (for Bubble) -->
-                        <label for="report-size-selector" class="form-label form-label-sm mb-1">Size By <small class="text-muted">(Bubble)</small></label>
-                        <select id="report-size-selector" class="form-select form-select-sm" disabled> <!-- Disabled initially -->
-                            <option value="" selected>-- Select Field --</option>
-                            <!-- Options populated by JS -->
-                        </select>
-                    </div>
-                    <div class="col-md-auto"> <!-- Color By -->
-                        <label for="report-color-selector" class="form-label form-label-sm mb-1">Color By</label>
-                        <select id="report-color-selector" class="form-select form-select-sm">
-                            <option value="">-- No Color Variation --</option>
-                            <!-- Options populated by JS -->
-                        </select>
-                    </div>
-                    <!-- End Reordered Columns -->
-
-                    <!-- Reset Button at the end -->
-                    <div class="col-md-auto ms-md-auto"> <!-- Push reset button to the right -->
-                        {# --- NEW: Ticker Search --- #}
-                        <div class="input-group input-group-sm me-2" style="max-width: 180px;"> 
-                            <span class="input-group-text" id="chart-ticker-search-addon"><i class="bi bi-search"></i></span>
-                            <input type="text" id="chart-ticker-search" class="form-control form-control-sm" placeholder="Highlight Ticker..." aria-label="Highlight Ticker" aria-describedby="chart-ticker-search-addon">
+                            <!-- Nested Tab 2: Cross-Field Visualization (New Radar Chart) -->
+                            <div class="tab-pane fade" id="cross-field-viz-tab-pane" role="tabpanel" aria-labelledby="cross-field-viz-tab" tabindex="0">
+                                <div class="card mt-3">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">Cross-Field Comparison (Radar Chart)</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        {% include 'analytics/_spider_chart_tab.html' %}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        {# --- END NEW --- #}
-                        <button id="reset-chart-btn" class="btn btn-sm btn-outline-secondary" title="Reset Zoom/Pan">
-                            <i class="bi bi-aspect-ratio"></i> Reset View
-                        </button>
-                    </div>
-                </div>
-
-                <div class="chart-container mb-3" style="position: relative; height:50vh; width:100%;">
-                    <canvas id="report-chart-canvas"></canvas>
-                </div>
-                <div class="d-flex justify-content-between"> {# Align status messages #}
-                    <div id="chart-status" class="form-text text-muted small">Select fields to generate the chart.</div>
-                    <div id="chart-search-status" class="form-text text-primary small"></div> {# Search status #}
-                </div>
-            </div>
-            {# --- End Chart Controls & Display --- #}
-
-            <p class="text-muted small"><i>(Other reporting features will be added here later)</i></p>
+                        <!-- NESTED TABS END -->
         </div>
         {# --- End Data Report Tab Pane --- #}
 
@@ -877,17 +897,21 @@
     {# <<< ADD DataTables RowGroup JS >>> #}
     <script src="https://cdn.datatables.net/rowgroup/1.5.1/js/dataTables.rowGroup.min.js"></script>
     <script src="https://cdn.datatables.net/rowgroup/1.5.1/js/rowGroup.bootstrap5.min.js"></script>
-    {# --- End DataTables JS --- #}
 
-    {# --- Analytics Specific JS --- #}
-    <script src="{{ url_for('static', path='/js/analytics.js') }}"></script>
-    <script src="{{ url_for('static', path='/js/analytics_transform.js') }}"></script> {# <<< ADDED #}
-    <script src="{{ url_for('static', path='/js/analytics_config_manager.js') }}"></script> {# <<< ADDED Scenario Manager #}
-    <script src="{{ url_for('static', path='/js/analytics_post_transform.js') }}"></script> {# <<< NEW: ADDED Post-transform logic #}
-    <script src="{{ url_for('static', path='/js/analytics_data_table.js') }}"></script> {# <<< ADDED FOR FINAL DATA TABLE >>> #}
+    {# --- Chart.js --- #}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    {# --- Chart.js Zoom Plugin --- #}
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
 
-    {# Theme Toggle Script is now in base.html #}
+    {# --- Application Logic --- #}
+    <script src="{{ url_for('static', path='js/analytics_config_manager.js') }}"></script> <!-- Load Config Manager First -->
+    <script src="{{ url_for('static', path='js/analytics_post_transform.js') }}"></script>
+    <script src="{{ url_for('static', path='js/analytics_data_table.js') }}"></script> <!-- Load Data Table Module -->
+    <script src="{{ url_for('static', path='js/analytics_transform.js') }}"></script> <!-- Load Transform Logic -->
+    <script src="{{ url_for('static', path='js/analytics.js') }}"></script> <!-- Load Main Analytics Logic LAST -->
+    <script src="{{ url_for('static', path='js/analytics_spider_chart.js') }}"></script> <!-- ADDED: Spider Chart Logic -->
 
+    {# <<< Add any other page-specific JS files here >>> #}
 {% endblock %}
 
 <!-- Popper.js -->
