@@ -2421,7 +2421,14 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                       text: 'Ticker / Record' // Generic label for categories
                   },
                   type: 'category', // Categorical axis
-                  position: 'bottom'
+                  position: 'bottom',
+                  // <<< Explicitly enable tick display >>>
+                  ticks: {
+                      display: true, // Ensure labels are shown
+                      autoSkip: false, // Try preventing labels from skipping if they overlap
+                      maxRotation: 90, // Rotate labels if they overlap
+                      minRotation: 45
+                  }
              };
          } else if (selectedChartType === 'bubble') {
              chartDataConfig = {
@@ -2484,6 +2491,17 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                      tooltip: {
                          callbacks: {
                              label: function(context) {
+                                 // <<< DEBUG: Log dataset triggering the tooltip >>>
+                                 const datasetLabel = context.dataset.label || '(No Dataset Label)';
+                                 console.log(`[Tooltip Callback] Triggered for Dataset: "${datasetLabel}", Index: ${context.dataIndex}`);
+                                 // <<< END DEBUG >>>
+ 
+                                 // <<< FIX: Prevent tooltip for the highlight dataset >>>
+                                 if (datasetLabel === HIGHLIGHT_DATASET_LABEL) {
+                                     return null; // Don't show any tooltip for the highlight dataset itself
+                                 }
+                                 // <<< END FIX >>>
+ 
                                  // console.log("Tooltip callback executed."); // Reduced log frequency
                                  let labelLines = [];
                                  const chartType = context.chart.config.type;
@@ -2636,7 +2654,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
             // Update the chart only if the highlight dataset was removed
             if (highlightDatasetIndex > -1) { // <<< Check only for dataset removal
-                reportChartInstance.update('none'); 
+                reportChartInstance.update('none'); // Use 'none' for animation type to prevent flicker
                 console.log("[ChartHighlight] Reset complete. Chart updated.");
             }
         } else {
@@ -2644,14 +2662,16 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         }
 
         // Clear state variables
-        highlightedPointIndex = -1; 
+        highlightedPointIndex = -1;
         // originalChartOptions = null; // <<< REMOVED
-        originalPointStyle = null; 
+        originalPointStyle = null;
         const searchStatus = document.getElementById('chart-search-status');
+        // <<< Clear status on reset >>>
+        if (searchStatus) searchStatus.textContent = '';
     }
 
     function highlightTickerOnChart(tickerToFind) {
-        console.log("[ChartHighlight] highlightTickerOnChart function entered."); 
+        console.log("[ChartHighlight] highlightTickerOnChart function entered.");
         resetChartHighlight(); // Remove any previous highlight dataset first
         const searchStatus = document.getElementById('chart-search-status');
 
@@ -2663,8 +2683,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         }
         console.log(`[ChartHighlight] Checking chart type. Instance type: '${reportChartInstance?.config?.type}'`);
         const chartType = reportChartInstance.config.type;
-        if (chartType !== 'scatter' && chartType !== 'bubble' && chartType !== 'line' && chartType !== 'bar') { 
+        // Allow highlighting on bar charts too now
+        if (chartType !== 'scatter' && chartType !== 'bubble' && chartType !== 'line' && chartType !== 'bar') { // Added 'bar'
             if (searchStatus) searchStatus.textContent = 'Highlighting not supported for this chart type.';
+            console.warn(`[ChartHighlight] Highlighting requested for unsupported chart type: ${chartType}`);
             return;
         }
 
@@ -2672,73 +2694,129 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         if (!upperTicker) {
             if (searchStatus) searchStatus.textContent = '';
             // <<< Ensure reset is called when search is cleared >>>
-            resetChartHighlight(); 
+            // resetChartHighlight(); // Already called at the start
             return;
         }
 
-        // --- Find Data Point --- 
+        // --- Find Data Point ---
         let foundDataPoint = null;
-        let foundIndex = -1; 
+        let foundIndex = -1;
+        let pointToHighlight = null; // Store the data point for the highlight dataset
 
         if (chartType === 'bar') {
             const labels = reportChartInstance.data.labels || [];
             foundIndex = labels.findIndex(label => label && label.toUpperCase() === upperTicker);
             if (foundIndex > -1) {
-                 const originalDataset = reportChartInstance.data.datasets[0]; 
+                 const originalDataset = reportChartInstance.data.datasets[0];
                  if (originalDataset && originalDataset.data && originalDataset.data.length > foundIndex) {
-                     foundDataPoint = { 
-                         x: labels[foundIndex], 
-                         y: originalDataset.data[foundIndex], 
-                         ticker: labels[foundIndex] 
-                     };
+                     // For bar charts, the highlight data is just the value at the found index
+                     pointToHighlight = originalDataset.data[foundIndex];
+                     // Store info for status message
+                     foundDataPoint = { ticker: labels[foundIndex], y: pointToHighlight };
                  }
             }
-        } else {
+        } else { // Scatter, Line, Bubble
             foundIndex = currentChartPlotData.findIndex(p => p && p.ticker && p.ticker.toUpperCase() === upperTicker);
             if (foundIndex > -1) {
-                foundDataPoint = { ...currentChartPlotData[foundIndex] }; 
+                // For point-based charts, the highlight data is the {x, y, r?} object
+                pointToHighlight = { ...currentChartPlotData[foundIndex] }; // Shallow copy
+                foundDataPoint = pointToHighlight; // Store info for status message
             }
         }
 
-        if (foundDataPoint) {
+        if (foundDataPoint !== null && pointToHighlight !== null) { // Check both foundDataPoint (for status) and pointToHighlight (for dataset)
             try {
-                highlightedPointIndex = foundIndex; 
+                highlightedPointIndex = foundIndex;
 
-                // --- Create and Add Highlight Dataset --- 
-                const HIGHLIGHT_BORDER_WIDTH = 4; 
-                const HIGHLIGHT_RADIUS_INCREASE = 6; 
-                const HIGHLIGHT_POINT_STYLE = 'star';
-                const HIGHLIGHT_COLOR = 'rgba(255, 255, 0, 1)'; // Yellow
+                // --- Create and Add Highlight Dataset ---
+                const HIGHLIGHT_BORDER_WIDTH = 4; // Increased border width
+                const HIGHLIGHT_RADIUS_INCREASE = 6; // Increased radius offset
+                // Use 'star' for scatter/line, default (circle) for bubble/bar
+                const HIGHLIGHT_POINT_STYLE = (chartType === 'scatter' || chartType === 'line') ? 'star' : undefined;
+                const HIGHLIGHT_COLOR = 'rgba(255, 255, 0, 1)'; // Bright Yellow
 
-                let originalRadius = (chartType === 'bubble' ? foundDataPoint.r : foundDataPoint.radius) ?? 3;
-                let highlightRadius = originalRadius + HIGHLIGHT_RADIUS_INCREASE;
+                let highlightRadius = undefined; // Default for bar/line
+                let originalRadius = 3; // Default base radius
+
+                if (chartType === 'scatter') {
+                    originalRadius = reportChartInstance.data.datasets[0]?.pointRadius || 5; // Get original radius
+                    highlightRadius = originalRadius + HIGHLIGHT_RADIUS_INCREASE;
+                } else if (chartType === 'bubble' && pointToHighlight.r !== undefined) {
+                    originalRadius = pointToHighlight.r; // Original bubble radius
+                    // Ensure significant increase for bubbles
+                    highlightRadius = originalRadius + HIGHLIGHT_RADIUS_INCREASE + 2; // Add extra increase for bubbles
+                } else if (chartType === 'line') {
+                    originalRadius = reportChartInstance.data.datasets[0]?.pointRadius || 3;
+                    highlightRadius = originalRadius + HIGHLIGHT_RADIUS_INCREASE;
+                }
+                // highlightRadius remains undefined for bar
+
+                // Prepare the data array for the highlight dataset
+                let highlightData = [];
                 if (chartType === 'bar') {
-                    highlightRadius = undefined; 
+                    // For bar, create an array of nulls with the value at the correct index
+                    highlightData = new Array(reportChartInstance.data.labels.length).fill(null);
+                    if (foundIndex >= 0 && foundIndex < highlightData.length) {
+                        highlightData[foundIndex] = pointToHighlight;
+                    } else {
+                         console.error(`[ChartHighlight] Invalid index ${foundIndex} for bar chart highlight.`);
+                         throw new Error("Invalid index for bar chart highlight.");
+                    }
+                } else {
+                    // For other types, it's an array with one point object
+                    highlightData = [pointToHighlight];
                 }
 
+
                 const highlightDataset = {
-                    label: HIGHLIGHT_DATASET_LABEL, 
-                    data: [foundDataPoint], 
-                    backgroundColor: HIGHLIGHT_COLOR, 
+                    label: HIGHLIGHT_DATASET_LABEL, // Used to identify and remove later
+                    data: highlightData, // Use the prepared data array
+                    backgroundColor: HIGHLIGHT_COLOR,
                     borderColor: HIGHLIGHT_COLOR,
                     borderWidth: HIGHLIGHT_BORDER_WIDTH,
-                    radius: highlightRadius,
-                    pointStyle: (chartType === 'bubble' || chartType === 'bar') ? undefined : HIGHLIGHT_POINT_STYLE, 
-                    order: 1, 
-                    hoverRadius: 0, 
+                    radius: highlightRadius, // Applied to scatter/line/bubble
+                    pointStyle: HIGHLIGHT_POINT_STYLE, // Applied to scatter/line
+                    order: -1, // Draw highlight dataset ON TOP of original data
+                    hoverRadius: highlightRadius, // Keep hover radius consistent? Or disable?
                     // <<< Correctly disable tooltips for the highlight dataset >>>
-                    tooltips: { enabled: false } 
+                    // Use plugin-specific options for Chart.js v3+
+                    plugins: {
+                        tooltip: {
+                            enabled: false // Disable tooltips for this dataset
+                        }
+                    }
                 };
-                
+
+                // Specific adjustments for Bar chart highlight appearance
+                 if (chartType === 'bar') {
+                     highlightDataset.borderColor = 'rgba(255, 87, 34, 1)'; // Use a different color for border? e.g., Orange
+                     highlightDataset.borderWidth = { top: HIGHLIGHT_BORDER_WIDTH }; // Apply border only to the top? Or all sides? Let's try all sides first.
+                     highlightDataset.backgroundColor = 'rgba(255, 255, 0, 0.6)'; // Make fill slightly transparent yellow
+                     // Remove pointStyle and radius as they don't apply to bars
+                     delete highlightDataset.pointStyle;
+                     delete highlightDataset.radius;
+                     delete highlightDataset.hoverRadius;
+                     // Ensure order is still applied to draw on top
+                     highlightDataset.order = -1;
+                 }
+
                 console.log("[ChartHighlight] Created highlight dataset:", JSON.parse(JSON.stringify(highlightDataset)));
 
-                reportChartInstance.data.datasets.push(highlightDataset);
-                console.log("[ChartHighlight] Highlight dataset pushed.");
-                
+                // Check if highlight dataset already exists (shouldn't due to reset, but safety check)
+                const existingHighlightIndex = reportChartInstance.data.datasets.findIndex(ds => ds.label === HIGHLIGHT_DATASET_LABEL);
+                if (existingHighlightIndex === -1) {
+                    reportChartInstance.data.datasets.push(highlightDataset);
+                    console.log("[ChartHighlight] Highlight dataset pushed.");
+                } else {
+                    console.warn("[ChartHighlight] Highlight dataset already existed? Replacing it.");
+                    reportChartInstance.data.datasets[existingHighlightIndex] = highlightDataset;
+                }
+
+
                 reportChartInstance.update(); // Update the chart
 
                 // Log state *after* update
-                console.log("[ChartHighlight] Datasets state AFTER update():", JSON.parse(JSON.stringify(reportChartInstance.data.datasets)));
+                console.log("[ChartHighlight] Datasets state AFTER update():", JSON.parse(JSON.stringify(reportChartInstance.data.datasets.map(ds => ({ label: ds.label, order: ds.order, dataLength: ds.data?.length }))))); // Log summarized state
 
                 if (searchStatus) searchStatus.textContent = `Ticker ${tickerToFind.toUpperCase()} highlighted.`;
                 console.log(`[ChartHighlight] Highlight applied for ticker ${tickerToFind} using separate dataset.`);
@@ -2746,12 +2824,12 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             } catch (error) {
                 console.error(`[ChartHighlight] Error applying highlight for ${tickerToFind}:`, error);
                 if (searchStatus) searchStatus.textContent = `Error highlighting ${tickerToFind}.`;
-                resetChartHighlight(); 
+                resetChartHighlight(); // Attempt to clean up on error
             }
         } else {
             if (searchStatus) searchStatus.textContent = `Ticker ${tickerToFind.toUpperCase()} not found in chart data.`;
             console.log(`[ChartHighlight] Ticker ${tickerToFind} not found.`);
-            resetChartHighlight(); 
+            // resetChartHighlight(); // Already called at the start
         }
     }
     // --- END Highlight Functions ---
