@@ -1,6 +1,14 @@
 <!-- Placeholder for Cross-Field Visualization (Radar Chart) Tab Content -->
-<div class="row">
-    <div class="col-md-3">
+<!-- <<< NEW: Outer container for layout >>> -->
+<div class="d-flex align-items-start">
+
+    <!-- <<< REVERTED: Removed Bootstrap collapse attributes >>> -->
+    <button class="btn btn-sm btn-outline-secondary me-2" type="button" id="toggle-spider-settings" title="Toggle Settings Panel" style="height: fit-content; margin-top: 0.5rem;">
+        <i class="bi bi-chevron-double-left"></i>
+    </button>
+
+    <!-- <<< REVERTED: Removed collapse/show classes, restored min-width >>> -->
+    <div id="spider-settings-panel" style="min-width: 550px;">
         <h6>Settings</h6>
 
         <!-- NEW: Ticker Filter Card -->
@@ -64,7 +72,8 @@
         <button id="generate-spider-chart-btn" class="btn btn-primary btn-sm w-100">Generate Chart</button>
 
     </div>
-    <div class="col-md-9">
+    <!-- <<< MODIFIED: Removed col-md-9 class, Added flex-grow-1 >>> -->
+    <div id="spider-chart-panel" class="flex-grow-1">
         <h6>Radar Chart</h6>
         <div class="chart-container mb-3" style="position: relative; height:60vh; width:100%">
             <canvas id="spider-chart-canvas"></canvas>
@@ -72,3 +81,4 @@
         <div id="spider-chart-status" class="small text-muted">Select tickers and fields to generate the chart.</div>
     </div>
 </div> 
+<!-- <<< Removed old wrapping <div class="row"> -->

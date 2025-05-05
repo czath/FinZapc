@@ -3347,6 +3347,11 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         updateAnalyticsUI({ updatePrepUI: false, updateAnalyzeUI: true });
         console.log("[Analytics] Analyze UI update triggered after transformations.");
         // <<< END ADDED >>>
+
+        // <<< NEW: Dispatch event indicating transform completion >>>
+        console.log("[Analytics] Dispatching AnalyticsTransformComplete event.");
+        window.dispatchEvent(new Event('AnalyticsTransformComplete'));
+        // <<< END NEW >>>
     }
 
     function updateFinalFieldsAndMetadata(data) {

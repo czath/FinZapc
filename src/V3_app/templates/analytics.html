@@ -183,6 +183,29 @@
         }
         /* <<< END NEW >>> */
 
+        /* <<< NEW: Spider Chart Collapse Styles >>> */
+        #spider-settings-panel {
+            transition: max-width 0.35s ease-in-out, min-width 0.35s ease-in-out, padding 0.35s ease-in-out, opacity 0.3s ease-in-out;
+            overflow: hidden;
+            /* min-width is set inline */
+            max-width: 550px; /* Match min-width initially */
+            opacity: 1;
+        }
+        #spider-settings-panel.settings-collapsed {
+            min-width: 0 !important; /* Override inline style */
+            max-width: 0;
+            opacity: 0;
+            padding-left: 0 !important; 
+            padding-right: 0 !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+        }
+        #spider-chart-panel {
+            transition: width 0.35s ease-in-out; /* Smooth width transition */
+            /* flex-grow: 1; is set inline */
+        }
+        /* <<< END Spider Chart Collapse Styles >>> */
+
     </style>
 {% endblock %}
 

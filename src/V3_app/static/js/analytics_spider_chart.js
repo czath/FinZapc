@@ -26,14 +26,27 @@ document.addEventListener('DOMContentLoaded', function() {
     const canvas = spiderTabPane.querySelector('#spider-chart-canvas');
     const statusDiv = spiderTabPane.querySelector('#spider-chart-status');
     const crossFieldVizTabTrigger = document.getElementById('cross-field-viz-tab'); // Tab button itself
+    // <<< NEW: Collapsible Panel Elements >>>
+    const toggleSettingsBtn = document.getElementById('toggle-spider-settings');
+    const settingsPanel = document.getElementById('spider-settings-panel');
+    const chartPanel = document.getElementById('spider-chart-panel');
     
     // State Variables
     let spiderChartInstance = null;
     let mainModule = null; // To store reference to AnalyticsMainModule
+    let postTransformModule = null; // <<< ADDED: Reference to PostTransformModule
     let spiderChartFilters = []; // <<< STEP 2: State for ticker filters
     const SPIDER_FILTER_STORAGE_KEY = 'analyticsSpiderChartFilters'; // <<< STEP 2: Storage key
     const TEXT_FILTER_DROPDOWN_THRESHOLD = 30; // <<< Borrowed from analytics.js
     let isSpiderModuleInitialized = false; // <<< Flag to prevent multiple initializations
+    // <<< ADDED: Variables to store retrieved data/functions >>>
+    let finalFieldMetadata = {};
+    let formatNumericValueFn = null;
+    let postTransformNumericFormats = {};
+    let postTransformFieldInfoTips = {};
+    // <<< ADDED: Variables for pre-transform settings fallback >>>
+    let preTransformNumericFormatsStored = {};
+    let preTransformFieldInfoTipsStored = {};
 
     // --- Helper: Median Calculation ---
     function calculateMedian(numericValues) {
@@ -104,6 +117,87 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     // --- END STEP 2 --- 
 
+    // --- NEW: Helper to get detailed field description --- 
+    function getSpiderFieldDescriptor(fieldName) {
+        const metadata = finalFieldMetadata[fieldName];
+        // <<< MODIFIED: Implement fallback logic for format >>>
+        const format = postTransformNumericFormats.hasOwnProperty(fieldName) 
+                       ? postTransformNumericFormats[fieldName] 
+                       : (preTransformNumericFormatsStored.hasOwnProperty(fieldName) 
+                          ? preTransformNumericFormatsStored[fieldName] 
+                          : 'default');
+        // <<< MODIFIED: Implement fallback logic for infoTip >>>
+        const infoTip = postTransformFieldInfoTips.hasOwnProperty(fieldName) 
+                        ? postTransformFieldInfoTips[fieldName] 
+                        : (preTransformFieldInfoTipsStored.hasOwnProperty(fieldName) 
+                           ? preTransformFieldInfoTipsStored[fieldName] 
+                           : '');
+
+        let descriptorParts = [];
+
+        if (!metadata) {
+            descriptorParts.push("(Metadata not available)");
+        } else {
+            switch (metadata.type) {
+                case 'numeric':
+                    // Inner helper to format numbers using the retrieved function and format
+                    const formatNumber = (num) => {
+                        if (num === null || num === undefined) return 'N/A';
+                        if (typeof formatNumericValueFn === 'function') {
+                            return formatNumericValueFn(num, format);
+                        } else {
+                            console.warn(`[getSpiderFieldDescriptor] formatNumericValueFn not available for field '${fieldName}'. Returning raw number.`);
+                            return String(num);
+                        }
+                    };
+                    
+                    const minFormatted = formatNumber(metadata.min);
+                    const maxFormatted = formatNumber(metadata.max);
+                    const avgFormatted = formatNumber(metadata.average);
+                    const medianFormatted = formatNumber(metadata.median);
+                    
+                    // Determine input guidance based on format
+                    let guidance = '';
+                    switch (format) {
+                        case 'percent': guidance = '(Enter %, e.g., 5)'; break;
+                        case 'million': guidance = '(Enter M, e.g., 1.5)'; break;
+                        case 'billion': guidance = '(Enter B, e.g., 2.1)'; break;
+                        default: guidance = ''; break; // No specific guidance for default/integer/raw
+                    }
+                    
+                    // Combine numeric stats and guidance
+                    descriptorParts.push(`Numeric | Min: ${minFormatted} | Max: ${maxFormatted} | Avg: ${avgFormatted} | Median: ${medianFormatted} ${guidance}`);
+                    break;
+                case 'text':
+                    const uniqueCount = metadata.totalUniqueCount !== undefined ? metadata.totalUniqueCount : 'N/A';
+                    let examples = '';
+                    if (metadata.uniqueValues && metadata.uniqueValues.length > 0) {
+                        examples = ". Examples: " + metadata.uniqueValues.slice(0, 3).map(v => `"${v}"`).join(', ');
+                    }
+                    descriptorParts.push(`Text (${uniqueCount} unique)${examples}`);
+                    break;
+                case 'empty':
+                    descriptorParts.push('Empty'); // Indicate if field was present but always empty
+                    break;
+                default:
+                    descriptorParts.push(`(Unknown type: ${metadata.type})`);
+            }
+        }
+
+        // Add info tip if it exists, separated by a newline
+        if (infoTip) {
+             if (descriptorParts.length > 0 && descriptorParts[0] !== "(Metadata not available)") {
+                 descriptorParts.push(`\nTooltip: ${infoTip}`); 
+             } else {
+                 descriptorParts.push(`Tooltip: ${infoTip}`); // Tip might be the only info
+             }
+        }
+
+        // Join parts (newline is handled above)
+        return descriptorParts.join(''); 
+    }
+    // --- END NEW HELPER ---
+
     // --- Initialization Logic --- 
     function initializeSpiderChartModule() {
         // <<< Prevent multiple initializations >>>
@@ -114,12 +208,60 @@ document.addEventListener('DOMContentLoaded', function() {
         isSpiderModuleInitialized = true; // Set flag
         console.log("Initializing Spider Chart Module (triggered by AnalyticsDataReady)...", performance.now()); // Log timing
         
+        // --- Get Module References ---
         mainModule = window.AnalyticsMainModule;
+        postTransformModule = window.AnalyticsPostTransformModule; // <<< GET PostTransformModule
+
         if (!mainModule) {
-            console.error("AnalyticsMainModule not found! Cannot populate spider chart selectors or data.");
+            console.error("AnalyticsMainModule not found! Cannot proceed with spider chart initialization.");
             if(statusDiv) statusDiv.textContent = 'Error: Core analytics module not loaded.';
+            isSpiderModuleInitialized = false; // Reset flag on error
             return;
         }
+        if (!postTransformModule) {
+             console.warn("AnalyticsPostTransformModule not found. Post-transform settings (formats, tips) will be unavailable.");
+            // Continue initialization, but some features might be limited
+        }
+        // --- End Get Module References ---
+
+        // --- Retrieve Required Data/Functions ---
+        try {
+             finalFieldMetadata = mainModule.getFinalFieldMetadata ? mainModule.getFinalFieldMetadata() : {};
+             formatNumericValueFn = (mainModule && typeof mainModule.getFormatter === 'function') ? mainModule.getFormatter() : null;
+             // <<< ADDED: Retrieve pre-transform settings >>>
+             preTransformNumericFormatsStored = mainModule.getNumericFieldFormats ? mainModule.getNumericFieldFormats() : {};
+             preTransformFieldInfoTipsStored = mainModule.getFieldInfoTips ? mainModule.getFieldInfoTips() : {};
+
+             if (postTransformModule) {
+                 postTransformNumericFormats = postTransformModule.getPostTransformNumericFormats ? postTransformModule.getPostTransformNumericFormats() : {};
+                 postTransformFieldInfoTips = postTransformModule.getPostTransformInfoTips ? postTransformModule.getPostTransformInfoTips() : {};
+                 // <<< ADDED: Log the actual TIPS object retrieved >>>
+                 console.log("[Spider Init] Retrieved postTransformFieldInfoTips:", postTransformFieldInfoTips); 
+             } else {
+                 postTransformNumericFormats = {}; // Default empty if module missing
+                 postTransformFieldInfoTips = {};  // Default empty if module missing
+             }
+
+             if (!formatNumericValueFn) {
+                console.warn("Could not retrieve formatNumericValue function from AnalyticsMainModule.");
+             }
+             console.log("[Spider Init] Successfully retrieved required data/functions.");
+             console.log("[Spider Init] finalFieldMetadata keys:", Object.keys(finalFieldMetadata));
+             console.log("[Spider Init] formatNumericValueFn retrieved:", !!formatNumericValueFn);
+             console.log("[Spider Init] postTransformNumericFormats keys:", Object.keys(postTransformNumericFormats));
+             console.log("[Spider Init] postTransformFieldInfoTips keys:", Object.keys(postTransformFieldInfoTips)); // Log keys again for consistency
+             // <<< ADDED: Log pre-transform settings >>>
+             console.log("[Spider Init] preTransformNumericFormatsStored keys:", Object.keys(preTransformNumericFormatsStored));
+             console.log("[Spider Init] preTransformFieldInfoTipsStored keys:", Object.keys(preTransformFieldInfoTipsStored));
+
+        } catch (error) {
+            console.error("Error retrieving required data/functions from modules:", error);
+            if(statusDiv) statusDiv.textContent = 'Error initializing dependencies.';
+            isSpiderModuleInitialized = false; // Reset flag on error
+            return;
+        }
+        // --- End Retrieve Data/Functions ---
+        
         loadSpiderFiltersFromStorage(); // <<< STEP 2: Load filters on init
         renderSpiderFilterUI(); // <<< STEP 3: Render initial filter UI
         populateSelectors(); // Populate chart selectors
@@ -165,9 +307,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Populate Field Select (only numeric fields)
         const finalFields = mainModule.getFinalAvailableFields ? mainModule.getFinalAvailableFields() : [];
-        const finalMetadata = mainModule.getFinalFieldMetadata ? mainModule.getFinalFieldMetadata() : {};
         fieldSelect.innerHTML = ''; // Clear existing
-        const numericFields = finalFields.filter(field => finalMetadata[field]?.type === 'numeric');
+        const numericFields = finalFields.filter(field => finalFieldMetadata[field]?.type === 'numeric');
         if (numericFields.length > 0) {
             numericFields.sort().forEach(field => {
                 const option = document.createElement('option');
@@ -191,7 +332,6 @@ document.addEventListener('DOMContentLoaded', function() {
         filterControlsContainer.innerHTML = ''; // Clear existing rows
 
         const finalFields = mainModule.getFinalAvailableFields ? mainModule.getFinalAvailableFields() : [];
-        const finalMetadata = mainModule.getFinalFieldMetadata ? mainModule.getFinalFieldMetadata() : {};
 
         if (!finalFields || finalFields.length === 0) {
              filterControlsContainer.innerHTML = '<p class="text-muted small mb-1">Load data first to define filters.</p>';
@@ -244,6 +384,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const operatorSelect = document.createElement('select');
             operatorSelect.className = 'form-select form-select-sm me-2 w-auto';
             operatorSelect.title = 'Select Operator';
+            // <<< ADDED: Prevent operator select from growing/shrinking >>>
+            operatorSelect.style.flexGrow = '0';
+            operatorSelect.style.flexShrink = '0';
             operators.forEach(op => {
                 const option = document.createElement('option');
                 option.value = op.value;
@@ -256,10 +399,13 @@ document.addEventListener('DOMContentLoaded', function() {
             // Value Input Wrapper
             const valueWrapper = document.createElement('div');
             valueWrapper.className = 'value-input-wrapper me-2';
-            valueWrapper.style.flexGrow = '0'; 
-            valueWrapper.style.flexShrink = '0';
-            valueWrapper.style.maxWidth = '150px'; // Smaller max width for this context
-            valueWrapper.style.width = '150px'; 
+            // <<< MODIFIED: Allow wrapper to grow, remove min-width >>>
+            valueWrapper.style.flexGrow = '1'; 
+            // valueWrapper.style.minWidth = '200px'; // Removed fixed min-width
+            // valueWrapper.style.flexShrink = '0'; // Keep default shrink behavior (1)
+            // valueWrapper.style.maxWidth = '150px'; // Remove max-width constraint
+            // valueWrapper.style.width = '150px'; // Ensure no fixed width
+
             filterRowDiv.appendChild(valueWrapper);
             
             // Comment Input (Removed for space in this simpler filter context, could be added back)
@@ -293,7 +439,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (indexToUpdate > -1) {
                     spiderChartFilters[indexToUpdate].field = e.target.value;
                     // Pass the finalMetadata specific to this module
-                    updateSpiderValueInputUI(indexToUpdate, e.target.value, valueWrapper, hintSpan, finalMetadata);
+                    updateSpiderValueInputUI(indexToUpdate, e.target.value, valueWrapper, hintSpan, finalFieldMetadata);
                 }
             });
              operatorSelect.addEventListener('change', (e) => {
@@ -311,7 +457,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const currentIndex = spiderChartFilters.findIndex(f => f.id === filterId);
             if (currentIndex > -1) {
                 // Pass the finalMetadata specific to this module
-                updateSpiderValueInputUI(currentIndex, filter.field, valueWrapper, hintSpan, finalMetadata);
+                updateSpiderValueInputUI(currentIndex, filter.field, valueWrapper, hintSpan, finalFieldMetadata);
             }
 
             row.appendChild(filterRowDiv);
@@ -330,7 +476,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // console.log(`[Spider Filter UI] Rendering value input. Loaded Value:`, filterValueForUI); // DEBUG REMOVED
 
         // Set minimal hint text (field type)
-        hintSpan.textContent = metadata ? `(${metadata.type})` : '(?) '; // Show type or ?
+        hintSpan.textContent = getSpiderFieldDescriptor(fieldName);
+        hintSpan.style.whiteSpace = 'pre-wrap'; // Ensure newlines (like for tooltip) are respected
 
         // Define a common handler for updating the filter state
         const updateFilterValue = (newValue) => {
@@ -366,7 +513,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
              // --- Create Text/Number Input (Fallback) ---
             const input = document.createElement('input');
-            input.className = 'form-control form-control-sm';
+            input.className = 'form-control form-control-sm w-100';
             input.placeholder = 'Value';
             let initialValue = '';
             if (spiderChartFilters[index]) {
@@ -378,10 +525,10 @@ document.addEventListener('DOMContentLoaded', function() {
             if (metadata && metadata.type === 'numeric') {
                 input.type = 'number';
                 input.step = 'any';
-                hintSpan.textContent = '(numeric)'; // Simple hint
+                // hintSpan.textContent = '(numeric)'; // Simple hint // <<< REMOVED: OLD BASIC HINT
             } else {
                 input.type = 'text';
-                hintSpan.textContent = '(text)'; // Simple hint
+                // hintSpan.textContent = '(text)'; // Simple hint // <<< REMOVED: OLD BASIC HINT
                 // Add datalist for text fields with many options
                 if (metadata && metadata.type === 'text' && metadata.uniqueValues && metadata.uniqueValues.length > 0) {
                     const datalistId = `spider-datalist-${index}-${fieldName.replace(/\W/g, '')}`;
@@ -397,7 +544,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
             if (metadata && metadata.type === 'empty') {
-                hintSpan.textContent = '(empty)';
+                // hintSpan.textContent = '(empty)'; // <<< REMOVED: OLD BASIC HINT
             }
 
             // Use 'input' event for text/number fields
@@ -463,16 +610,18 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         // <<< STEP 2.1: Get access to post-transform module (optional) >>>
-        const postTransformModule = window.AnalyticsPostTransformModule;
+        // const postTransformModule = window.AnalyticsPostTransformModule; // <<< Already retrieved
 
         const fullData = mainModule.getFinalDataForAnalysis ? mainModule.getFinalDataForAnalysis() : [];
-        const finalMetadata = mainModule.getFinalFieldMetadata ? mainModule.getFinalFieldMetadata() : {};
+        // const finalMetadata = mainModule.getFinalFieldMetadata ? mainModule.getFinalFieldMetadata() : {}; // <<< Use stored finalFieldMetadata
         // <<< STEP 2.2: Get access to format functions from main module >>>
         const preTransformFormats = mainModule.getNumericFieldFormats ? mainModule.getNumericFieldFormats() : {};
         // const parseFormattedValueFn = mainModule.parseFormattedValue; // <<< GET PARSER FROM GETTER
-        const parseFormattedValueFn = mainModule?.parseFormattedValue; // <<< REVERT: Access directly
+        // const parseFormattedValueFn = mainModule?.parseFormattedValue; // <<< REVERT: Access directly // <<< Use stored formatNumericValueFn
+        const parseFormattedValueFnMain = mainModule?.parseFormattedValue; // Keep this for parsing input
 
-        if (!parseFormattedValueFn) {
+        // <<< Use stored formatNumericValueFn >>>
+        if (!parseFormattedValueFnMain) { 
             // console.error("[Spider Filter Apply] parseFormattedValue function not found on main module via getter!"); // DEBUG REMOVED
             console.error("[Spider Filter Apply] parseFormattedValue function not found directly on main module!"); // Corrected error message
              if(filterResultsCount) filterResultsCount.textContent = 'Error!';
@@ -510,7 +659,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     const filterValue = filter.value;
                     const operator = filter.operator;
-                    const fieldMeta = finalMetadata[filter.field] || {};
+                    // const fieldMeta = finalMetadata[filter.field] || {}; // <<< Use stored finalFieldMetadata
+                    const fieldMeta = finalFieldMetadata[filter.field] || {}; // <<< Use stored finalFieldMetadata
                     const isNumericField = fieldMeta.type === 'numeric';
 
                     // --- Multi-Select Handling (for text fields rendered as multi-select) ---
@@ -564,11 +714,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         
                         // <<< STEP 2.3: Determine field format >>>
                         let fieldFormat = 'default';
-                        if (postTransformModule && typeof postTransformModule.getPostTransformNumericFormats === 'function') {
-                             const postFormats = postTransformModule.getPostTransformNumericFormats();
-                             if (postFormats && postFormats.hasOwnProperty(filter.field)) {
-                                 fieldFormat = postFormats[filter.field];
-                             }
+                        // <<< Use stored postTransformNumericFormats >>>
+                        if (postTransformModule && postTransformNumericFormats && postTransformNumericFormats.hasOwnProperty(filter.field)) { 
+                             fieldFormat = postTransformNumericFormats[filter.field];
                          }
                          // Fallback to pre-transform format if not found in post-transform
                          if (fieldFormat === 'default' && preTransformFormats && preTransformFormats.hasOwnProperty(filter.field)) {
@@ -580,7 +728,8 @@ document.addEventListener('DOMContentLoaded', function() {
                              comparisonResult = (operator === '=') ? false : true; // Numeric field can't equal empty string
                         } else {
                             // <<< STEP 2.4: Parse filter input using format >>>
-                            const filterNum = parseFormattedValueFn(filterValueStr, fieldFormat);
+                            // const filterNum = parseFormattedValueFn(filterValueStr, fieldFormat); // <<< Use Main Module's Parser
+                            const filterNum = parseFormattedValueFnMain(filterValueStr, fieldFormat); // <<< Use Main Module's Parser
                             
                             // <<< STEP 2.5: Validate parse result >>>
                             if (isNaN(filterNum)) {
@@ -760,7 +909,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // console.log("Previous spider chart instance destroyed."); // DEBUG REMOVED
         }
 
-        const finalMetadata = window.AnalyticsMainModule?.getFinalFieldMetadata ? window.AnalyticsMainModule.getFinalFieldMetadata() : {};
+        // const finalMetadata = window.AnalyticsMainModule?.getFinalFieldMetadata ? window.AnalyticsMainModule.getFinalFieldMetadata() : {}; // <<< Use stored finalFieldMetadata
         const preTransformFormats = window.AnalyticsMainModule?.getNumericFieldFormats ? window.AnalyticsMainModule.getNumericFieldFormats() : {};
 
         const chartData = {
@@ -787,10 +936,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                 const fieldLabel = tooltipItem.chart.data.labels[dataIndex] || ''; // <<< Get the correct field name (string)
 
                                 // <<< Get main module and try to get formatter via getter >>>
-                                const mainModule = window.AnalyticsMainModule;
-                                const formatNumericValueFn = (mainModule && typeof mainModule.getFormatter === 'function') 
-                                                              ? mainModule.getFormatter()
-                                                              : null;
+                                // const mainModule = window.AnalyticsMainModule; // <<< Already retrieved
+                                // const formatNumericValueFn = (mainModule && typeof mainModule.getFormatter === 'function') 
+                                //                              ? mainModule.getFormatter()
+                                //                              : null; // <<< Use stored formatNumericValueFn
 
                                 // Retrieve the original, non-normalized value using the FIELD NAME
                                 let originalValue = null;
@@ -808,16 +957,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
                                 // --- Format the original value using hierarchy ---
                                 let formattedValue = originalValue; // Default to raw if formatter fails
-                                // <<< DEBUG LOG: Check if formatter was successfully retrieved >>>
                                 // console.log(`[Spider Tooltip Debug] Formatter function retrieved: ${typeof formatNumericValueFn === 'function'}`); // DEBUG REMOVED
 
                                 // <<< Check if formatter is a valid function >>>
-                                if (typeof formatNumericValueFn === 'function' && finalMetadata && fieldLabel) {
-                                    const fieldMeta = finalMetadata[fieldLabel];
+                                if (typeof formatNumericValueFn === 'function' && finalFieldMetadata && fieldLabel) { // <<< Use stored finalFieldMetadata
+                                    // const fieldMeta = finalMetadata[fieldLabel]; // <<< Use stored finalFieldMetadata
+                                    const fieldMeta = finalFieldMetadata[fieldLabel]; // <<< Use stored finalFieldMetadata
                                     // Determine format: Post-Transform > Pre-Transform > Default
                                     let format = 'default';
-                                    if (fieldMeta?.postTransformFormat) {
-                                        format = fieldMeta.postTransformFormat;
+                                    // <<< Use stored postTransformNumericFormats >>>
+                                    if (postTransformNumericFormats && postTransformNumericFormats.hasOwnProperty(fieldLabel)) { 
+                                        format = postTransformNumericFormats[fieldLabel];
                                     } else if (preTransformFormats[fieldLabel]) {
                                         format = preTransformFormats[fieldLabel];
                                     }
@@ -856,7 +1006,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 scales: {
                     r: {
                         angleLines: {
-                            display: true
+                            display: true,
+                            color: 'rgba(255, 0, 0, 0.5)' // Semi-transparent red
+                        },
+                        grid: {
+                            color: 'rgba(255, 0, 0, 0.5)' // Semi-transparent red
                         },
                         suggestedMin: 0,
                         suggestedMax: 1, // Normalized data is 0-1
@@ -1004,5 +1158,97 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
         console.error("Generate spider chart button not found!");
     }
+
+    // <<< REVERTED: Bring back original setupCollapseListener >>>
+    function setupCollapseListener() {
+        if (toggleSettingsBtn && settingsPanel && chartPanel) {
+            toggleSettingsBtn.addEventListener('click', () => {
+                console.log("[Collapse Toggle] Button clicked.");
+                console.log(`[Collapse Toggle] spiderChartInstance status at click start: ${spiderChartInstance ? 'Exists' : 'NULL'}`);
+                console.log("[Collapse Toggle] Verifying settingsPanel element reference:");
+                try { console.dir(settingsPanel); } catch(e) {console.log("Could not dir settingsPanel")}
+                console.log("[Collapse Toggle] Settings panel BEFORE toggle:", settingsPanel.classList.toString());
+                console.log("[Collapse Toggle] Chart panel classList:", chartPanel.classList.toString());
+
+                // <<< MODIFIED: Use custom class 'settings-collapsed' >>>
+                const isCollapsed = settingsPanel.classList.contains('settings-collapsed'); 
+                console.log(`[Collapse Toggle] isCollapsed evaluated as: ${isCollapsed}`); 
+                const icon = toggleSettingsBtn.querySelector('i');
+                let actionTaken = ''; // Track action
+
+                if (isCollapsed) {
+                    console.log("[Collapse Toggle] Expanding settings panel...");
+                    // <<< MODIFIED: Toggle custom class >>>
+                    settingsPanel.classList.remove('settings-collapsed'); 
+                    actionTaken = 'removed settings-collapsed';
+                    if (icon) icon.className = 'bi bi-chevron-double-left';
+                    toggleSettingsBtn.title = "Collapse Settings Panel";
+                } else {
+                    console.log("[Collapse Toggle] Collapsing settings panel...");
+                    // <<< MODIFIED: Toggle custom class >>>
+                    settingsPanel.classList.add('settings-collapsed'); 
+                    actionTaken = 'added settings-collapsed';
+                    if (icon) icon.className = 'bi bi-chevron-double-right';
+                    toggleSettingsBtn.title = "Expand Settings Panel";
+                }
+                console.log(`[Collapse Toggle] Settings panel AFTER toggle (${actionTaken}):`, settingsPanel.classList.toString()); 
+
+                // Resize chart after a short delay
+                setTimeout(() => {
+                    if (spiderChartInstance) {
+                        console.log("[Collapse Toggle] Resizing chart instance...");
+                        spiderChartInstance.resize();
+                        console.log("Resized spider chart after panel collapse/expand.");
+                    } else {
+                        console.log("[Collapse Toggle] Cannot resize chart, instance is null.");
+                    }
+                }, 500); 
+            });
+        } else {
+            console.warn("Could not find elements needed for collapsible settings panel.");
+        }
+    }
+
+    // <<< REVERTED: Call the setup function again >>>
+    window.addEventListener('AnalyticsDataReady', () => {
+        if (isSpiderModuleInitialized) {
+            setupCollapseListener();
+        }
+    });
+    if(isSpiderModuleInitialized) {
+        setupCollapseListener();
+    }
+    // --- END Collapsible Panel Logic (Reverted) ---
+    
+    // <<< RE-ADDED: Function to refresh settings after transform >>>
+    function refreshSpiderChartSettings() {
+        console.log("[Spider Chart] Refreshing settings after transform...");
+        if (!mainModule) {
+            console.error("[Spider Chart Refresh] Main module not available.");
+            return;
+        }
+        // Re-fetch metadata, formats, and tips
+        try {
+             finalFieldMetadata = mainModule.getFinalFieldMetadata ? mainModule.getFinalFieldMetadata() : {};
+             preTransformNumericFormatsStored = mainModule.getNumericFieldFormats ? mainModule.getNumericFieldFormats() : {};
+             preTransformFieldInfoTipsStored = mainModule.getFieldInfoTips ? mainModule.getFieldInfoTips() : {};
+
+             if (postTransformModule) {
+                 postTransformNumericFormats = postTransformModule.getPostTransformNumericFormats ? postTransformModule.getPostTransformNumericFormats() : {};
+                 postTransformFieldInfoTips = postTransformModule.getPostTransformInfoTips ? postTransformModule.getPostTransformInfoTips() : {};
+             } else {
+                 postTransformNumericFormats = {};
+                 postTransformFieldInfoTips = {};
+             }
+             console.log("[Spider Chart Refresh] Settings refreshed.");
+             // Re-render the filter UI to apply the new settings/metadata to hints
+             renderSpiderFilterUI();
+        } catch (error) {
+            console.error("[Spider Chart Refresh] Error refreshing settings:", error);
+        }
+    }
+    
+    // <<< RE-ADDED: Listener for Transform Completion >>>
+    window.addEventListener('AnalyticsTransformComplete', refreshSpiderChartSettings);
 
 }); 
