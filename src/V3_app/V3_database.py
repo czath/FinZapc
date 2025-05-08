@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Set, Union
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, create_engine, delete, MetaData, Table, insert, update, and_, distinct, Text, Boolean, text, func
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, relationship, Session
@@ -336,6 +336,50 @@ class SQLiteRepository:
             logger.error(f"[DB Yahoo Master] Unexpected error upserting data for {ticker_symbol}: {e}", exc_info=True)
             raise # Re-raise to be handled by the caller
     # --- End Upsert Yahoo Ticker Master Data ---
+
+    # --- NEW Method to Update Specific Yahoo Ticker Master Fields ---
+    async def update_ticker_master_fields(self, ticker_symbol: str, updates: Dict[str, Any]) -> bool:
+        """Updates specific fields for a given ticker in the ticker_master table.
+
+        Args:
+            ticker_symbol: The ticker symbol to update.
+            updates: A dictionary where keys are column names and values are the new values.
+
+        Returns:
+            True if the update affected at least one row, False otherwise.
+        """
+        if not updates:
+            logger.warning(f"[DB Yahoo Master Update Fields] No updates provided for ticker {ticker_symbol}. Skipping.")
+            return False
+        if not ticker_symbol:
+            logger.error("[DB Yahoo Master Update Fields] Ticker symbol is required.")
+            return False
+
+        logger.info(f"[DB Yahoo Master Update Fields] Updating fields for ticker: {ticker_symbol}")
+        logger.debug(f"[DB Yahoo Master Update Fields] Update data: {updates}")
+
+        try:
+            async with self.engine.begin() as conn:
+                stmt = (
+                    update(YahooTickerMasterModel)
+                    .where(YahooTickerMasterModel.ticker == ticker_symbol)
+                    .values(**updates) # Pass the dictionary directly
+                )
+                result = await conn.execute(stmt)
+                
+                if result.rowcount > 0:
+                    logger.info(f"[DB Yahoo Master Update Fields] Successfully updated {len(updates)} fields for {ticker_symbol} ({result.rowcount} row(s) affected).")
+                    return True
+                else:
+                    logger.warning(f"[DB Yahoo Master Update Fields] Ticker {ticker_symbol} not found for update, or values were unchanged.")
+                    return False
+        except SQLAlchemyError as e:
+            logger.error(f"[DB Yahoo Master Update Fields] SQLAlchemyError updating {ticker_symbol}: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            logger.error(f"[DB Yahoo Master Update Fields] Unexpected error updating {ticker_symbol}: {e}", exc_info=True)
+            raise
+    # --- End Update Specific Yahoo Ticker Master Fields ---
 
     # --- Add Finviz Raw Data Save/Update ---    
     # --- Keep simple create_tables --- 
@@ -2184,13 +2228,279 @@ class YahooTickerMasterModel(Base):
     eps_ttm = Column(Float, nullable=True)
 
     # Update Timestamps
-    update_last_full = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    update_last_full = Column(DateTime, default=datetime.now) # REMOVED onupdate=datetime.now
     update_marketonly = Column(DateTime, nullable=True) # ADDED as requested
     # update_last_price is not strictly needed here if update_last_full is updated on every upsert.
     # If finer-grained price-only updates were happening, it would be useful.
     # For a full upsert, update_last_full covers it.
 
+    # --- ADD Relationship to TickerDataItemsModel ---
+    data_items = relationship("TickerDataItemsModel", back_populates="ticker_master_record", cascade="all, delete-orphan")
+    # --- END Relationship ---
+
     def __repr__(self):
         return f"<YahooTickerMasterModel(ticker='{self.ticker}', company_name='{self.company_name}')>"
 # --- End Yahoo Ticker Master Model ---
+
+# --- NEW Ticker Data Items Model (Table 2) ---
+class TickerDataItemsModel(Base):
+    __tablename__ = 'ticker_data_items'
+
+    data_item_id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Foreign Key to ticker_master table
+    ticker = Column(String, ForeignKey('ticker_master.ticker'), nullable=False, index=True)
+    
+    item_type = Column(String, nullable=False, index=True)
+    item_time_coverage = Column(String, nullable=False) # e.g., snapshot, day, quarter, ttm, fyear
+    item_key_date = Column(DateTime, nullable=False, index=True) # Date relevant to the item (e.g., statement date, event date)
+    # item_currency = Column(String, nullable=True) # <-- REMOVE THIS COLUMN
+    fetch_timestamp_utc = Column(DateTime, default=datetime.utcnow, nullable=False) # When this row was fetched/created
+    item_source = Column(String, nullable=True) # e.g., yfinance.financials, yfinance.history
+    item_data_payload = Column(String, nullable=False) # JSON stored as TEXT/String
+
+    # Relationship (optional, but good practice)
+    # --- ADD Relationship to YahooTickerMasterModel ---
+    ticker_master_record = relationship("YahooTickerMasterModel", back_populates="data_items")
+    # --- END Relationship ---
+
+    def __repr__(self):
+        return f"<TickerDataItemsModel(id={self.data_item_id}, ticker='{self.ticker}', type='{self.item_type}', key_date='{self.item_key_date}')>"
+
+# --- END Ticker Data Items Model ---
+
+# --- NEW: Insert Single Ticker Data Item ---
+async def insert_ticker_data_item(session, ticker, item_type, item_time_coverage, item_key_date, item_currency, item_source, item_data_payload):
+    try:
+        new_item = TickerDataItemsModel(
+            ticker=ticker,
+            item_type=item_type,
+            item_time_coverage=item_time_coverage,
+            item_key_date=item_key_date,
+            item_currency=item_currency,
+            item_source=item_source,
+            item_data_payload=item_data_payload
+        )
+        session.add(new_item)
+        await session.commit()
+        logger.info(f"[DB DataItems] Successfully inserted data item for ticker '{ticker}', type '{item_type}'.")
+        return new_item
+    except Exception as e:
+        logger.error(f"[DB DataItems] Unexpected error inserting data item for ticker '{ticker}', type '{item_type}': {e}", exc_info=True)
+        return None
+
+# --- NEW: Insert Multiple Ticker Data Items (Table 2) ---
+async def insert_ticker_data_items(session, items_data):
+    try:
+        new_items = [TickerDataItemsModel(
+            ticker=item['ticker'],
+            item_type=item['item_type'],
+            item_time_coverage=item['item_time_coverage'],
+            item_key_date=item['item_key_date'],
+            item_currency=item['item_currency'],
+            item_source=item['item_source'],
+            item_data_payload=item['item_data_payload']
+        ) for item in items_data]
+        session.add_all(new_items)
+        await session.commit()
+        logger.info(f"[DB DataItems] Successfully inserted {len(new_items)} data items.")
+        return new_items
+    except Exception as e:
+        logger.error(f"[DB DataItems] Unexpected error inserting multiple data items: {e}", exc_info=True)
+        return None
+
+    # --- Method to Insert Single Ticker Data Item (Table 2) - Ensure it's robust ---
+    async def insert_ticker_data_item(self, item_data: Dict[str, Any]) -> Optional[int]:
+        """Inserts a single data item into the ticker_data_items table.
+        Validates required fields.
+        """
+        item_copy = item_data.copy() # Work on a copy
+
+        if 'fetch_timestamp_utc' not in item_copy:
+            item_copy['fetch_timestamp_utc'] = datetime.utcnow()
+        
+        if isinstance(item_copy.get('item_key_date'), str):
+            try:
+                item_copy['item_key_date'] = datetime.fromisoformat(item_copy['item_key_date'])
+            except ValueError:
+                logger.error(f"[DB DataItems] Invalid date format for item_key_date: {item_copy.get('item_key_date')}. Must be ISO format for ticker {item_copy.get('ticker')}.")
+                return None
+        
+        if not isinstance(item_copy.get('item_data_payload'), str):
+            try:
+                item_copy['item_data_payload'] = json.dumps(item_copy['item_data_payload'])
+            except TypeError as e:
+                logger.error(f"[DB DataItems] Could not serialize item_data_payload to JSON for ticker {item_copy.get('ticker')}: {e}")
+                return None
+
+        # Validate required fields
+        required_fields = ['ticker', 'item_type', 'item_time_coverage', 'item_key_date', 'item_data_payload']
+        missing_fields = [field for field in required_fields if field not in item_copy or item_copy[field] is None]
+        if missing_fields:
+            logger.error(f"[DB DataItems] Missing required fields {missing_fields} in item for ticker {item_copy.get('ticker')}. Cannot insert.")
+            return None
+
+        stmt = insert(TickerDataItemsModel).values(**item_copy)
+        
+        try:
+            async with self.async_session_factory() as session:
+                async with session.begin():
+                    result = await session.execute(stmt)
+                    inserted_id = result.inserted_primary_key[0] if result.inserted_primary_key else None
+                    if inserted_id:
+                        logger.info(f"[DB DataItems] Successfully inserted data item for ticker '{item_copy.get('ticker')}', type '{item_copy.get('item_type')}', id {inserted_id}.")
+                    else:
+                        logger.warning(f"[DB DataItems] Insert executed for ticker '{item_copy.get('ticker')}', type '{item_copy.get('item_type')}' but no ID returned.")
+                    return inserted_id
+        except IntegrityError as e:
+            logger.error(f"[DB DataItems] IntegrityError inserting data item for ticker '{item_copy.get('ticker')}', type '{item_copy.get('item_type')}': {e}", exc_info=False)
+            return None
+        except Exception as e:
+            logger.error(f"[DB DataItems] Unexpected error inserting data item for ticker '{item_copy.get('ticker')}', type '{item_copy.get('item_type')}': {e}", exc_info=True)
+            return None
+    # --- End Insert Single Ticker Data Item ---
+
+    # --- NEW: Insert Multiple Ticker Data Items (Table 2) - CORRECTED IMPLEMENTATION INSIDE CLASS ---
+    async def insert_ticker_data_items(self, items_data: List[Dict[str, Any]]) -> int:
+        """Inserts multiple data items into the ticker_data_items table in a batch.
+
+        Args:
+            items_data: A list of dictionaries, where each dictionary contains
+                        the data for a new item. Expected keys are the same as
+                        for insert_ticker_data_item.
+
+        Returns:
+            The number of items successfully prepared and passed to the bulk insert operation.
+        """
+        if not items_data:
+            logger.info("[DB DataItems Batch] No items provided for batch insert.")
+            return 0
+
+        processed_items = []
+        for item_data in items_data:
+            item_copy = item_data.copy() # Work on a copy to avoid modifying original dicts in list
+
+            if 'fetch_timestamp_utc' not in item_copy:
+                item_copy['fetch_timestamp_utc'] = datetime.utcnow()
+            
+            if isinstance(item_copy.get('item_key_date'), str):
+                try:
+                    item_copy['item_key_date'] = datetime.fromisoformat(item_copy['item_key_date'])
+                except ValueError:
+                    logger.error(f"[DB DataItems Batch] Invalid date format for item_key_date: {item_copy.get('item_key_date')} in item for ticker {item_copy.get('ticker')}. Skipping this item.")
+                    continue
+            
+            if not isinstance(item_copy.get('item_data_payload'), str):
+                try:
+                    item_copy['item_data_payload'] = json.dumps(item_copy['item_data_payload'])
+                except TypeError as e:
+                    logger.error(f"[DB DataItems Batch] Could not serialize item_data_payload for ticker {item_copy.get('ticker')}: {e}. Skipping this item.")
+                    continue
+            
+            required_fields = ['ticker', 'item_type', 'item_time_coverage', 'item_key_date', 'item_data_payload']
+            missing_fields = [field for field in required_fields if field not in item_copy or item_copy[field] is None]
+            if missing_fields:
+                logger.error(f"[DB DataItems Batch] Missing required fields {missing_fields} in item for ticker {item_copy.get('ticker')}. Skipping this item.")
+                continue
+
+            processed_items.append(item_copy)
+
+        if not processed_items:
+            logger.warning("[DB DataItems Batch] No items were valid for batch insertion after preprocessing.")
+            return 0
+        
+        try:
+            async with self.async_session_factory() as session:
+                async with session.begin():
+                    # For SQLAlchemy 1.4+ style bulk inserts with ORM models:
+                    # session.execute can take the insert statement and a list of dicts.
+                    await session.execute(insert(TickerDataItemsModel), processed_items)
+                logger.info(f"[DB DataItems Batch] Successfully attempted to insert {len(processed_items)} items via bulk operation.")
+                return len(processed_items)
+        except IntegrityError as e:
+            logger.error(f"[DB DataItems Batch] IntegrityError during bulk insert: {e}. The batch was likely rolled back.", exc_info=False)
+            return 0 
+        except Exception as e:
+            logger.error(f"[DB DataItems Batch] Unexpected error during bulk insert: {e}. The batch was likely rolled back.", exc_info=True)
+            return 0
+    # --- End Insert Multiple Ticker Data Items ---
+
+    # --- NEW: Upsert Single Ticker Data Item (Delete-then-Insert for Cumulative/Snapshot Types) ---
+    async def upsert_ticker_data_item(self, item_data: Dict[str, Any]) -> Optional[int]:
+        """Upserts a single data item by first deleting existing items with the 
+           same ticker and item_type, then inserting the new item. 
+           Suitable for CUMULATIVE_SNAPSHOT or similar item types.
+        
+        Args:
+            item_data: A dictionary containing the data for the new item.
+                       Expected keys are the same as for insert_ticker_data_item.
+                       Preprocessing (date conversion, JSON dump) should happen BEFORE calling this.
+
+        Returns:
+            The data_item_id of the inserted row, or None if insertion failed.
+        """
+        ticker = item_data.get('ticker')
+        item_type = item_data.get('item_type')
+
+        if not ticker or not item_type:
+            logger.error("[DB DataItems Upsert] Ticker and Item Type are required for upsert. Skipping.")
+            return None
+
+        # Ensure payload is string (should ideally be done before calling, but double-check)
+        if not isinstance(item_data.get('item_data_payload'), str):
+            try:
+                item_data['item_data_payload'] = json.dumps(item_data['item_data_payload'])
+            except TypeError as e:
+                logger.error(f"[DB DataItems Upsert] Could not serialize payload for {ticker}/{item_type}: {e}")
+                return None
+        # Ensure key date is datetime
+        if isinstance(item_data.get('item_key_date'), str):
+             try:
+                 item_data['item_key_date'] = datetime.fromisoformat(item_data['item_key_date'])
+             except ValueError:
+                 logger.error(f"[DB DataItems Upsert] Invalid date format for item_key_date: {item_data.get('item_key_date')} for {ticker}/{item_type}.")
+                 return None
+
+        logger.info(f"[DB DataItems Upsert] Upserting item for ticker '{ticker}', type '{item_type}'")
+
+        try:
+            # Assuming self.async_session_factory() is correctly defined in the class
+            async with self.async_session_factory() as session:
+                async with session.begin():
+                    # 1. Delete existing item(s) with the same ticker and type
+                    delete_stmt = delete(TickerDataItemsModel).where(
+                        TickerDataItemsModel.ticker == ticker,
+                        TickerDataItemsModel.item_type == item_type
+                    )
+                    delete_result = await session.execute(delete_stmt)
+                    logger.debug(f"[DB DataItems Upsert] Deleted {delete_result.rowcount} existing item(s) for {ticker}/{item_type}.")
+
+                    # 2. Insert the new item
+                    if 'fetch_timestamp_utc' not in item_data:
+                        item_data['fetch_timestamp_utc'] = datetime.utcnow()
+                        
+                    insert_stmt = insert(TickerDataItemsModel).values(**item_data)
+                    insert_result = await session.execute(insert_stmt)
+                    inserted_id = insert_result.inserted_primary_key[0] if insert_result.inserted_primary_key else None
+                    
+                    if inserted_id:
+                        logger.info(f"[DB DataItems Upsert] Successfully upserted item for {ticker}/{item_type}, new id {inserted_id}.")
+                    else:
+                        logger.warning(f"[DB DataItems Upsert] Insert appeared successful for {ticker}/{item_type} but no ID returned.")
+                    return inserted_id
+
+        except IntegrityError as e:
+            logger.error(f"[DB DataItems Upsert] IntegrityError for {ticker}/{item_type}: {e}", exc_info=False)
+            return None
+        except Exception as e:
+            logger.error(f"[DB DataItems Upsert] Unexpected error for {ticker}/{item_type}: {e}", exc_info=True)
+            return None
+    # --- End Upsert Single Ticker Data Item ---
+
+    # --- DIAGNOSTIC PLACEHOLDER --- 
+    # def _placeholder_for_upsert(self):
+    #     pass # Simple placeholder method
+    # --- END DIAGNOSTIC PLACEHOLDER ---
+
+# Example Usage (Conceptual)
 
