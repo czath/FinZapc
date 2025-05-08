@@ -139,12 +139,19 @@ class YahooDataRepository:
     async def insert_ticker_data_item(self, item_data: Dict[str, Any]) -> Optional[int]:
         """Inserts a single data item into the ticker_data_items table.
         Validates required fields. Uses models from yahoo_models.py.
+        If a unique constraint (ticker, item_type, item_time_coverage, item_key_date) is violated,
+        the insert is ignored (ON CONFLICT DO NOTHING).
+        Returns the ID of the inserted row, or None if ignored or on error.
         """
         item_copy = item_data.copy()
 
+        # Use naive local time
+        if 'item_key_date' not in item_copy:
+             item_copy['item_key_date'] = datetime.now()
         if 'fetch_timestamp_utc' not in item_copy:
-            item_copy['fetch_timestamp_utc'] = datetime.utcnow()
+            item_copy['fetch_timestamp_utc'] = datetime.now()
         
+        # Convert string date to datetime object if needed (naive)
         if isinstance(item_copy.get('item_key_date'), str):
             try:
                 item_copy['item_key_date'] = datetime.fromisoformat(item_copy['item_key_date'])
@@ -165,7 +172,11 @@ class YahooDataRepository:
             logger.error(f"[DB DataItems Insert - Yahoo Repo] Missing fields {missing_fields} for ticker {item_copy.get('ticker')}. Cannot insert.")
             return None
 
-        stmt = insert(TickerDataItemsModel).values(**item_copy)
+        # Use sqlite_insert for ON CONFLICT DO NOTHING
+        stmt = sqlite_insert(TickerDataItemsModel).values(**item_copy)
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=['ticker', 'item_type', 'item_time_coverage', 'item_key_date']
+        )
         
         try:
             async with self.async_session_factory() as session:
@@ -175,9 +186,10 @@ class YahooDataRepository:
                     if inserted_id:
                         logger.info(f"[DB DataItems Insert - Yahoo Repo] Inserted item for ticker '{item_copy.get('ticker')}', type '{item_copy.get('item_type')}', id {inserted_id}.")
                     else:
-                        logger.warning(f"[DB DataItems Insert - Yahoo Repo] Insert for ticker '{item_copy.get('ticker')}', type '{item_copy.get('item_type')}' gave no ID.")
+                        # This case means the conflict occurred and the row was ignored.
+                        logger.info(f"[DB DataItems Insert - Yahoo Repo] Record for ticker '{item_copy.get('ticker')}', type '{item_copy.get('item_type')}', date '{item_copy.get('item_key_date')}' already exists or was ignored due to conflict.")
                     return inserted_id
-        except IntegrityError as e:
+        except IntegrityError as e: # Should ideally be caught by on_conflict_do_nothing for unique constraint
             logger.error(f"[DB DataItems Insert - Yahoo Repo] IntegrityError for ticker '{item_copy.get('ticker')}', type '{item_copy.get('item_type')}': {e}", exc_info=False)
             return None
         except Exception as e:
@@ -201,12 +213,17 @@ class YahooDataRepository:
             return 0
 
         processed_items = []
+        now_local = datetime.now() # Get current local time once
         for item_data in items_data:
             item_copy = item_data.copy()
 
+            # Use naive local time
+            if 'item_key_date' not in item_copy:
+                 item_copy['item_key_date'] = now_local
             if 'fetch_timestamp_utc' not in item_copy:
-                item_copy['fetch_timestamp_utc'] = datetime.utcnow()
+                item_copy['fetch_timestamp_utc'] = now_local
             
+            # Convert string date to datetime object if needed (naive)
             if isinstance(item_copy.get('item_key_date'), str):
                 try:
                     item_copy['item_key_date'] = datetime.fromisoformat(item_copy['item_key_date'])
@@ -286,7 +303,7 @@ class YahooDataRepository:
                     logger.debug(f"[DB DataItems Upsert - Yahoo Repo] Deleted {delete_result.rowcount} existing for {ticker}/{item_type}.")
 
                     if 'fetch_timestamp_utc' not in item_data:
-                        item_data['fetch_timestamp_utc'] = datetime.utcnow()
+                        item_data['fetch_timestamp_utc'] = datetime.now()
                         
                     insert_stmt = insert(TickerDataItemsModel).values(**item_data)
                     insert_result = await session.execute(insert_stmt)

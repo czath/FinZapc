@@ -980,55 +980,123 @@ async def update_ticker_master_market_data(ticker_symbol: str, db_repo: YahooDat
 
 # --- NEW: Function to fetch and upsert Analyst Price Targets Summary ---
 async def fetch_and_upsert_analyst_targets_summary(ticker_symbol: str, db_repo: YahooDataRepository):
-    """Fetches analyst price target summary from yfinance .info, processes it,
-       and upserts it into the ticker_data_items table.
+    """Fetches analyst price target data from yfinance .analyst_price_targets,
+       handles if it's a DataFrame or a dictionary, and upserts it into the ticker_data_items table.
     """
-    logger.info(f"--- Starting Fetch & Upsert for Analyst Price Targets Summary: {ticker_symbol} ---")
+    logger.info(f"--- Starting Fetch & Upsert for Analyst Price Targets: {ticker_symbol} (from .analyst_price_targets) ---")
     
     try:
         yf_ticker = yf.Ticker(ticker_symbol)
-        raw_data = yf_ticker.info 
+        analyst_targets_data = yf_ticker.analyst_price_targets # This could be a DataFrame or Dict
         
-        if not raw_data or not isinstance(raw_data, dict):
-            logger.warning(f"[Analyst Targets Upsert] No raw .info data received for {ticker_symbol}")
+        payload_data = None
+
+        if isinstance(analyst_targets_data, pd.DataFrame) and not analyst_targets_data.empty:
+            logger.info(f"[Analyst Targets Upsert] Received a DataFrame from .analyst_price_targets for {ticker_symbol}. Using it as payload.")
+            payload_data = analyst_targets_data # PandasEncoder will handle this
+        elif isinstance(analyst_targets_data, dict) and analyst_targets_data: # Check if it's a non-empty dict
+            logger.info(f"[Analyst Targets Upsert] Received a dictionary from .analyst_price_targets for {ticker_symbol}. Original dict: {analyst_targets_data}")
+            # Exclude the 'current' key if present, as currentPrice is in ticker_master
+            payload_data = {k: v for k, v in analyst_targets_data.items() if k != 'current'}
+            if not payload_data: # If dict becomes empty after removing 'current'
+                logger.warning(f"[Analyst Targets Upsert] Dictionary became empty after removing 'current' key for {ticker_symbol}. Skipping upsert.")
+                return
+            logger.info(f"[Analyst Targets Upsert] Using dictionary as payload (with 'current' key removed if it was present): {payload_data}")
+        else:
+            logger.warning(f"[Analyst Targets Upsert] Data from .analyst_price_targets for {ticker_symbol} is None, empty, or not a recognized type (DataFrame/dict). Skipping upsert.")
+            if analyst_targets_data is not None: # Log if it's some other unexpected type
+                 logger.info(f"[Analyst Targets Upsert] Unexpected data type received: {type(analyst_targets_data)}, data: {analyst_targets_data}")
             return
 
-        # Prepare payload dictionary (excluding 'currentPrice' as previously discussed)
-        payload_keys = ['targetHighPrice', 'targetLowPrice', 'targetMeanPrice', 'targetMedianPrice']
-        payload_data = {k: raw_data.get(k) for k in payload_keys if raw_data.get(k) is not None}
-
-        if not payload_data:
-            logger.warning(f"[Analyst Targets Upsert] No relevant analyst target data found in .info for {ticker_symbol}. Skipping upsert.")
-            logger.debug(f"[Analyst Targets Upsert] Raw .info for {ticker_symbol} was: {raw_data}")
-            return
-
-        # Prepare the item_data dictionary for Table 2 (ticker_data_items)
-        # item_data_payload will be automatically JSON dumped by the upsert method if it's a dict
         item_data = {
             'ticker': ticker_symbol,
-            'item_type': "ANALYST_PRICE_TARGETS_SUMMARY", # Consistent with simulation
-            'item_time_coverage': "CUMULATIVE_SNAPSHOT",  # Consistent with simulation
-            'item_key_date': datetime.utcnow(), # Use fetch time as key date
-            'item_source': "yfinance.Ticker().info[analyst_targets_summary]", # Consistent with simulation
+            'item_type': "ANALYST_PRICE_TARGETS", 
+            'item_time_coverage': "CUMULATIVE_SNAPSHOT", 
+            'item_key_date': datetime.now(),
+            'item_source': "yfinance.Ticker.analyst_price_targets",
             'item_data_payload': payload_data 
-            # 'fetch_timestamp_utc' will be added by the repository method if not present,
-            # or use this one if 'item_key_date' is preferred as the fetch time.
         }
 
-        logger.info(f"[Analyst Targets Upsert] Prepared item_data for {ticker_symbol}: {item_data}")
-        
+        logger.info(f"[Analyst Targets Upsert] Prepared item_data for {ticker_symbol}.")
+
         inserted_id = await db_repo.upsert_ticker_data_item(item_data)
         
         if inserted_id:
-            logger.info(f"[Analyst Targets Upsert] Successfully upserted analyst targets summary for {ticker_symbol}, ID: {inserted_id}.")
+            logger.info(f"[Analyst Targets Upsert] Successfully upserted analyst targets for {ticker_symbol}, ID: {inserted_id}.")
         else:
-            logger.error(f"[Analyst Targets Upsert] Failed to upsert analyst targets summary for {ticker_symbol}.")
+            logger.error(f"[Analyst Targets Upsert] Failed to upsert analyst targets for {ticker_symbol}.")
 
     except Exception as e:
         logger.error(f"[Analyst Targets Upsert] Error fetching/processing/upserting analyst targets for {ticker_symbol}: {e}", exc_info=True)
     finally:
-        logger.info(f"--- Fetch & Upsert FINISHED for Analyst Price Targets Summary: {ticker_symbol} ---")
-# --- END New Function ---
+        logger.info(f"--- Fetch & Upsert FINISHED for Analyst Price Targets: {ticker_symbol} (from .analyst_price_targets) ---")
+
+# --- NEW: Function to fetch and store Annual Balance Sheets ---
+async def fetch_and_store_annual_balance_sheets(ticker_symbol: str, db_repo: YahooDataRepository):
+    """Fetches annual balance sheets from yfinance (.balance_sheet)
+       and stores each annual report as a separate item in ticker_data_items.
+    """
+    logger.info(f"--- Starting Fetch & Store for Annual Balance Sheets: {ticker_symbol} ---")
+    
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+        # .balance_sheet returns a DataFrame where columns are dates and rows are financial items
+        annual_bs_df = yf_ticker.balance_sheet 
+        
+        if not isinstance(annual_bs_df, pd.DataFrame) or annual_bs_df.empty:
+            logger.warning(f"[Annual BS Store] No DataFrame received from .balance_sheet for {ticker_symbol}, or DataFrame is empty. Skipping.")
+            return
+
+        logger.info(f"[Annual BS Store] Received DataFrame with shape {annual_bs_df.shape} for {ticker_symbol}. Iterating through columns (dates).")
+        
+        items_inserted_count = 0
+        for date_col in annual_bs_df.columns:
+            try:
+                # The column header (date_col) is the key date for this balance sheet
+                # yfinance typically returns these as pd.Timestamp objects
+                item_key_date_ts = pd.to_datetime(date_col) # Ensure it's a pandas Timestamp
+                item_key_date_naive = item_key_date_ts.to_pydatetime().replace(tzinfo=None) # Convert to naive python datetime
+
+                # The data for this column is a Series of financial items for that date
+                sheet_data_for_date = annual_bs_df[date_col]
+                
+                # Convert the Series to a dictionary, then to JSON for the payload
+                # Handle potential NaN values by dropping them or converting to None for JSON
+                payload_dict = sheet_data_for_date.where(pd.notnull(sheet_data_for_date), None).to_dict()
+                
+                if not payload_dict: # If all values were NaN
+                    logger.warning(f"[Annual BS Store] Balance sheet for {ticker_symbol} on {item_key_date_naive.date()} was empty or all NaN. Skipping.")
+                    continue
+
+                item_data = {
+                    'ticker': ticker_symbol,
+                    'item_type': "BALANCE_SHEET",
+                    'item_time_coverage': "FYEAR",
+                    'item_key_date': item_key_date_naive,
+                    'item_source': "yfinance.Ticker.balance_sheet",
+                    'item_data_payload': payload_dict # The repository will handle JSON conversion
+                }
+
+                logger.debug(f"[Annual BS Store] Prepared item_data for {ticker_symbol}, date {item_key_date_naive.date()}.")
+                
+                inserted_id = await db_repo.insert_ticker_data_item(item_data)
+                if inserted_id:
+                    items_inserted_count += 1
+                    logger.info(f"[Annual BS Store] Successfully stored annual balance sheet for {ticker_symbol}, date {item_key_date_naive.date()}, ID: {inserted_id}.")
+                else:
+                    logger.error(f"[Annual BS Store] Failed to store annual balance sheet for {ticker_symbol}, date {item_key_date_naive.date()}.")
+            
+            except Exception as col_err:
+                logger.error(f"[Annual BS Store] Error processing column '{str(date_col)}' for {ticker_symbol}: {col_err}", exc_info=True)
+                # Continue to the next column if one fails
+
+        logger.info(f"[Annual BS Store] Finished processing. Stored {items_inserted_count} annual balance sheets for {ticker_symbol}.")
+
+    except Exception as e:
+        logger.error(f"[Annual BS Store] Error fetching/processing annual balance sheets for {ticker_symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"--- Fetch & Store FINISHED for Annual Balance Sheets: {ticker_symbol} ---")
+# --- End Annual Balance Sheets ---
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
@@ -1044,8 +1112,8 @@ if __name__ == '__main__':
     parser.add_argument(
         "--update-mode",
         default="full",
-        choices=['full', 'fast', 'upsert_analyst_summary'], # UPDATED choices
-        help="Specify the update type: 'full' (fetches .info, updates DB, writes file), 'fast' (fetches .info, updates market fields in DB only), or 'upsert_analyst_summary' (fetches .info analyst summary and upserts to DB)." # UPDATED help
+        choices=['full', 'fast', 'upsert_analyst_summary', 'store_annual_bs'], # ADDED new mode
+        help="Specify the update type: 'full' (fetches .info, updates DB, writes file), 'fast' (fetches .info, updates market fields in DB only), 'upsert_analyst_summary' (fetches .info analyst summary and upserts to DB), or 'store_annual_bs' (fetches and stores annual balance sheets)." # UPDATED help
     )
     # REMOVED --task argument
     # REMOVED --output-file argument
@@ -1115,7 +1183,7 @@ if __name__ == '__main__':
         logger.info(f"Starting main task for ticker '{ticker}' with mode '{update_mode}'")
         try:
             # Ensure DB tables exist (common for modes needing DB)
-            if update_mode in ['full', 'fast', 'upsert_analyst_summary']: # ADDED new mode
+            if update_mode in ['full', 'fast', 'upsert_analyst_summary', 'store_annual_bs']: # ADDED new mode
                 logger.info("Ensuring database tables exist...")
                 await db_repo.create_tables()
                 logger.info("Database tables checked/created.")
@@ -1152,6 +1220,10 @@ if __name__ == '__main__':
             elif update_mode == 'upsert_analyst_summary':
                 logger.info(f"Running Analyst Price Targets Summary Upsert for: {ticker}")
                 await fetch_and_upsert_analyst_targets_summary(ticker, db_repo)
+            
+            elif update_mode == 'store_annual_bs': # ADDED new mode block
+                logger.info(f"Running Annual Balance Sheet Storage for: {ticker}")
+                await fetch_and_store_annual_balance_sheets(ticker, db_repo)
             # --- END UPDATED/NEW MODE ---
 
         except Exception as e:

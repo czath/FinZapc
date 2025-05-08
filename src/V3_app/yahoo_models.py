@@ -1,6 +1,6 @@
 """SQLAlchemy models for Yahoo Finance specific data."""
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -119,7 +119,10 @@ class YahooTickerMasterModel(Base):
 # --- Ticker Data Items Model (Moved from V3_database.py) ---
 class TickerDataItemsModel(Base):
     __tablename__ = 'ticker_data_items'
-    __table_args__ = {'extend_existing': True}
+    __table_args__ = (
+        UniqueConstraint('ticker', 'item_type', 'item_time_coverage', 'item_key_date', name='uq_ticker_item_coverage_date'),
+        {'extend_existing': True}
+    )
 
     data_item_id = Column(Integer, primary_key=True, autoincrement=True)
     
@@ -128,8 +131,8 @@ class TickerDataItemsModel(Base):
     
     item_type = Column(String, nullable=False, index=True)
     item_time_coverage = Column(String, nullable=False) 
-    item_key_date = Column(DateTime, nullable=False, index=True) 
-    fetch_timestamp_utc = Column(DateTime, default=datetime.utcnow, nullable=False) 
+    item_key_date = Column(DateTime, nullable=False, index=True)
+    fetch_timestamp_utc = Column(DateTime, nullable=False, default=datetime.now)
     item_source = Column(String, nullable=True) 
     item_data_payload = Column(Text, nullable=False) # Use Text for potentially large JSON
 
@@ -137,5 +140,5 @@ class TickerDataItemsModel(Base):
     ticker_master_record = relationship("src.V3_app.yahoo_models.YahooTickerMasterModel", back_populates="data_items")
 
     def __repr__(self):
-        return f"<TickerDataItemsModel(id={self.data_item_id}, ticker='{self.ticker}', type='{self.item_type}', key_date='{self.item_key_date}')>"
+        return f"<TickerDataItemsModel(item_id={self.data_item_id}, ticker='{self.ticker}', type='{self.item_type}', date='{self.item_key_date}')>"
 # --- END Ticker Data Items Model --- 
