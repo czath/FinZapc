@@ -29,7 +29,9 @@ import pprint # For pretty-printing dicts/lists in text output
 # --- END Imports ---
 
 # --- Custom Imports for this module ---
-from .V3_database import SQLiteRepository # For DB operations
+# from .V3_database import SQLiteRepository # Removed
+from .yahoo_repository import YahooDataRepository # Added
+from .yahoo_models import YahooTickerMasterModel, TickerDataItemsModel # Added, though might not be directly used
 
 # Configure logging - SET TO DEBUG initially for development
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -898,7 +900,7 @@ def write_processed_data_to_file(processed_data: Dict[str, Any]):
         logger.error(f"Unexpected error writing processed data file for {ticker}: {e}", exc_info=True)
 
 # --- NEW: Function to update specific market data from info --- 
-async def update_ticker_master_market_data(ticker_symbol: str, db_repo: SQLiteRepository): # REMOVE session parameter
+async def update_ticker_master_market_data(ticker_symbol: str, db_repo: YahooDataRepository):
     """Fetches data using yfinance .info and updates specific market fields in ticker_master.
     
     Fields updated (if available in .info):
@@ -976,9 +978,61 @@ async def update_ticker_master_market_data(ticker_symbol: str, db_repo: SQLiteRe
     except Exception as e:
         logger.error(f"Failed to fetch .info or update market data for {ticker_symbol}: {e}", exc_info=True)
 
+# --- NEW: Function to fetch and upsert Analyst Price Targets Summary ---
+async def fetch_and_upsert_analyst_targets_summary(ticker_symbol: str, db_repo: YahooDataRepository):
+    """Fetches analyst price target summary from yfinance .info, processes it,
+       and upserts it into the ticker_data_items table.
+    """
+    logger.info(f"--- Starting Fetch & Upsert for Analyst Price Targets Summary: {ticker_symbol} ---")
+    
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+        raw_data = yf_ticker.info 
+        
+        if not raw_data or not isinstance(raw_data, dict):
+            logger.warning(f"[Analyst Targets Upsert] No raw .info data received for {ticker_symbol}")
+            return
+
+        # Prepare payload dictionary (excluding 'currentPrice' as previously discussed)
+        payload_keys = ['targetHighPrice', 'targetLowPrice', 'targetMeanPrice', 'targetMedianPrice']
+        payload_data = {k: raw_data.get(k) for k in payload_keys if raw_data.get(k) is not None}
+
+        if not payload_data:
+            logger.warning(f"[Analyst Targets Upsert] No relevant analyst target data found in .info for {ticker_symbol}. Skipping upsert.")
+            logger.debug(f"[Analyst Targets Upsert] Raw .info for {ticker_symbol} was: {raw_data}")
+            return
+
+        # Prepare the item_data dictionary for Table 2 (ticker_data_items)
+        # item_data_payload will be automatically JSON dumped by the upsert method if it's a dict
+        item_data = {
+            'ticker': ticker_symbol,
+            'item_type': "ANALYST_PRICE_TARGETS_SUMMARY", # Consistent with simulation
+            'item_time_coverage': "CUMULATIVE_SNAPSHOT",  # Consistent with simulation
+            'item_key_date': datetime.utcnow(), # Use fetch time as key date
+            'item_source': "yfinance.Ticker().info[analyst_targets_summary]", # Consistent with simulation
+            'item_data_payload': payload_data 
+            # 'fetch_timestamp_utc' will be added by the repository method if not present,
+            # or use this one if 'item_key_date' is preferred as the fetch time.
+        }
+
+        logger.info(f"[Analyst Targets Upsert] Prepared item_data for {ticker_symbol}: {item_data}")
+        
+        inserted_id = await db_repo.upsert_ticker_data_item(item_data)
+        
+        if inserted_id:
+            logger.info(f"[Analyst Targets Upsert] Successfully upserted analyst targets summary for {ticker_symbol}, ID: {inserted_id}.")
+        else:
+            logger.error(f"[Analyst Targets Upsert] Failed to upsert analyst targets summary for {ticker_symbol}.")
+
+    except Exception as e:
+        logger.error(f"[Analyst Targets Upsert] Error fetching/processing/upserting analyst targets for {ticker_symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"--- Fetch & Upsert FINISHED for Analyst Price Targets Summary: {ticker_symbol} ---")
+# --- END New Function ---
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="Fetch Yahoo Finance data and update the master DB (full or market-only) and optionally save full data to a text file.", # Updated description
+        description="Fetch Yahoo Finance data and update the master DB (full or market-only) or upsert analyst summary.", # Updated description
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
@@ -990,8 +1044,8 @@ if __name__ == '__main__':
     parser.add_argument(
         "--update-mode",
         default="full",
-        choices=['full', 'fast'],
-        help="Specify the update type: 'full' (fetches .info, updates DB, writes file) or 'fast' (fetches fast_info, updates market fields in DB only)."
+        choices=['full', 'fast', 'upsert_analyst_summary'], # UPDATED choices
+        help="Specify the update type: 'full' (fetches .info, updates DB, writes file), 'fast' (fetches .info, updates market fields in DB only), or 'upsert_analyst_summary' (fetches .info analyst summary and upserts to DB)." # UPDATED help
     )
     # REMOVED --task argument
     # REMOVED --output-file argument
@@ -1033,7 +1087,8 @@ if __name__ == '__main__':
     # --- End DB Path --- 
     
     # --- Instantiate Repository --- 
-    db_repo = SQLiteRepository(database_url=db_url)
+    # db_repo = SQLiteRepository(database_url=db_url) # Changed
+    db_repo = YahooDataRepository(database_url=db_url) # Changed to YahooDataRepository
     # --- End Instantiate --- 
 
     # --- COMMENT OUT Session Instantiation --- 
@@ -1056,13 +1111,16 @@ if __name__ == '__main__':
     # # # --- End Session Instantiation --- 
 
     # --- Main Async Task Definition --- 
-    async def main_task(ticker: str, update_mode: str): # REMOVE session parameter
+    async def main_task(ticker: str, update_mode: str): 
         logger.info(f"Starting main task for ticker '{ticker}' with mode '{update_mode}'")
         try:
-            # Ensure DB tables exist (common for both modes)
-            logger.info("Ensuring database tables exist...")
-            await db_repo.create_tables()
-            logger.info("Database tables checked/created.")
+            # Ensure DB tables exist (common for modes needing DB)
+            if update_mode in ['full', 'fast', 'upsert_analyst_summary']: # ADDED new mode
+                logger.info("Ensuring database tables exist...")
+                await db_repo.create_tables()
+                logger.info("Database tables checked/created.")
+            else:
+                logger.info("Simulation mode: Skipping DB table check.")
 
             if update_mode == 'full':
                 # Fetch and process data
@@ -1089,6 +1147,12 @@ if __name__ == '__main__':
                 # Only update specific market data
                 await update_ticker_master_market_data(ticker, db_repo) # REMOVE session
                 # Success/failure message logged inside function
+            
+            # --- UPDATED/NEW MODE ---    
+            elif update_mode == 'upsert_analyst_summary':
+                logger.info(f"Running Analyst Price Targets Summary Upsert for: {ticker}")
+                await fetch_and_upsert_analyst_targets_summary(ticker, db_repo)
+            # --- END UPDATED/NEW MODE ---
 
         except Exception as e:
             logger.error(f"An error occurred in the main task for {ticker} (mode: {update_mode}): {e}", exc_info=True)
