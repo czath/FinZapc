@@ -6,7 +6,7 @@ import requests
 import cloudscraper # Consider using this if standard requests are blocked
 from bs4 import BeautifulSoup
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, Dict, Any, List
 import asyncio
 import os
@@ -21,12 +21,24 @@ import pandas as pd # Added for DataFrame handling
 import pprint # For pretty-printing dicts/lists in text output
 # from yfinance.utils import FastInfo # Removed due to ImportError - FastInfo handled by dict() conversion
 
+# --- COMMENT OUT Caching/Rate Limiting Imports ---
+# from requests import Session 
+# from requests_cache import CacheMixin, SQLiteCache
+# from requests_ratelimiter import LimiterMixin, MemoryQueueBucket
+# from pyrate_limiter import Duration, RequestRate, Limiter
+# --- END Imports ---
+
 # --- Custom Imports for this module ---
 from .V3_database import SQLiteRepository # For DB operations
 
 # Configure logging - SET TO DEBUG initially for development
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# --- Define CachedLimiterSession Class ---
+# class CachedLimiterSession(CacheMixin, LimiterMixin, Session): # UNCOMMENTED
+#    pass
+# --- End Class Definition ---
 
 # --- Custom JSON Encoder for pandas/numpy types ---
 class PandasEncoder(json.JSONEncoder):
@@ -656,13 +668,13 @@ async def fetch_and_write_all_yfinance_data(
 
     logger.info(f"--- Consolidated yfinance Data Fetch Run Complete for Ticker '{ticker}' ---")
 
-async def fetch_and_process_yahoo_info(ticker_symbol: str) -> Optional[Dict[str, Any]]:
+async def fetch_and_process_yahoo_info(ticker_symbol: str) -> Optional[Dict[str, Any]]: # REMOVE session parameter
     """Fetches data from yfinance .info, processes/normalizes it, and returns a dictionary ready for DB/file.
        Returns None if fetching or essential processing fails.
     """
     logger.info(f"Fetching and processing Yahoo .info for {ticker_symbol}")
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
+        yf_ticker = yf.Ticker(ticker_symbol) # REMOVE session
         # Add basic retry or timeout logic here if needed, yfinance can hang
         info_data = yf_ticker.info
         
@@ -885,10 +897,88 @@ def write_processed_data_to_file(processed_data: Dict[str, Any]):
     except Exception as e:
         logger.error(f"Unexpected error writing processed data file for {ticker}: {e}", exc_info=True)
 
+# --- NEW: Function to update specific market data from info --- 
+async def update_ticker_master_market_data(ticker_symbol: str, db_repo: SQLiteRepository): # REMOVE session parameter
+    """Fetches data using yfinance .info and updates specific market fields in ticker_master.
+    
+    Fields updated (if available in .info):
+    - sma_fifty_day
+    - sma_two_hundred_day
+    - regular_market_open
+    - regular_market_previous_close
+    - current_price
+    - regular_market_day_high
+    - regular_market_day_low
+    - regular_market_change (calculated)
+    - update_marketonly (timestamp)
+    """
+    logger.info(f"Fetching .info to update market data for {ticker_symbol}")
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol) # REMOVE session
+        info_data = yf_ticker.info
+
+        if not info_data:
+            logger.warning(f"No .info data received from yfinance for ticker: {ticker_symbol}")
+            return
+
+        market_updates = {}
+        fetched_values_log = {} # Log raw values fetched for specific keys
+
+        # --- Helper to safely convert value to float (reuse or redefine locally if needed) ---
+        def to_float_fast(value):
+            if value is not None:
+                try:
+                    return float(value)
+                except (ValueError, TypeError):
+                    return None
+            return None
+        # --- End Helper ---
+
+        # Map DB columns to the desired Yahoo .info keys 
+        # db_column_key: yahoo_info_key
+        info_key_map = {
+            'sma_fifty_day': 'fiftyDayAverage',
+            'sma_two_hundred_day': 'twoHundredDayAverage',
+            'regular_market_open': 'open', # Mapping from .info 'open'
+            'regular_market_previous_close': 'previousClose',
+            'current_price': 'currentPrice', # Mapping from .info 'currentPrice'
+            'regular_market_day_high': 'dayHigh',
+            'regular_market_day_low': 'dayLow',
+            'regular_market_change': 'regularMarketChange' # ADD direct mapping
+        }
+
+        # Process only the specified keys
+        for db_key, info_key in info_key_map.items():
+            raw_value = info_data.get(info_key) # Get value from .info dict
+            fetched_values_log[info_key] = raw_value # Log the raw value fetched
+            processed_value = to_float_fast(raw_value)
+            
+            # --- ADD DETAILED DEBUG LOGGING INSIDE LOOP ---
+            logger.debug(f"Processing info key '{info_key}' for db key '{db_key}': raw='{raw_value}', processed='{processed_value}'")
+            # --- END DEBUG LOGGING ---
+            
+            if processed_value is not None:
+                market_updates[db_key] = processed_value
+
+        # Log the specifically fetched raw values
+        logger.info(f"Fetched raw values from .info for {ticker_symbol}: {fetched_values_log}")
+
+        # Add the market update timestamp
+        market_updates['update_marketonly'] = datetime.now()
+
+        if len(market_updates) > 1: # Check if there's more than just the timestamp to update
+            logger.info(f"Updating market data in DB for {ticker_symbol} with: {market_updates}") # Log the dict being sent
+            await db_repo.update_ticker_master_fields(ticker_symbol, market_updates)
+            # Success/failure message logged by the repo method
+        else:
+            logger.info(f"No valid market data updates found from .info for {ticker_symbol}. Skipping DB update.")
+
+    except Exception as e:
+        logger.error(f"Failed to fetch .info or update market data for {ticker_symbol}: {e}", exc_info=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="Fetch Yahoo Finance .info data, update the master DB, and save processed data to a text file.", # Updated description
+        description="Fetch Yahoo Finance data and update the master DB (full or market-only) and optionally save full data to a text file.", # Updated description
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
@@ -896,6 +986,12 @@ if __name__ == '__main__':
         "--ticker", 
         required=True,
         help="Stock ticker symbol (e.g., AAPL, MSFT)."
+    )
+    parser.add_argument(
+        "--update-mode",
+        default="full",
+        choices=['full', 'fast'],
+        help="Specify the update type: 'full' (fetches .info, updates DB, writes file) or 'fast' (fetches fast_info, updates market fields in DB only)."
     )
     # REMOVED --task argument
     # REMOVED --output-file argument
@@ -940,42 +1036,66 @@ if __name__ == '__main__':
     db_repo = SQLiteRepository(database_url=db_url)
     # --- End Instantiate --- 
 
+    # --- COMMENT OUT Session Instantiation --- 
+    # # Define cache file path relative to workspace root
+    # cache_file_path_relative = "cache/yfinance.cache"
+    # cache_file_path_absolute = os.path.join(workspace_root, cache_file_path_relative)
+    # cache_dir = os.path.dirname(cache_file_path_absolute)
+    # os.makedirs(cache_dir, exist_ok=True) # Ensure cache directory exists
+    # logger.info(f"Using cache file at: {cache_file_path_absolute}")
+    # 
+    # # # REVERT TO CachedLimiterSession --- 
+    # # yahoo_session = CachedLimiterSession(
+    # #     limiter=Limiter(RequestRate(2, Duration.SECOND*5)),  # Restore rate limiter
+    # #     bucket_class=MemoryQueueBucket,
+    # #     backend=SQLiteCache(cache_file_path_absolute), # Use SQLite backend
+    # # )
+    # # # Optionally set user agent
+    # # # yahoo_session.headers['User-agent'] = 'financial-app-v3/1.0'
+    # # # logger.info("Initialized CachedLimiterSession for yfinance.") # UPDATED Log message
+    # # # --- End Session Instantiation --- 
+
     # --- Main Async Task Definition --- 
-    async def main_task(ticker: str):
-        logger.info(f"Starting main task for ticker '{ticker}'")
+    async def main_task(ticker: str, update_mode: str): # REMOVE session parameter
+        logger.info(f"Starting main task for ticker '{ticker}' with mode '{update_mode}'")
         try:
-            # Ensure DB tables exist
+            # Ensure DB tables exist (common for both modes)
             logger.info("Ensuring database tables exist...")
             await db_repo.create_tables()
             logger.info("Database tables checked/created.")
 
-            # Fetch and process data
-            processed_data = await fetch_and_process_yahoo_info(ticker)
+            if update_mode == 'full':
+                # Fetch and process data
+                processed_data = await fetch_and_process_yahoo_info(ticker) # REMOVE session
 
-            if processed_data:
-                # Write to file (using sync function for simplicity now)
-                try:
-                    # Run sync write in executor to avoid blocking async loop if it were complex
-                    # For simple writes, direct call might be okay, but executor is safer practice
-                    loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(None, write_processed_data_to_file, processed_data)
-                except Exception as file_write_err:
-                    logger.error(f"Error occurred during file writing: {file_write_err}", exc_info=True)
-                    # Decide if we should still try to update DB?
-                    # Let's proceed to DB update even if file write fails for now.
+                if processed_data:
+                    # Write to file (only for full update)
+                    try:
+                        loop = asyncio.get_running_loop()
+                        await loop.run_in_executor(None, write_processed_data_to_file, processed_data)
+                    except Exception as file_write_err:
+                        logger.error(f"Error occurred during file writing: {file_write_err}", exc_info=True)
+                        # Log error but continue with DB update
 
-                # Update database
-                await db_repo.upsert_yahoo_ticker_master(processed_data)
-                # Success message logged inside upsert method
-            else:
-                logger.error(f"Failed to fetch or process data for {ticker}. No DB update or file write performed.")
+                    # Update database (full upsert)
+                    await db_repo.upsert_yahoo_ticker_master(processed_data)
+                    # Success message logged inside upsert method
+
+                    # REMOVED call to update market data - full mode does full update
+                else:
+                    logger.error(f"Failed to fetch or process data for {ticker} in 'full' mode. No DB update or file write performed.")
+            
+            elif update_mode == 'fast':
+                # Only update specific market data
+                await update_ticker_master_market_data(ticker, db_repo) # REMOVE session
+                # Success/failure message logged inside function
 
         except Exception as e:
-            logger.error(f"An error occurred in the main task for {ticker}: {e}", exc_info=True)
+            logger.error(f"An error occurred in the main task for {ticker} (mode: {update_mode}): {e}", exc_info=True)
         finally:
-            logger.info(f"Main task finished for ticker '{ticker}'")
+            logger.info(f"Main task finished for ticker '{ticker}' (mode: {update_mode})")
     # --- End Main Async Task --- 
 
     # --- Run Main Task --- 
-    asyncio.run(main_task(args.ticker))
+    asyncio.run(main_task(args.ticker, args.update_mode)) # REMOVE session
     # --- End Run --- 
