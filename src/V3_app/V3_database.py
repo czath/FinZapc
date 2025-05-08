@@ -292,6 +292,51 @@ class SQLiteRepository:
             raise
     # --- End Analytics Raw Data Save/Update ---
 
+    # --- NEW Method to Upsert Yahoo Ticker Master Data ---
+    async def upsert_yahoo_ticker_master(self, ticker_data: Dict[str, Any]) -> None:
+        """
+        Upserts (inserts or updates) a record in the yahoo_ticker_master table.
+        Expects ticker_data to be a dictionary where keys match YahooTickerMasterModel column names.
+        """
+        if not ticker_data or 'ticker' not in ticker_data:
+            logger.error("[DB Yahoo Master] Ticker data is empty or missing 'ticker' field. Skipping upsert.")
+            return
+
+        ticker_symbol = ticker_data['ticker']
+        logger.info(f"[DB Yahoo Master] Upserting data for ticker: {ticker_symbol}")
+
+        try:
+            async with self.engine.begin() as conn:
+                # Ensure 'update_last_full' is set or updated
+                ticker_data['update_last_full'] = datetime.now()
+
+                # Prepare for SQLite's ON CONFLICT DO UPDATE
+                # The insert statement
+                stmt = sqlite_insert(YahooTickerMasterModel).values(**ticker_data)
+
+                # Define what to update on conflict (ticker exists)
+                # Exclude the primary key from the update set
+                update_dict = {
+                    c.name: getattr(stmt.excluded, c.name)
+                    for c in YahooTickerMasterModel.__table__.columns
+                    if not c.primary_key
+                }
+                
+                upsert_stmt = stmt.on_conflict_do_update(
+                    index_elements=['ticker'],  # The primary key column
+                    set_=update_dict
+                )
+                
+                await conn.execute(upsert_stmt)
+            logger.info(f"[DB Yahoo Master] Successfully upserted data for ticker: {ticker_symbol}")
+        except SQLAlchemyError as e:
+            logger.error(f"[DB Yahoo Master] SQLAlchemyError upserting data for {ticker_symbol}: {e}", exc_info=True)
+            raise # Re-raise to be handled by the caller
+        except Exception as e:
+            logger.error(f"[DB Yahoo Master] Unexpected error upserting data for {ticker_symbol}: {e}", exc_info=True)
+            raise # Re-raise to be handled by the caller
+    # --- End Upsert Yahoo Ticker Master Data ---
+
     # --- Add Finviz Raw Data Save/Update ---    
     # --- Keep simple create_tables --- 
     async def create_tables(self) -> None:
@@ -2051,4 +2096,101 @@ def update_screener_multi_fields_sync(db_path: str, ticker: str, updates: Dict[s
             
     return success
 # --- END NEW SYNC FUNCTION ---
+
+# --- NEW Yahoo Ticker Master Model ---
+class YahooTickerMasterModel(Base):
+    __tablename__ = 'ticker_master' # CORRECTED TABLE NAME
+
+    # Static Fields
+    ticker = Column(String, primary_key=True, nullable=False)
+    company_name = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+    exchange = Column(String, nullable=True)
+    industry = Column(String, nullable=True)
+    sector = Column(String, nullable=True)
+    trade_currency = Column(String, nullable=True)
+    asset_type = Column(String, nullable=True) # 'typeDisp' from Yahoo
+
+    # Market Fields
+    average_volume = Column(Float, nullable=True) # Yahoo: averageVolume
+    beta = Column(Float, nullable=True)
+    current_price = Column(Float, nullable=True)
+    dividend_date = Column(DateTime, nullable=True) # Unix timestamp from Yahoo
+    dividend_date_last = Column(DateTime, nullable=True) # Unix timestamp
+    dividend_ex_date = Column(DateTime, nullable=True) # Unix timestamp
+    dividend_value_last = Column(Float, nullable=True)
+    dividend_yield = Column(Float, nullable=True) # Potentially percentage points
+    dividend_yield_ttm = Column(Float, nullable=True) # Decimal
+    earnings_timestamp = Column(DateTime, nullable=True) # Unix timestamp
+    eps_forward = Column(Float, nullable=True)
+    fifty_two_week_change = Column(Float, nullable=True)
+    fifty_two_week_high = Column(Float, nullable=True)
+    fifty_two_week_low = Column(Float, nullable=True)
+    five_year_avg_dividend_yield = Column(Float, nullable=True) # Percentage points
+    market_cap = Column(Float, nullable=True) # Can be very large
+    overall_risk = Column(Integer, nullable=True)
+    pe_forward = Column(Float, nullable=True)
+    price_eps_current_year = Column(Float, nullable=True)
+    price_to_book = Column(Float, nullable=True)
+    price_to_sales_ttm = Column(Float, nullable=True)
+    recommendation_key = Column(String, nullable=True)
+    recommendation_mean = Column(Float, nullable=True)
+    regular_market_change = Column(Float, nullable=True)
+    regular_market_day_high = Column(Float, nullable=True)
+    regular_market_day_low = Column(Float, nullable=True)
+    regular_market_open = Column(Float, nullable=True)
+    regular_market_previous_close = Column(Float, nullable=True)
+    shares_percent_insiders = Column(Float, nullable=True)
+    shares_percent_institutions = Column(Float, nullable=True)
+    shares_short = Column(Float, nullable=True) # Can be large
+    shares_short_prior_month = Column(Float, nullable=True) # Can be large
+    shares_short_prior_month_date = Column(DateTime, nullable=True) # Unix timestamp
+    short_percent_of_float = Column(Float, nullable=True)
+    short_ratio = Column(Float, nullable=True)
+    sma_fifty_day = Column(Float, nullable=True)
+    sma_two_hundred_day = Column(Float, nullable=True)
+    target_mean_price = Column(Float, nullable=True)
+    target_median_price = Column(Float, nullable=True)
+    trailing_pe = Column(Float, nullable=True)
+    trailing_peg_ratio = Column(Float, nullable=True)
+
+    # Financial Summary Fields (from your mapping)
+    book_value = Column(Float, nullable=True)
+    current_ratio = Column(Float, nullable=True)
+    debt_to_equity = Column(Float, nullable=True)
+    dividend_rate = Column(Float, nullable=True) # Annualized rate
+    dividend_rate_ttm = Column(Float, nullable=True) # Trailing annual rate
+    earnings_growth = Column(Float, nullable=True)
+    earnings_quarterly_growth = Column(Float, nullable=True)
+    ebitda_margin = Column(Float, nullable=True)
+    enterprise_to_ebitda = Column(Float, nullable=True)
+    enterprise_to_revenue = Column(Float, nullable=True)
+    enterprise_value = Column(Float, nullable=True) # Can be very large
+    eps_current_year = Column(Float, nullable=True)
+    gross_margin = Column(Float, nullable=True)
+    last_fiscal_year_end = Column(DateTime, nullable=True) # Unix timestamp
+    operating_margin = Column(Float, nullable=True)
+    payout_ratio = Column(Float, nullable=True)
+    profit_margin = Column(Float, nullable=True)
+    quick_ratio = Column(Float, nullable=True)
+    return_on_assets = Column(Float, nullable=True)
+    return_on_equity = Column(Float, nullable=True)
+    revenue_growth = Column(Float, nullable=True)
+    revenue_per_share = Column(Float, nullable=True)
+    shares_float = Column(Float, nullable=True) # Can be large
+    shares_outstanding = Column(Float, nullable=True) # Can be large
+    shares_outstanding_implied = Column(Float, nullable=True) # Can be large
+    total_cash_per_share = Column(Float, nullable=True)
+    eps_ttm = Column(Float, nullable=True)
+
+    # Update Timestamps
+    update_last_full = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    update_marketonly = Column(DateTime, nullable=True) # ADDED as requested
+    # update_last_price is not strictly needed here if update_last_full is updated on every upsert.
+    # If finer-grained price-only updates were happening, it would be useful.
+    # For a full upsert, update_last_full covers it.
+
+    def __repr__(self):
+        return f"<YahooTickerMasterModel(ticker='{self.ticker}', company_name='{self.company_name}')>"
+# --- End Yahoo Ticker Master Model ---
 
