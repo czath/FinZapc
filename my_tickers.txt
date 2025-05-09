@@ -1,0 +1,10 @@
+aapl
+BRK-B
+RBRK
+META
+MC.PA
+GOOG
+PZZA
+MSFT
+lvmh.pa
+orcl
