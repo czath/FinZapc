@@ -670,7 +670,53 @@ async def fetch_and_write_all_yfinance_data(
 
     logger.info(f"--- Consolidated yfinance Data Fetch Run Complete for Ticker '{ticker}' ---")
 
-async def fetch_and_process_yahoo_info(ticker_symbol: str) -> Optional[Dict[str, Any]]: # REMOVE session parameter
+async def fetch_daily_historical_data(
+    ticker_symbol: str, 
+    start_date: datetime, 
+    end_date: datetime,
+    interval: str = "1d"
+) -> Optional[pd.DataFrame]:
+    """
+    Fetches historical data (OHLCV) for a given ticker symbol between start_date and end_date
+    for the specified interval using yfinance.
+    Runs synchronous yfinance calls in a ThreadPoolExecutor.
+    """
+    logger.info(f"Fetching historical data for {ticker_symbol} from {start_date.date()} to {end_date.date()} with interval '{interval}'")
+    
+    def _sync_fetch_history(symbol: str, start: datetime, end: datetime, intrvl: str) -> Optional[pd.DataFrame]:
+        try:
+            logger.debug(f"[_sync_fetch_history] Creating yf.Ticker('{symbol}')")
+            ticker_obj = yf.Ticker(symbol)
+            
+            logger.debug(f"[_sync_fetch_history] Fetching .history(start={start.date()}, end={end.date()}, interval='{intrvl}')")
+            history_df = ticker_obj.history(start=start, end=end, interval=intrvl)
+            
+            if history_df is None or history_df.empty:
+                logger.warning(f"[_sync_fetch_history] No historical data returned for {symbol} between {start.date()} and {end.date()} for interval '{intrvl}'.")
+                return None
+            
+            logger.info(f"[_sync_fetch_history] Successfully fetched {len(history_df)} rows of historical data for {symbol}.")
+            return history_df
+        except Exception as e:
+            logger.error(f"[_sync_fetch_history] Error fetching historical data for {symbol}: {e}", exc_info=True)
+            return None
+
+    loop = asyncio.get_running_loop()
+    try:
+        historical_data_df = await loop.run_in_executor(
+            None, # Use default executor
+            _sync_fetch_history, 
+            ticker_symbol, 
+            start_date, 
+            end_date,
+            interval
+        )
+        return historical_data_df
+    except Exception as e:
+        logger.error(f"Error running _sync_fetch_history in executor for {ticker_symbol}: {e}", exc_info=True)
+        return None
+
+async def fetch_and_process_yahoo_info(ticker_symbol: str) -> Optional[Dict[str, Any]]: # REMOVE session
     """Fetches data from yfinance .info, processes/normalizes it, and returns a dictionary ready for DB/file.
        Returns None if fetching or essential processing fails.
     """
@@ -1098,9 +1144,132 @@ async def fetch_and_store_annual_balance_sheets(ticker_symbol: str, db_repo: Yah
         logger.info(f"--- Fetch & Store FINISHED for Annual Balance Sheets: {ticker_symbol} ---")
 # --- End Annual Balance Sheets ---
 
+# --- ATR Calculation Functions ---
+
+def _calculate_true_range_on_df(historical_data: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculates the True Range (TR) and adds it as a 'TR' column to the DataFrame.
+    The input DataFrame must have 'High', 'Low', 'Close' columns.
+    Note: The first row of 'TR' will be NaN due to the 'Previous Close' shift.
+    """
+    if not all(col in historical_data.columns for col in ['High', 'Low', 'Close']):
+        logger.error("[ATR_CALC] DataFrame missing required columns: High, Low, or Close.")
+        # Add an empty TR column or raise error, for now, let it proceed, subsequent ops will fail.
+        historical_data['TR'] = pd.NA 
+        return historical_data
+
+    df = historical_data.copy()
+    df['Previous Close'] = df['Close'].shift(1)
+    
+    df['H-L'] = df['High'] - df['Low']
+    df['H-PC'] = abs(df['High'] - df['Previous Close'])
+    df['L-PC'] = abs(df['Low'] - df['Previous Close'])
+    
+    # Ensure numeric types before max, handle potential NAs from shift
+    tr_components = df[['H-L', 'H-PC', 'L-PC']].apply(pd.to_numeric, errors='coerce')
+    df['TR'] = tr_components.max(axis=1)
+    
+    # Clean up temporary columns
+    df.drop(columns=['H-L', 'H-PC', 'L-PC', 'Previous Close'], inplace=True, errors='ignore')
+    return df
+
+def calculate_atr_smoothed(tr_values: pd.Series, period: int = 14) -> Optional[float]:
+    """
+    Calculates the Average True Range (ATR) using Wilder's smoothing method.
+    """
+    if not isinstance(tr_values, pd.Series):
+        logger.error(f"[ATR_CALC] Smoothed ATR: tr_values is not a Series. Type: {type(tr_values)}")
+        return None
+    if tr_values.empty or period <= 0:
+        logger.warning(f"[ATR_CALC] Smoothed ATR: TR series is empty or period is invalid (period: {period}).")
+        return None
+    if len(tr_values) < period:
+        logger.warning(f"[ATR_CALC] Smoothed ATR: Not enough TR values ({len(tr_values)}) for ATR period {period}.")
+        return None
+
+    atr = pd.Series(index=tr_values.index, dtype='float64', name='ATR_Smoothed')
+    # Initial ATR: Simple average of the first 'period' TRs
+    atr.iloc[period - 1] = tr_values.iloc[:period].mean()
+    
+    # Subsequent ATRs
+    for i in range(period, len(tr_values)):
+        atr.iloc[i] = (atr.iloc[i - 1] * (period - 1) + tr_values.iloc[i]) / period
+        
+    return atr.iloc[-1] if not atr.empty and pd.notna(atr.iloc[-1]) else None
+
+def calculate_atr_simple_average(tr_values: pd.Series, period: int = 14) -> Optional[float]:
+    """
+    Calculates the Average True Range (ATR) as a simple moving average of TR values.
+    """
+    if not isinstance(tr_values, pd.Series):
+        logger.error(f"[ATR_CALC] Simple ATR: tr_values is not a Series. Type: {type(tr_values)}")
+        return None
+    if tr_values.empty or period <= 0:
+        logger.warning(f"[ATR_CALC] Simple ATR: TR series is empty or period is invalid (period: {period}).")
+        return None
+    if len(tr_values) < period:
+        logger.warning(f"[ATR_CALC] Simple ATR: Not enough TR values ({len(tr_values)}) for ATR period {period}.")
+        return None
+        
+    last_n_trs = tr_values.iloc[-period:] # Get the last 'period' TR values
+    return last_n_trs.mean() if not last_n_trs.empty else None
+
+async def get_latest_atr( # RENAMED and SIMPLIFIED from fetch_and_calculate_atr_for_ticker
+    ticker_symbol: str, 
+    atr_period: int = 14
+) -> Optional[float]:
+    """
+    Fetches the latest historical data for a ticker, calculates True Range, 
+    and then returns the latest smoothed Average True Range (ATR) value.
+    Internally fetches a default number of calendar days (e.g., 35) to ensure sufficient data.
+    """
+    internal_calendar_days_to_fetch = 35 # Default days to fetch, ensures ~22-25 trading days
+    if atr_period > 14: # If ATR period is larger, fetch more days
+        internal_calendar_days_to_fetch = int(atr_period * 2.5) # Heuristic: 2.5x period in calendar days
+        internal_calendar_days_to_fetch = max(internal_calendar_days_to_fetch, 35) # Ensure a minimum fetch
+
+    logger.info(f"[ATR_GET] Calculating ATR({atr_period}) for {ticker_symbol}, fetching last {internal_calendar_days_to_fetch} calendar days.")
+    
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=internal_calendar_days_to_fetch)
+    
+    historical_df = await fetch_daily_historical_data(ticker_symbol, start_date, end_date)
+
+    if historical_df is None or historical_df.empty:
+        logger.warning(f"[ATR_GET] Failed to fetch historical data or no data returned for {ticker_symbol} for ATR({atr_period}).")
+        return None
+
+    if len(historical_df) < atr_period + 1: # Need at least period + 1 days for first TR calculation
+        logger.warning(f"[ATR_GET] Insufficient trading days ({len(historical_df)}) fetched for {ticker_symbol} to calculate ATR({atr_period}). Needs at least {atr_period + 1} days.")
+        return None
+        
+    logger.debug(f"[ATR_GET] Fetched {len(historical_df)} trading days for {ticker_symbol} for ATR({atr_period}). Last date: {historical_df.index[-1].strftime('%Y-%m-%d')}")
+
+    # Calculate TR
+    df_with_tr = _calculate_true_range_on_df(historical_df)
+    tr_series = df_with_tr['TR'].dropna() # Drop first NaN from shift
+    
+    if len(tr_series) < atr_period:
+        logger.warning(f"[ATR_GET] Not enough TR values ({len(tr_series)}) after calculation for {ticker_symbol} to calculate ATR({atr_period}). Needs at least {atr_period} TR values.")
+        return None
+
+    logger.debug(f"[ATR_GET] Calculated {len(tr_series)} TR values for {ticker_symbol} for ATR({atr_period}).")
+
+    # Calculate Smoothed ATR
+    atr_value = calculate_atr_smoothed(tr_series, atr_period)
+    
+    if atr_value is not None:
+        logger.info(f"[ATR_GET] Calculated ATR({atr_period}) for {ticker_symbol}: {atr_value:.4f}")
+    else:
+        logger.warning(f"[ATR_GET] Smoothed ATR calculation returned None for {ticker_symbol}, period {atr_period}.")
+        
+    return atr_value
+
+# --- End ATR Calculation Functions ---
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="Fetch Yahoo Finance data and update the master DB (full or market-only) or upsert analyst summary.", # Updated description
+        description="Fetch Yahoo Finance data, update DB, or calculate ATR.", # Description remains similar
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
@@ -1112,12 +1281,25 @@ if __name__ == '__main__':
     parser.add_argument(
         "--update-mode",
         default="full",
-        choices=['full', 'fast', 'upsert_analyst_summary', 'store_annual_bs'], # ADDED new mode
-        help="Specify the update type: 'full' (fetches .info, updates DB, writes file), 'fast' (fetches .info, updates market fields in DB only), 'upsert_analyst_summary' (fetches .info analyst summary and upserts to DB), or 'store_annual_bs' (fetches and stores annual balance sheets)." # UPDATED help
+        choices=['full', 'fast', 'upsert_analyst_summary', 'store_annual_bs', 'test_fetch_historical', 'calculate_atr'], 
+        help="Specify the operation: 'full' (DB update), 'fast' (market DB update), 'upsert_analyst_summary' (DB), 'store_annual_bs' (DB), 'test_fetch_historical' (console output), or 'calculate_atr' (calculate and print latest ATR value)." # UPDATED help for calculate_atr
     )
+    parser.add_argument(
+        "--start-date",
+        help="Start date for historical data fetch (YYYY-MM-DD). Required if --update-mode is 'test_fetch_historical'."
+    )
+    parser.add_argument(
+        "--end-date",
+        help="End date for historical data fetch (YYYY-MM-DD). Required if --update-mode is 'test_fetch_historical'."
+    )
+    parser.add_argument(
+        "--atr-period",
+        type=int,
+        default=14,
+        help="Period for ATR calculation (e.g., 14). Used with --update-mode calculate_atr."
+    )
+    # REMOVED --atr-days-fetch argument
     # REMOVED --task argument
-    # REMOVED --output-file argument
-    # REMOVED --db-path argument (will use hardcoded default)
     parser.add_argument(
         "--log-level", 
         default="INFO", 
@@ -1179,20 +1361,19 @@ if __name__ == '__main__':
     # # # --- End Session Instantiation --- 
 
     # --- Main Async Task Definition --- 
-    async def main_task(ticker: str, update_mode: str): 
-        logger.info(f"Starting main task for ticker '{ticker}' with mode '{update_mode}'")
+    async def main_task(cli_args: argparse.Namespace): # MODIFIED to accept cli_args
+        logger.info(f"Starting main task for ticker '{cli_args.ticker}' with mode '{cli_args.update_mode}'")
         try:
             # Ensure DB tables exist (common for modes needing DB)
-            if update_mode in ['full', 'fast', 'upsert_analyst_summary', 'store_annual_bs']: # ADDED new mode
+            if cli_args.update_mode in ['full', 'fast', 'upsert_analyst_summary', 'store_annual_bs']: # ADDED new mode
                 logger.info("Ensuring database tables exist...")
                 await db_repo.create_tables()
                 logger.info("Database tables checked/created.")
-            else:
-                logger.info("Simulation mode: Skipping DB table check.")
+            # Removed 'else' simulation mode log to avoid confusion with test_fetch_historical
 
-            if update_mode == 'full':
+            if cli_args.update_mode == 'full':
                 # Fetch and process data
-                processed_data = await fetch_and_process_yahoo_info(ticker) # REMOVE session
+                processed_data = await fetch_and_process_yahoo_info(cli_args.ticker) # REMOVE session
 
                 if processed_data:
                     # Write to file (only for full update)
@@ -1209,29 +1390,79 @@ if __name__ == '__main__':
 
                     # REMOVED call to update market data - full mode does full update
                 else:
-                    logger.error(f"Failed to fetch or process data for {ticker} in 'full' mode. No DB update or file write performed.")
+                    logger.error(f"Failed to fetch or process data for {cli_args.ticker} in 'full' mode. No DB update or file write performed.")
             
-            elif update_mode == 'fast':
+            elif cli_args.update_mode == 'fast':
                 # Only update specific market data
-                await update_ticker_master_market_data(ticker, db_repo) # REMOVE session
+                await update_ticker_master_market_data(cli_args.ticker, db_repo) # REMOVE session
                 # Success/failure message logged inside function
             
             # --- UPDATED/NEW MODE ---    
-            elif update_mode == 'upsert_analyst_summary':
-                logger.info(f"Running Analyst Price Targets Summary Upsert for: {ticker}")
-                await fetch_and_upsert_analyst_targets_summary(ticker, db_repo)
+            elif cli_args.update_mode == 'upsert_analyst_summary':
+                logger.info(f"Running Analyst Price Targets Summary Upsert for: {cli_args.ticker}")
+                await fetch_and_upsert_analyst_targets_summary(cli_args.ticker, db_repo)
             
-            elif update_mode == 'store_annual_bs': # ADDED new mode block
-                logger.info(f"Running Annual Balance Sheet Storage for: {ticker}")
-                await fetch_and_store_annual_balance_sheets(ticker, db_repo)
+            elif cli_args.update_mode == 'store_annual_bs': # ADDED new mode block
+                logger.info(f"Running Annual Balance Sheet Storage for: {cli_args.ticker}")
+                await fetch_and_store_annual_balance_sheets(cli_args.ticker, db_repo)
+            
+            elif cli_args.update_mode == 'test_fetch_historical':
+                logger.info(f"Running Historical Data Fetch Test for: {cli_args.ticker}")
+                if not cli_args.start_date or not cli_args.end_date:
+                    logger.error("For 'test_fetch_historical' mode, --start-date and --end-date are required.")
+                    print("\nERROR: --start-date and --end-date are required for this mode. Use YYYY-MM-DD format.\n")
+                    return
+
+                try:
+                    start_dt = datetime.strptime(cli_args.start_date, "%Y-%m-%d")
+                    end_dt = datetime.strptime(cli_args.end_date, "%Y-%m-%d")
+                except ValueError:
+                    logger.error("Invalid date format for --start-date or --end-date. Please use YYYY-MM-DD.")
+                    print("\nERROR: Invalid date format. Please use YYYY-MM-DD for --start-date and --end-date.\n")
+                    return
+                
+                # Default interval is "1d" in the function itself
+                historical_df = await fetch_daily_historical_data(cli_args.ticker, start_dt, end_dt)
+
+                if historical_df is not None and not historical_df.empty:
+                    print("\n--- Fetched Historical Data ---")
+                    print(f"Ticker: {cli_args.ticker}, From: {cli_args.start_date}, To: {cli_args.end_date}")
+                    print(historical_df.to_string())
+                    print("-----------------------------\n")
+                elif historical_df is not None and historical_df.empty: # DataFrame exists but is empty
+                    print("\n--- Fetched Historical Data ---")
+                    print(f"Ticker: {cli_args.ticker}, From: {cli_args.start_date}, To: {cli_args.end_date}")
+                    print("No data found for the given ticker and date range (DataFrame is empty).")
+                    print("Make sure the dates are correct and the market was open (e.g., avoid fetching for a future end_date without data).")
+                    print("-----------------------------\n")
+                else: # Function returned None (likely an error during fetch)
+                    print("\n--- Fetched Historical Data ---")
+                    print(f"Ticker: {cli_args.ticker}, From: {cli_args.start_date}, To: {cli_args.end_date}")
+                    print("Failed to fetch historical data or no data available. Check logs for details.")
+                    print("-----------------------------\n")
+            
+            elif cli_args.update_mode == 'calculate_atr':
+                logger.info(f"Running ATR Calculation for: {cli_args.ticker}, Period: {cli_args.atr_period}")
+                latest_atr_value = await get_latest_atr( # CALLING THE NEW FUNCTION
+                    cli_args.ticker, 
+                    cli_args.atr_period
+                )
+                print("\n--- ATR Calculation Result ---")
+                print(f"  Ticker: {cli_args.ticker}")
+                print(f"  ATR Period: {cli_args.atr_period}")
+                if latest_atr_value is not None:
+                    print(f"  Latest ATR ({cli_args.atr_period}): {latest_atr_value:.4f}") # Format to 4 decimal places
+                else:
+                    print(f"  Latest ATR ({cli_args.atr_period}): Not available (calculation failed or insufficient data)")
+                print("-----------------------------\n")
             # --- END UPDATED/NEW MODE ---
 
         except Exception as e:
-            logger.error(f"An error occurred in the main task for {ticker} (mode: {update_mode}): {e}", exc_info=True)
+            logger.error(f"An error occurred in the main task for {cli_args.ticker} (mode: {cli_args.update_mode}): {e}", exc_info=True)
         finally:
-            logger.info(f"Main task finished for ticker '{ticker}' (mode: {update_mode})")
+            logger.info(f"Main task finished for ticker '{cli_args.ticker}' (mode: {cli_args.update_mode})")
     # --- End Main Async Task --- 
 
     # --- Run Main Task --- 
-    asyncio.run(main_task(args.ticker, args.update_mode)) # REMOVE session
+    asyncio.run(main_task(args)) # MODIFIED to pass args
     # --- End Run --- 

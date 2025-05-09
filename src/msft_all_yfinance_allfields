@@ -1,0 +1,2309 @@
+# Consolidated yfinance Data for Ticker: MSFT
+# Fetched around: 2025-05-07T16:18:35.152590 UTC
+================================================================================
+
+--- PROFILE INFO ---
+  Source: .info
+    Data:
+    { '52WeekChange': 0.055463552,
+      'SandP52WeekChange': 0.08081472,
+      'address1': 'One Microsoft Way',
+      'ask': 435.3,
+      'askSize': 1,
+      'auditRisk': 9,
+      'averageAnalystRating': '1.4 - Strong Buy',
+      'averageDailyVolume10Day': 25464750,
+      'averageDailyVolume3Month': 25172676,
+      'averageVolume': 25172676,
+      'averageVolume10days': 25464750,
+      'beta': 0.985,
+      'bid': 433.25,
+      'bidSize': 4,
+      'boardRisk': 5,
+      'bookValue': 43.3,
+      'city': 'Redmond',
+      'companyOfficers': [ { 'age': 57,
+                             'exercisedValue': 0,
+                             'fiscalYear': 2024,
+                             'maxAge': 1,
+                             'name': 'Mr. Satya  Nadella',
+                             'title': 'Chairman & CEO',
+                             'totalPay': 7869791,
+                             'unexercisedValue': 0,
+                             'yearBorn': 1967},
+                           { 'age': 65,
+                             'exercisedValue': 0,
+                             'fiscalYear': 2024,
+                             'maxAge': 1,
+                             'name': 'Mr. Bradford L. Smith LCA',
+                             'title': 'President & Vice Chairman',
+                             'totalPay': 4755618,
+                             'unexercisedValue': 0,
+                             'yearBorn': 1959},
+                           { 'age': 52,
+                             'exercisedValue': 0,
+                             'fiscalYear': 2024,
+                             'maxAge': 1,
+                             'name': 'Ms. Amy E. Hood',
+                             'title': 'Executive VP & CFO',
+                             'totalPay': 4704250,
+                             'unexercisedValue': 0,
+                             'yearBorn': 1972},
+                           { 'age': 50,
+                             'exercisedValue': 0,
+                             'fiscalYear': 2024,
+                             'maxAge': 1,
+                             'name': 'Mr. Judson B. Althoff',
+                             'title': 'Executive VP & Chief Commercial Officer',
+                             'totalPay': 4534974,
+                             'unexercisedValue': 0,
+                             'yearBorn': 1974},
+                           { 'age': 52,
+                             'exercisedValue': 0,
+                             'fiscalYear': 2024,
+                             'maxAge': 1,
+                             'name': 'Ms. Carolina  Dybeck Happe',
+                             'title': 'Executive VP & COO',
+                             'unexercisedValue': 0,
+                             'yearBorn': 1972},
+                           { 'age': 58,
+                             'exercisedValue': 0,
+                             'fiscalYear': 2024,
+                             'maxAge': 1,
+                             'name': 'Ms. Alice L. Jolla',
+                             'title': 'Corporate VP & Chief Accounting Officer',
+                             'unexercisedValue': 0,
+                             'yearBorn': 1966},
+                           { 'exercisedValue': 0,
+                             'fiscalYear': 2024,
+                             'maxAge': 1,
+                             'name': 'Mr. Hossein  Nowbar',
+                             'title': 'Chief Legal Officer',
+                             'unexercisedValue': 0},
+                           { 'exercisedValue': 0,
+                             'fiscalYear': 2024,
+                             'maxAge': 1,
+                             'name': 'Mr. Frank X. Shaw',
+                             'title': 'Chief Communications Officer',
+                             'unexercisedValue': 0},
+                           { 'age': 53,
+                             'exercisedValue': 0,
+                             'fiscalYear': 2024,
+                             'maxAge': 1,
+                             'name': 'Mr. Takeshi  Numoto',
+                             'title': 'Executive VP & Chief Marketing Officer',
+                             'unexercisedValue': 0,
+                             'yearBorn': 1971},
+                           { 'exercisedValue': 0,
+                             'fiscalYear': 2024,
+                             'maxAge': 1,
+                             'name': 'Mr. Keith Ranger Dolliver Esq.',
+                             'title': 'VP, Deputy General Counsel of Corporate, External & Legal '
+                                      'Affairs and Secretary',
+                             'unexercisedValue': 0}],
+      'compensationAsOfEpochDate': 1735603200,
+      'compensationRisk': 4,
+      'corporateActions': [ { 'header': 'Dividend',
+                              'message': 'MSFT announced a cash dividend of 0.83 with an ex-date of '
+                                         'May. 15, 2025',
+                              'meta': { 'amount': '0.83',
+                                        'dateEpochMs': 1747281600000,
+                                        'eventType': 'DIVIDEND'}}],
+      'country': 'United States',
+      'cryptoTradeable': False,
+      'currency': 'USD',
+      'currentPrice': 434.28,
+      'currentRatio': 1.372,
+      'customPriceAlertConfidence': 'HIGH',
+      'dateShortInterest': 1744675200,
+      'dayHigh': 435.71,
+      'dayLow': 431.1103,
+      'debtToEquity': 32.626,
+      'displayName': 'Microsoft',
+      'dividendDate': 1749686400,
+      'dividendRate': 3.32,
+      'dividendYield': 0.77,
+      'earningsCallTimestampEnd': 1746048600,
+      'earningsCallTimestampStart': 1746048600,
+      'earningsGrowth': 0.177,
+      'earningsQuarterlyGrowth': 0.177,
+      'earningsTimestamp': 1746043200,
+      'earningsTimestampEnd': 1754078400,
+      'earningsTimestampStart': 1753732800,
+      'ebitda': 149172994048,
+      'ebitdaMargins': 0.55247,
+      'enterpriseToEbitda': 21.76,
+      'enterpriseToRevenue': 12.022,
+      'enterpriseValue': 3245996507136,
+      'epsCurrentYear': 13.42098,
+      'epsForward': 14.95,
+      'epsTrailingTwelveMonths': 12.96,
+      'esgPopulated': False,
+      'exDividendDate': 1747267200,
+      'exchange': 'NMS',
+      'exchangeDataDelayedBy': 0,
+      'exchangeTimezoneName': 'America/New_York',
+      'exchangeTimezoneShortName': 'EDT',
+      'executiveTeam': [],
+      'fiftyDayAverage': 388.0164,
+      'fiftyDayAverageChange': 46.26361,
+      'fiftyDayAverageChangePercent': 0.119231075,
+      'fiftyTwoWeekChangePercent': 5.5463552,
+      'fiftyTwoWeekHigh': 468.35,
+      'fiftyTwoWeekHighChange': -34.070007,
+      'fiftyTwoWeekHighChangePercent': -0.07274476,
+      'fiftyTwoWeekLow': 344.79,
+      'fiftyTwoWeekLowChange': 89.48999,
+      'fiftyTwoWeekLowChangePercent': 0.25954926,
+      'fiftyTwoWeekRange': '344.79 - 468.35',
+      'financialCurrency': 'USD',
+      'firstTradeDateMilliseconds': 511108200000,
+      'fiveYearAvgDividendYield': 0.84,
+      'floatShares': 7422063978,
+      'forwardEps': 14.95,
+      'forwardPE': 29.04883,
+      'freeCashflow': 54817001472,
+      'fullExchangeName': 'NasdaqGS',
+      'fullTimeEmployees': 228000,
+      'gmtOffSetMilliseconds': -14400000,
+      'governanceEpochDate': 1746057600,
+      'grossMargins': 0.69074994,
+      'grossProfits': 186509000704,
+      'hasPrePostMarketData': True,
+      'heldPercentInsiders': 0.00063,
+      'heldPercentInstitutions': 0.74359,
+      'impliedSharesOutstanding': 7481600000,
+      'industry': 'Software - Infrastructure',
+      'industryDisp': 'Software - Infrastructure',
+      'industryKey': 'software-infrastructure',
+      'irWebsite': 'http://www.microsoft.com/investor/default.aspx',
+      'isEarningsDateEstimate': True,
+      'language': 'en-US',
+      'lastDividendDate': 1740009600,
+      'lastDividendValue': 0.83,
+      'lastFiscalYearEnd': 1719705600,
+      'lastSplitDate': 1045526400,
+      'lastSplitFactor': '2:1',
+      'longBusinessSummary': 'Microsoft Corporation develops and supports software, services, devices '
+                             'and solutions worldwide. The Productivity and Business Processes segment '
+                             'offers office, exchange, SharePoint, Microsoft Teams, office 365 '
+                             'Security and Compliance, Microsoft viva, and Microsoft 365 copilot; and '
+                             'office consumer services, such as Microsoft 365 consumer subscriptions, '
+                             'Office licensed on-premises, and other office services. This segment '
+                             'also provides LinkedIn; and dynamics business solutions, including '
+                             'Dynamics 365, a set of intelligent, cloud-based applications across ERP, '
+                             'CRM, power apps, and power automate; and on-premises ERP and CRM '
+                             'applications. The Intelligent Cloud segment offers server products and '
+                             'cloud services, such as azure and other cloud services; SQL and windows '
+                             'server, visual studio, system center, and related client access '
+                             'licenses, as well as nuance and GitHub; and enterprise services '
+                             'including enterprise support services, industry solutions, and nuance '
+                             'professional services. The More Personal Computing segment offers '
+                             'Windows, including windows OEM licensing and other non-volume licensing '
+                             'of the Windows operating system; Windows commercial comprising volume '
+                             'licensing of the Windows operating system, windows cloud services, and '
+                             'other Windows commercial offerings; patent licensing; and windows '
+                             'Internet of Things; and devices, such as surface, HoloLens, and PC '
+                             'accessories. Additionally, this segment provides gaming, which includes '
+                             'Xbox hardware and content, and first- and third-party content; Xbox game '
+                             'pass and other subscriptions, cloud gaming, advertising, third-party '
+                             'disc royalties, and other cloud services; and search and news '
+                             'advertising, which includes Bing, Microsoft News and Edge, and '
+                             'third-party affiliates. The company sells its products through OEMs, '
+                             'distributors, and resellers; and directly through digital marketplaces, '
+                             'online, and retail stores. The company was founded in 1975 and is '
+                             'headquartered in Redmond, Washington.',
+      'longName': 'Microsoft Corporation',
+      'market': 'us_market',
+      'marketCap': 3227803451392,
+      'marketState': 'REGULAR',
+      'maxAge': 86400,
+      'messageBoardId': 'finmb_21835',
+      'mostRecentQuarter': 1743379200,
+      'netIncomeToCommon': 96635002880,
+      'nextFiscalYearEnd': 1751241600,
+      'numberOfAnalystOpinions': 52,
+      'open': 433.84,
+      'operatingCashflow': 130710003712,
+      'operatingMargins': 0.45671,
+      'overallRisk': 3,
+      'payoutRatio': 0.2442,
+      'phone': '425 882 8080',
+      'previousClose': 433.31,
+      'priceEpsCurrentYear': 32.35829,
+      'priceHint': 2,
+      'priceToBook': 10.029561,
+      'priceToSalesTrailing12Months': 11.954385,
+      'profitMargins': 0.35789,
+      'quickRatio': 1.244,
+      'quoteSourceName': 'Nasdaq Real Time Price',
+      'quoteType': 'EQUITY',
+      'recommendationKey': 'strong_buy',
+      'recommendationMean': 1.41667,
+      'region': 'US',
+      'regularMarketChange': 0.9700012,
+      'regularMarketChangePercent': 0.22385849,
+      'regularMarketDayHigh': 435.71,
+      'regularMarketDayLow': 431.1103,
+      'regularMarketDayRange': '431.1103 - 435.71',
+      'regularMarketOpen': 433.84,
+      'regularMarketPreviousClose': 433.31,
+      'regularMarketPrice': 434.28,
+      'regularMarketTime': 1746634689,
+      'regularMarketVolume': 7393763,
+      'returnOnAssets': 0.14581999,
+      'returnOnEquity': 0.3361,
+      'revenueGrowth': 0.133,
+      'revenuePerShare': 36.325,
+      'sector': 'Technology',
+      'sectorDisp': 'Technology',
+      'sectorKey': 'technology',
+      'shareHolderRightsRisk': 2,
+      'sharesOutstanding': 7432540160,
+      'sharesPercentSharesOut': 0.0069,
+      'sharesShort': 51249494,
+      'sharesShortPreviousMonthDate': 1741910400,
+      'sharesShortPriorMonth': 64256703,
+      'shortName': 'Microsoft Corporation',
+      'shortPercentOfFloat': 0.0069,
+      'shortRatio': 1.9,
+      'sourceInterval': 15,
+      'state': 'WA',
+      'symbol': 'MSFT',
+      'targetHighPrice': 650.0,
+      'targetLowPrice': 429.86,
+      'targetMeanPrice': 505.93405,
+      'targetMedianPrice': 500.0,
+      'totalCash': 79617998848,
+      'totalCashPerShare': 10.712,
+      'totalDebt': 105018998784,
+      'totalRevenue': 270010007552,
+      'tradeable': False,
+      'trailingAnnualDividendRate': 3.24,
+      'trailingAnnualDividendYield': 0.007477326,
+      'trailingEps': 12.96,
+      'trailingPE': 33.50926,
+      'trailingPegRatio': 2.0323,
+      'triggerable': True,
+      'twoHundredDayAverage': 414.1095,
+      'twoHundredDayAverageChange': 20.170502,
+      'twoHundredDayAverageChangePercent': 0.048708137,
+      'typeDisp': 'Equity',
+      'volume': 7393763,
+      'website': 'https://www.microsoft.com',
+      'zip': '98052-6399'}
+-
+
+--- ANALYST PRICE TARGETS ---
+  Source: .analyst_price_targets
+    Data:
+    {'current': 434.28, 'high': 650.0, 'low': 429.86, 'mean': 505.93405, 'median': 500.0}
+-
+
+--- FINANCIALS ---
+
+  --- ANNUAL BALANCE SHEET ---
+    Source: balance_sheet
+    Data:
+                                                                  2024-06-30      2023-06-30      2022-06-30      2021-06-30
+      Ordinary Shares Number                                    7434138859.0    7432000000.0    7464000000.0    7519000000.0
+      Share Issued                                              7434138859.0    7432000000.0    7464000000.0    7519000000.0
+      Net Debt                                                 33315000000.0   12533000000.0   35850000000.0   43922000000.0
+      Total Debt                                               67127000000.0   59965000000.0   61270000000.0   67775000000.0
+      Tangible Book Value                                     121660000000.0  128971000000.0   87720000000.0   84477000000.0
+      Invested Capital                                        320107000000.0  253460000000.0  216323000000.0  200134000000.0
+      Working Capital                                          34448000000.0   80108000000.0   74602000000.0   95749000000.0
+      Net Tangible Assets                                     121660000000.0  128971000000.0   87720000000.0   84477000000.0
+      Capital Lease Obligations                                15497000000.0   12728000000.0   11489000000.0    9629000000.0
+      Common Stock Equity                                     268477000000.0  206223000000.0  166542000000.0  141988000000.0
+      Total Capitalization                                    311165000000.0  248213000000.0  213574000000.0  192062000000.0
+      Total Equity Gross Minority Interest                    268477000000.0  206223000000.0  166542000000.0  141988000000.0
+      Stockholders Equity                                     268477000000.0  206223000000.0  166542000000.0  141988000000.0
+      Gains Losses Not Affecting Retained Earnings             -5590000000.0   -6343000000.0   -4678000000.0    1822000000.0
+      Other Equity Adjustments                                 -5590000000.0   -6343000000.0   -4678000000.0    1822000000.0
+      Retained Earnings                                       173144000000.0  118848000000.0   84281000000.0   57055000000.0
+      Capital Stock                                           100923000000.0   93718000000.0   86939000000.0   83111000000.0
+      Common Stock                                            100923000000.0   93718000000.0   86939000000.0   83111000000.0
+      Total Liabilities Net Minority Interest                 243686000000.0  205753000000.0  198298000000.0  191791000000.0
+      Total Non Current Liabilities Net Minority Interest     118400000000.0  101604000000.0  103216000000.0  103134000000.0
+      Other Non Current Liabilities                            27064000000.0   17981000000.0   15526000000.0   13427000000.0
+      Tradeand Other Payables Non Current                      27931000000.0   25560000000.0   26069000000.0   27190000000.0
+      Non Current Deferred Liabilities                          5220000000.0    3345000000.0    3100000000.0    2814000000.0
+      Non Current Deferred Revenue                              2602000000.0    2912000000.0    2870000000.0    2616000000.0
+      Non Current Deferred Taxes Liabilities                    2618000000.0     433000000.0     230000000.0     198000000.0
+      Long Term Debt And Capital Lease Obligation              58185000000.0   54718000000.0   58521000000.0   59703000000.0
+      Long Term Capital Lease Obligation                       15497000000.0   12728000000.0   11489000000.0    9629000000.0
+      Long Term Debt                                           42688000000.0   41990000000.0   47032000000.0   50074000000.0
+      Current Liabilities                                     125286000000.0  104149000000.0   95082000000.0   88657000000.0
+      Other Current Liabilities                                19185000000.0   14745000000.0   13067000000.0   11666000000.0
+      Current Deferred Liabilities                             57582000000.0   50901000000.0   45538000000.0   41525000000.0
+      Current Deferred Revenue                                 57582000000.0   50901000000.0   45538000000.0   41525000000.0
+      Current Debt And Capital Lease Obligation                 8942000000.0    5247000000.0    2749000000.0    8072000000.0
+      Current Debt                                              8942000000.0    5247000000.0    2749000000.0    8072000000.0
+      Other Current Borrowings                                  2249000000.0    5247000000.0             NaN             NaN
+      Commercial Paper                                          6693000000.0             0.0             NaN             NaN
+      Pensionand Other Post Retirement Benefit Plans Current   12564000000.0   11009000000.0   10661000000.0   10057000000.0
+      Payables And Accrued Expenses                            27013000000.0   22247000000.0   23067000000.0   17337000000.0
+      Payables                                                 27013000000.0   22247000000.0   23067000000.0   17337000000.0
+      Total Tax Payable                                         5017000000.0    4152000000.0    4067000000.0    2174000000.0
+      Income Tax Payable                                        5017000000.0    4152000000.0    4067000000.0    2174000000.0
+      Accounts Payable                                         21996000000.0   18095000000.0   19000000000.0   15163000000.0
+      Total Assets                                            512163000000.0  411976000000.0  364840000000.0  333779000000.0
+      Total Non Current Assets                                352429000000.0  227719000000.0  195156000000.0  149373000000.0
+      Other Non Current Assets                                 36460000000.0   30601000000.0   21897000000.0   15075000000.0
+      Financial Assets                                                   0.0             0.0             0.0             0.0
+      Investments And Advances                                 14600000000.0    9879000000.0    6891000000.0    5984000000.0
+      Investmentin Financial Assets                             1500000000.0             0.0             0.0             0.0
+      Available For Sale Securities                             1500000000.0             NaN             NaN             NaN
+      Long Term Equity Investment                              13100000000.0    9879000000.0    6891000000.0    5984000000.0
+      Goodwill And Other Intangible Assets                    146817000000.0   77252000000.0   78822000000.0   57511000000.0
+      Other Intangible Assets                                  27597000000.0    9366000000.0   11298000000.0    7800000000.0
+      Goodwill                                                119220000000.0   67886000000.0   67524000000.0   49711000000.0
+      Net PPE                                                 154552000000.0  109987000000.0   87546000000.0   70803000000.0
+      Accumulated Depreciation                                -76421000000.0  -68251000000.0  -59660000000.0  -51351000000.0
+      Gross PPE                                               230973000000.0  178238000000.0  147206000000.0  122154000000.0
+      Leases                                                    9594000000.0    8537000000.0    7819000000.0    6884000000.0
+      Other Properties                                         18961000000.0   14346000000.0   13148000000.0   11088000000.0
+      Machinery Furniture Equipment                           100312000000.0   81207000000.0   66491000000.0   56594000000.0
+      Buildings And Improvements                               93943000000.0   68465000000.0   55014000000.0   43928000000.0
+      Land And Improvements                                     8163000000.0    5683000000.0    4734000000.0    3660000000.0
+      Properties                                                         0.0             0.0             0.0             0.0
+      Current Assets                                          159734000000.0  184257000000.0  169684000000.0  184406000000.0
+      Other Current Assets                                     26021000000.0   21807000000.0   16924000000.0   13393000000.0
+      Hedging Assets Current                                      12000000.0       6000000.0       8000000.0      78000000.0
+      Inventory                                                 1246000000.0    2500000000.0    3742000000.0    2636000000.0
+      Finished Goods                                             845000000.0    1768000000.0    2516000000.0    1367000000.0
+      Work In Process                                              7000000.0      23000000.0      82000000.0      79000000.0
+      Raw Materials                                              394000000.0     709000000.0    1144000000.0    1190000000.0
+      Receivables                                              56924000000.0   48688000000.0   44261000000.0   38043000000.0
+      Accounts Receivable                                      56924000000.0   48688000000.0   44261000000.0   38043000000.0
+      Allowance For Doubtful Accounts Receivable                -830000000.0    -650000000.0    -633000000.0    -751000000.0
+      Gross Accounts Receivable                                57754000000.0   49338000000.0   44894000000.0   38794000000.0
+      Cash Cash Equivalents And Short Term Investments         75531000000.0  111256000000.0  104749000000.0  130256000000.0
+      Other Short Term Investments                             57216000000.0   76552000000.0   90818000000.0  116032000000.0
+      Cash And Cash Equivalents                                18315000000.0   34704000000.0   13931000000.0   14224000000.0
+      Cash Equivalents                                          6744000000.0   26226000000.0    5673000000.0    6952000000.0
+      Cash Financial                                           11571000000.0    8478000000.0    8258000000.0    7272000000.0
+
+  --- QUARTERLY BALANCE SHEET ---
+    Source: quarterly_balance_sheet
+    Data:
+                                                                  2025-03-31      2024-12-31      2024-09-30      2024-06-30      2024-03-31
+      Ordinary Shares Number                                    7433982235.0    7435256940.0    7436000000.0    7434138859.0    7432305794.0
+      Share Issued                                              7433982235.0    7435256940.0    7436000000.0    7434138859.0    7432305794.0
+      Net Debt                                                 14053000000.0   27488000000.0   24277000000.0   33315000000.0   45808000000.0
+      Total Debt                                               60567000000.0   62224000000.0   61478000000.0   67127000000.0   79911000000.0
+      Tangible Book Value                                     178594000000.0  158119000000.0  141598000000.0  121660000000.0  105161000000.0
+      Invested Capital                                        364772000000.0  347665000000.0  332840000000.0  320107000000.0  318594000000.0
+      Working Capital                                          42438000000.0   38198000000.0   34726000000.0   34448000000.0   28655000000.0
+      Net Tangible Assets                                     178594000000.0  158119000000.0  141598000000.0  121660000000.0  105161000000.0
+      Capital Lease Obligations                                17686000000.0   17254000000.0   16361000000.0   15497000000.0   14469000000.0
+      Common Stock Equity                                     321891000000.0  302695000000.0  287723000000.0  268477000000.0  253152000000.0
+      Total Capitalization                                    361773000000.0  342417000000.0  330591000000.0  311165000000.0  295810000000.0
+      Total Equity Gross Minority Interest                    321891000000.0  302695000000.0  287723000000.0  268477000000.0  253152000000.0
+      Stockholders Equity                                     321891000000.0  302695000000.0  287723000000.0  268477000000.0  253152000000.0
+      Gains Losses Not Affecting Retained Earnings             -4833000000.0   -5616000000.0   -4182000000.0   -5590000000.0   -5435000000.0
+      Other Equity Adjustments                                 -4833000000.0   -5616000000.0   -4182000000.0   -5590000000.0   -5435000000.0
+      Retained Earnings                                       219759000000.0  203482000000.0  188929000000.0  173144000000.0  159394000000.0
+      Capital Stock                                           106965000000.0  104829000000.0  102976000000.0  100923000000.0   99193000000.0
+      Common Stock                                            106965000000.0  104829000000.0  102976000000.0  100923000000.0   99193000000.0
+      Total Liabilities Net Minority Interest                 240733000000.0  231203000000.0  235290000000.0  243686000000.0  231123000000.0
+      Total Non Current Liabilities Net Minority Interest     126527000000.0  122321000000.0  120090000000.0  118400000000.0  112598000000.0
+      Other Non Current Liabilities                            38536000000.0   35906000000.0   31165000000.0   27064000000.0   23271000000.0
+      Tradeand Other Payables Non Current                      25061000000.0   24389000000.0   24452000000.0   27931000000.0   26786000000.0
+      Non Current Deferred Liabilities                          5362000000.0    5050000000.0    5244000000.0    5220000000.0    5414000000.0
+      Non Current Deferred Revenue                              2840000000.0    2537000000.0    2663000000.0    2602000000.0    2945000000.0
+      Non Current Deferred Taxes Liabilities                    2522000000.0    2513000000.0    2581000000.0    2618000000.0    2469000000.0
+      Long Term Debt And Capital Lease Obligation              57568000000.0   56976000000.0   59229000000.0   58185000000.0   57127000000.0
+      Long Term Capital Lease Obligation                       17686000000.0   17254000000.0   16361000000.0   15497000000.0   14469000000.0
+      Long Term Debt                                           39882000000.0   39722000000.0   42868000000.0   42688000000.0   42658000000.0
+      Current Liabilities                                     114206000000.0  108882000000.0  115200000000.0  125286000000.0  118525000000.0
+      Other Current Liabilities                                22937000000.0   20286000000.0   19114000000.0   19185000000.0   18023000000.0
+      Current Deferred Liabilities                             44636000000.0   45508000000.0   53026000000.0   57582000000.0   41888000000.0
+      Current Deferred Revenue                                 44636000000.0   45508000000.0   53026000000.0   57582000000.0   41888000000.0
+      Current Debt And Capital Lease Obligation                 2999000000.0    5248000000.0    2249000000.0    8942000000.0   22784000000.0
+      Current Debt                                              2999000000.0    5248000000.0    2249000000.0    8942000000.0   22784000000.0
+      Other Current Borrowings                                  2999000000.0    5248000000.0    2249000000.0    2249000000.0    2249000000.0
+      Commercial Paper                                                   0.0             0.0             0.0    6693000000.0   20535000000.0
+      Pensionand Other Post Retirement Benefit Plans Current   10579000000.0    9176000000.0    8326000000.0   12564000000.0   10432000000.0
+      Payables And Accrued Expenses                            33055000000.0   28664000000.0   32485000000.0   27013000000.0   25398000000.0
+      Payables                                                 33055000000.0   28664000000.0   32485000000.0   27013000000.0   25398000000.0
+      Total Tax Payable                                         6805000000.0    6056000000.0    9717000000.0    5017000000.0    7311000000.0
+      Income Tax Payable                                        6805000000.0    6056000000.0    9717000000.0    5017000000.0    7311000000.0
+      Accounts Payable                                         26250000000.0   22608000000.0   22768000000.0   21996000000.0   18087000000.0
+      Total Assets                                            562624000000.0  533898000000.0  523013000000.0  512163000000.0  484275000000.0
+      Total Non Current Assets                                405980000000.0  386818000000.0  373087000000.0  352429000000.0  337095000000.0
+      Other Non Current Assets                                 38234000000.0   36943000000.0   37793000000.0   36460000000.0   35551000000.0
+      Financial Assets                                           273000000.0             0.0             0.0             0.0             0.0
+      Investments And Advances                                 15762000000.0   15581000000.0   15778000000.0   14600000000.0   14807000000.0
+      Investmentin Financial Assets                             2275000000.0    2277000000.0    1500000000.0    1500000000.0    1500000000.0
+      Available For Sale Securities                             2275000000.0    2277000000.0    1500000000.0    1500000000.0    1500000000.0
+      Long Term Equity Investment                              13487000000.0   13304000000.0   14278000000.0   13100000000.0   13307000000.0
+      Goodwill And Other Intangible Assets                    143297000000.0  144576000000.0  146125000000.0  146817000000.0  147991000000.0
+      Other Intangible Assets                                  23968000000.0   25385000000.0   26751000000.0   27597000000.0   28828000000.0
+      Goodwill                                                119329000000.0  119191000000.0  119374000000.0  119220000000.0  119163000000.0
+      Net PPE                                                 208414000000.0  189718000000.0  173391000000.0  154552000000.0  138746000000.0
+      Accumulated Depreciation                                -87074000000.0  -82820000000.0  -80517000000.0  -76421000000.0  -74945000000.0
+      Gross PPE                                               295488000000.0  272538000000.0  253908000000.0  230973000000.0  213691000000.0
+      Leases                                                             NaN             NaN             NaN    9594000000.0             NaN
+      Other Properties                                        295488000000.0  272538000000.0  253908000000.0   18961000000.0  213691000000.0
+      Machinery Furniture Equipment                                      NaN             NaN             NaN  100312000000.0             NaN
+      Buildings And Improvements                                         NaN             NaN             NaN   93943000000.0             NaN
+      Land And Improvements                                              NaN             NaN             NaN    8163000000.0             NaN
+      Properties                                                         NaN             NaN             NaN             0.0             NaN
+      Current Assets                                          156644000000.0  147080000000.0  149926000000.0  159734000000.0  147180000000.0
+      Other Current Assets                                     24478000000.0   26428000000.0   25724000000.0   26021000000.0   21826000000.0
+      Hedging Assets Current                                       6000000.0       4000000.0      -1000000.0      12000000.0       8000000.0
+      Inventory                                                  848000000.0     909000000.0    1626000000.0    1246000000.0    1304000000.0
+      Finished Goods                                             508000000.0     557000000.0    1127000000.0     845000000.0     951000000.0
+      Work In Process                                             13000000.0       7000000.0      11000000.0       7000000.0      12000000.0
+      Raw Materials                                              327000000.0     345000000.0     488000000.0     394000000.0     341000000.0
+      Receivables                                              51700000000.0   48188000000.0   44148000000.0   56924000000.0   44029000000.0
+      Accounts Receivable                                      51700000000.0   48188000000.0   44148000000.0   56924000000.0   44029000000.0
+      Allowance For Doubtful Accounts Receivable                -695000000.0    -662000000.0    -647000000.0    -830000000.0    -616000000.0
+      Gross Accounts Receivable                                52395000000.0   48850000000.0   44795000000.0   57754000000.0   44645000000.0
+      Cash Cash Equivalents And Short Term Investments         79612000000.0   71551000000.0   78429000000.0   75531000000.0   80013000000.0
+      Other Short Term Investments                             50784000000.0   54069000000.0   57589000000.0   57216000000.0   60379000000.0
+      Cash And Cash Equivalents                                28828000000.0   17482000000.0   20840000000.0   18315000000.0   19634000000.0
+      Cash Equivalents                                         18148000000.0    7835000000.0   10252000000.0    6744000000.0    8053000000.0
+      Cash Financial                                           10680000000.0    9647000000.0   10588000000.0   11571000000.0   11581000000.0
+
+  --- ANNUAL INCOME STATEMENT ---
+    Source: income_stmt
+    Data:
+                                                                      2024-06-30      2023-06-30      2022-06-30          2021-06-30
+      Tax Effect Of Unusual Items                                    -99918000.0      -2850000.0      43754000.0    180160797.164637
+      Tax Rate For Calcs                                                   0.182            0.19           0.131            0.138266
+      Normalized EBITDA                                           133558000000.0  105155000000.0   99905000000.0       83831000000.0
+      Total Unusual Items                                           -549000000.0     -15000000.0     334000000.0        1303000000.0
+      Total Unusual Items Excluding Goodwill                        -549000000.0     -15000000.0     334000000.0        1303000000.0
+      Net Income From Continuing Operation Net Minority Interest   88136000000.0   72361000000.0   72738000000.0       61271000000.0
+      Reconciled Depreciation                                      22287000000.0   13861000000.0   14460000000.0       11686000000.0
+      Reconciled Cost Of Revenue                                   74114000000.0   65863000000.0   62650000000.0       52232000000.0
+      EBITDA                                                      133009000000.0  105140000000.0  100239000000.0       85134000000.0
+      EBIT                                                        110722000000.0   91279000000.0   85779000000.0       73448000000.0
+      Net Interest Income                                            222000000.0    1026000000.0      31000000.0        -215000000.0
+      Interest Expense                                              2935000000.0    1968000000.0    2063000000.0        2346000000.0
+      Interest Income                                               3157000000.0    2994000000.0    2094000000.0        2131000000.0
+      Normalized Income                                            88585082000.0   72373150000.0   72447754000.0  60148160797.164635
+      Net Income From Continuing And Discontinued Operation        88136000000.0   72361000000.0   72738000000.0       61271000000.0
+      Total Expenses                                              135689000000.0  123392000000.0  114887000000.0       98172000000.0
+      Total Operating Income As Reported                          109433000000.0   88523000000.0   83383000000.0       69916000000.0
+      Diluted Average Shares                                        7469000000.0    7472000000.0    7540000000.0        7608000000.0
+      Basic Average Shares                                          7431000000.0    7446000000.0    7496000000.0        7547000000.0
+      Diluted EPS                                                           11.8            9.68            9.65                8.05
+      Basic EPS                                                            11.86            9.72             9.7                8.12
+      Diluted NI Availto Com Stockholders                          88136000000.0   72361000000.0   72738000000.0       61271000000.0
+      Net Income Common Stockholders                               88136000000.0   72361000000.0   72738000000.0       61271000000.0
+      Net Income                                                   88136000000.0   72361000000.0   72738000000.0       61271000000.0
+      Net Income Including Noncontrolling Interests                88136000000.0   72361000000.0   72738000000.0       61271000000.0
+      Net Income Continuous Operations                             88136000000.0   72361000000.0   72738000000.0       61271000000.0
+      Tax Provision                                                19651000000.0   16950000000.0   10978000000.0        9831000000.0
+      Pretax Income                                               107787000000.0   89311000000.0   83716000000.0       71102000000.0
+      Other Income Expense                                         -1868000000.0    -238000000.0     302000000.0        1401000000.0
+      Other Non Operating Income Expenses                          -1319000000.0    -223000000.0     -32000000.0          98000000.0
+      Special Income Charges                                        -206000000.0     -30000000.0    -101000000.0         -13000000.0
+      Write Off                                                      206000000.0      30000000.0     101000000.0          13000000.0
+      Gain On Sale Of Security                                      -343000000.0      15000000.0     435000000.0        1316000000.0
+      Net Non Operating Interest Income Expense                      222000000.0    1026000000.0      31000000.0        -215000000.0
+      Interest Expense Non Operating                                2935000000.0    1968000000.0    2063000000.0        2346000000.0
+      Interest Income Non Operating                                 3157000000.0    2994000000.0    2094000000.0        2131000000.0
+      Operating Income                                            109433000000.0   88523000000.0   83383000000.0       69916000000.0
+      Operating Expense                                            61575000000.0   57529000000.0   52237000000.0       45940000000.0
+      Research And Development                                     29510000000.0   27195000000.0   24512000000.0       20716000000.0
+      Selling General And Administration                           32065000000.0   30334000000.0   27725000000.0       25224000000.0
+      Selling And Marketing Expense                                24456000000.0   22759000000.0   21825000000.0       20117000000.0
+      General And Administrative Expense                            7609000000.0    7575000000.0    5900000000.0        5107000000.0
+      Other Gand A                                                  7609000000.0    7575000000.0    5900000000.0        5107000000.0
+      Gross Profit                                                171008000000.0  146052000000.0  135620000000.0      115856000000.0
+      Cost Of Revenue                                              74114000000.0   65863000000.0   62650000000.0       52232000000.0
+      Total Revenue                                               245122000000.0  211915000000.0  198270000000.0      168088000000.0
+      Operating Revenue                                           245122000000.0  211915000000.0  198270000000.0      168088000000.0
+
+  --- QUARTERLY INCOME STATEMENT ---
+    Source: quarterly_income_stmt
+    Data:
+                                                                         2025-03-31     2024-12-31     2024-09-30         2024-06-30     2024-03-31    2023-12-31
+      Tax Effect Of Unusual Items                                   68490008.605029   -203220000.0     57190000.0   -16263853.211009    -33660000.0           NaN
+      Tax Rate For Calcs                                                   0.176977           0.18           0.19           0.191339           0.18           NaN
+      Normalized EBITDA                                               40324000000.0  37915000000.0  37933000000.0      34416000000.0  33741000000.0           NaN
+      Total Unusual Items                                               387000000.0  -1129000000.0    301000000.0        -85000000.0   -187000000.0           NaN
+      Total Unusual Items Excluding Goodwill                            387000000.0  -1129000000.0    301000000.0        -85000000.0   -187000000.0           NaN
+      Net Income From Continuing Operation Net Minority Interest      25824000000.0  24108000000.0  24667000000.0      22036000000.0  21939000000.0           NaN
+      Reconciled Depreciation                                          8740000000.0   6827000000.0   7383000000.0       6380000000.0   6027000000.0           NaN
+      Reconciled Cost Of Revenue                                      21919000000.0  21799000000.0  20099000000.0      19684000000.0  18505000000.0           NaN
+      EBITDA                                                          40711000000.0  36786000000.0  38234000000.0      34331000000.0  33554000000.0           NaN
+      EBIT                                                            31971000000.0  29959000000.0  30851000000.0      27951000000.0  27527000000.0           NaN
+      Net Interest Income                                                 3000000.0      6000000.0     99000000.0        -63000000.0   -181000000.0           NaN
+      Interest Expense                                                  594000000.0    594000000.0    582000000.0        701000000.0    800000000.0           NaN
+      Interest Income                                                   597000000.0    600000000.0    681000000.0        638000000.0    619000000.0           NaN
+      Normalized Income                                           25505490008.60503  25033780000.0  24423190000.0  22104736146.78899  22092340000.0           NaN
+      Net Income From Continuing And Discontinued Operation           25824000000.0  24108000000.0  24667000000.0      22036000000.0  21939000000.0           NaN
+      Total Expenses                                                  38066000000.0  37979000000.0  35033000000.0      36802000000.0  34277000000.0           NaN
+      Total Operating Income As Reported                              32000000000.0  31653000000.0  30552000000.0      27925000000.0  27581000000.0           NaN
+      Diluted Average Shares                                                    NaN   7468000000.0   7470000000.0       7472000000.0   7472000000.0  7468000000.0
+      Basic Average Shares                                                      NaN   7435000000.0   7433000000.0       7433000000.0   7431000000.0  7432000000.0
+      Diluted EPS                                                               NaN           3.23            3.3               2.95           2.94          2.93
+      Basic EPS                                                                 NaN           3.24           3.32               2.96           2.95          2.94
+      Diluted NI Availto Com Stockholders                             25824000000.0  24108000000.0  24667000000.0      22036000000.0  21939000000.0           NaN
+      Net Income Common Stockholders                                  25824000000.0  24108000000.0  24667000000.0      22036000000.0  21939000000.0           NaN
+      Net Income                                                      25824000000.0  24108000000.0  24667000000.0      22036000000.0  21939000000.0           NaN
+      Net Income Including Noncontrolling Interests                   25824000000.0  24108000000.0  24667000000.0      22036000000.0  21939000000.0           NaN
+      Net Income Continuous Operations                                25824000000.0  24108000000.0  24667000000.0      22036000000.0  21939000000.0           NaN
+      Tax Provision                                                    5553000000.0   5257000000.0   5602000000.0       5214000000.0   4788000000.0           NaN
+      Pretax Income                                                   31377000000.0  29365000000.0  30269000000.0      27250000000.0  26727000000.0           NaN
+      Other Income Expense                                             -626000000.0  -2294000000.0   -382000000.0       -612000000.0   -673000000.0           NaN
+      Other Non Operating Income Expenses                             -1013000000.0  -1165000000.0   -683000000.0       -527000000.0   -486000000.0           NaN
+      Special Income Charges                                            -24000000.0   -867000000.0     -7000000.0        -22000000.0    -17000000.0           NaN
+      Write Off                                                          24000000.0    867000000.0      7000000.0         22000000.0     17000000.0           NaN
+      Gain On Sale Of Security                                          411000000.0   -262000000.0    308000000.0        -63000000.0   -170000000.0           NaN
+      Net Non Operating Interest Income Expense                           3000000.0      6000000.0     99000000.0        -63000000.0   -181000000.0           NaN
+      Interest Expense Non Operating                                    594000000.0    594000000.0    582000000.0        701000000.0    800000000.0           NaN
+      Interest Income Non Operating                                     597000000.0    600000000.0    681000000.0        638000000.0    619000000.0           NaN
+      Operating Income                                                32000000000.0  31653000000.0  30552000000.0      27925000000.0  27581000000.0           NaN
+      Operating Expense                                               16147000000.0  16180000000.0  14934000000.0      17118000000.0  15772000000.0           NaN
+      Research And Development                                         8198000000.0   7917000000.0   7544000000.0       8056000000.0   7653000000.0           NaN
+      Selling General And Administration                               7949000000.0   8263000000.0   7390000000.0       9062000000.0   8119000000.0           NaN
+      Selling And Marketing Expense                                    6212000000.0   6440000000.0   5717000000.0       6816000000.0   6207000000.0           NaN
+      General And Administrative Expense                               1737000000.0   1823000000.0   1673000000.0       2246000000.0   1912000000.0           NaN
+      Other Gand A                                                     1737000000.0   1823000000.0   1673000000.0       2246000000.0   1912000000.0           NaN
+      Gross Profit                                                    48147000000.0  47833000000.0  45486000000.0      45043000000.0  43353000000.0           NaN
+      Cost Of Revenue                                                 21919000000.0  21799000000.0  20099000000.0      19684000000.0  18505000000.0           NaN
+      Total Revenue                                                   70066000000.0  69632000000.0  65585000000.0      64727000000.0  61858000000.0           NaN
+      Operating Revenue                                               70066000000.0  69632000000.0  65585000000.0      64727000000.0  61858000000.0           NaN
+
+  --- ANNUAL CASH FLOW ---
+    Source: cashflow
+    Data:
+                                                          2024-06-30     2023-06-30     2022-06-30     2021-06-30 2020-06-30
+      Free Cash Flow                                   74071000000.0  59475000000.0  65149000000.0  56118000000.0        NaN
+      Repurchase Of Capital Stock                     -17254000000.0 -22245000000.0 -32696000000.0 -27385000000.0        NaN
+      Repayment Of Debt                               -29070000000.0  -2750000000.0  -9023000000.0  -3750000000.0        NaN
+      Issuance Of Debt                                 29645000000.0            0.0            0.0            NaN        0.0
+      Issuance Of Capital Stock                         2002000000.0   1866000000.0   1841000000.0   1693000000.0        NaN
+      Capital Expenditure                             -44477000000.0 -28107000000.0 -23886000000.0 -20622000000.0        NaN
+      End Cash Position                                18315000000.0  34704000000.0  13931000000.0  14224000000.0        NaN
+      Beginning Cash Position                          34704000000.0  13931000000.0  14224000000.0  13576000000.0        NaN
+      Effect Of Exchange Rate Changes                   -210000000.0   -194000000.0   -141000000.0    -29000000.0        NaN
+      Changes In Cash                                 -16179000000.0  20967000000.0   -152000000.0    677000000.0        NaN
+      Financing Cash Flow                             -37757000000.0 -43935000000.0 -58876000000.0 -48486000000.0        NaN
+      Cash Flow From Continuing Financing Activities  -37757000000.0 -43935000000.0 -58876000000.0 -48486000000.0        NaN
+      Net Other Financing Charges                      -1309000000.0  -1006000000.0   -863000000.0  -2523000000.0        NaN
+      Cash Dividends Paid                             -21771000000.0 -19800000000.0 -18135000000.0 -16521000000.0        NaN
+      Common Stock Dividend Paid                      -21771000000.0 -19800000000.0 -18135000000.0 -16521000000.0        NaN
+      Net Common Stock Issuance                       -15252000000.0 -20379000000.0 -30855000000.0 -25692000000.0        NaN
+      Common Stock Payments                           -17254000000.0 -22245000000.0 -32696000000.0 -27385000000.0        NaN
+      Common Stock Issuance                             2002000000.0   1866000000.0   1841000000.0   1693000000.0        NaN
+      Net Issuance Payments Of Debt                      575000000.0  -2750000000.0  -9023000000.0  -3750000000.0        NaN
+      Net Short Term Debt Issuance                      5250000000.0            0.0            0.0            NaN        0.0
+      Short Term Debt Payments                                   NaN            NaN            NaN            NaN        0.0
+      Short Term Debt Issuance                          5250000000.0            0.0            0.0            NaN        NaN
+      Net Long Term Debt Issuance                      -4675000000.0  -2750000000.0  -9023000000.0  -3750000000.0        NaN
+      Long Term Debt Payments                         -29070000000.0  -2750000000.0  -9023000000.0  -3750000000.0        NaN
+      Long Term Debt Issuance                          24395000000.0            0.0            0.0            NaN        0.0
+      Investing Cash Flow                             -96970000000.0 -22680000000.0 -30311000000.0 -27577000000.0        NaN
+      Cash Flow From Continuing Investing Activities  -96970000000.0 -22680000000.0 -30311000000.0 -27577000000.0        NaN
+      Net Other Investing Changes                      -1298000000.0  -3116000000.0  -2825000000.0   -922000000.0        NaN
+      Net Investment Purchase And Sale                 17937000000.0  10213000000.0  18438000000.0   2876000000.0        NaN
+      Sale Of Investment                               35669000000.0  47864000000.0  44894000000.0  65800000000.0        NaN
+      Purchase Of Investment                          -17732000000.0 -37651000000.0 -26456000000.0 -62924000000.0        NaN
+      Net Business Purchase And Sale                  -69132000000.0  -1670000000.0 -22038000000.0  -8909000000.0        NaN
+      Purchase Of Business                            -69132000000.0  -1670000000.0 -22038000000.0  -8909000000.0        NaN
+      Net PPE Purchase And Sale                       -44477000000.0 -28107000000.0 -23886000000.0 -20622000000.0        NaN
+      Purchase Of PPE                                 -44477000000.0 -28107000000.0 -23886000000.0 -20622000000.0        NaN
+      Operating Cash Flow                             118548000000.0  87582000000.0  89035000000.0  76740000000.0        NaN
+      Cash Flow From Continuing Operating Activities  118548000000.0  87582000000.0  89035000000.0  76740000000.0        NaN
+      Change In Working Capital                         1824000000.0  -2388000000.0    446000000.0   -936000000.0        NaN
+      Change In Other Working Capital                   5348000000.0   5535000000.0   5109000000.0   4633000000.0        NaN
+      Change In Other Current Liabilities               5616000000.0   2825000000.0   3169000000.0   5551000000.0        NaN
+      Change In Other Current Assets                   -8465000000.0  -4824000000.0  -3514000000.0  -4391000000.0        NaN
+      Change In Payables And Accrued Expense            5232000000.0  -3079000000.0   3639000000.0    489000000.0        NaN
+      Change In Payable                                 5232000000.0  -3079000000.0   3639000000.0    489000000.0        NaN
+      Change In Account Payable                         3545000000.0  -2721000000.0   2943000000.0   2798000000.0        NaN
+      Change In Tax Payable                             1687000000.0   -358000000.0    696000000.0  -2309000000.0        NaN
+      Change In Income Tax Payable                      1687000000.0   -358000000.0    696000000.0  -2309000000.0        NaN
+      Change In Inventory                               1284000000.0   1242000000.0  -1123000000.0   -737000000.0        NaN
+      Change In Receivables                            -7191000000.0  -4087000000.0  -6834000000.0  -6481000000.0        NaN
+      Changes In Account Receivables                   -7191000000.0  -4087000000.0  -6834000000.0  -6481000000.0        NaN
+      Stock Based Compensation                         10734000000.0   9611000000.0   7502000000.0   6118000000.0        NaN
+      Unrealized Gain Loss On Investment Securities     -146000000.0   -303000000.0   -509000000.0  -1057000000.0        NaN
+      Asset Impairment Charge                            206000000.0     30000000.0    101000000.0     13000000.0        NaN
+      Deferred Tax                                     -4738000000.0  -6059000000.0  -5702000000.0   -150000000.0        NaN
+      Deferred Income Tax                              -4738000000.0  -6059000000.0  -5702000000.0   -150000000.0        NaN
+      Depreciation Amortization Depletion              22287000000.0  13861000000.0  14460000000.0  11686000000.0        NaN
+      Depreciation And Amortization                    22287000000.0  13861000000.0  14460000000.0  11686000000.0        NaN
+      Depreciation                                     22287000000.0  13861000000.0  14460000000.0  11686000000.0        NaN
+      Operating Gains Losses                             245000000.0    469000000.0     -1000000.0   -205000000.0        NaN
+      Gain Loss On Investment Securities                 245000000.0    469000000.0     -1000000.0   -205000000.0        NaN
+      Net Income From Continuing Operations            88136000000.0  72361000000.0  72738000000.0  61271000000.0        NaN
+
+  --- QUARTERLY CASH FLOW ---
+    Source: quarterly_cashflow
+    Data:
+                                                         2025-03-31     2024-12-31     2024-09-30     2024-06-30     2024-03-31     2023-09-30
+      Free Cash Flow                                  20299000000.0   6487000000.0  19257000000.0  23322000000.0  20965000000.0            NaN
+      Repurchase Of Capital Stock                     -4781000000.0  -4986000000.0  -4107000000.0  -4210000000.0  -4213000000.0            NaN
+      Repayment Of Debt                               -2250000000.0            0.0   -966000000.0 -13065000000.0 -11589000000.0            NaN
+      Issuance Of Debt                                          0.0            0.0            0.0   5447000000.0   6352000000.0            NaN
+      Issuance Of Capital Stock                         546000000.0    256000000.0    706000000.0    534000000.0    522000000.0            NaN
+      Capital Expenditure                            -16745000000.0 -15804000000.0 -14923000000.0 -13873000000.0 -10952000000.0            NaN
+      End Cash Position                               28828000000.0  17482000000.0  20840000000.0  18315000000.0  19634000000.0            NaN
+      Beginning Cash Position                         17482000000.0  20840000000.0  18315000000.0  19634000000.0  17305000000.0            NaN
+      Effect Of Exchange Rate Changes                    52000000.0   -294000000.0    122000000.0   -103000000.0    -80000000.0            NaN
+      Changes In Cash                                 11294000000.0  -3064000000.0   2403000000.0  -1216000000.0   2409000000.0            NaN
+      Financing Cash Flow                            -13036000000.0 -11243000000.0 -16576000000.0 -23563000000.0 -18808000000.0            NaN
+      Cash Flow From Continuing Financing Activities -13036000000.0 -11243000000.0 -16576000000.0 -23563000000.0 -18808000000.0            NaN
+      Net Other Financing Charges                      -382000000.0   -343000000.0   -889000000.0   -303000000.0   -498000000.0            NaN
+      Cash Dividends Paid                             -6169000000.0  -6170000000.0  -5574000000.0  -5574000000.0  -5572000000.0            NaN
+      Common Stock Dividend Paid                      -6169000000.0  -6170000000.0  -5574000000.0  -5574000000.0  -5572000000.0            NaN
+      Net Common Stock Issuance                       -4235000000.0  -4730000000.0  -3401000000.0  -3676000000.0  -3691000000.0            NaN
+      Common Stock Payments                           -4781000000.0  -4986000000.0  -4107000000.0  -4210000000.0  -4213000000.0            NaN
+      Common Stock Issuance                             546000000.0    256000000.0    706000000.0    534000000.0    522000000.0            NaN
+      Net Issuance Payments Of Debt                   -2250000000.0            0.0  -6712000000.0 -14010000000.0  -9047000000.0            NaN
+      Net Short Term Debt Issuance                              0.0            0.0  -5746000000.0  -1142000000.0  -3810000000.0            NaN
+      Short Term Debt Issuance                                  NaN            NaN            NaN            NaN            NaN  18692000000.0
+      Net Long Term Debt Issuance                     -2250000000.0            0.0   -966000000.0 -12868000000.0  -5237000000.0            NaN
+      Long Term Debt Payments                         -2250000000.0            0.0   -966000000.0 -13065000000.0 -11589000000.0            NaN
+      Long Term Debt Issuance                                   0.0            0.0            0.0    197000000.0   6352000000.0            NaN
+      Investing Cash Flow                            -12714000000.0 -14112000000.0 -15201000000.0 -14848000000.0 -10700000000.0            NaN
+      Cash Flow From Continuing Investing Activities -12714000000.0 -14112000000.0 -15201000000.0 -14848000000.0 -10700000000.0            NaN
+      Net Other Investing Changes                       604000000.0    -16000000.0   -913000000.0   -382000000.0  -1281000000.0            NaN
+      Net Investment Purchase And Sale                 4408000000.0   3113000000.0   2484000000.0    749000000.0   3108000000.0            NaN
+      Sale Of Investment                               8882000000.0   5163000000.0   4104000000.0   3580000000.0   5291000000.0            NaN
+      Purchase Of Investment                          -4474000000.0  -2050000000.0  -1620000000.0  -2831000000.0  -2183000000.0            NaN
+      Net Business Purchase And Sale                   -981000000.0  -1405000000.0  -1849000000.0  -1342000000.0  -1575000000.0            NaN
+      Purchase Of Business                             -981000000.0  -1405000000.0  -1849000000.0  -1342000000.0  -1575000000.0            NaN
+      Net PPE Purchase And Sale                      -16745000000.0 -15804000000.0 -14923000000.0 -13873000000.0 -10952000000.0            NaN
+      Purchase Of PPE                                -16745000000.0 -15804000000.0 -14923000000.0 -13873000000.0 -10952000000.0            NaN
+      Operating Cash Flow                             37044000000.0  22291000000.0  34180000000.0  37195000000.0  31917000000.0            NaN
+      Cash Flow From Continuing Operating Activities  37044000000.0  22291000000.0  34180000000.0  37195000000.0  31917000000.0            NaN
+      Change In Working Capital                        2042000000.0 -11551000000.0    856000000.0   7184000000.0   2522000000.0            NaN
+      Change In Other Working Capital                 -1032000000.0  -6338000000.0  -5553000000.0  15657000000.0   -645000000.0            NaN
+      Change In Other Current Liabilities              2448000000.0   3933000000.0  -5512000000.0   5088000000.0   2851000000.0            NaN
+      Change In Other Current Assets                    558000000.0  -1442000000.0  -1843000000.0  -3768000000.0  -1186000000.0            NaN
+      Change In Payables And Accrued Expense           2477000000.0  -2437000000.0    100000000.0   3398000000.0   3270000000.0            NaN
+      Change In Payable                                2477000000.0  -2437000000.0    100000000.0   3398000000.0   3270000000.0            NaN
+      Change In Account Payable                        1179000000.0    958000000.0   -916000000.0   4204000000.0    648000000.0            NaN
+      Change In Tax Payable                            1298000000.0  -3395000000.0   1016000000.0   -806000000.0   2622000000.0            NaN
+      Change In Income Tax Payable                     1298000000.0  -3395000000.0   1016000000.0   -806000000.0   2622000000.0            NaN
+      Change In Inventory                                52000000.0    711000000.0   -373000000.0     55000000.0    260000000.0            NaN
+      Change In Receivables                           -2461000000.0  -5978000000.0  14037000000.0 -13246000000.0  -2028000000.0            NaN
+      Changes In Account Receivables                  -2461000000.0  -5978000000.0  14037000000.0 -13246000000.0  -2028000000.0            NaN
+      Stock Based Compensation                         2980000000.0   3089000000.0   2832000000.0   2696000000.0   2703000000.0            NaN
+      Unrealized Gain Loss On Investment Securities    -135000000.0    -25000000.0   -412000000.0     10000000.0      7000000.0            NaN
+      Asset Impairment Charge                            24000000.0    867000000.0      7000000.0     22000000.0     17000000.0            NaN
+      Deferred Tax                                    -2244000000.0  -1158000000.0  -1433000000.0  -1145000000.0  -1323000000.0            NaN
+      Deferred Income Tax                             -2244000000.0  -1158000000.0  -1433000000.0  -1145000000.0  -1323000000.0            NaN
+      Depreciation Amortization Depletion              8740000000.0   6827000000.0   7383000000.0   6380000000.0   6027000000.0            NaN
+      Depreciation And Amortization                    8740000000.0   6827000000.0   7383000000.0   6380000000.0   6027000000.0            NaN
+      Depreciation                                     8740000000.0   6827000000.0   7383000000.0   6380000000.0   6027000000.0            NaN
+      Operating Gains Losses                           -187000000.0    134000000.0    280000000.0     12000000.0     25000000.0            NaN
+      Gain Loss On Investment Securities               -187000000.0    134000000.0    280000000.0     12000000.0     25000000.0            NaN
+      Net Income From Continuing Operations           25824000000.0  24108000000.0  24667000000.0  22036000000.0  21939000000.0            NaN
+-
+
+--- ADDITIONAL TICKER DATA ---
+
+  --- ACTIONS ---
+    Source: get_actions()
+    Data:
+                                 Dividends  Stock Splits
+      Date                                              
+      1987-09-21 00:00:00-04:00       0.00           2.0
+      1990-04-16 00:00:00-04:00       0.00           2.0
+      1991-06-27 00:00:00-04:00       0.00           1.5
+      1992-06-15 00:00:00-04:00       0.00           1.5
+      1994-05-23 00:00:00-04:00       0.00           2.0
+      1996-12-09 00:00:00-05:00       0.00           2.0
+      1998-02-23 00:00:00-05:00       0.00           2.0
+      1999-03-29 00:00:00-05:00       0.00           2.0
+      2003-02-18 00:00:00-05:00       0.00           2.0
+      2003-02-19 00:00:00-05:00       0.08           0.0
+      2003-10-15 00:00:00-04:00       0.16           0.0
+      2004-08-23 00:00:00-04:00       0.08           0.0
+      2004-11-15 00:00:00-05:00       3.08           0.0
+      2005-02-15 00:00:00-05:00       0.08           0.0
+      2005-05-16 00:00:00-04:00       0.08           0.0
+      2005-08-15 00:00:00-04:00       0.08           0.0
+      2005-11-15 00:00:00-05:00       0.08           0.0
+      2006-02-15 00:00:00-05:00       0.09           0.0
+      2006-05-15 00:00:00-04:00       0.09           0.0
+      2006-08-15 00:00:00-04:00       0.09           0.0
+      2006-11-14 00:00:00-05:00       0.10           0.0
+      2007-02-13 00:00:00-05:00       0.10           0.0
+      2007-05-15 00:00:00-04:00       0.10           0.0
+      2007-08-14 00:00:00-04:00       0.10           0.0
+      2007-11-13 00:00:00-05:00       0.11           0.0
+      2008-02-19 00:00:00-05:00       0.11           0.0
+      2008-05-13 00:00:00-04:00       0.11           0.0
+      2008-08-19 00:00:00-04:00       0.11           0.0
+      2008-11-18 00:00:00-05:00       0.13           0.0
+      2009-02-17 00:00:00-05:00       0.13           0.0
+      2009-05-19 00:00:00-04:00       0.13           0.0
+      2009-08-18 00:00:00-04:00       0.13           0.0
+      2009-11-17 00:00:00-05:00       0.13           0.0
+      2010-02-16 00:00:00-05:00       0.13           0.0
+      2010-05-18 00:00:00-04:00       0.13           0.0
+      2010-08-17 00:00:00-04:00       0.13           0.0
+      2010-11-16 00:00:00-05:00       0.16           0.0
+      2011-02-15 00:00:00-05:00       0.16           0.0
+      2011-05-17 00:00:00-04:00       0.16           0.0
+      2011-08-16 00:00:00-04:00       0.16           0.0
+      2011-11-15 00:00:00-05:00       0.20           0.0
+      2012-02-14 00:00:00-05:00       0.20           0.0
+      2012-05-15 00:00:00-04:00       0.20           0.0
+      2012-08-14 00:00:00-04:00       0.20           0.0
+      2012-11-13 00:00:00-05:00       0.23           0.0
+      2013-02-19 00:00:00-05:00       0.23           0.0
+      2013-05-14 00:00:00-04:00       0.23           0.0
+      2013-08-13 00:00:00-04:00       0.23           0.0
+      2013-11-19 00:00:00-05:00       0.28           0.0
+      2014-02-18 00:00:00-05:00       0.28           0.0
+      2014-05-13 00:00:00-04:00       0.28           0.0
+      2014-08-19 00:00:00-04:00       0.28           0.0
+      2014-11-18 00:00:00-05:00       0.31           0.0
+      2015-02-17 00:00:00-05:00       0.31           0.0
+      2015-05-19 00:00:00-04:00       0.31           0.0
+      2015-08-18 00:00:00-04:00       0.31           0.0
+      2015-11-17 00:00:00-05:00       0.36           0.0
+      2016-02-16 00:00:00-05:00       0.36           0.0
+      2016-05-17 00:00:00-04:00       0.36           0.0
+      2016-08-16 00:00:00-04:00       0.36           0.0
+      2016-11-15 00:00:00-05:00       0.39           0.0
+      2017-02-14 00:00:00-05:00       0.39           0.0
+      2017-05-16 00:00:00-04:00       0.39           0.0
+      2017-08-15 00:00:00-04:00       0.39           0.0
+      2017-11-15 00:00:00-05:00       0.42           0.0
+      2018-02-14 00:00:00-05:00       0.42           0.0
+      2018-05-16 00:00:00-04:00       0.42           0.0
+      2018-08-15 00:00:00-04:00       0.42           0.0
+      2018-11-14 00:00:00-05:00       0.46           0.0
+      2019-02-20 00:00:00-05:00       0.46           0.0
+      2019-05-15 00:00:00-04:00       0.46           0.0
+      2019-08-14 00:00:00-04:00       0.46           0.0
+      2019-11-20 00:00:00-05:00       0.51           0.0
+      2020-02-19 00:00:00-05:00       0.51           0.0
+      2020-05-20 00:00:00-04:00       0.51           0.0
+      2020-08-19 00:00:00-04:00       0.51           0.0
+      2020-11-18 00:00:00-05:00       0.56           0.0
+      2021-02-17 00:00:00-05:00       0.56           0.0
+      2021-05-19 00:00:00-04:00       0.56           0.0
+      2021-08-18 00:00:00-04:00       0.56           0.0
+      2021-11-17 00:00:00-05:00       0.62           0.0
+      2022-02-16 00:00:00-05:00       0.62           0.0
+      2022-05-18 00:00:00-04:00       0.62           0.0
+      2022-08-17 00:00:00-04:00       0.62           0.0
+      2022-11-16 00:00:00-05:00       0.68           0.0
+      2023-02-15 00:00:00-05:00       0.68           0.0
+      2023-05-17 00:00:00-04:00       0.68           0.0
+      2023-08-16 00:00:00-04:00       0.68           0.0
+      2023-11-15 00:00:00-05:00       0.75           0.0
+      2024-02-14 00:00:00-05:00       0.75           0.0
+      2024-05-15 00:00:00-04:00       0.75           0.0
+      2024-08-15 00:00:00-04:00       0.75           0.0
+      2024-11-21 00:00:00-05:00       0.83           0.0
+      2025-02-20 00:00:00-05:00       0.83           0.0
+
+  --- DIVIDENDS ---
+    Source: get_dividends()
+    Data:
+      Date
+      2003-02-19 00:00:00-05:00    0.08
+      2003-10-15 00:00:00-04:00    0.16
+      2004-08-23 00:00:00-04:00    0.08
+      2004-11-15 00:00:00-05:00    3.08
+      2005-02-15 00:00:00-05:00    0.08
+      2005-05-16 00:00:00-04:00    0.08
+      2005-08-15 00:00:00-04:00    0.08
+      2005-11-15 00:00:00-05:00    0.08
+      2006-02-15 00:00:00-05:00    0.09
+      2006-05-15 00:00:00-04:00    0.09
+      2006-08-15 00:00:00-04:00    0.09
+      2006-11-14 00:00:00-05:00    0.10
+      2007-02-13 00:00:00-05:00    0.10
+      2007-05-15 00:00:00-04:00    0.10
+      2007-08-14 00:00:00-04:00    0.10
+      2007-11-13 00:00:00-05:00    0.11
+      2008-02-19 00:00:00-05:00    0.11
+      2008-05-13 00:00:00-04:00    0.11
+      2008-08-19 00:00:00-04:00    0.11
+      2008-11-18 00:00:00-05:00    0.13
+      2009-02-17 00:00:00-05:00    0.13
+      2009-05-19 00:00:00-04:00    0.13
+      2009-08-18 00:00:00-04:00    0.13
+      2009-11-17 00:00:00-05:00    0.13
+      2010-02-16 00:00:00-05:00    0.13
+      2010-05-18 00:00:00-04:00    0.13
+      2010-08-17 00:00:00-04:00    0.13
+      2010-11-16 00:00:00-05:00    0.16
+      2011-02-15 00:00:00-05:00    0.16
+      2011-05-17 00:00:00-04:00    0.16
+      2011-08-16 00:00:00-04:00    0.16
+      2011-11-15 00:00:00-05:00    0.20
+      2012-02-14 00:00:00-05:00    0.20
+      2012-05-15 00:00:00-04:00    0.20
+      2012-08-14 00:00:00-04:00    0.20
+      2012-11-13 00:00:00-05:00    0.23
+      2013-02-19 00:00:00-05:00    0.23
+      2013-05-14 00:00:00-04:00    0.23
+      2013-08-13 00:00:00-04:00    0.23
+      2013-11-19 00:00:00-05:00    0.28
+      2014-02-18 00:00:00-05:00    0.28
+      2014-05-13 00:00:00-04:00    0.28
+      2014-08-19 00:00:00-04:00    0.28
+      2014-11-18 00:00:00-05:00    0.31
+      2015-02-17 00:00:00-05:00    0.31
+      2015-05-19 00:00:00-04:00    0.31
+      2015-08-18 00:00:00-04:00    0.31
+      2015-11-17 00:00:00-05:00    0.36
+      2016-02-16 00:00:00-05:00    0.36
+      2016-05-17 00:00:00-04:00    0.36
+      2016-08-16 00:00:00-04:00    0.36
+      2016-11-15 00:00:00-05:00    0.39
+      2017-02-14 00:00:00-05:00    0.39
+      2017-05-16 00:00:00-04:00    0.39
+      2017-08-15 00:00:00-04:00    0.39
+      2017-11-15 00:00:00-05:00    0.42
+      2018-02-14 00:00:00-05:00    0.42
+      2018-05-16 00:00:00-04:00    0.42
+      2018-08-15 00:00:00-04:00    0.42
+      2018-11-14 00:00:00-05:00    0.46
+      2019-02-20 00:00:00-05:00    0.46
+      2019-05-15 00:00:00-04:00    0.46
+      2019-08-14 00:00:00-04:00    0.46
+      2019-11-20 00:00:00-05:00    0.51
+      2020-02-19 00:00:00-05:00    0.51
+      2020-05-20 00:00:00-04:00    0.51
+      2020-08-19 00:00:00-04:00    0.51
+      2020-11-18 00:00:00-05:00    0.56
+      2021-02-17 00:00:00-05:00    0.56
+      2021-05-19 00:00:00-04:00    0.56
+      2021-08-18 00:00:00-04:00    0.56
+      2021-11-17 00:00:00-05:00    0.62
+      2022-02-16 00:00:00-05:00    0.62
+      2022-05-18 00:00:00-04:00    0.62
+      2022-08-17 00:00:00-04:00    0.62
+      2022-11-16 00:00:00-05:00    0.68
+      2023-02-15 00:00:00-05:00    0.68
+      2023-05-17 00:00:00-04:00    0.68
+      2023-08-16 00:00:00-04:00    0.68
+      2023-11-15 00:00:00-05:00    0.75
+      2024-02-14 00:00:00-05:00    0.75
+      2024-05-15 00:00:00-04:00    0.75
+      2024-08-15 00:00:00-04:00    0.75
+      2024-11-21 00:00:00-05:00    0.83
+      2025-02-20 00:00:00-05:00    0.83
+
+  --- CAPITAL GAINS ---
+    Source: get_capital_gains()
+    Data: (Empty DataFrame/Series)
+
+  --- EARNINGS SUMMARY ---
+    Source: get_earnings()
+    Data: None
+
+  --- EARNINGS DATES ---
+    Source: get_earnings_dates()
+    Data:
+                                 EPS Estimate  Reported EPS  Surprise(%)
+      Earnings Date                                                     
+      2026-04-28 16:00:00-04:00           NaN           NaN          NaN
+      2026-01-27 16:00:00-05:00           NaN           NaN          NaN
+      2025-10-28 06:59:00-04:00           NaN           NaN          NaN
+      2025-07-28 16:00:00-04:00           NaN           NaN          NaN
+      2025-04-30 16:05:00-04:00          3.22          3.46         7.45
+      2025-01-29 16:01:00-05:00          3.11          3.23         3.82
+      2024-10-30 16:01:00-04:00          3.10          3.30         6.52
+      2024-07-30 16:03:00-04:00          2.93          2.95         0.54
+      2024-04-25 16:23:00-04:00          2.82          2.94         4.32
+      2024-01-30 16:04:00-05:00          2.78          2.93         5.34
+      2023-10-24 16:02:00-04:00          2.65          2.99        12.70
+      2023-07-25 16:01:00-04:00          2.55          2.69         5.49
+
+  --- EARNINGS ESTIMATES ---
+    Source: get_earnings_estimate()
+    Data:
+                   avg    low      high  yearAgoEps  numberOfAnalysts  growth
+      period                                                                 
+      0q       3.37156   3.30   3.57000     2.95000                37  0.1429
+      +1q      3.55257   3.39   3.70000     3.30000                30  0.0765
+      0y      13.40431  13.28  13.79000    11.80000                45  0.1360
+      +1y     15.11912  14.26  16.53262    13.40431                53  0.1279
+
+  --- EARNINGS HISTORY ---
+    Source: get_earnings_history()
+    Data:
+                  epsActual  epsEstimate  epsDifference  surprisePercent
+      quarter                                                           
+      2024-06-30       2.95      2.93442           0.02           0.0053
+      2024-09-30       3.30      3.10593           0.19           0.0625
+      2024-12-31       3.23      3.10403           0.13           0.0406
+      2025-03-31       3.46      3.21597           0.24           0.0759
+
+  --- EPS REVISIONS ---
+    Source: get_eps_revisions()
+    Data:
+              upLast7days  upLast30days  downLast30days  downLast7Days
+      period                                                          
+      0q               24            21               7              5
+      +1q              14            14               8              7
+      0y               34            33               3              2
+      +1y               1             1              16              3
+
+  --- EPS TREND ---
+    Source: get_eps_trend()
+    Data:
+               current  7daysAgo  30daysAgo  60daysAgo  90daysAgo
+      period                                                     
+      0q       3.37156   3.31282    3.33061    3.33131    3.33190
+      +1q      3.55257   3.54759    3.54759    3.54531    3.55705
+      0y      13.40431  13.13949   13.15519   13.15427   13.15697
+      +1y     15.11912  14.99906   15.03995   15.06484   15.07300
+
+  --- CALENDAR EVENTS ---
+    Source: get_calendar()
+    Data:
+      { 'Dividend Date': datetime.date(2025, 6, 12),
+        'Earnings Average': 3.37363,
+        'Earnings Date': [datetime.date(2025, 7, 28), datetime.date(2025, 8, 1)],
+        'Earnings High': 3.57,
+        'Earnings Low': 3.3,
+        'Ex-Dividend Date': datetime.date(2025, 5, 15),
+        'Revenue Average': 73765354450,
+        'Revenue High': 74464996940,
+        'Revenue Low': 72570000000}
+
+  --- HISTORY METADATA ---
+    Source: get_history_metadata()
+    Data:
+      { 'chartPreviousClose': 395.26,
+        'currency': 'USD',
+        'currentTradingPeriod': { 'post': { 'end': 1746662400,
+                                            'gmtoffset': -14400,
+                                            'start': 1746648000,
+                                            'timezone': 'EDT'},
+                                  'pre': { 'end': 1746624600,
+                                           'gmtoffset': -14400,
+                                           'start': 1746604800,
+                                           'timezone': 'EDT'},
+                                  'regular': { 'end': 1746648000,
+                                               'gmtoffset': -14400,
+                                               'start': 1746624600,
+                                               'timezone': 'EDT'}},
+        'dataGranularity': '1h',
+        'exchangeName': 'NMS',
+        'exchangeTimezoneName': 'America/New_York',
+        'fiftyTwoWeekHigh': 468.35,
+        'fiftyTwoWeekLow': 344.79,
+        'firstTradeDate': 511108200,
+        'fullExchangeName': 'NasdaqGS',
+        'gmtoffset': -14400,
+        'hasPrePostMarketData': True,
+        'instrumentType': 'EQUITY',
+        'lastTrade': { 'Price': np.float64(434.25),
+                       'Time': Timestamp('2025-05-07 12:18:26-0400', tz='America/New_York')},
+        'longName': 'Microsoft Corporation',
+        'previousClose': 433.31,
+        'priceHint': 2,
+        'range': '5d',
+        'regularMarketDayHigh': 435.71,
+        'regularMarketDayLow': 431.11,
+        'regularMarketPrice': 434.25,
+        'regularMarketTime': 1746634706,
+        'regularMarketVolume': 7402445,
+        'scale': 3,
+        'shortName': 'Microsoft Corporation',
+        'symbol': 'MSFT',
+        'timezone': 'EDT',
+        'tradingPeriods':                                           pre_start                   pre_end  ...                post_start                  post_end
+      Date                                                                           ...                                                    
+      2025-05-01 00:00:00-04:00 2025-05-01 04:00:00-04:00 2025-05-01 09:30:00-04:00  ... 2025-05-01 16:00:00-04:00 2025-05-01 20:00:00-04:00
+      2025-05-02 00:00:00-04:00 2025-05-02 04:00:00-04:00 2025-05-02 09:30:00-04:00  ... 2025-05-02 16:00:00-04:00 2025-05-02 20:00:00-04:00
+      2025-05-05 00:00:00-04:00 2025-05-05 04:00:00-04:00 2025-05-05 09:30:00-04:00  ... 2025-05-05 16:00:00-04:00 2025-05-05 20:00:00-04:00
+      2025-05-06 00:00:00-04:00 2025-05-06 04:00:00-04:00 2025-05-06 09:30:00-04:00  ... 2025-05-06 16:00:00-04:00 2025-05-06 20:00:00-04:00
+      2025-05-07 00:00:00-04:00 2025-05-07 04:00:00-04:00 2025-05-07 09:30:00-04:00  ... 2025-05-07 16:00:00-04:00 2025-05-07 20:00:00-04:00
+      
+      [5 rows x 6 columns],
+        'validRanges': ['1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'ytd', 'max']}
+
+  --- RECOMMENDATIONS SUMMARY ---
+    Source: get_recommendations()
+    Data:
+        period  strongBuy  buy  hold  sell  strongSell
+      0     0m         15   40     5     0           0
+      1    -1m         14   41     6     0           0
+      2    -2m         15   41     6     0           0
+      3    -3m         14   40     5     0           0
+
+  --- UPGRADES DOWNGRADES HISTORY ---
+    Source: get_upgrades_downgrades()
+    Data:
+                                                 Firm            ToGrade          FromGrade Action
+      GradeDate                                                                                   
+      2025-05-01 21:57:32                   Jefferies                Buy                Buy   main
+      2025-05-01 21:42:13                 DA Davidson                Buy                Buy   main
+      2025-05-01 17:38:07                 RBC Capital         Outperform         Outperform   main
+      2025-05-01 17:31:05              Morgan Stanley         Overweight         Overweight   main
+      2025-05-01 16:27:21                      Stifel                Buy                Buy   main
+      2025-05-01 16:24:30           Cantor Fitzgerald         Overweight         Overweight   main
+      2025-05-01 16:18:50                  Scotiabank  Sector Outperform  Sector Outperform   main
+      2025-05-01 16:01:36                    Barclays         Overweight         Overweight   main
+      2025-05-01 15:46:06                 Wells Fargo         Overweight         Overweight   main
+      2025-05-01 15:00:18               TD Securities                Buy                Buy   main
+      2025-05-01 14:52:58                  Guggenheim            Neutral            Neutral   reit
+      2025-05-01 14:12:53                     Wedbush         Outperform         Outperform   main
+      2025-05-01 13:26:54          Evercore ISI Group         Outperform         Outperform   main
+      2025-05-01 12:17:38                   JP Morgan         Overweight         Overweight   main
+      2025-05-01 09:14:32            WestPark Capital               Hold               Hold   reit
+      2025-05-01 09:06:42               Piper Sandler         Overweight         Overweight   main
+      2025-04-24 17:52:42               Goldman Sachs                Buy                Buy   main
+      2025-04-23 15:54:52               Piper Sandler         Overweight         Overweight   main
+      2025-04-23 15:35:18                  Guggenheim            Neutral            Neutral   reit
+      2025-04-21 14:42:44                    Barclays         Overweight         Overweight   main
+      2025-04-17 10:46:09                     Keybanc      Sector Weight         Overweight   down
+      2025-04-16 11:46:43                 BMO Capital         Outperform         Outperform   main
+      2025-04-15 16:01:28           B of A Securities                Buy                Buy   main
+      2025-04-14 21:59:20                         UBS                Buy                Buy   main
+      2025-04-14 14:02:28                 Wells Fargo         Overweight         Overweight   main
+      2025-04-10 17:24:13                     Wedbush         Outperform         Outperform   main
+      2025-04-07 13:53:44                   Jefferies                Buy                Buy   main
+      2025-04-01 09:24:03            WestPark Capital               Hold                      init
+      2025-03-31 12:59:39                   Jefferies                Buy                Buy   main
+      2025-03-20 19:20:56           Tigress Financial                Buy                Buy   main
+      2025-03-20 15:00:58                     Wedbush         Outperform         Outperform   reit
+      2025-03-20 13:11:09                  Scotiabank  Sector Outperform                      init
+      2025-03-13 12:23:31                 DA Davidson                Buy            Neutral     up
+      2025-03-07 16:47:47                      Stifel                Buy                Buy   main
+      2025-01-30 23:20:12                         UBS                Buy                Buy   main
+      2025-01-30 16:55:16                 DA Davidson            Neutral            Neutral   main
+      2025-01-30 16:54:50                 RBC Capital         Outperform         Outperform   reit
+      2025-01-30 12:44:12              Morgan Stanley         Overweight         Overweight   main
+      2025-01-30 11:18:34                      Mizuho         Outperform         Outperform   main
+      2025-01-29 14:49:34           Cantor Fitzgerald         Overweight         Overweight   reit
+      2025-01-27 22:18:47               Piper Sandler         Overweight         Overweight   main
+      2025-01-24 16:00:37                  Guggenheim            Neutral            Neutral   reit
+      2025-01-22 13:25:20              Morgan Stanley         Overweight         Overweight   main
+      2025-01-16 14:56:30           Cantor Fitzgerald         Overweight                      init
+      2025-01-06 10:38:12               Piper Sandler         Overweight         Overweight   main
+      2024-12-23 13:07:13                Loop Capital                Buy                Buy   main
+      2024-12-18 17:15:12                      Stifel                Buy                Buy   main
+      2024-12-18 16:04:58                         UBS                Buy                Buy   main
+      2024-12-13 12:22:48                      Mizuho         Outperform         Outperform   main
+      2024-11-05 16:45:18                 RBC Capital         Outperform         Outperform   reit
+      2024-10-31 19:38:15                         UBS                Buy                Buy   main
+      2024-10-31 15:05:39                   JP Morgan         Overweight         Overweight   main
+      2024-10-31 14:33:04                    TD Cowen                Buy                Buy   main
+      2024-10-31 11:20:42               Piper Sandler         Overweight         Overweight   main
+      2024-10-31 11:18:50              Morgan Stanley         Overweight         Overweight   main
+      2024-10-28 17:56:56           Truist Securities                Buy                Buy   main
+      2024-10-25 11:47:54                   Bernstein         Outperform         Outperform   main
+      2024-10-23 13:28:07                   Citigroup                Buy                Buy   main
+      2024-10-18 11:32:41                     Keybanc         Overweight         Overweight   main
+      2024-10-18 09:04:20               Piper Sandler         Overweight         Overweight   main
+      2024-10-10 11:20:06               Goldman Sachs                Buy                Buy   main
+      2024-10-08 16:30:14           Truist Securities                Buy                Buy   reit
+      2024-09-27 16:05:49                 DA Davidson            Neutral            Neutral   main
+      2024-09-23 12:28:13                 DA Davidson            Neutral                Buy   down
+      2024-09-17 17:43:36              Morgan Stanley         Overweight         Overweight   main
+      2024-07-31 20:17:28                 DA Davidson                Buy                Buy   main
+      2024-07-31 16:46:05              Morgan Stanley         Overweight         Overweight   main
+      2024-07-31 16:20:50                     Wedbush         Outperform         Outperform   reit
+      2024-07-31 15:46:47                         UBS                Buy                Buy   main
+      2024-07-31 14:39:26                 RBC Capital         Outperform         Outperform   reit
+      2024-07-31 11:59:54                 Wells Fargo         Overweight         Overweight   main
+      2024-07-31 11:41:44                   Citigroup                Buy                Buy   main
+      2024-07-31 09:09:33               Piper Sandler         Overweight         Overweight   main
+      2024-07-23 09:10:13               Piper Sandler         Overweight         Overweight   reit
+      2024-07-18 10:39:12                    TD Cowen                Buy                Buy   main
+      2024-07-17 21:48:27                     Wedbush         Outperform         Outperform   main
+      2024-07-17 12:40:27           B of A Securities                Buy                Buy   main
+      2024-07-16 11:44:18                      Mizuho         Outperform         Outperform   main
+      2024-07-12 17:57:32               Piper Sandler         Overweight         Overweight   main
+      2024-07-12 11:30:59                 BMO Capital         Outperform         Outperform   main
+      2024-07-09 16:41:07              Argus Research                Buy                Buy   main
+      2024-06-21 14:28:00                   Citigroup                Buy                Buy   main
+      2024-06-17 15:50:02           Truist Securities                Buy                Buy   main
+      2024-06-13 20:03:26           Tigress Financial                Buy                Buy   main
+      2024-06-10 09:14:40         New Street Research                Buy                      init
+      2024-06-07 12:01:58                 Oppenheimer         Outperform         Outperform   main
+      2024-05-24 14:38:35                 RBC Capital         Outperform         Outperform   reit
+      2024-05-22 16:21:14                     Wedbush         Outperform         Outperform   reit
+      2024-05-17 17:46:16                   Macquarie         Outperform         Outperform   main
+      2024-05-17 15:43:17                 RBC Capital         Outperform         Outperform   main
+      2024-04-26 21:21:49                   Citigroup                Buy                Buy   main
+      2024-04-26 18:25:08                 Wells Fargo         Overweight         Overweight   main
+      2024-04-26 17:37:21               Raymond James         Outperform         Outperform   reit
+      2024-04-26 13:05:32                     Wedbush         Outperform         Outperform   reit
+      2024-04-26 11:46:39                      Stifel                Buy                Buy   main
+      2024-04-26 11:12:49               Goldman Sachs                Buy                Buy   main
+      2024-04-26 11:06:13          Evercore ISI Group         Outperform         Outperform   main
+      2024-04-26 10:25:08                   JP Morgan         Overweight         Overweight   main
+      2024-04-26 09:58:55                   Bernstein         Outperform         Outperform   main
+      2024-04-26 09:35:58               Piper Sandler         Overweight         Overweight   reit
+      2024-04-22 17:39:15                      Stifel                Buy                Buy   main
+      2024-04-18 15:05:41                   Citigroup                Buy                Buy   main
+      2024-04-17 12:15:34                 Wells Fargo         Overweight         Overweight   main
+      2024-04-12 11:54:18                 BMO Capital         Outperform         Outperform   main
+      2024-04-11 11:21:17              Morgan Stanley         Overweight         Overweight   main
+      2024-04-10 16:59:10                     Wedbush         Outperform         Outperform   reit
+      2024-04-10 15:12:59                         UBS                Buy                Buy   main
+      2024-04-01 14:41:34                   Jefferies                Buy                Buy   main
+      2024-03-26 10:31:42                     Wedbush         Outperform         Outperform   main
+      2024-03-25 15:46:18           Truist Securities                Buy                Buy   reit
+      2024-03-21 09:13:28                     Keybanc         Overweight                      init
+      2024-03-15 13:32:03                 DA Davidson                Buy                Buy   main
+      2024-03-06 10:34:07                   Jefferies                Buy                Buy   main
+      2024-03-05 16:10:56                 DA Davidson                Buy                Buy   reit
+      2024-01-31 17:15:31                 BMO Capital         Outperform         Outperform   main
+      2024-01-31 16:41:30                 RBC Capital         Outperform         Outperform   main
+      2024-01-31 14:29:12                     Wedbush         Outperform         Outperform   main
+      2024-01-31 12:34:46                 Wells Fargo         Overweight         Overweight   main
+      2024-01-31 11:33:57               Raymond James         Outperform         Outperform   main
+      2024-01-31 11:22:00                   Macquarie         Outperform         Outperform   main
+      2024-01-31 10:51:23                    Barclays         Overweight         Overweight   main
+      2024-01-29 15:20:42                     Wedbush         Outperform         Outperform   reit
+      2024-01-25 10:15:42               Piper Sandler         Overweight         Overweight   reit
+      2024-01-23 19:59:18           Truist Securities                Buy                Buy   reit
+      2024-01-18 10:47:23           Exane BNP Paribas         Outperform            Neutral     up
+      2024-01-12 12:43:28               Piper Sandler         Overweight         Overweight   reit
+      2024-01-09 16:44:14                 BMO Capital         Outperform         Outperform   main
+      2024-01-02 14:57:51               Piper Sandler         Overweight         Overweight   main
+      2023-12-28 12:31:00                     Wedbush         Outperform         Outperform   main
+      2023-12-15 14:33:00                      Mizuho                Buy                Buy   main
+      2023-12-13 18:08:03           Truist Securities                Buy                      init
+      2023-12-05 16:00:47              Argus Research                Buy                Buy   main
+      2023-12-05 09:46:05           China Renaissance                Buy                      init
+      2023-11-29 09:59:18           Tigress Financial                Buy                Buy   main
+      2023-11-24 15:37:44                      Mizuho                Buy                Buy   reit
+      2023-11-24 15:37:01                 RBC Capital         Outperform         Outperform   reit
+      2023-11-22 15:10:58                     Wedbush         Outperform         Outperform   reit
+      2023-11-20 16:48:02          Evercore ISI Group         Outperform         Outperform   reit
+      2023-11-20 15:54:35                   Macquarie         Outperform         Outperform   reit
+      2023-11-20 13:42:42                     Wedbush         Outperform         Outperform   reit
+      2023-11-16 14:20:34                     Wedbush         Outperform         Outperform   main
+      2023-10-30 08:31:46               Piper Sandler         Overweight         Overweight   reit
+      2023-10-26 15:23:23                   Citigroup                Buy                Buy   main
+      2023-10-26 11:01:28                  Rosenblatt                Buy                Buy   main
+      2023-10-26 08:25:20                        HSBC                Buy               Hold     up
+      2023-10-25 16:33:56                 RBC Capital         Outperform         Outperform   reit
+      2023-10-25 14:27:30                    Barclays         Overweight         Overweight   main
+      2023-10-25 14:10:26                     Wedbush         Outperform         Outperform   reit
+      2023-10-25 13:40:34                 Oppenheimer         Outperform         Outperform   reit
+      2023-10-25 13:34:48               Goldman Sachs                Buy                Buy   main
+      2023-10-25 08:17:23               Piper Sandler         Overweight         Overweight   main
+      2023-10-19 16:00:36                   Citigroup                Buy                Buy   main
+      2023-10-17 11:44:24                Loop Capital                Buy                      init
+      2023-10-16 19:09:19                 DA Davidson                Buy                Buy   reit
+      2023-10-16 11:28:03                  Rosenblatt                Buy                Buy   main
+      2023-10-16 08:22:24               Piper Sandler         Overweight         Overweight   reit
+      2023-10-02 11:51:24                   Jefferies                Buy                Buy   reit
+      2023-10-02 10:50:52                 Wells Fargo         Overweight         Overweight   reit
+      2023-09-25 10:53:50                  Guggenheim            Neutral               Sell     up
+      2023-09-22 16:04:04                   Citigroup                Buy                Buy   reit
+      2023-09-22 16:00:53                   JP Morgan         Overweight         Overweight   reit
+      2023-09-22 14:26:25                 RBC Capital         Outperform         Outperform   reit
+      2023-09-21 13:42:05                     Wedbush         Outperform         Outperform   reit
+      2023-09-20 11:46:53                   Bernstein         Outperform         Outperform   main
+      2023-09-15 09:32:42                        HSBC               Hold                      init
+      2023-09-14 15:44:53                   Bernstein         Outperform         Outperform   reit
+      2023-08-11 11:33:15            Redburn Partners                Buy                Buy   main
+      2023-08-02 16:17:59           Tigress Financial                Buy                Buy   reit
+      2023-07-31 16:08:39              Argus Research                Buy                Buy   main
+      2023-07-28 17:19:10                 Oppenheimer         Outperform         Outperform   reit
+      2023-07-27 11:14:40                  Rosenblatt                Buy                Buy   main
+      2023-07-26 15:07:27              Morgan Stanley         Overweight         Overweight   reit
+      2023-07-26 14:09:11                 RBC Capital         Outperform         Outperform   main
+      2023-07-26 14:06:51                   Citigroup                Buy                Buy   main
+      2023-07-26 12:45:51                     Wedbush         Outperform         Outperform   main
+      2023-07-26 11:59:35                 BMO Capital         Outperform         Outperform   main
+      2023-07-26 08:11:02               Piper Sandler         Overweight         Overweight   reit
+      2023-07-24 12:19:33               Goldman Sachs                Buy                Buy   main
+      2023-07-24 12:13:28               Raymond James         Outperform         Outperform   main
+      2023-07-20 14:40:14                      Stifel                Buy                Buy   main
+      2023-07-20 13:18:53                  Guggenheim               Sell               Sell   reit
+      2023-07-20 10:52:34                   Citigroup                Buy                Buy   main
+      2023-07-19 13:39:33                      Mizuho                Buy                Buy   main
+      2023-07-19 13:37:54                   JP Morgan         Overweight         Overweight   main
+      2023-07-19 13:05:52           B of A Securities                Buy                Buy   main
+      2023-07-19 12:27:31                 Wells Fargo         Overweight         Overweight   main
+      2023-07-19 11:37:20                    Barclays         Overweight         Overweight   main
+      2023-07-19 08:32:57               Piper Sandler         Overweight         Overweight   reit
+      2023-07-18 16:47:36                     Wedbush         Outperform         Outperform   reit
+      2023-07-18 08:34:20                     Keybanc         Overweight         Overweight   main
+      2023-07-14 09:32:14                         UBS                Buy            Neutral     up
+      2023-07-13 12:03:47                 Oppenheimer         Outperform         Outperform   main
+      2023-07-12 12:17:12                     Wedbush         Outperform         Outperform   reit
+      2023-07-06 13:55:25              Morgan Stanley         Overweight         Overweight   main
+      2023-07-05 13:35:00                     Wedbush         Outperform         Outperform   reit
+      2023-06-15 13:05:29                      Mizuho                Buy                Buy   main
+      2023-06-15 12:08:55                   JP Morgan         Overweight         Overweight   main
+      2023-06-09 13:47:58                 BMO Capital         Outperform         Outperform   main
+      2023-06-06 12:48:17                        CFRA         Strong Buy                      main
+      2023-06-02 13:23:55          Evercore ISI Group         Outperform         Outperform   main
+      2023-05-31 12:20:43                         UBS            Neutral            Neutral   main
+      2023-05-31 12:03:06                 Wells Fargo         Overweight         Overweight   main
+      2023-05-31 10:33:37               Credit Suisse         Outperform         Outperform   main
+      2023-05-31 08:03:29               Piper Sandler         Overweight         Overweight   main
+      2023-05-30 14:07:32               Deutsche Bank                Buy                Buy   main
+      2023-05-30 11:48:07                     Wedbush         Outperform         Outperform   main
+      2023-05-25 11:50:45                 Oppenheimer         Outperform         Outperform   reit
+      2023-05-24 11:31:02                      Mizuho                Buy                Buy   main
+      2023-05-23 09:46:02                   Jefferies                Buy                Buy   main
+      2023-05-19 12:55:48                 RBC Capital         Outperform         Outperform   reit
+      2023-05-11 13:30:08                     Wedbush         Outperform         Outperform   main
+      2023-04-26 20:24:45          Evercore ISI Group         Outperform                      main
+      2023-04-26 15:16:02                    TD Cowen         Outperform                      main
+      2023-04-26 15:12:16           B of A Securities                Buy                      main
+      2023-04-26 14:46:12                         UBS            Neutral                      main
+      2023-04-26 14:44:34               Deutsche Bank                Buy                      main
+      2023-04-26 14:04:25                 RBC Capital         Outperform                      main
+      2023-04-26 13:50:43               Piper Sandler         Overweight                      main
+      2023-04-26 13:44:50               Raymond James         Outperform                      main
+      2023-04-26 12:49:22                 DA Davidson                Buy                      main
+      2023-04-26 12:41:15           Atlantic Equities         Overweight                      main
+      2023-04-26 12:27:08                  Guggenheim               Sell               Sell   main
+      2023-04-26 12:07:33                     Wedbush         Outperform                      main
+      2023-04-26 11:39:22                   Citigroup                Buy                      main
+      2023-04-26 11:36:08              Morgan Stanley         Overweight                      main
+      2023-04-26 11:05:11                  Rosenblatt                Buy                      main
+      2023-04-26 11:05:02               Credit Suisse         Outperform                      main
+      2023-04-26 10:42:33                 BMO Capital         Outperform     Market Perform     up
+      2023-04-26 10:40:02                 Oppenheimer         Outperform                      main
+      2023-04-26 10:39:58                   Macquarie         Outperform            Neutral     up
+      2023-04-26 10:35:14                 Wells Fargo         Overweight                      main
+      2023-04-26 10:34:26            MoffettNathanson     Market Perform                      main
+      2023-04-26 10:29:07                      Stifel                Buy                      main
+      2023-04-26 10:27:08                      Mizuho                Buy                      main
+      2023-04-26 10:25:59              Wolfe Research         Outperform                      main
+      2023-04-26 10:24:28                   JP Morgan         Overweight                      main
+      2023-04-26 10:16:05                    Barclays         Overweight                      main
+      2023-04-26 09:42:59                   Jefferies                Buy                      main
+      2023-04-25 14:49:40          Evercore ISI Group         Outperform         Outperform   main
+      2023-04-24 13:09:52           Exane BNP Paribas            Neutral         Outperform   down
+      2023-04-24 10:37:27                   Bernstein         Outperform                      main
+      2023-04-21 14:19:48                 BMO Capital     Market Perform                      main
+      2023-04-21 08:45:37               Piper Sandler         Overweight                      reit
+      2023-04-20 09:18:20                     Keybanc         Overweight                      main
+      2023-04-19 14:34:25           B of A Securities                Buy                      main
+      2023-04-19 12:50:26               Deutsche Bank                Buy                      main
+      2023-04-19 10:15:05                   Citigroup                Buy                      main
+      2023-04-18 15:43:01                    TD Cowen         Outperform                      main
+      2023-04-18 11:11:31                   Jefferies                Buy                      main
+      2023-04-17 10:30:27                    Barclays         Overweight                      main
+      2023-04-14 11:42:16                 BMO Capital     Market Perform                      main
+      2023-04-14 11:27:40                      Stifel                Buy                      main
+      2023-04-12 11:21:38                     Wedbush         Outperform                      main
+      2023-04-11 14:47:29                         UBS            Neutral                      reit
+      2023-04-06 11:44:19                 Oppenheimer         Outperform                      main
+      2023-04-03 11:19:30               Raymond James         Outperform                      main
+      2023-03-29 12:59:16                     Keybanc         Overweight                      main
+      2023-03-28 11:07:08                 BMO Capital     Market Perform                      main
+      2023-03-24 12:48:32                 Wells Fargo         Overweight                      main
+      2023-03-17 13:06:49                      Mizuho                Buy                      main
+      2023-03-17 12:59:33                 RBC Capital         Outperform                      reit
+      2023-02-24 14:33:25                     Wedbush         Outperform                      main
+      2023-02-13 18:36:56                      Stifel                Buy                      main
+      2023-02-08 13:56:53                 DA Davidson                Buy                      main
+      2023-02-08 13:07:43                   JP Morgan         Overweight                      main
+      2023-02-08 11:57:32                      Mizuho                Buy                      main
+      2023-02-08 11:43:01                   Jefferies                Buy                      main
+      2023-02-08 11:36:54                 Oppenheimer         Outperform                      main
+      2023-02-08 10:50:58                     Wedbush         Outperform                      reit
+      2023-02-08 09:39:35               Piper Sandler         Overweight                      main
+      2023-01-26 13:45:46                   Bernstein         Outperform                      main
+      2023-01-26 11:59:36                  Rosenblatt                Buy                      main
+      2023-01-26 11:58:29               Credit Suisse         Outperform                      main
+      2023-01-25 16:56:24            MoffettNathanson     Market Perform                      main
+      2023-01-25 13:31:32                     Wedbush         Outperform                      main
+      2023-01-25 13:29:29                      Stifel                Buy                      main
+      2023-01-25 13:27:41                   Jefferies                Buy                      main
+      2023-01-25 12:14:12                      Mizuho                Buy                      main
+      2023-01-25 12:11:13                 BMO Capital     Market Perform         Outperform   down
+      2023-01-25 11:28:48              Wolfe Research         Outperform                      main
+      2023-01-25 11:26:27                   JP Morgan         Overweight                      main
+      2023-01-25 11:24:15                   Citigroup                Buy                      main
+      2023-01-25 11:19:37               Raymond James         Outperform                      main
+      2023-01-23 14:19:31                   Jefferies                Buy                      main
+      2023-01-23 12:20:40                 BMO Capital         Outperform                      main
+      2023-01-20 12:24:48                      Mizuho                Buy                      main
+      2023-01-19 15:27:41                    TD Cowen         Outperform                      main
+      2023-01-19 14:00:00          Evercore ISI Group         Outperform                      main
+      2023-01-19 13:03:42                   Citigroup                Buy                      main
+      2023-01-19 12:41:03                 Cowen & Co.         Outperform                      main
+      2023-01-17 12:51:44                  Guggenheim               Sell            Neutral   down
+      2023-01-10 12:00:33                    Barclays         Overweight                      main
+      2023-01-09 11:21:50               Piper Sandler         Overweight                      main
+      2023-01-05 09:50:02                 DA Davidson                Buy                      init
+      2023-01-04 11:20:12                         UBS            Neutral                Buy   down
+      2022-11-02 10:27:30                   Macquarie            Neutral                      init
+      2022-10-27 11:13:33                  Rosenblatt                Buy                      main
+      2022-10-26 16:15:55                 Oppenheimer         Outperform                      main
+      2022-10-26 14:29:18                    TD Cowen         Outperform                      main
+      2022-10-26 13:27:30                 BMO Capital         Outperform                      main
+      2022-10-26 13:24:58          Evercore ISI Group         Outperform                      main
+      2022-10-26 13:24:16                   Jefferies                Buy                      main
+      2022-10-26 12:57:07              Wolfe Research         Outperform                      main
+      2022-10-26 12:49:18                     Wedbush         Outperform                      main
+      2022-10-26 12:42:12           Atlantic Equities         Overweight                      main
+      2022-10-26 12:36:10                 RBC Capital         Outperform                      main
+      2022-10-26 11:51:48                 Wells Fargo         Overweight                      main
+      2022-10-26 11:49:43                 Cowen & Co.         Outperform                      main
+      2022-10-26 11:19:38                      Stifel                Buy                      main
+      2022-10-26 11:17:48               Raymond James         Outperform                      main
+      2022-10-26 11:14:50              Morgan Stanley         Overweight                      main
+      2022-10-26 11:13:03                      Mizuho                Buy                      main
+      2022-10-26 11:10:49               Deutsche Bank                Buy                      main
+      2022-10-26 11:00:04               Credit Suisse         Outperform                      main
+      2022-10-26 10:57:50                    Barclays         Overweight                      main
+      2022-10-26 10:56:12                   Jefferies                Buy                      main
+      2022-10-26 08:37:22               Piper Sandler         Overweight                      main
+      2022-10-21 12:46:50                 BMO Capital         Outperform                      main
+      2022-10-20 11:48:38                         UBS                Buy                      main
+      2022-10-20 10:57:35                  Rosenblatt                Buy                      main
+      2022-10-20 09:41:39               Piper Sandler         Overweight                      main
+      2022-10-19 14:30:26                    TD Cowen         Outperform                      main
+      2022-10-19 13:34:05                 Cowen & Co.         Outperform                      main
+      2022-10-19 11:52:12                   Citigroup                Buy                      main
+      2022-10-18 12:19:56               Deutsche Bank                Buy                      main
+      2022-10-18 11:17:07                    Barclays         Overweight                      main
+      2022-10-17 11:10:24                      Mizuho                Buy                      main
+      2022-10-14 11:44:23              Morgan Stanley         Overweight                      main
+      2022-10-12 11:43:09                 Wells Fargo         Overweight                      main
+      2022-10-04 12:59:31                 Oppenheimer         Outperform                      main
+      2022-09-22 13:45:08            MoffettNathanson               Hold                      init
+      2022-08-12 10:53:30                  Guggenheim            Neutral                      init
+      2022-08-08 17:22:59                  SMBC Nikko         Outperform                      main
+      2022-07-29 09:11:10              Wolfe Research         Outperform                      main
+      2022-07-27 14:31:32                    TD Cowen         Outperform                      main
+      2022-07-27 12:50:00                 Cowen & Co.         Outperform                      main
+      2022-07-27 11:13:40               Deutsche Bank                Buy                      main
+      2022-07-27 11:11:19                   JP Morgan         Overweight                      main
+      2022-07-27 11:07:53                      Stifel                Buy                      main
+      2022-07-27 10:52:17                     Wedbush         Outperform                      main
+      2022-07-27 10:39:02                 BMO Capital         Outperform                      main
+      2022-07-27 10:36:52                   Citigroup                Buy                      main
+      2022-07-26 11:00:45                  Rosenblatt                Buy                      main
+      2022-07-25 12:01:35                 Wells Fargo         Overweight                      main
+      2022-07-22 14:32:44                    TD Cowen         Outperform                      main
+      2022-07-22 13:25:29                 Cowen & Co.         Outperform                      main
+      2022-07-19 13:56:15                      Mizuho                Buy                      main
+      2022-07-19 11:37:51                   Citigroup                Buy                      main
+      2022-07-15 14:56:43                 BMO Capital         Outperform                      main
+      2022-07-14 17:24:07                  SMBC Nikko         Outperform                      main
+      2022-07-12 12:53:33              Morgan Stanley         Overweight                      main
+      2022-07-08 08:42:24               Piper Sandler         Overweight                      main
+      2022-07-07 11:16:27                     Keybanc         Overweight                      main
+      2022-06-24 17:25:01                  SMBC Nikko         Outperform                      main
+      2022-06-16 14:49:52                         UBS                Buy                      main
+      2022-06-13 13:36:36                   Jefferies                Buy                      main
+      2022-06-10 11:13:56                    Barclays         Overweight                      main
+      2022-05-23 13:35:13                   Jefferies                Buy                      main
+      2022-04-27 11:45:16                     Wedbush         Outperform                      main
+      2022-04-27 11:41:32                      Stifel                Buy                      main
+      2022-04-27 11:38:51               Deutsche Bank                Buy                      main
+      2022-04-27 10:29:53              Wolfe Research         Outperform                      main
+      2022-04-26 12:01:31                 BMO Capital         Outperform                      main
+      2022-04-19 13:27:17                   Citigroup                Buy                      main
+      2022-04-19 11:56:30                 Wells Fargo         Overweight                      main
+      2022-02-04 16:19:53           Tigress Financial                Buy                      main
+      2022-01-26 16:39:22                      Mizuho                Buy                      reit
+      2022-01-26 15:05:05                   Citigroup                Buy                      main
+      2022-01-26 15:01:38              Morgan Stanley         Overweight                      main
+      2022-01-26 14:41:05                 Oppenheimer         Outperform                      main
+      2022-01-26 14:05:37                 BMO Capital         Outperform                      main
+      2022-01-20 15:33:50                    TD Cowen         Outperform                      reit
+      2022-01-18 16:40:45                      Mizuho                Buy                      main
+      2022-01-06 14:35:03                   Jefferies                Buy                      main
+      2021-12-22 10:01:24                  SMBC Nikko         Outperform                      init
+      2021-11-22 15:55:40                 Wells Fargo         Overweight                      init
+      2021-11-02 09:44:42               Deutsche Bank                Buy                      init
+      2021-10-28 14:53:29                   Citigroup                Buy                      main
+      2021-10-27 15:41:35                      Mizuho                Buy                      main
+      2021-10-27 14:35:07                    TD Cowen         Outperform                      main
+      2021-10-27 14:26:32                   JP Morgan         Overweight                      main
+      2021-10-27 13:54:27              Morgan Stanley         Overweight                      main
+      2021-10-27 13:41:07                    Barclays         Overweight                      main
+      2021-10-27 12:34:42               Credit Suisse         Outperform                      main
+      2021-10-27 12:29:00               Goldman Sachs                Buy                      main
+      2021-10-27 12:15:31                      Stifel                Buy                      main
+      2021-10-27 08:53:28               Piper Sandler         Overweight                      main
+      2021-10-25 08:42:46                     Keybanc         Overweight                      main
+      2021-10-20 14:29:46                     Wedbush         Outperform                      main
+      2021-10-20 14:24:10                   Jefferies                Buy                      main
+      2021-09-17 14:43:56           Tigress Financial                Buy                      main
+      2021-09-17 13:08:25                    Barclays         Overweight                      main
+      2021-09-14 12:10:55              Morgan Stanley         Overweight                      main
+      2021-09-08 13:38:57                   Jefferies                Buy                      main
+      2021-08-20 18:25:24                     Wedbush         Outperform                      main
+      2021-08-20 15:42:40                      Mizuho                Buy                      main
+      2021-08-20 14:50:41                         UBS                Buy                      main
+      2021-07-29 10:52:31                   JP Morgan         Overweight                      main
+      2021-07-28 16:28:35               Piper Sandler         Overweight                      main
+      2021-07-28 14:53:58               Credit Suisse         Outperform                      main
+      2021-07-28 14:50:35                      Mizuho                Buy                      main
+      2021-07-28 14:48:30                   Citigroup                Buy                      main
+      2021-07-28 14:47:05                    Barclays         Overweight                      main
+      2021-07-28 14:36:13                    TD Cowen         Outperform                      main
+      2021-07-28 13:20:30              Morgan Stanley         Overweight                      main
+      2021-07-28 12:25:59                      Stifel                Buy                      main
+      2021-07-28 11:34:58                  Rosenblatt                Buy                      main
+      2021-07-26 13:44:25                   Jefferies                Buy                      main
+      2021-07-23 14:53:54                    Barclays         Overweight                      main
+      2021-07-22 14:37:21                    TD Cowen         Outperform                      main
+      2021-07-22 14:16:42                 Cowen & Co.         Outperform                      main
+      2021-07-21 14:06:09                      Stifel                Buy                      main
+      2021-07-21 11:04:50                  Rosenblatt                Buy                      main
+      2021-07-16 11:39:46                      Mizuho                Buy                      main
+      2021-06-28 12:12:09                   Jefferies                Buy                      main
+      2021-06-23 11:20:52                     Wedbush         Outperform                      main
+      2021-06-03 14:45:01           Tigress Financial                Buy                      reit
+      2021-06-02 12:11:26              KGI Securities         Outperform                      init
+      2021-05-18 13:38:32                   Jefferies                Buy                      main
+      2021-05-13 11:04:31                  Rosenblatt                Buy                      init
+      2021-04-28 16:29:41               Piper Sandler         Overweight                      main
+      2021-04-28 14:52:00                         UBS                Buy                      main
+      2021-04-28 14:50:26                   JP Morgan         Overweight                      main
+      2021-04-28 14:38:48                    TD Cowen         Outperform                      main
+      2021-04-28 13:14:47              Morgan Stanley         Overweight                      main
+      2021-04-28 13:07:50                      Mizuho                Buy                      main
+      2021-04-28 12:36:20               Credit Suisse         Outperform                      main
+      2021-04-28 11:45:08               Raymond James         Strong Buy                      main
+      2021-04-28 11:36:26                    Barclays         Overweight                      main
+      2021-04-26 13:24:53                     Keybanc         Overweight                      main
+      2021-04-23 10:48:42              Wolfe Research         Outperform                      init
+      2021-04-22 12:57:41           Exane BNP Paribas         Outperform                      init
+      2021-04-21 14:16:06           B of A Securities                Buy                      main
+      2021-04-21 12:59:24                   Citigroup                Buy                      main
+      2021-04-13 14:57:30              Argus Research                Buy                      main
+      2021-04-12 13:00:16                 BMO Capital         Outperform                      main
+      2021-03-05 13:33:28              Morgan Stanley         Overweight                      main
+      2021-02-16 13:32:05                     Wedbush         Outperform                      main
+      2021-02-09 15:53:14                         UBS                Buy                      main
+      2021-02-02 10:28:01               Piper Sandler         Overweight                      reit
+      2021-01-28 18:10:16              Argus Research                Buy                      main
+      2021-01-27 17:43:23           B of A Securities                Buy                      main
+      2021-01-27 17:36:14                 Oppenheimer         Outperform                      main
+      2021-01-27 17:31:15                    Barclays         Overweight                      main
+      2021-01-27 17:28:36                 BMO Capital         Outperform                      main
+      2021-01-27 17:25:50                      Mizuho                Buy                      main
+      2021-01-27 17:24:06                   Citigroup                Buy                      main
+      2021-01-27 17:20:29                   Jefferies                Buy                      main
+      2021-01-27 15:54:31                         UBS                Buy                      main
+      2021-01-27 15:51:20                   JP Morgan         Overweight                      main
+      2021-01-27 15:39:57                    TD Cowen         Outperform                      main
+      2021-01-27 14:22:28               Raymond James         Strong Buy                      main
+      2021-01-27 13:59:00               Goldman Sachs                Buy                      main
+      2021-01-27 13:45:30               Credit Suisse         Outperform                      main
+      2021-01-27 13:09:16              Morgan Stanley         Overweight                      main
+      2021-01-27 11:41:08                     Wedbush         Outperform                      main
+      2021-01-27 10:20:31               Piper Sandler         Overweight                      main
+      2021-01-22 11:24:22               Goldman Sachs                Buy                      init
+      2020-12-21 12:03:10                   Citigroup                Buy            Neutral     up
+      2020-12-18 17:05:45              Morgan Stanley         Overweight                      main
+      2020-11-24 11:17:23                     Keybanc         Overweight                      init
+      2020-11-05 10:48:08                 Oppenheimer         Outperform            Perform     up
+      2020-10-29 15:59:56               Deutsche Bank                Buy                      main
+      2020-10-28 14:41:06                    TD Cowen         Outperform                      main
+      2020-10-28 13:21:45               Credit Suisse         Outperform                      main
+      2020-10-28 13:00:16               Goldman Sachs                Buy                      main
+      2020-10-28 12:43:49                    Barclays         Overweight                      main
+      2020-10-28 11:59:13              Morgan Stanley         Overweight                      main
+      2020-10-28 09:01:38               Piper Sandler         Overweight                      main
+      2020-10-23 16:25:51                    Barclays         Overweight                      main
+      2020-10-20 16:24:35                      Stifel                Buy                      main
+      2020-10-15 15:43:35                      Mizuho                Buy                      main
+      2020-10-14 10:48:47                         UBS                Buy                      init
+      2020-10-13 16:39:30                 RBC Capital         Outperform                      main
+      2020-10-12 12:51:26               Deutsche Bank                Buy                      main
+      2020-09-09 12:01:07              Morgan Stanley         Overweight                      main
+      2020-08-31 15:44:44                      Mizuho                Buy                      main
+      2020-07-23 14:52:12                   JP Morgan         Overweight                      main
+      2020-07-23 13:05:45                 Oppenheimer            Perform         Outperform   down
+      2020-07-23 12:52:48               Deutsche Bank                Buy                      main
+      2020-07-23 08:42:40               Piper Sandler         Overweight                      main
+      2020-07-20 14:46:51               Raymond James         Strong Buy                      main
+      2020-07-20 13:50:12                   Jefferies                Buy                      main
+      2020-07-20 11:38:43                    Barclays         Overweight                      main
+      2020-07-16 12:17:58               Credit Suisse         Outperform                      main
+      2020-07-16 11:02:47                   Citigroup            Neutral                      main
+      2020-07-09 12:38:15              Morgan Stanley         Overweight                      main
+      2020-07-09 10:28:53                     Wedbush         Outperform                      main
+      2020-06-24 13:57:35               Goldman Sachs                Buy                      main
+      2020-06-24 13:29:39              Argus Research                Buy                      main
+      2020-06-12 12:54:01               Deutsche Bank                Buy                      main
+      2020-05-22 13:01:21               Goldman Sachs                Buy                      main
+      2020-05-18 13:44:13                 RBC Capital         Outperform                      reit
+      2020-04-30 15:45:43                 Wells Fargo         Overweight                      main
+      2020-04-30 14:20:36                 BMO Capital         Outperform                      main
+      2020-04-30 13:41:01                         UBS                Buy                      main
+      2020-04-30 13:15:18               Credit Suisse         Outperform                      main
+      2020-04-30 13:02:28               Goldman Sachs                Buy                      main
+      2020-04-30 12:48:55              Morgan Stanley         Overweight                      main
+      2020-04-30 12:23:21                      Mizuho                Buy                      main
+      2020-04-30 11:00:43                   Citigroup            Neutral                      main
+      2020-04-28 12:40:52                   Jefferies                Buy                      main
+      2020-04-24 12:16:17                 RBC Capital         Outperform                      main
+      2020-04-21 13:41:56                      Mizuho                Buy                      main
+      2020-04-03 12:16:42               Raymond James         Strong Buy                      main
+      2020-03-31 11:51:43                   Citigroup            Neutral                      main
+      2020-03-31 10:29:37               Piper Sandler         Overweight                      main
+      2020-03-25 14:29:17              Morgan Stanley         Overweight                      main
+      2020-03-17 15:29:54               Deutsche Bank                Buy                      main
+      2020-02-03 18:38:50                        CFRA                Buy                      main
+      2020-01-31 15:40:39                      Nomura                Buy                      main
+      2020-01-30 17:08:30                 Oppenheimer         Outperform                      main
+      2020-01-30 15:53:11                   JP Morgan         Overweight                      main
+      2020-01-30 15:25:33                      Stifel                Buy                      main
+      2020-01-30 15:13:15              Morgan Stanley         Overweight                      main
+      2020-01-30 13:55:04               Deutsche Bank                Buy                      main
+      2020-01-30 13:50:55               Credit Suisse         Outperform                      main
+      2020-01-30 13:35:28                 BMO Capital         Outperform                      main
+      2020-01-30 13:11:11                 Wells Fargo         Overweight                      main
+      2020-01-30 12:56:11                         UBS                Buy                      main
+      2020-01-30 12:55:13               Piper Sandler         Overweight                      main
+      2020-01-30 12:40:11               Raymond James         Strong Buy                      main
+      2020-01-30 11:59:17                      Stifel                Buy                      main
+      2020-01-30 11:52:21                     Wedbush         Outperform                      main
+      2020-01-30 11:52:11                 RBC Capital         Outperform                      main
+      2020-01-30 11:46:11                   Citigroup            Neutral                      main
+      2020-01-30 11:44:08                      Mizuho                Buy                      main
+      2020-01-23 14:10:50               Piper Sandler         Overweight                      main
+      2020-01-21 13:13:43                 RBC Capital         Outperform                      main
+      2020-01-16 12:57:05                 Wells Fargo         Overweight                      main
+      2020-01-13 12:51:09               Credit Suisse         Outperform                      main
+      2020-01-10 13:13:24                   Jefferies                Buy                      main
+      2020-01-09 15:42:16                    TD Cowen         Outperform                      main
+      2020-01-09 13:08:31                     Wedbush         Outperform                      main
+      2020-01-09 13:03:23                 Cowen & Co.         Outperform                      main
+      2020-01-08 14:53:16              Morgan Stanley         Overweight                      main
+      2019-12-17 13:59:34                     Wedbush         Outperform                      main
+      2019-12-17 13:26:49               Deutsche Bank                Buy                      main
+      2019-11-01 12:44:39                    Barclays         Overweight                      main
+      2019-10-28 14:36:07                      Mizuho                Buy                      main
+      2019-10-24 13:09:27                    Barclays         Overweight                      main
+      2019-10-24 12:55:56                      Stifel                Buy                      main
+      2019-10-24 12:54:27                   Citigroup            Neutral                      main
+      2019-10-24 12:51:22              Morgan Stanley         Overweight                      main
+      2019-10-24 12:22:12                 BMO Capital         Outperform                      main
+      2019-10-24 11:57:33                     Wedbush         Outperform                      main
+      2019-10-08 10:29:45                   Jefferies                Buy               Hold     up
+      2019-07-19 13:28:38                 BMO Capital         Outperform                      main
+      2019-07-19 12:47:12                   Citigroup            Neutral                      main
+      2019-07-19 12:37:03           Canaccord Genuity                Buy                      main
+      2019-07-19 11:57:54              Morgan Stanley         Overweight                      main
+      2019-07-19 11:42:32               Raymond James         Strong Buy                      main
+      2019-07-19 11:38:02               Credit Suisse         Outperform                      main
+      2019-07-19 10:52:10                      Stifel                Buy                      main
+      2019-07-19 10:04:54                     Keybanc         Overweight                      main
+      2019-07-12 12:13:53                 Wells Fargo         Outperform                      main
+      2019-07-11 11:29:52                 Cowen & Co.         Outperform                      init
+      2019-06-25 14:30:40                   Jefferies       Underperform                      main
+      2019-06-19 13:54:13               Deutsche Bank                Buy                      main
+      2019-04-25 15:48:27               Raymond James         Strong Buy         Strong Buy   main
+      2019-04-25 15:14:01                      Nomura                Buy                Buy   main
+      2019-04-25 14:52:38                 BMO Capital         Outperform         Outperform   main
+      2019-04-25 14:31:29           B of A Securities                Buy                Buy   main
+      2019-04-25 14:03:17                         UBS                Buy                Buy   main
+      2019-04-25 13:42:26                    Barclays         Overweight         Overweight   main
+      2019-04-25 13:22:57               Deutsche Bank                Buy                Buy   main
+      2019-04-25 13:00:18              Morgan Stanley         Overweight         Overweight   main
+      2019-04-25 12:18:23                     Keybanc         Overweight         Overweight   main
+      2019-04-25 12:06:46                     Wedbush         Outperform         Outperform   main
+      2019-04-17 12:43:13                     Keybanc         Overweight         Overweight   main
+      2019-04-12 12:09:53                    Barclays         Overweight         Overweight   main
+      2019-03-14 10:37:34                      Mizuho                Buy                      init
+      2019-01-31 12:38:22                      Nomura                Buy                Buy   main
+      2018-10-25 14:51:06                   Citigroup            Neutral            Neutral   main
+      2018-10-25 14:37:26                      Nomura                Buy                Buy   main
+      2018-10-25 13:38:15                     Keybanc         Overweight         Overweight   main
+      2018-10-19 14:15:11                     Wedbush         Outperform                      init
+      2018-10-12 11:29:45                   Macquarie         Outperform            Neutral     up
+      2018-09-07 11:18:41                    Barclays         Overweight         Overweight   main
+      2018-07-23 12:12:52              Argus Research                Buy                Buy   main
+      2018-07-20 16:54:42                    Barclays         Overweight         Overweight   main
+      2018-07-20 13:12:41                 BMO Capital         Outperform         Outperform   main
+      2018-07-20 12:53:39                 Wells Fargo         Outperform         Outperform   main
+      2018-07-20 12:24:50               Credit Suisse         Outperform         Outperform   main
+      2018-07-20 11:39:29                   Citigroup            Neutral            Neutral   main
+      2018-07-20 11:20:15                      Stifel                Buy                Buy   main
+      2018-07-20 11:20:14                     Keybanc         Overweight         Overweight   main
+      2018-07-17 15:02:59           B of A Securities                Buy                Buy   main
+      2018-07-17 12:45:13               Raymond James         Strong Buy         Strong Buy   main
+      2018-07-17 12:20:19               Piper Sandler         Overweight         Overweight   main
+      2018-06-06 11:50:27              Argus Research                Buy                Buy   main
+      2018-04-30 11:57:07                   Citigroup            Neutral            Neutral   main
+      2018-04-27 13:40:03                    Barclays         Overweight         Overweight   main
+      2018-04-27 12:42:27                   JP Morgan         Overweight            Neutral     up
+      2018-04-27 12:06:18           Canaccord Genuity                Buy                Buy   main
+      2018-04-27 11:47:07                      Stifel                Buy                Buy   main
+      2018-03-26 16:49:12              Morgan Stanley         Overweight         Overweight   main
+      2018-02-02 14:24:09              Morgan Stanley         Overweight         Overweight   main
+      2018-02-02 13:33:42                      Nomura                Buy                Buy   main
+      2018-02-01 17:17:47           Canaccord Genuity                Buy                Buy   main
+      2018-02-01 15:18:28                 BMO Capital         Outperform         Outperform   main
+      2018-02-01 14:56:05           B of A Securities                Buy                Buy   main
+      2018-02-01 14:04:19                      Stifel                Buy                Buy   main
+      2018-02-01 11:03:01                     Keybanc         Overweight         Overweight   main
+      2018-01-25 16:47:19                    Barclays         Overweight         Overweight   main
+      2018-01-25 14:41:18                   JP Morgan            Neutral            Neutral   main
+      2018-01-24 11:55:15                      Nomura                Buy                      init
+      2017-11-09 14:25:04                         UBS                Buy                      main
+      2017-10-31 16:07:58                 Oppenheimer         Outperform                      main
+      2017-10-31 12:39:04              Argus Research                Buy               Hold     up
+      2017-10-30 15:37:13                   Citigroup               Sell                      main
+      2017-10-27 18:07:52           Canaccord Genuity                Buy                      main
+      2017-10-27 17:12:50                 BMO Capital         Outperform                      main
+      2017-10-27 16:09:08                    Barclays         Overweight                      main
+      2017-10-27 12:54:15                   Citigroup               Sell                      main
+      2017-10-27 12:07:02                      Stifel                Buy                      main
+      2017-10-05 10:49:49           Canaccord Genuity                Buy               Hold     up
+      2017-09-06 12:38:54            MoffettNathanson            Neutral                      init
+      2017-07-21 17:13:23                   Citigroup               Sell                      main
+      2017-07-21 15:28:04               Deutsche Bank                Buy                      main
+      2017-07-17 16:05:58               Credit Suisse         Outperform                      main
+      2017-06-22 13:59:30          Cleveland Research                Buy                      init
+      2017-04-27 11:31:49               Credit Suisse         Outperform                      init
+      2017-01-23 17:54:02           Tigress Financial                Buy            Neutral     up
+      2017-01-11 15:34:37                 Wells Fargo         Outperform                      init
+      2016-12-22 13:08:28               Piper Sandler         Overweight                      init
+      2016-11-17 08:26:27               Goldman Sachs                Buy            Neutral     up
+      2016-11-10 12:46:32           Atlantic Equities            Neutral        Underweight     up
+      2016-10-21 04:00:00                      Nomura                Buy                      main
+      2016-10-17 04:00:00               Goldman Sachs            Neutral                      main
+      2016-08-29 12:33:03                         UBS                Buy                      main
+      2016-07-21 01:20:39                   Citigroup               Sell                      main
+      2016-07-20 10:43:17       Wunderlich Securities               Hold                      main
+      2016-07-19 12:11:03               William Blair     Market Perform                      init
+      2016-07-07 16:43:04                   Citigroup               Sell                      main
+      2016-05-24 12:56:12                 Cowen & Co.         Outperform                        up
+      2016-05-24 10:19:51                 Cowen & Co.         Outperform     Market Perform     up
+      2016-05-16 10:26:32           Canaccord Genuity               Hold                      init
+      2016-04-26 10:20:39                   Macquarie            Neutral                      init
+      2016-04-22 12:55:35                   Macquarie            Neutral                      main
+      2016-04-22 12:08:26                 RBC Capital         Outperform                      main
+      2016-04-22 11:43:46                 Cowen & Co.     Market Perform                      main
+      2016-04-22 11:01:22              Morgan Stanley         Overweight                      main
+      2016-04-22 09:57:54               Goldman Sachs            Neutral                      main
+      2016-04-19 13:30:46                      Nomura                Buy                      main
+      2016-04-01 11:35:44                 Cowen & Co.     Market Perform                      main
+      2016-04-01 10:35:32                 Cowen & Co.     Market Perform                      main
+      2016-03-04 11:30:35                   Macquarie            Neutral                      init
+      2016-02-01 14:53:55              Hilliard Lyons            Neutral      Long-Term Buy   down
+      2016-01-29 13:06:08               Credit Suisse         Outperform                      main
+      2016-01-13 11:16:41              Morgan Stanley         Overweight       Equal-Weight     up
+      2016-01-08 10:59:54                 BMO Capital         Outperform                      init
+      2016-01-06 10:35:18                    Barclays         Overweight                      main
+      2015-12-18 12:19:52               Goldman Sachs            Neutral               Sell     up
+      2015-12-16 15:01:09               Deutsche Bank                Buy                      main
+      2015-11-30 12:44:31               Raymond James         Strong Buy     Market Perform     up
+      2015-11-10 18:55:27               Piper Sandler         Overweight                      main
+      2015-10-23 17:38:50                    Barclays         Overweight                      main
+      2015-10-23 17:01:20                   Jefferies        Underweight                      main
+      2015-10-23 12:56:41           B of A Securities                Buy            Neutral     up
+      2015-10-01 10:44:32           B of A Securities            Neutral       Underperform     up
+      2015-08-13 10:59:26                      Stifel                Buy               Hold     up
+      2015-07-22 15:00:00                    Barclays         Overweight                      main
+      2015-07-22 11:25:56                   Citigroup               Sell                      main
+      2015-07-09 15:00:00                   Jefferies       Underperform                      main
+      2015-07-08 08:03:18              Morgan Stanley       Equal-Weight                      main
+      2015-06-18 11:19:07                   Jefferies       Underperform                      main
+      2015-06-09 11:24:50       Wunderlich Securities               Hold                      init
+      2015-06-03 13:00:00                    Barclays         Overweight                      main
+      2015-05-13 10:22:21               Deutsche Bank                Buy               Hold     up
+      2015-04-30 13:00:00                     Keybanc         Overweight                      main
+      2015-04-27 13:00:00                   Citigroup               Sell                      main
+      2015-04-24 13:00:00               Pacific Crest         Overweight                      main
+      2015-04-24 12:31:59                      Nomura                Buy            Neutral     up
+      2015-04-15 13:00:00                   Citigroup               Sell                      main
+      2015-04-10 13:00:00                    Barclays         Overweight                      main
+      2015-04-06 09:57:44                 Wells Fargo         Outperform     Market Perform     up
+      2015-03-13 13:00:00               Pacific Crest         Outperform                      main
+      2015-01-29 10:57:20           Atlantic Equities        Underweight            Neutral   down
+      2015-01-28 14:00:00                   Citigroup               Sell                      main
+      2015-01-27 14:00:00                    Barclays         Overweight                      main
+      2015-01-27 12:25:13                      Nomura            Neutral                Buy   down
+      2015-01-27 11:11:41                   JP Morgan            Neutral         Overweight   down
+      2015-01-06 14:00:00                    Barclays         Overweight                      main
+      2014-12-16 05:00:00           B of A Securities       Underperform            Neutral   down
+      2014-12-12 05:00:00               Piper Sandler         Overweight                      init
+      2014-11-21 22:31:10                   Jefferies       Underperform                      init
+      2014-11-18 14:00:00                   Citigroup            Neutral                      main
+      2014-10-24 13:00:00               Credit Suisse         Outperform                      main
+      2014-10-24 12:30:00               Credit Suisse         Outperform                      main
+      2014-10-09 13:00:00                 BMO Capital     Market Perform                      init
+      2014-10-02 11:46:14              FBN Securities         Outperform                      init
+      2014-09-10 12:00:00                MKM Partners                Buy                      init
+      2014-09-04 13:00:00                    Barclays         Overweight                      main
+      2014-07-24 02:36:58                         UBS                Buy                      main
+      2014-07-24 02:03:49                 FBR Capital         Outperform                      main
+      2014-07-24 01:46:07               Credit Suisse         Outperform                      main
+      2014-07-23 12:15:46           B of A Securities            Neutral       Underperform     up
+      2014-07-23 10:20:34               Pacific Crest         Outperform     Sector Perform     up
+      2014-07-19 02:05:29               Deutsche Bank               Hold                      main
+      2014-07-19 00:33:28                    Barclays         Overweight                      main
+      2014-07-15 23:53:39                      Nomura                Buy                      main
+      2014-06-12 23:38:15                   Citigroup            Neutral                      main
+      2014-06-05 10:15:38                 FBR Capital         Outperform     Market Perform     up
+      2014-05-30 16:40:22       Summit Insights Group               Hold                      init
+      2014-04-25 11:10:43               Credit Suisse         Outperform                      main
+      2014-04-25 06:35:51                 Oppenheimer         Outperform                      main
+      2014-04-25 05:53:55                   JP Morgan            Neutral                      main
+      2014-04-25 04:41:10                 FBR Capital     Market Perform                      main
+      2014-04-22 04:22:14                   Jefferies                Buy                      main
+      2014-04-14 12:19:14               Deutsche Bank               Hold                Buy   down
+      2014-03-19 22:03:23                 Cowen & Co.     Market Perform                      main
+      2014-03-19 02:58:03                    Barclays         Overweight                      main
+      2014-02-27 13:00:00         B. Riley Securities            Neutral                      init
+      2014-02-04 21:00:00                 Sterne Agee            Neutral                      init
+      2014-01-24 13:00:00               Deutsche Bank                Buy                      main
+      2014-01-24 12:21:41               Credit Suisse         Outperform                      main
+      2014-01-23 21:00:00               Deutsche Bank                Buy               Hold     up
+      2014-01-14 21:00:00                   Citigroup            Neutral                Buy   down
+      2014-01-10 13:30:00                    Barclays         Overweight       Equal-weight     up
+      2013-11-27 15:37:23          Evercore ISI Group         Overweight                      main
+      2013-11-19 11:27:32        McAdams Wright Ragen               Hold                      main
+      2013-11-18 11:11:00           B of A Securities       Underperform            Neutral   down
+      2013-11-06 13:00:27                      Nomura                Buy                      main
+      2013-10-15 10:24:53                   Jefferies                Buy               Hold     up
+      2013-09-04 10:51:18              Morgan Stanley       Equal-Weight         Overweight   down
+      2013-08-26 11:53:39                 BMO Capital     Market Perform                      main
+      2013-08-22 11:52:38                      Nomura                Buy            Neutral     up
+      2013-08-13 11:15:58                      Stifel               Hold                Buy   down
+      2013-08-08 11:26:39          Evercore ISI Group         Overweight       Equal-Weight     up
+      2013-07-29 12:24:30           Atlantic Equities            Neutral         Overweight   down
+      2013-07-19 10:37:37                 Cowen & Co.     Market Perform         Outperform   down
+      2013-06-26 11:01:42              Morgan Stanley         Overweight                      main
+      2013-06-05 13:04:39               Deutsche Bank               Hold                Buy   down
+      2013-05-28 11:55:15                      Nomura            Neutral                      main
+      2013-05-15 12:24:31                      Stifel                Buy                      main
+      2013-04-30 14:00:24         Standpoint Research               Hold                Buy   down
+      2013-04-30 10:27:58              Morgan Stanley         Overweight       Equal-Weight   main
+      2013-04-25 19:58:06        McAdams Wright Ragen               Hold                Buy   down
+      2013-04-12 11:47:57             Credit Agricole         Outperform                Buy   down
+      2013-04-11 13:09:00              Hilliard Lyons            Neutral      Long-term Buy   down
+      2013-04-11 12:14:42                      Nomura            Neutral                Buy   down
+      2013-04-11 10:01:38               Goldman Sachs               Sell            Neutral   down
+      2013-04-10 15:28:26               BGC FInancial               Hold                Buy   down
+      2013-04-04 10:19:19           B of A Securities            Neutral                Buy   down
+      2013-02-04 20:38:16        McAdams Wright Ragen                Buy                      main
+      2013-01-25 13:03:37               Deutsche Bank                Buy                      main
+      2013-01-18 12:54:17               Deutsche Bank                Buy                      main
+      2013-01-11 12:56:19                      Nomura                Buy                      main
+      2013-01-10 11:47:24              Morgan Stanley       Equal-Weight         Overweight   down
+      2013-01-07 18:33:59                    Barclays       Equal-Weight                      main
+      2013-01-04 12:50:58              Argus Research               Hold                Buy   down
+      2012-12-14 15:33:06  SunTrust Robinson Humphrey            Neutral                      init
+      2012-12-14 12:53:50                 BMO Capital     Market Perform                      init
+      2012-12-13 17:17:44                    Barclays       Equal-Weight                      main
+      2012-12-12 14:17:13         Standpoint Research                Buy               Hold     up
+      2012-12-05 19:00:34                MKM Partners            Neutral                      main
+      2012-11-28 12:50:00                      Nomura                                         main
+      2012-10-19 16:10:00                    Barclays       Equal-Weight                      main
+      2012-10-01 13:33:00                 RBC Capital     Sector Perform         Outperform   down
+      2012-10-01 13:11:00                 RBC Capital     Sector Perform         Outperform   down
+      2012-09-12 20:01:00                   Jefferies               Hold                      init
+      2012-08-20 13:14:00            Longbow Research                Buy                      init
+      2012-07-20 12:24:00          Griffin Securities                Buy                      init
+      2012-07-20 10:43:00               Goldman Sachs            Neutral                      main
+      2012-04-20 16:28:00        McAdams Wright Ragen                Buy                      main
+      2012-04-20 15:51:00                         UBS                Buy                      main
+      2012-04-20 11:05:00           B of A Securities                Buy                      main
+      2012-04-20 10:44:00               Goldman Sachs            Neutral                      main
+      2012-04-20 10:18:00               Deutsche Bank                Buy                      main
+      2012-04-03 15:53:00                         UBS                Buy                      main
+      2012-03-22 11:03:00              Morgan Stanley         Overweight                      main
+      2012-03-19 18:00:00              Hilliard Lyons      Long-Term Buy                      main
+      2012-03-16 12:19:00              Argus Research                Buy               Hold     up
+
+  --- GROWTH ESTIMATES ---
+    Source: get_growth_estimates()
+    Data:
+              stockTrend  indexTrend
+      period                        
+      0q          0.1436      0.1238
+      +1q         0.0750      0.0318
+      0y          0.1374      0.0800
+      +1y         0.1236      0.1386
+      LTG            NaN      0.1220
+
+  --- REVENUE ESTIMATES ---
+    Source: get_revenue_estimate()
+    Data:
+                       avg           low          high  numberOfAnalysts  yearAgoRevenue  growth
+      period                                                                                    
+      0q       73765354450   72570000000   74464996940                38     64727000000  0.1396
+      +1q      74054392790   71500000000   75300000000                32     65585000000  0.1291
+      0y      279002414510  276495000000  283148000000                48    245122000000  0.1382
+      +1y     316211774270  304635000000  338890203530                58    279002414510  0.1334
+
+  --- INSIDER PURCHASES ---
+    Source: get_insider_purchases()
+    Data:
+             Insider Purchases Last 6m     Shares  Trans
+      0                      Purchases    16221.0     10
+      1                          Sales   122200.0      7
+      2    Net Shares Purchased (Sold)  -105979.0     17
+      3      Total Insider Shares Held  4682502.0   <NA>
+      4  % Net Shares Purchased (Sold)     -0.022   <NA>
+      5                   % Buy Shares      0.003   <NA>
+      6                  % Sell Shares      0.026   <NA>
+
+  --- SHARES FULL HISTORY ---
+    Source: get_shares_full()
+    Data:
+      2023-11-09 00:00:00-05:00    7432260096
+      2023-11-10 00:00:00-05:00    7432260096
+      2023-11-14 00:00:00-05:00    7432260096
+      2023-11-16 00:00:00-05:00    7432260096
+      2023-11-17 00:00:00-05:00    7432260096
+      2023-11-22 00:00:00-05:00    7432260096
+      2023-11-23 00:00:00-05:00    7432260096
+      2023-11-25 00:00:00-05:00    7432260096
+      2023-11-28 00:00:00-05:00    7432260096
+      2023-11-29 00:00:00-05:00    7432260096
+      2023-11-30 00:00:00-05:00    7432260096
+      2023-12-01 00:00:00-05:00    7432260096
+      2023-12-02 00:00:00-05:00    7432260096
+      2023-12-06 00:00:00-05:00    7432260096
+      2023-12-08 00:00:00-05:00    7432260096
+      2023-12-13 00:00:00-05:00    7432260096
+      2023-12-15 00:00:00-05:00    7603060224
+      2023-12-16 00:00:00-05:00    7432260096
+      2023-12-19 00:00:00-05:00    7432260096
+      2023-12-20 00:00:00-05:00    7432260096
+      2023-12-22 00:00:00-05:00    7432260096
+      2023-12-23 00:00:00-05:00    7432260096
+      2023-12-26 00:00:00-05:00    7432260096
+      2023-12-27 00:00:00-05:00    7432260096
+      2024-01-04 00:00:00-05:00    7432260096
+      2024-01-05 00:00:00-05:00    7486799872
+      2024-01-05 00:00:00-05:00    7432260096
+      2024-01-06 00:00:00-05:00    7432260096
+      2024-01-09 00:00:00-05:00    7432260096
+      2024-01-10 00:00:00-05:00    7432260096
+      2024-01-11 00:00:00-05:00    7432260096
+      2024-01-13 00:00:00-05:00    7432260096
+      2024-01-19 00:00:00-05:00    7432260096
+      2024-01-20 00:00:00-05:00    7432260096
+      2024-01-24 00:00:00-05:00    7432260096
+      2024-01-27 00:00:00-05:00    7449560064
+      2024-01-30 00:00:00-05:00    7432260096
+      2024-02-01 00:00:00-05:00    7430439936
+      2024-02-01 00:00:00-05:00    7639620096
+      2024-02-02 00:00:00-05:00    7430439936
+      2024-02-06 00:00:00-05:00    7430439936
+      2024-02-07 00:00:00-05:00    7430439936
+      2024-02-07 00:00:00-05:00    7432640000
+      2024-02-14 00:00:00-05:00    7430439936
+      2024-02-15 00:00:00-05:00    7430439936
+      2024-02-17 00:00:00-05:00    7430439936
+      2024-02-23 00:00:00-05:00    7430439936
+      2024-02-27 00:00:00-05:00    7430439936
+      2024-03-01 00:00:00-05:00    7430439936
+      2024-03-02 00:00:00-05:00    7430439936
+      2024-03-05 00:00:00-05:00    7430439936
+      2024-03-05 00:00:00-05:00    7440820224
+      2024-03-06 00:00:00-05:00    7430439936
+      2024-03-07 00:00:00-05:00    7430439936
+      2024-03-08 00:00:00-05:00    7430439936
+      2024-03-09 00:00:00-05:00    7430439936
+      2024-03-12 00:00:00-04:00    7430439936
+      2024-03-12 00:00:00-04:00    7460740096
+      2024-03-13 00:00:00-04:00    7431329792
+      2024-03-14 00:00:00-04:00    7430439936
+      2024-03-15 00:00:00-04:00    7430439936
+      2024-03-20 00:00:00-04:00    7430439936
+      2024-03-21 00:00:00-04:00    7430439936
+      2024-03-22 00:00:00-04:00    7430439936
+      2024-03-23 00:00:00-04:00    7430439936
+      2024-03-23 00:00:00-04:00    7446219776
+      2024-03-26 00:00:00-04:00    7430439936
+      2024-03-26 00:00:00-04:00    7446459904
+      2024-03-26 00:00:00-04:00    7528840192
+      2024-03-27 00:00:00-04:00    7430439936
+      2024-03-29 00:00:00-04:00    7430439936
+      2024-03-29 00:00:00-04:00    7443680256
+      2024-04-04 00:00:00-04:00    7430439936
+      2024-04-04 00:00:00-04:00    7447220224
+      2024-04-05 00:00:00-04:00    7430439936
+      2024-04-06 00:00:00-04:00    7430439936
+      2024-04-11 00:00:00-04:00    7430439936
+      2024-04-12 00:00:00-04:00    7532709888
+      2024-04-13 00:00:00-04:00    7430439936
+      2024-04-16 00:00:00-04:00    7430439936
+      2024-04-17 00:00:00-04:00    7430439936
+      2024-04-18 00:00:00-04:00    7430439936
+      2024-04-18 00:00:00-04:00    7481690112
+      2024-04-19 00:00:00-04:00    7430439936
+      2024-04-20 00:00:00-04:00    7430439936
+      2024-04-23 00:00:00-04:00    7430439936
+      2024-04-25 00:00:00-04:00    7617019904
+      2024-04-25 00:00:00-04:00    7430439936
+      2024-04-26 00:00:00-04:00    7430439936
+      2024-04-27 00:00:00-04:00    7432309760
+      2024-04-30 00:00:00-04:00    7432309760
+      2024-05-01 00:00:00-04:00    7432309760
+      2024-05-01 00:00:00-04:00    7678949888
+      2024-05-07 00:00:00-04:00    7432309760
+      2024-05-10 00:00:00-04:00    7432309760
+      2024-05-11 00:00:00-04:00    7432309760
+      2024-05-15 00:00:00-04:00    7432309760
+      2024-05-16 00:00:00-04:00    7432309760
+      2024-05-17 00:00:00-04:00    7432309760
+      2024-05-18 00:00:00-04:00    7432309760
+      2024-05-20 00:00:00-04:00    7432309760
+      2024-05-21 00:00:00-04:00    7432309760
+      2024-05-22 00:00:00-04:00    7432309760
+      2024-05-23 00:00:00-04:00    7432309760
+      2024-05-24 00:00:00-04:00    7432309760
+      2024-05-24 00:00:00-04:00    7493570048
+      2024-05-30 00:00:00-04:00    7432309760
+      2024-05-31 00:00:00-04:00    7432309760
+      2024-05-31 00:00:00-04:00    7698290176
+      2024-06-01 00:00:00-04:00    7432309760
+      2024-06-05 00:00:00-04:00    7432309760
+      2024-06-11 00:00:00-04:00    7432309760
+      2024-06-12 00:00:00-04:00    7432309760
+      2024-06-13 00:00:00-04:00    7432309760
+      2024-06-14 00:00:00-04:00    7432309760
+      2024-06-15 00:00:00-04:00    7432309760
+      2024-06-21 00:00:00-04:00    7432309760
+      2024-06-21 00:00:00-04:00    7442979840
+      2024-06-22 00:00:00-04:00    7432309760
+      2024-06-26 00:00:00-04:00    7432309760
+      2024-06-27 00:00:00-04:00    7432309760
+      2024-06-28 00:00:00-04:00    7432309760
+      2024-06-29 00:00:00-04:00    7432309760
+      2024-07-02 00:00:00-04:00    7432309760
+      2024-07-03 00:00:00-04:00    7432309760
+      2024-07-06 00:00:00-04:00    7432309760
+      2024-07-10 00:00:00-04:00    7432309760
+      2024-07-10 00:00:00-04:00    7540669952
+      2024-07-11 00:00:00-04:00    7432309760
+      2024-07-18 00:00:00-04:00    7432309760
+      2024-07-18 00:00:00-04:00    7532850176
+      2024-07-19 00:00:00-04:00    7487739904
+      2024-07-20 00:00:00-04:00    7432309760
+      2024-07-24 00:00:00-04:00    7432309760
+      2024-07-25 00:00:00-04:00    7617189888
+      2024-07-26 00:00:00-04:00    7432309760
+      2024-07-30 00:00:00-04:00    7432309760
+      2024-07-31 00:00:00-04:00    7432309760
+      2024-08-01 00:00:00-04:00    7433039872
+      2024-08-02 00:00:00-04:00    7433039872
+      2024-08-06 00:00:00-04:00    7433039872
+      2024-08-07 00:00:00-04:00    7433039872
+      2024-08-10 00:00:00-04:00    7433039872
+      2024-08-13 00:00:00-04:00    7433039872
+      2024-08-16 00:00:00-04:00    7433039872
+      2024-08-17 00:00:00-04:00    7478689792
+      2024-08-17 00:00:00-04:00    7433039872
+      2024-08-20 00:00:00-04:00    7433039872
+      2024-08-22 00:00:00-04:00    7433039872
+      2024-08-24 00:00:00-04:00    7433039872
+      2024-08-27 00:00:00-04:00    7433039872
+      2024-08-27 00:00:00-04:00    7490189824
+      2024-08-29 00:00:00-04:00    7491689984
+      2024-08-29 00:00:00-04:00    7433039872
+      2024-08-30 00:00:00-04:00    7433039872
+      2024-08-31 00:00:00-04:00    7433039872
+      2024-09-04 00:00:00-04:00    7433039872
+      2024-09-06 00:00:00-04:00    7433039872
+      2024-09-07 00:00:00-04:00    7554209792
+      2024-09-07 00:00:00-04:00    7433039872
+      2024-09-10 00:00:00-04:00    7433039872
+      2024-09-14 00:00:00-04:00    7433039872
+      2024-09-16 00:00:00-04:00    7433039872
+      2024-09-17 00:00:00-04:00    7433039872
+      2024-09-18 00:00:00-04:00    7433039872
+      2024-09-20 00:00:00-04:00    7433039872
+      2024-09-21 00:00:00-04:00    7491460096
+      2024-09-21 00:00:00-04:00    7433039872
+      2024-09-24 00:00:00-04:00    7433039872
+      2024-09-26 00:00:00-04:00    7433039872
+      2024-09-27 00:00:00-04:00    7433039872
+      2024-09-28 00:00:00-04:00    7490169856
+      2024-09-28 00:00:00-04:00    7433039872
+      2024-09-30 00:00:00-04:00    7433039872
+      2024-10-03 00:00:00-04:00    7433039872
+      2024-10-05 00:00:00-04:00    7433039872
+      2024-10-05 00:00:00-04:00    7441610240
+      2024-10-09 00:00:00-04:00    7433039872
+      2024-10-12 00:00:00-04:00    7433039872
+      2024-10-15 00:00:00-04:00    7433039872
+      2024-10-16 00:00:00-04:00    7433750016
+      2024-10-16 00:00:00-04:00    7433039872
+      2024-10-17 00:00:00-04:00    7433039872
+      2024-10-18 00:00:00-04:00    7443760128
+      2024-10-18 00:00:00-04:00    7433039872
+      2024-10-19 00:00:00-04:00    7433039872
+      2024-10-22 00:00:00-04:00    7433039872
+      2024-10-24 00:00:00-04:00    7433039872
+      2024-10-26 00:00:00-04:00    7434440192
+      2024-10-31 00:00:00-04:00    7434880000
+      2024-11-01 00:00:00-04:00    7434880000
+      2024-11-02 00:00:00-04:00    7434880000
+      2024-11-05 00:00:00-05:00    7434880000
+      2024-11-05 00:00:00-05:00    7469649920
+      2024-11-06 00:00:00-05:00    7434880000
+      2024-11-08 00:00:00-05:00    7434880000
+      2024-11-09 00:00:00-05:00    7434880000
+      2024-11-12 00:00:00-05:00    7434880000
+      2024-11-13 00:00:00-05:00    7434880000
+      2024-11-15 00:00:00-05:00    7434880000
+      2024-11-16 00:00:00-05:00    7434880000
+      2024-11-16 00:00:00-05:00    7647889920
+      2024-12-05 00:00:00-05:00    7434880000
+      2024-12-06 00:00:00-05:00    7434880000
+      2024-12-10 00:00:00-05:00    7434880000
+      2024-12-11 00:00:00-05:00    7434880000
+      2024-12-11 00:00:00-05:00    7479989760
+      2024-12-14 00:00:00-05:00    7434880000
+      2024-12-20 00:00:00-05:00    7434880000
+      2024-12-21 00:00:00-05:00    7434880000
+      2024-12-24 00:00:00-05:00    7434880000
+      2025-01-04 00:00:00-05:00    7434880000
+      2025-01-07 00:00:00-05:00    7434880000
+      2025-01-08 00:00:00-05:00    7434880000
+      2025-01-09 00:00:00-05:00    7434880000
+      2025-01-11 00:00:00-05:00    7434880000
+      2025-01-11 00:00:00-05:00    7534439936
+      2025-01-14 00:00:00-05:00    7434880000
+      2025-01-14 00:00:00-05:00    7466250240
+      2025-01-15 00:00:00-05:00    7434880000
+      2025-01-17 00:00:00-05:00    7434880000
+      2025-01-24 00:00:00-05:00    7434880000
+      2025-01-29 00:00:00-05:00    7434880000
+      2025-01-31 00:00:00-05:00    7433979904
+      2025-02-01 00:00:00-05:00    7433979904
+      2025-02-05 00:00:00-05:00    7433979904
+      2025-02-06 00:00:00-05:00    7433979904
+      2025-02-07 00:00:00-05:00    7433979904
+      2025-02-08 00:00:00-05:00    7544110080
+      2025-02-10 00:00:00-05:00    7433979904
+      2025-02-11 00:00:00-05:00    7433979904
+      2025-02-12 00:00:00-05:00    7433979904
+      2025-02-13 00:00:00-05:00    7433979904
+      2025-02-13 00:00:00-05:00    7477600256
+      2025-02-14 00:00:00-05:00    7433979904
+      2025-02-15 00:00:00-05:00    7433979904
+      2025-02-20 00:00:00-05:00    7433979904
+      2025-02-22 00:00:00-05:00    7433979904
+      2025-02-26 00:00:00-05:00    7433979904
+      2025-02-27 00:00:00-05:00    7433979904
+      2025-03-04 00:00:00-05:00    7433979904
+      2025-03-04 00:00:00-05:00    7596630016
+      2025-03-06 00:00:00-05:00    7433979904
+      2025-03-07 00:00:00-05:00    7433979904
+      2025-03-08 00:00:00-05:00    7433979904
+      2025-03-11 00:00:00-04:00    7433979904
+      2025-03-11 00:00:00-04:00    7691129856
+      2025-03-13 00:00:00-04:00    7433979904
+      2025-03-14 00:00:00-04:00    7433979904
+      2025-03-19 00:00:00-04:00    7433979904
+      2025-03-20 00:00:00-04:00    7433979904
+      2025-03-21 00:00:00-04:00    7433979904
+      2025-03-25 00:00:00-04:00    7433979904
+      2025-03-26 00:00:00-04:00    7433979904
+      2025-03-27 00:00:00-04:00    7433979904
+      2025-03-27 00:00:00-04:00    7532919808
+      2025-03-28 00:00:00-04:00    7433979904
+      2025-04-01 00:00:00-04:00    7433979904
+      2025-04-01 00:00:00-04:00    7501510144
+      2025-04-05 00:00:00-04:00    7433979904
+      2025-04-09 00:00:00-04:00    7433979904
+      2025-04-10 00:00:00-04:00    7433979904
+      2025-04-10 00:00:00-04:00    7612160000
+      2025-04-11 00:00:00-04:00    7433979904
+      2025-04-12 00:00:00-04:00    7433979904
+      2025-04-15 00:00:00-04:00    7433979904
+      2025-04-16 00:00:00-04:00    7433979904
+      2025-04-17 00:00:00-04:00    7433979904
+      2025-04-18 00:00:00-04:00    7433979904
+      2025-04-18 00:00:00-04:00    7511399936
+      2025-04-22 00:00:00-04:00    7613250048
+      2025-04-23 00:00:00-04:00    7433979904
+      2025-04-24 00:00:00-04:00    7433979904
+      2025-04-26 00:00:00-04:00    7433979904
+      2025-04-29 00:00:00-04:00    7433979904
+      2025-04-30 00:00:00-04:00    7433979904
+      2025-05-02 00:00:00-04:00    7432540160
+      2025-05-07 00:00:00-04:00    7432540160
+      2025-05-07 00:00:00-04:00    7481600000
+
+  --- TTM INCOME STATEMENT ---
+    Source: ttm_income_stmt
+    Data:
+                                                                          2025-03-31
+      Tax Effect Of Unusual Items                                   -96187889.498651
+      Tax Rate For Calcs                                                    0.182867
+      Normalized EBITDA                                               150588000000.0
+      Total Unusual Items                                               -526000000.0
+      Total Unusual Items Excluding Goodwill                            -526000000.0
+      Net Income From Continuing Operation Net Minority Interest       96635000000.0
+      Reconciled Depreciation                                          29330000000.0
+      Reconciled Cost Of Revenue                                       83501000000.0
+      EBITDA                                                          150062000000.0
+      EBIT                                                            120732000000.0
+      Net Interest Income                                                 45000000.0
+      Interest Expense                                                  2471000000.0
+      Interest Income                                                   2516000000.0
+      Normalized Income                                           97064812110.501343
+      Net Income From Continuing And Discontinued Operation            96635000000.0
+      Total Expenses                                                  147880000000.0
+      Total Operating Income As Reported                              122130000000.0
+      Diluted Average Shares                                                     NaN
+      Basic Average Shares                                                       NaN
+      Diluted EPS                                                                NaN
+      Basic EPS                                                                  NaN
+      Diluted NI Availto Com Stockholders                              96635000000.0
+      Net Income Common Stockholders                                   96635000000.0
+      Net Income                                                       96635000000.0
+      Net Income Including Noncontrolling Interests                    96635000000.0
+      Net Income Continuous Operations                                 96635000000.0
+      Tax Provision                                                    21626000000.0
+      Pretax Income                                                   118261000000.0
+      Other Income Expense                                             -3914000000.0
+      Other Non Operating Income Expenses                              -3388000000.0
+      Special Income Charges                                            -920000000.0
+      Write Off                                                          920000000.0
+      Gain On Sale Of Security                                           394000000.0
+      Net Non Operating Interest Income Expense                           45000000.0
+      Interest Expense Non Operating                                    2471000000.0
+      Interest Income Non Operating                                     2516000000.0
+      Operating Income                                                122130000000.0
+      Operating Expense                                                64379000000.0
+      Research And Development                                         31715000000.0
+      Selling General And Administration                               32664000000.0
+      Selling And Marketing Expense                                    25185000000.0
+      General And Administrative Expense                                7479000000.0
+      Other Gand A                                                      7479000000.0
+      Gross Profit                                                    186509000000.0
+      Cost Of Revenue                                                  83501000000.0
+      Total Revenue                                                   270010000000.0
+      Operating Revenue                                               270010000000.0
+
+  --- TTM CASH FLOW STATEMENT ---
+    Source: ttm_cashflow
+    Data:
+                                                          2025-03-31
+      Free Cash Flow                                   69365000000.0
+      Repurchase Of Capital Stock                     -18084000000.0
+      Repayment Of Debt                               -16281000000.0
+      Issuance Of Debt                                  5447000000.0
+      Issuance Of Capital Stock                         2042000000.0
+      Capital Expenditure                             -61345000000.0
+      End Cash Position                                29051000000.0
+      Beginning Cash Position                          19634000000.0
+      Effect Of Exchange Rate Changes                   -223000000.0
+      Changes In Cash                                   9417000000.0
+      Financing Cash Flow                             -64418000000.0
+      Cash Flow From Continuing Financing Activities  -64418000000.0
+      Net Other Financing Charges                      -1917000000.0
+      Cash Dividends Paid                             -23487000000.0
+      Common Stock Dividend Paid                      -23487000000.0
+      Net Common Stock Issuance                       -16042000000.0
+      Common Stock Payments                           -18084000000.0
+      Common Stock Issuance                             2042000000.0
+      Net Issuance Payments Of Debt                   -22972000000.0
+      Net Short Term Debt Issuance                     -6888000000.0
+      Net Long Term Debt Issuance                     -16084000000.0
+      Long Term Debt Payments                         -16281000000.0
+      Long Term Debt Issuance                            197000000.0
+      Investing Cash Flow                             -56875000000.0
+      Cash Flow From Continuing Investing Activities  -56875000000.0
+      Net Other Investing Changes                       -707000000.0
+      Net Investment Purchase And Sale                 10754000000.0
+      Sale Of Investment                               21729000000.0
+      Purchase Of Investment                          -10975000000.0
+      Net Business Purchase And Sale                   -5577000000.0
+      Purchase Of Business                             -5577000000.0
+      Net PPE Purchase And Sale                       -61345000000.0
+      Purchase Of PPE                                 -61345000000.0
+      Operating Cash Flow                             130710000000.0
+      Cash Flow From Continuing Operating Activities  130710000000.0
+      Change In Working Capital                        -1469000000.0
+      Change In Other Working Capital                   2734000000.0
+      Change In Other Current Liabilities               5956000000.0
+      Change In Other Current Assets                   -6494000000.0
+      Change In Payables And Accrued Expense            3538000000.0
+      Change In Payable                                 3538000000.0
+      Change In Account Payable                         5425000000.0
+      Change In Tax Payable                            -1887000000.0
+      Change In Income Tax Payable                     -1887000000.0
+      Change In Inventory                                445000000.0
+      Change In Receivables                            -7648000000.0
+      Changes In Account Receivables                   -7648000000.0
+      Stock Based Compensation                         11597000000.0
+      Unrealized Gain Loss On Investment Securities     -562000000.0
+      Asset Impairment Charge                            920000000.0
+      Deferred Tax                                     -5980000000.0
+      Deferred Income Tax                              -5980000000.0
+      Depreciation Amortization Depletion              29330000000.0
+      Depreciation And Amortization                    29330000000.0
+      Depreciation                                     29330000000.0
+      Operating Gains Losses                             239000000.0
+      Gain Loss On Investment Securities                 239000000.0
+      Net Income From Continuing Operations            96635000000.0
+
+  --- FAST INFO SUMMARY ---
+    Source: get_fast_info()
+    Data:
+      { 'currency': 'USD',
+        'dayHigh': 435.7099914550781,
+        'dayLow': 431.11029052734375,
+        'exchange': 'NMS',
+        'fiftyDayAverage': 388.01639953613284,
+        'lastPrice': 434.2598876953125,
+        'lastVolume': 7407204,
+        'marketCap': 3248958775781.25,
+        'open': 433.8399963378906,
+        'previousClose': 435.96,
+        'quoteType': 'EQUITY',
+        'regularMarketPreviousClose': 433.30999755859375,
+        'shares': 7481600000,
+        'tenDayAverageVolume': 25464750,
+        'threeMonthAverageVolume': 25135203,
+        'timezone': 'America/New_York',
+        'twoHundredDayAverage': 414.10949966430667,
+        'yearChange': 0.055463507915770774,
+        'yearHigh': 468.3500061035156,
+        'yearLow': 344.7900085449219}
+-
+
+---  FETCH TIMESTAMPS UTC ---
+  { 'additional_actions': '2025-05-07T16:18:26.987152',
+    'additional_calendar_events': '2025-05-07T16:18:29.544876',
+    'additional_capital_gains': '2025-05-07T16:18:26.989147',
+    'additional_dividends': '2025-05-07T16:18:26.988149',
+    'additional_earnings_dates': '2025-05-07T16:18:27.617464',
+    'additional_earnings_estimates': '2025-05-07T16:18:28.318406',
+    'additional_earnings_history': '2025-05-07T16:18:29.005952',
+    'additional_earnings_summary': '2025-05-07T16:18:27.012121',
+    'additional_eps_revisions': '2025-05-07T16:18:29.008488',
+    'additional_eps_trend': '2025-05-07T16:18:29.010483',
+    'additional_fast_info_summary': '2025-05-07T16:18:33.781101',
+    'additional_growth_estimates': '2025-05-07T16:18:31.846808',
+    'additional_history_metadata': '2025-05-07T16:18:30.130824',
+    'additional_insider_purchases': '2025-05-07T16:18:32.430797',
+    'additional_recommendations_summary': '2025-05-07T16:18:30.701206',
+    'additional_revenue_estimates': '2025-05-07T16:18:31.853056',
+    'additional_shares_full_history': '2025-05-07T16:18:32.948137',
+    'additional_ttm_cash_flow_statement': '2025-05-07T16:18:35.152590',
+    'additional_ttm_income_statement': '2025-05-07T16:18:34.464651',
+    'additional_upgrades_downgrades_history': '2025-05-07T16:18:31.238341',
+    'analyst_price_targets': '2025-05-07T16:18:16.102385',
+    'annual_balance_sheet': '2025-05-07T16:18:16.856617',
+    'annual_cash_flow': '2025-05-07T16:18:20.001556',
+    'annual_income_statement': '2025-05-07T16:18:18.541196',
+    'get_ticker_object': '2025-05-07T16:18:13.957806',
+    'profile_info': '2025-05-07T16:18:15.564595',
+    'quarterly_balance_sheet': '2025-05-07T16:18:17.918949',
+    'quarterly_cash_flow': '2025-05-07T16:18:20.654250',
+    'quarterly_income_statement': '2025-05-07T16:18:19.309739'}
+
+---  ERRORS ---
+  (No data or errors logged for this section)
+
+================================================================================
+# End of Report
