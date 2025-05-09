@@ -458,3 +458,159 @@ class YahooDataRepository:
             logger.error(f"[DB Get Latest Payload] Unexpected error fetching payload for {ticker}/{item_type}/{item_time_coverage}: {e}", exc_info=True)
             return None
     # --- End get_latest_item_payload ---
+
+    @staticmethod
+    def _model_to_dict(model_instance: Any) -> Optional[Dict[str, Any]]:
+        """Converts a SQLAlchemy model instance to a dictionary.
+           Datetime objects are converted to ISO format strings.
+           Returns None if model_instance is None.
+        """
+        if model_instance is None:
+            return None
+        
+        dict_representation = {}
+        for column in model_instance.__table__.columns:
+            value = getattr(model_instance, column.name)
+            if isinstance(value, datetime):
+                dict_representation[column.name] = value.isoformat()
+            else:
+                dict_representation[column.name] = value
+        return dict_representation
+
+    async def get_ticker_master_by_ticker(self, ticker_symbol: str) -> Optional[Dict[str, Any]]:
+        """Retrieves a ticker_master record by ticker symbol (case-insensitive via DB collation) 
+           and returns it as a dictionary.
+        """
+        if not ticker_symbol:
+            logger.error("[DB Get Master] Ticker symbol is required.")
+            return None
+        
+        logger.debug(f"[DB Get Master] Fetching ticker_master record for: {ticker_symbol}")
+        # Direct comparison, relies on COLLATE NOCASE in schema
+        stmt = select(YahooTickerMasterModel).where(YahooTickerMasterModel.ticker == ticker_symbol)
+        
+        try:
+            async with self.async_session_factory() as session:
+                result = await session.execute(stmt)
+                model_instance = result.scalar_one_or_none()
+                
+                if model_instance:
+                    logger.info(f"[DB Get Master] Found ticker_master record for {ticker_symbol}.")
+                    return self._model_to_dict(model_instance)
+                else:
+                    logger.info(f"[DB Get Master] No ticker_master record found for {ticker_symbol}.")
+                    return None
+        except SQLAlchemyError as e:
+            logger.error(f"[DB Get Master] SQLAlchemyError fetching master record for {ticker_symbol}: {e}", exc_info=True)
+            return None
+        except Exception as e:
+            logger.error(f"[DB Get Master] Unexpected error fetching master record for {ticker_symbol}: {e}", exc_info=True)
+            return None
+
+    async def get_ticker_masters_by_criteria(self, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Retrieves ticker_master records based on filter criteria (case-insensitivity for string fields 
+           handled by DB collation) and returns them as a list of dictionaries.
+        """
+        logger.debug(f"[DB Get Masters By Criteria] Fetching records with filters: {filters}")
+        
+        # String columns list is no longer needed here as collation handles it
+        # string_columns_for_case_insensitive_filter = [
+        #     'ticker', 'company_name', 'country', 'exchange', 'industry', 'sector', 
+        #     'trade_currency', 'asset_type', 'recommendation_key'
+        # ]
+
+        stmt = select(YahooTickerMasterModel)
+        if filters:
+            for column_name, value in filters.items():
+                if hasattr(YahooTickerMasterModel, column_name):
+                    # Direct comparison, relies on COLLATE NOCASE in schema for string columns
+                    stmt = stmt.where(getattr(YahooTickerMasterModel, column_name) == value)
+                else:
+                    logger.warning(f"[DB Get Masters By Criteria] Invalid filter column: {column_name}. Skipping this filter.")
+        
+        records = []
+        try:
+            async with self.async_session_factory() as session:
+                result = await session.execute(stmt)
+                model_instances = result.scalars().all()
+                
+                for instance in model_instances:
+                    dict_repr = self._model_to_dict(instance)
+                    if dict_repr:
+                        records.append(dict_repr)
+                
+                logger.info(f"[DB Get Masters By Criteria] Found {len(records)} records matching criteria.")
+            return records
+        except SQLAlchemyError as e:
+            logger.error(f"[DB Get Masters By Criteria] SQLAlchemyError: {e}", exc_info=True)
+            return [] # Return empty list on error
+        except Exception as e:
+            logger.error(f"[DB Get Masters By Criteria] Unexpected error: {e}", exc_info=True)
+            return [] # Return empty list on error
+
+    async def get_data_items_by_criteria(
+        self,
+        ticker: str,
+        item_type: str,
+        item_time_coverage: Optional[str] = None,
+        key_date: Optional[datetime] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        order_by_key_date_desc: bool = True,
+        limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieves ticker_data_items records based on criteria, parses JSON payload.
+           String comparisons for ticker, item_type, and item_time_coverage are case-insensitive 
+           via DB collation.
+        """
+        logger.debug(f"[DB Get DataItems By Criteria] Fetching for {ticker}, type: {item_type}, coverage: {item_time_coverage}, key_date: {key_date}, start: {start_date}, end: {end_date}, limit: {limit}")
+
+        # Direct comparisons, relies on COLLATE NOCASE in schema
+        stmt = select(TickerDataItemsModel).where(
+            TickerDataItemsModel.ticker == ticker,
+            TickerDataItemsModel.item_type == item_type
+        )
+
+        if item_time_coverage:
+            # Direct comparison
+            stmt = stmt.where(TickerDataItemsModel.item_time_coverage == item_time_coverage)
+        if key_date:
+            stmt = stmt.where(TickerDataItemsModel.item_key_date == key_date)
+        if start_date:
+            stmt = stmt.where(TickerDataItemsModel.item_key_date >= start_date)
+        if end_date:
+            stmt = stmt.where(TickerDataItemsModel.item_key_date <= end_date)
+        
+        if order_by_key_date_desc:
+            stmt = stmt.order_by(TickerDataItemsModel.item_key_date.desc())
+        else:
+            stmt = stmt.order_by(TickerDataItemsModel.item_key_date.asc())
+        
+        if limit is not None and limit > 0:
+            stmt = stmt.limit(limit)
+
+        items = []
+        try:
+            async with self.async_session_factory() as session:
+                result = await session.execute(stmt)
+                model_instances = result.scalars().all()
+
+                for instance in model_instances:
+                    item_dict = self._model_to_dict(instance) # Use existing helper
+                    if item_dict and 'item_data_payload' in item_dict and isinstance(item_dict['item_data_payload'], str):
+                        try:
+                            item_dict['item_data_payload'] = json.loads(item_dict['item_data_payload'])
+                        except json.JSONDecodeError as e_json:
+                            logger.error(f"[DB Get DataItems By Criteria] JSONDecodeError for item {item_dict.get('data_item_id')}: {e_json}. Payload: {item_dict['item_data_payload'][:200]}")
+                            item_dict['item_data_payload'] = {"error": "Failed to parse payload"} # Or None, or keep string
+                    if item_dict: # Ensure item_dict is not None before appending
+                        items.append(item_dict)
+                
+                logger.info(f"[DB Get DataItems By Criteria] Found {len(items)} items for {ticker}/{item_type}.")
+            return items
+        except SQLAlchemyError as e_sql:
+            logger.error(f"[DB Get DataItems By Criteria] SQLAlchemyError for {ticker}/{item_type}: {e_sql}", exc_info=True)
+            return []
+        except Exception as e_gen:
+            logger.error(f"[DB Get DataItems By Criteria] Unexpected error for {ticker}/{item_type}: {e_gen}", exc_info=True)
+            return []

@@ -32,6 +32,7 @@ import pprint # For pretty-printing dicts/lists in text output
 # from .V3_database import SQLiteRepository # Removed
 from .yahoo_repository import YahooDataRepository # Added
 from .yahoo_models import YahooTickerMasterModel, TickerDataItemsModel # Added, though might not be directly used
+from .yahoo_data_query_srv import YahooDataQueryService # Import the new query service
 
 # Configure logging - SET TO DEBUG initially for development
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -2005,9 +2006,11 @@ if __name__ == '__main__':
             'store_earnings_estimates',
             'inspect_forecast_data', # ADDED mode for inspection
             'store_forecast_summary', # New mode
+            'view_filtered_profiles', # New mode for testing profile filtering
+            'view_data_items', # New mode for testing get_data_items
             'test_fetch_historical', 'calculate_atr'
         ], 
-        help="Specify the operation: e.g., 'full', 'inspect_forecast_data', 'store_forecast_summary', etc." # Simplified help
+        help="Specify the operation: e.g., 'full', 'view_data_items', 'store_forecast_summary', 'view_filtered_profiles', etc." # Simplified help
     )
     parser.add_argument(
         "--start-date",
@@ -2017,23 +2020,42 @@ if __name__ == '__main__':
         "--end-date",
         help="End date for historical data fetch (YYYY-MM-DD). Required if --update-mode is 'test_fetch_historical'."
     )
+    # --- Arguments for view_data_items mode ---
+    parser.add_argument(
+        "--item-type",
+        help="Item type for view_data_items mode (e.g., BALANCE_SHEET, INCOME_STATEMENT)."
+    )
+    parser.add_argument(
+        "--item-coverage",
+        help="Item time coverage for view_data_items mode (e.g., FYEAR, QUARTER, TTM)."
+    )
+    parser.add_argument(
+        "--start-date-query",
+        help="Start key date for view_data_items query (YYYY-MM-DD)."
+    )
+    parser.add_argument(
+        "--end-date-query",
+        help="End key date for view_data_items query (YYYY-MM-DD)."
+    )
+    parser.add_argument(
+        "--limit-query",
+        type=int,
+        help="Limit number of results for view_data_items query."
+    )
+    # --- End arguments for view_data_items ---
+
     parser.add_argument(
         "--atr-period",
         type=int,
         default=14,
         help="Period for ATR calculation (e.g., 14). Used with --update-mode calculate_atr."
     )
-    # REMOVED --atr-days-fetch argument
-    # REMOVED --task argument
     parser.add_argument(
         "--log-level", 
         default="INFO", 
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], 
         help="Set the logging level."
     )
-    # REMOVED --retries argument
-    # REMOVED --initial-retry-delay argument
-    # REMOVED --max-retry-delay argument
 
     args = parser.parse_args()
 
@@ -2099,8 +2121,9 @@ if __name__ == '__main__':
                 'store_dividend_history',
                 'store_earnings_estimates',
                 'inspect_forecast_data', # ADDED mode for inspection
-                'store_forecast_summary' # New mode
-                # inspect_forecast_data does not need DB, so not included here
+                'store_forecast_summary', # New mode
+                'view_filtered_profiles', # New mode for testing profile filtering
+                'view_data_items' # New mode for testing get_data_items
             ]: 
                 logger.info("Ensuring database tables exist...")
                 await db_repo.create_tables()
@@ -2185,7 +2208,87 @@ if __name__ == '__main__':
             elif cli_args.update_mode == 'store_forecast_summary':
                 logger.info(f"Running Forecast Summary Storage for: {cli_args.ticker}")
                 await fetch_and_store_forecast_summary(cli_args.ticker, db_repo)
+
+            elif cli_args.update_mode == 'view_filtered_profiles': # <<< START NEW ELIF BLOCK
+                logger.info(f"Running View Filtered Profiles (ticker arg '{cli_args.ticker}' is used if no filters are specified or for context, otherwise filters dictate)")
+                query_service = YahooDataQueryService(db_repo)
+                
+                # --- Define your test filters here ---
+                # Example 1: Get all profiles (empty filter) - Useful for seeing all data
+                # test_filters = {}
+                
+                # Example 2: Filter by a specific ticker if you want to test that pathway with filters still in place
+                # test_filters = {'ticker': cli_args.ticker} 
+
+                # Example 3: Filter by sector (adjust to a sector you have in your DB)
+                # test_filters = {'sector': 'Technology'}
+
+                # Example 4: Filter by country and exchange (adjust to data in your DB for this to work)
+                test_filters = {'country': 'Greece', 'exchange': 'ATH'} 
+                # To get all tickers if the above filter is too restrictive, uncomment Example 1 and comment this out.
+
+                logger.info(f"Applying filters: {test_filters}")
+                profiles = await query_service.get_multiple_ticker_profiles(filters=test_filters)
+                
+                if profiles:
+                    print(f"\n--- Found {len(profiles)} Ticker Profiles Matching Filters ---")
+                    # Import pprint if not already at the top of V3_yahoo_fetch.py
+                    # import pprint 
+                    for profile_idx, profile_data in enumerate(profiles):
+                        print(f"\n--- Profile {profile_idx + 1} ---")
+                        pprint.pprint(profile_data, indent=2) # Assumes pprint is imported
+                else:
+                    print("\n--- No Ticker Profiles Found Matching Filters ---")
+                print("-----------------------------------------------------\n") # <<< END NEW ELIF BLOCK
             
+            elif cli_args.update_mode == 'view_data_items':
+                logger.info(f"Running View Data Items for ticker: {cli_args.ticker}")
+                query_service = YahooDataQueryService(db_repo)
+
+                if not cli_args.item_type:
+                    logger.error("For 'view_data_items' mode, --item-type is required.")
+                    print("\nERROR: --item-type is required for this mode (e.g., BALANCE_SHEET, INCOME_STATEMENT).\n")
+                    return
+
+                start_dt_query = None
+                if cli_args.start_date_query:
+                    try:
+                        start_dt_query = datetime.strptime(cli_args.start_date_query, "%Y-%m-%d")
+                    except ValueError:
+                        logger.error("Invalid format for --start-date-query. Use YYYY-MM-DD.")
+                        print("\nERROR: Invalid format for --start-date-query. Use YYYY-MM-DD.\n")
+                        return
+                
+                end_dt_query = None
+                if cli_args.end_date_query:
+                    try:
+                        end_dt_query = datetime.strptime(cli_args.end_date_query, "%Y-%m-%d")
+                    except ValueError:
+                        logger.error("Invalid format for --end-date-query. Use YYYY-MM-DD.")
+                        print("\nERROR: Invalid format for --end-date-query. Use YYYY-MM-DD.\n")
+                        return
+
+                logger.info(f"Querying for item_type: {cli_args.item_type}, coverage: {cli_args.item_coverage}, start: {cli_args.start_date_query}, end: {cli_args.end_date_query}, limit: {cli_args.limit_query}")
+                
+                data_items = await query_service.get_data_items(
+                    ticker=cli_args.ticker,
+                    item_type=cli_args.item_type.upper(), # Standardize to upper
+                    item_time_coverage=cli_args.item_coverage.upper() if cli_args.item_coverage else None, # Standardize
+                    start_date=start_dt_query,
+                    end_date=end_dt_query,
+                    limit=cli_args.limit_query,
+                    order_by_key_date_desc=True # Default to show latest first
+                )
+
+                if data_items:
+                    print(f"\n--- Found {len(data_items)} Data Items ---")
+                    for item_idx, item_data in enumerate(data_items):
+                        print(f"\n--- Item {item_idx + 1} (ID: {item_data.get('data_item_id')}, KeyDate: {item_data.get('item_key_date')}) ---")
+                        pprint.pprint(item_data, indent=2) 
+                else:
+                    print("\n--- No Data Items Found Matching Criteria ---")
+                print("-----------------------------------------------\n")
+
             elif cli_args.update_mode == 'test_fetch_historical':
                 logger.info(f"Running Historical Data Fetch Test for: {cli_args.ticker}")
                 if not cli_args.start_date or not cli_args.end_date:

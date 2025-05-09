@@ -23,14 +23,14 @@ class YahooTickerMasterModel(Base):
     __table_args__ = {'extend_existing': True}
 
     # Static Fields
-    ticker = Column(String, primary_key=True, nullable=False)
-    company_name = Column(String, nullable=True)
-    country = Column(String, nullable=True)
-    exchange = Column(String, nullable=True)
-    industry = Column(String, nullable=True)
-    sector = Column(String, nullable=True)
-    trade_currency = Column(String, nullable=True)
-    asset_type = Column(String, nullable=True) 
+    ticker = Column(String(collation='NOCASE'), primary_key=True, nullable=False)
+    company_name = Column(String(collation='NOCASE'), nullable=True)
+    country = Column(String(collation='NOCASE'), nullable=True)
+    exchange = Column(String(collation='NOCASE'), nullable=True)
+    industry = Column(String(collation='NOCASE'), nullable=True)
+    sector = Column(String(collation='NOCASE'), nullable=True)
+    trade_currency = Column(String(collation='NOCASE'), nullable=True)
+    asset_type = Column(String(collation='NOCASE'), nullable=True) 
 
     # Market Fields (as defined in V3_database.py originally)
     average_volume = Column(Float, nullable=True) 
@@ -54,7 +54,7 @@ class YahooTickerMasterModel(Base):
     price_eps_current_year = Column(Float, nullable=True)
     price_to_book = Column(Float, nullable=True)
     price_to_sales_ttm = Column(Float, nullable=True)
-    recommendation_key = Column(String, nullable=True)
+    recommendation_key = Column(String(collation='NOCASE'), nullable=True)
     recommendation_mean = Column(Float, nullable=True)
     regular_market_change = Column(Float, nullable=True)
     regular_market_day_high = Column(Float, nullable=True)
@@ -127,10 +127,10 @@ class TickerDataItemsModel(Base):
     data_item_id = Column(Integer, primary_key=True, autoincrement=True)
     
     # Foreign Key to ticker_master table using the primary key column name
-    ticker = Column(String, ForeignKey('ticker_master.ticker'), nullable=False, index=True)
+    ticker = Column(String(collation='NOCASE'), ForeignKey('ticker_master.ticker'), nullable=False, index=True)
     
-    item_type = Column(String, nullable=False, index=True)
-    item_time_coverage = Column(String, nullable=False) 
+    item_type = Column(String(collation='NOCASE'), nullable=False, index=True)
+    item_time_coverage = Column(String(collation='NOCASE'), nullable=False) 
     item_key_date = Column(DateTime, nullable=False, index=True)
     fetch_timestamp_utc = Column(DateTime, nullable=False, default=datetime.now)
     item_source = Column(String, nullable=True) 
