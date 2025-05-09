@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-from sqlalchemy import delete, update, insert
+from sqlalchemy import delete, update, insert, select
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
@@ -322,3 +322,139 @@ class YahooDataRepository:
             logger.error(f"[DB DataItems Upsert - Yahoo Repo] Unexpected error for {ticker}/{item_type}: {e}", exc_info=True)
             return None
     # --- End Upsert Single Ticker Data Item --- 
+
+    async def upsert_single_ttm_statement(self, item_data: Dict[str, Any]) -> Optional[int]:
+        """
+        Upserts a TTM (or similar single-representative) data item.
+        1. Tries to insert the new item. If it has an identical unique key (ticker, type, coverage, key_date),
+           the insert is ignored.
+        2. If the new item was successfully inserted (meaning its key_date is new for this TTM item),
+           it then deletes all other items for the same ticker/type/coverage
+           that have a *different* item_key_date.
+        This ensures only one TTM record (the one with the specific item_key_date from item_data) remains.
+        """
+        ticker = item_data.get('ticker')
+        item_type = item_data.get('item_type')
+        item_time_coverage = item_data.get('item_time_coverage')
+        current_item_key_date = item_data.get('item_key_date') # This is the key_date of the TTM data being processed
+
+        if not all([ticker, item_type, item_time_coverage, current_item_key_date]):
+            logger.error(f"[DB TTM Upsert - Yahoo Repo] Missing critical fields for TTM upsert: ticker, item_type, item_time_coverage, or item_key_date. Data: {item_data}")
+            return None
+
+        # Ensure payload is JSON string and key_date is datetime
+        if not isinstance(item_data.get('item_data_payload'), str):
+            try:
+                item_data['item_data_payload'] = json.dumps(item_data['item_data_payload'])
+            except TypeError as e:
+                logger.error(f"[DB TTM Upsert - Yahoo Repo] Could not serialize payload for {ticker}/{item_type}/{item_time_coverage}: {e}")
+                return None
+        
+        if isinstance(current_item_key_date, str):
+            try:
+                current_item_key_date = datetime.fromisoformat(current_item_key_date)
+                item_data['item_key_date'] = current_item_key_date # Update dict with datetime object
+            except ValueError:
+                logger.error(f"[DB TTM Upsert - Yahoo Repo] Invalid date format for item_key_date \'{current_item_key_date}\' for {ticker}/{item_type}/{item_time_coverage}.")
+                return None
+        
+        if 'fetch_timestamp_utc' not in item_data: # Should be set before calling this normally
+            item_data['fetch_timestamp_utc'] = datetime.now()
+
+
+        logger.info(f"[DB TTM Upsert - Yahoo Repo] Processing TTM item for {ticker}, type '{item_type}', coverage '{item_time_coverage}', key_date '{current_item_key_date.date()}'.")
+
+        inserted_id: Optional[int] = None
+        
+        try:
+            async with self.async_session_factory() as session:
+                async with session.begin():
+                    # Step 1: Attempt to insert the new TTM record
+                    # ON CONFLICT DO NOTHING for the exact same record (same ticker, type, coverage, key_date)
+                    insert_stmt = sqlite_insert(TickerDataItemsModel).values(**item_data)
+                    insert_stmt = insert_stmt.on_conflict_do_nothing(
+                        index_elements=['ticker', 'item_type', 'item_time_coverage', 'item_key_date']
+                    )
+                    result = await session.execute(insert_stmt)
+                    inserted_id = result.inserted_primary_key[0] if result.inserted_primary_key else None
+
+                    if inserted_id:
+                        logger.info(f"[DB TTM Upsert - Yahoo Repo] Successfully inserted new TTM record for {ticker}/{item_type}/{item_time_coverage} with key_date {current_item_key_date.date()}, ID: {inserted_id}.")
+                        
+                        # Step 2: If insert was successful, delete all other TTM records for this ticker/type/coverage
+                        # that have a *different* item_key_date.
+                        delete_stmt = delete(TickerDataItemsModel).where(
+                            TickerDataItemsModel.ticker == ticker,
+                            TickerDataItemsModel.item_type == item_type,
+                            TickerDataItemsModel.item_time_coverage == item_time_coverage,
+                            TickerDataItemsModel.item_key_date != current_item_key_date # Crucial: DO NOT delete the one just inserted
+                        )
+                        delete_result = await session.execute(delete_stmt)
+                        if delete_result.rowcount > 0:
+                            logger.info(f"[DB TTM Upsert - Yahoo Repo] Deleted {delete_result.rowcount} older TTM records for {ticker}/{item_type}/{item_time_coverage} to keep only key_date {current_item_key_date.date()}.")
+                        else:
+                            logger.info(f"[DB TTM Upsert - Yahoo Repo] No older TTM records found to delete for {ticker}/{item_type}/{item_time_coverage} (other than key_date {current_item_key_date.date()}).")
+                    else:
+                        # Insert was ignored due to conflict on the full unique key.
+                        logger.info(f"[DB TTM Upsert - Yahoo Repo] TTM record for {ticker}/{item_type}/{item_time_coverage} with key_date {current_item_key_date.date()} already exists. No changes made.")
+                
+                # session.commit() is handled by async with session.begin()
+            return inserted_id
+
+        except IntegrityError as e: # Should ideally not be hit due to on_conflict_do_nothing for insert
+            logger.error(f"[DB TTM Upsert - Yahoo Repo] IntegrityError for {ticker}/{item_type}/{item_time_coverage}: {e}", exc_info=False) # Less verbose for integrity
+            return None
+        except Exception as e:
+            logger.error(f"[DB TTM Upsert - Yahoo Repo] Unexpected error for {ticker}/{item_type}/{item_time_coverage}: {e}", exc_info=True)
+            return None
+    # --- End Upsert Single TTM Statement ---
+
+    async def get_latest_item_payload(
+        self, 
+        ticker: str, 
+        item_type: str, 
+        item_time_coverage: str
+    ) -> Optional[Dict[str, Any]]:
+        """Fetches the item_data_payload of the most recent item matching
+           ticker, item_type, and item_time_coverage, ordered by item_key_date descending.
+        """
+        if not all([ticker, item_type, item_time_coverage]):
+            logger.error("[DB Get Latest Payload] Ticker, item_type, and item_time_coverage are required.")
+            return None
+
+        logger.debug(f"[DB Get Latest Payload] Fetching latest payload for {ticker}, type '{item_type}', coverage '{item_time_coverage}'.")
+        
+        stmt = (
+            select(TickerDataItemsModel.item_data_payload)
+            .where(
+                TickerDataItemsModel.ticker == ticker,
+                TickerDataItemsModel.item_type == item_type,
+                TickerDataItemsModel.item_time_coverage == item_time_coverage
+            )
+            .order_by(TickerDataItemsModel.item_key_date.desc())
+            .limit(1)
+        )
+
+        try:
+            async with self.async_session_factory() as session:
+                result = await session.execute(stmt)
+                scalar_result = result.scalar_one_or_none()
+                
+                if scalar_result:
+                    logger.debug(f"[DB Get Latest Payload] Found existing payload for {ticker}/{item_type}/{item_time_coverage}.")
+                    try:
+                        payload_dict = json.loads(scalar_result) # scalar_result is the JSON string
+                        return payload_dict
+                    except json.JSONDecodeError as e:
+                        logger.error(f"[DB Get Latest Payload] Error decoding JSON payload for {ticker}/{item_type}/{item_time_coverage}: {e}. Payload: {scalar_result[:200]}")
+                        return None # Or an empty dict, depending on desired behavior for corrupted data
+                else:
+                    logger.info(f"[DB Get Latest Payload] No existing payload found for {ticker}/{item_type}/{item_time_coverage}.")
+                    return None
+        except SQLAlchemyError as e:
+            logger.error(f"[DB Get Latest Payload] SQLAlchemyError fetching payload for {ticker}/{item_type}/{item_time_coverage}: {e}", exc_info=True)
+            return None
+        except Exception as e:
+            logger.error(f"[DB Get Latest Payload] Unexpected error fetching payload for {ticker}/{item_type}/{item_time_coverage}: {e}", exc_info=True)
+            return None
+    # --- End get_latest_item_payload ---

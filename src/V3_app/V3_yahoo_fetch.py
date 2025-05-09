@@ -1144,6 +1144,720 @@ async def fetch_and_store_annual_balance_sheets(ticker_symbol: str, db_repo: Yah
         logger.info(f"--- Fetch & Store FINISHED for Annual Balance Sheets: {ticker_symbol} ---")
 # --- End Annual Balance Sheets ---
 
+# --- NEW: Function to fetch and store Quarterly Balance Sheets ---
+async def fetch_and_store_quarterly_balance_sheets(ticker_symbol: str, db_repo: YahooDataRepository):
+    """Fetches quarterly balance sheets from yfinance (.quarterly_balance_sheet)
+       and stores each quarterly report as a separate item in ticker_data_items.
+       item_type will be 'BALANCE_SHEET' and item_time_coverage will be 'QUARTER'.
+    """
+    logger.info(f"--- Starting Fetch & Store for Quarterly Balance Sheets: {ticker_symbol} ---")
+    
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+        # .quarterly_balance_sheet returns a DataFrame where columns are dates
+        quarterly_bs_df = yf_ticker.quarterly_balance_sheet
+        
+        if not isinstance(quarterly_bs_df, pd.DataFrame) or quarterly_bs_df.empty:
+            logger.warning(f"[Quarterly BS Store] No DataFrame received from .quarterly_balance_sheet for {ticker_symbol}, or DataFrame is empty. Skipping.")
+            return
+
+        logger.info(f"[Quarterly BS Store] Received DataFrame with shape {quarterly_bs_df.shape} for {ticker_symbol}. Iterating through columns (dates).")
+        
+        items_inserted_count = 0
+        for date_col in quarterly_bs_df.columns:
+            try:
+                item_key_date_ts = pd.to_datetime(date_col) # Ensure pandas Timestamp
+                item_key_date_naive = item_key_date_ts.to_pydatetime().replace(tzinfo=None) # Naive python datetime
+
+                sheet_data_for_date = quarterly_bs_df[date_col]
+                payload_dict = sheet_data_for_date.where(pd.notnull(sheet_data_for_date), None).to_dict()
+                
+                if not payload_dict:
+                    logger.warning(f"[Quarterly BS Store] Balance sheet for {ticker_symbol} on {item_key_date_naive.date()} was empty or all NaN. Skipping.")
+                    continue
+
+                item_data = {
+                    'ticker': ticker_symbol,
+                    'item_type': "BALANCE_SHEET", # Consistent item_type
+                    'item_time_coverage': "QUARTER",   # Differentiator
+                    'item_key_date': item_key_date_naive,
+                    'item_source': "yfinance.Ticker.quarterly_balance_sheet",
+                    'item_data_payload': payload_dict
+                }
+
+                logger.debug(f"[Quarterly BS Store] Prepared item_data for {ticker_symbol}, date {item_key_date_naive.date()}.")
+                
+                inserted_id = await db_repo.insert_ticker_data_item(item_data)
+                if inserted_id:
+                    items_inserted_count += 1
+                    logger.info(f"[Quarterly BS Store] Successfully stored quarterly balance sheet for {ticker_symbol}, date {item_key_date_naive.date()}, ID: {inserted_id}.")
+                # else: (Already logged by insert_ticker_data_item if conflict or error)
+            
+            except Exception as col_err:
+                logger.error(f"[Quarterly BS Store] Error processing column '{str(date_col)}' for {ticker_symbol}: {col_err}", exc_info=True)
+                # Continue to the next column
+
+        logger.info(f"[Quarterly BS Store] Finished processing. Stored {items_inserted_count} quarterly balance sheets for {ticker_symbol}.")
+
+    except Exception as e:
+        logger.error(f"[Quarterly BS Store] Error fetching/processing quarterly balance sheets for {ticker_symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"--- Fetch & Store FINISHED for Quarterly Balance Sheets: {ticker_symbol} ---")
+# --- End Quarterly Balance Sheets ---
+
+# --- NEW: Functions to fetch and store Income Statements (Annual, Quarterly, TTM) ---
+
+async def fetch_and_store_annual_income_statements(ticker_symbol: str, db_repo: YahooDataRepository):
+    """Fetches annual income statements from yfinance (.income_stmt)
+       and stores each annual report as a separate item in ticker_data_items.
+       item_type: INCOME_STATEMENT, item_time_coverage: FYEAR.
+    """
+    logger.info(f"--- Starting Fetch & Store for Annual Income Statements: {ticker_symbol} ---")
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+        annual_is_df = yf_ticker.income_stmt
+        
+        if not isinstance(annual_is_df, pd.DataFrame) or annual_is_df.empty:
+            logger.warning(f"[Annual IS Store] No DataFrame from .income_stmt for {ticker_symbol}, or empty. Skipping.")
+            return
+
+        logger.info(f"[Annual IS Store] DataFrame shape {annual_is_df.shape} for {ticker_symbol}. Iterating columns.")
+        items_inserted_count = 0
+        for date_col in annual_is_df.columns:
+            try:
+                item_key_date_ts = pd.to_datetime(date_col)
+                item_key_date_naive = item_key_date_ts.to_pydatetime().replace(tzinfo=None)
+                statement_data = annual_is_df[date_col]
+                payload_dict = statement_data.where(pd.notnull(statement_data), None).to_dict()
+                if not payload_dict: continue
+
+                item_data = {
+                    'ticker': ticker_symbol,
+                    'item_type': "INCOME_STATEMENT",
+                    'item_time_coverage': "FYEAR",
+                    'item_key_date': item_key_date_naive,
+                    'item_source': "yfinance.Ticker.income_stmt",
+                    'item_data_payload': payload_dict
+                }
+                inserted_id = await db_repo.insert_ticker_data_item(item_data)
+                if inserted_id: items_inserted_count += 1
+            except Exception as col_err:
+                logger.error(f"[Annual IS Store] Error processing column '{str(date_col)}' for {ticker_symbol}: {col_err}", exc_info=True)
+        logger.info(f"[Annual IS Store] Stored {items_inserted_count} annual income statements for {ticker_symbol}.")
+    except Exception as e:
+        logger.error(f"[Annual IS Store] Error fetching/processing for {ticker_symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"--- Fetch & Store FINISHED for Annual Income Statements: {ticker_symbol} ---")
+
+async def fetch_and_store_quarterly_income_statements(ticker_symbol: str, db_repo: YahooDataRepository):
+    """Fetches quarterly income statements from yfinance (.quarterly_income_stmt)
+       and stores each quarterly report as a separate item in ticker_data_items.
+       item_type: INCOME_STATEMENT, item_time_coverage: QUARTER.
+    """
+    logger.info(f"--- Starting Fetch & Store for Quarterly Income Statements: {ticker_symbol} ---")
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+        quarterly_is_df = yf_ticker.quarterly_income_stmt
+        
+        if not isinstance(quarterly_is_df, pd.DataFrame) or quarterly_is_df.empty:
+            logger.warning(f"[Quarterly IS Store] No DataFrame from .quarterly_income_stmt for {ticker_symbol}, or empty. Skipping.")
+            return
+
+        logger.info(f"[Quarterly IS Store] DataFrame shape {quarterly_is_df.shape} for {ticker_symbol}. Iterating columns.")
+        items_inserted_count = 0
+        for date_col in quarterly_is_df.columns:
+            try:
+                item_key_date_ts = pd.to_datetime(date_col)
+                item_key_date_naive = item_key_date_ts.to_pydatetime().replace(tzinfo=None)
+                statement_data = quarterly_is_df[date_col]
+                payload_dict = statement_data.where(pd.notnull(statement_data), None).to_dict()
+                if not payload_dict: continue
+
+                item_data = {
+                    'ticker': ticker_symbol,
+                    'item_type': "INCOME_STATEMENT",
+                    'item_time_coverage': "QUARTER",
+                    'item_key_date': item_key_date_naive,
+                    'item_source': "yfinance.Ticker.quarterly_income_stmt",
+                    'item_data_payload': payload_dict
+                }
+                inserted_id = await db_repo.insert_ticker_data_item(item_data)
+                if inserted_id: items_inserted_count += 1
+            except Exception as col_err:
+                logger.error(f"[Quarterly IS Store] Error processing column '{str(date_col)}' for {ticker_symbol}: {col_err}", exc_info=True)
+        logger.info(f"[Quarterly IS Store] Stored {items_inserted_count} quarterly income statements for {ticker_symbol}.")
+    except Exception as e:
+        logger.error(f"[Quarterly IS Store] Error fetching/processing for {ticker_symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"--- Fetch & Store FINISHED for Quarterly Income Statements: {ticker_symbol} ---")
+
+async def fetch_and_store_ttm_income_statement(ticker_symbol: str, db_repo: YahooDataRepository):
+    """Fetches the TTM income statement from yfinance (.ttm_income_stmt)
+       and stores it as a single item in ticker_data_items.
+       item_type: INCOME_STATEMENT, item_time_coverage: TTM.
+       item_key_date is derived from the name of the TTM Series.
+    """
+    logger.info(f"--- Starting Fetch & Store for TTM Income Statement: {ticker_symbol} ---")
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+        ttm_data_raw = yf_ticker.ttm_income_stmt # Renamed to indicate it's raw
+        ttm_is_series = None # Initialize
+
+        # --- DIAGNOSTIC LOGGING (keeping it for now) ---
+        # logger.info(f"[TTM IS Store - DIAGNOSTIC] Raw ttm_data_raw for {ticker_symbol}: {ttm_data_raw}")
+        # logger.info(f"[TTM IS Store - DIAGNOSTIC] Type of ttm_data_raw for {ticker_symbol}: {type(ttm_data_raw)}")
+        # --- END DIAGNOSTIC LOGGING ---
+
+        # --- NEW LOGIC to handle DataFrame or Series ---
+        if isinstance(ttm_data_raw, pd.DataFrame):
+            if not ttm_data_raw.empty and len(ttm_data_raw.columns) > 0:
+                # Assume the first column is the TTM data, and its name is the date
+                ttm_is_series = ttm_data_raw.iloc[:, 0] 
+                # The name of the series (which was the column name) should be the date string for key_date
+                # The series itself does not retain the column name as its .name property directly in this case.
+                # We get the date from the column name of the original DataFrame.
+                series_name_date_str = str(ttm_data_raw.columns[0]) # Explicitly get column name
+                logger.info(f"[TTM IS Store] Processed as DataFrame. Extracted Series for column '{series_name_date_str}'.")
+            else:
+                logger.warning(f"[TTM IS Store] ttm_income_stmt for {ticker_symbol} is an empty DataFrame or has no columns. Skipping.")
+                return
+        elif isinstance(ttm_data_raw, pd.Series):
+            ttm_is_series = ttm_data_raw
+            series_name_date_str = str(ttm_is_series.name) # Get from Series name
+            logger.info(f"[TTM IS Store] Processed as Series. Series name for date: '{series_name_date_str}'.")
+        else:
+            logger.warning(f"[TTM IS Store] ttm_income_stmt for {ticker_symbol} is not a Series or DataFrame. Type: {type(ttm_data_raw)}. Skipping.")
+            return
+        
+        if ttm_is_series is None or ttm_is_series.empty:
+            logger.warning(f"[TTM IS Store] Resulting TTM series for {ticker_symbol} is None or empty after processing. Skipping.")
+            return
+        # --- END NEW LOGIC ---
+
+        # The name of the Series (or the first column name of DF) is typically the end date of the TTM period
+        # series_name_date_str = ttm_is_series.name # This was original, now handled above
+        item_key_date_naive = None
+        if series_name_date_str:
+            try:
+                item_key_date_naive = pd.to_datetime(series_name_date_str).to_pydatetime().replace(tzinfo=None)
+            except ValueError as ve:
+                logger.error(f"[TTM IS Store] Could not parse date '{series_name_date_str}' from TTM series name for {ticker_symbol}: {ve}. Using current date as fallback.")
+                item_key_date_naive = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) # Fallback
+        else:
+            logger.warning(f"[TTM IS Store] TTM income statement series for {ticker_symbol} has no name. Using current date as fallback for item_key_date.")
+            item_key_date_naive = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) # Fallback
+
+        payload_dict = ttm_is_series.where(pd.notnull(ttm_is_series), None).to_dict()
+        if not payload_dict:
+            logger.warning(f"[TTM IS Store] TTM Income Statement for {ticker_symbol} is empty after to_dict. Skipping.")
+            return
+
+        item_data = {
+            'ticker': ticker_symbol,
+            'item_type': "INCOME_STATEMENT",
+            'item_time_coverage': "TTM",
+            'item_key_date': item_key_date_naive,
+            'item_source': "yfinance.Ticker.ttm_income_stmt",
+            'item_data_payload': payload_dict
+        }
+        
+        logger.debug(f"[TTM IS Store] Prepared item_data for {ticker_symbol}, key_date {item_key_date_naive.date()}.")
+        inserted_id = await db_repo.upsert_single_ttm_statement(item_data)
+        if inserted_id:
+            logger.info(f"[TTM IS Store] Successfully processed TTM income statement for {ticker_symbol} (inserted/updated), new/effective ID: {inserted_id}.")
+        else:
+            logger.info(f"[TTM IS Store] TTM income statement for {ticker_symbol} (key_date {item_key_date_naive.date()}) likely already existed or an error occurred; no new record inserted or no older records to manage.")
+        # else: (Already logged by insert_ticker_data_item if conflict or error)
+
+    except Exception as e:
+        logger.error(f"[TTM IS Store] Error fetching/processing for {ticker_symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"--- Fetch & Store FINISHED for TTM Income Statement: {ticker_symbol} ---")
+
+# --- End Income Statement Functions ---
+
+# --- NEW: Functions to fetch and store Cash Flow Statements (Annual, Quarterly, TTM) ---
+
+async def fetch_and_store_annual_cash_flow_statements(ticker_symbol: str, db_repo: YahooDataRepository):
+    """Fetches annual cash flow statements from yfinance (.cashflow)
+       and stores each annual report as a separate item in ticker_data_items.
+       item_type: CASH_FLOW_STATEMENT, item_time_coverage: FYEAR.
+    """
+    logger.info(f"--- Starting Fetch & Store for Annual Cash Flow Statements: {ticker_symbol} ---")
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+        annual_cf_df = yf_ticker.cashflow
+        
+        if not isinstance(annual_cf_df, pd.DataFrame) or annual_cf_df.empty:
+            logger.warning(f"[Annual CF Store] No DataFrame from .cashflow for {ticker_symbol}, or empty. Skipping.")
+            return
+
+        logger.info(f"[Annual CF Store] DataFrame shape {annual_cf_df.shape} for {ticker_symbol}. Iterating columns.")
+        items_inserted_count = 0
+        for date_col in annual_cf_df.columns:
+            try:
+                item_key_date_ts = pd.to_datetime(date_col)
+                item_key_date_naive = item_key_date_ts.to_pydatetime().replace(tzinfo=None)
+                statement_data = annual_cf_df[date_col]
+                payload_dict = statement_data.where(pd.notnull(statement_data), None).to_dict()
+                if not payload_dict: continue
+
+                item_data = {
+                    'ticker': ticker_symbol,
+                    'item_type': "CASH_FLOW_STATEMENT",
+                    'item_time_coverage': "FYEAR",
+                    'item_key_date': item_key_date_naive,
+                    'item_source': "yfinance.Ticker.cashflow",
+                    'item_data_payload': payload_dict
+                }
+                inserted_id = await db_repo.insert_ticker_data_item(item_data)
+                if inserted_id: items_inserted_count += 1
+            except Exception as col_err:
+                logger.error(f"[Annual CF Store] Error processing column '{str(date_col)}' for {ticker_symbol}: {col_err}", exc_info=True)
+        logger.info(f"[Annual CF Store] Stored {items_inserted_count} annual cash flow statements for {ticker_symbol}.")
+    except Exception as e:
+        logger.error(f"[Annual CF Store] Error fetching/processing for {ticker_symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"--- Fetch & Store FINISHED for Annual Cash Flow Statements: {ticker_symbol} ---")
+
+async def fetch_and_store_quarterly_cash_flow_statements(ticker_symbol: str, db_repo: YahooDataRepository):
+    """Fetches quarterly cash flow statements from yfinance (.quarterly_cashflow)
+       and stores each quarterly report as a separate item in ticker_data_items.
+       item_type: CASH_FLOW_STATEMENT, item_time_coverage: QUARTER.
+    """
+    logger.info(f"--- Starting Fetch & Store for Quarterly Cash Flow Statements: {ticker_symbol} ---")
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+        quarterly_cf_df = yf_ticker.quarterly_cashflow
+        
+        if not isinstance(quarterly_cf_df, pd.DataFrame) or quarterly_cf_df.empty:
+            logger.warning(f"[Quarterly CF Store] No DataFrame from .quarterly_cashflow for {ticker_symbol}, or empty. Skipping.")
+            return
+
+        logger.info(f"[Quarterly CF Store] DataFrame shape {quarterly_cf_df.shape} for {ticker_symbol}. Iterating columns.")
+        items_inserted_count = 0
+        for date_col in quarterly_cf_df.columns:
+            try:
+                item_key_date_ts = pd.to_datetime(date_col)
+                item_key_date_naive = item_key_date_ts.to_pydatetime().replace(tzinfo=None)
+                statement_data = quarterly_cf_df[date_col]
+                payload_dict = statement_data.where(pd.notnull(statement_data), None).to_dict()
+                if not payload_dict: continue
+
+                item_data = {
+                    'ticker': ticker_symbol,
+                    'item_type': "CASH_FLOW_STATEMENT",
+                    'item_time_coverage': "QUARTER",
+                    'item_key_date': item_key_date_naive,
+                    'item_source': "yfinance.Ticker.quarterly_cashflow",
+                    'item_data_payload': payload_dict
+                }
+                inserted_id = await db_repo.insert_ticker_data_item(item_data)
+                if inserted_id: items_inserted_count += 1
+            except Exception as col_err:
+                logger.error(f"[Quarterly CF Store] Error processing column '{str(date_col)}' for {ticker_symbol}: {col_err}", exc_info=True)
+        logger.info(f"[Quarterly CF Store] Stored {items_inserted_count} quarterly cash flow statements for {ticker_symbol}.")
+    except Exception as e:
+        logger.error(f"[Quarterly CF Store] Error fetching/processing for {ticker_symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"--- Fetch & Store FINISHED for Quarterly Cash Flow Statements: {ticker_symbol} ---")
+
+async def fetch_and_store_ttm_cash_flow_statement(ticker_symbol: str, db_repo: YahooDataRepository):
+    """Fetches the TTM cash flow statement from yfinance (.ttm_cashflow)
+       and stores it as a single item in ticker_data_items using the upsert_single_ttm_statement method.
+       item_type: CASH_FLOW_STATEMENT, item_time_coverage: TTM.
+       item_key_date is derived from the name of the TTM Series/DataFrame column.
+    """
+    logger.info(f"--- Starting Fetch & Store for TTM Cash Flow Statement: {ticker_symbol} ---")
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+        ttm_data_raw = yf_ticker.ttm_cashflow
+        ttm_cf_series = None
+        series_name_date_str = None
+
+        if isinstance(ttm_data_raw, pd.DataFrame):
+            if not ttm_data_raw.empty and len(ttm_data_raw.columns) > 0:
+                ttm_cf_series = ttm_data_raw.iloc[:, 0]
+                series_name_date_str = str(ttm_data_raw.columns[0])
+                logger.info(f"[TTM CF Store] Processed as DataFrame. Extracted Series for column '{series_name_date_str}'.")
+            else:
+                logger.warning(f"[TTM CF Store] .ttm_cashflow for {ticker_symbol} is an empty DataFrame. Skipping.")
+                return
+        elif isinstance(ttm_data_raw, pd.Series):
+            ttm_cf_series = ttm_data_raw
+            series_name_date_str = str(ttm_cf_series.name)
+            logger.info(f"[TTM CF Store] Processed as Series. Series name for date: '{series_name_date_str}'.")
+        else:
+            logger.warning(f"[TTM CF Store] .ttm_cashflow for {ticker_symbol} is not Series/DataFrame. Type: {type(ttm_data_raw)}. Skipping.")
+            return
+        
+        if ttm_cf_series is None or ttm_cf_series.empty:
+            logger.warning(f"[TTM CF Store] Resulting TTM series for {ticker_symbol} is None or empty. Skipping.")
+            return
+
+        item_key_date_naive = None
+        if series_name_date_str:
+            try:
+                item_key_date_naive = pd.to_datetime(series_name_date_str).to_pydatetime().replace(tzinfo=None)
+            except ValueError as ve:
+                logger.error(f"[TTM CF Store] Could not parse date '{series_name_date_str}' for {ticker_symbol}: {ve}. Using current date.")
+                item_key_date_naive = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            logger.warning(f"[TTM CF Store] TTM cash flow data for {ticker_symbol} has no date name. Using current date.")
+            item_key_date_naive = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        payload_dict = ttm_cf_series.where(pd.notnull(ttm_cf_series), None).to_dict()
+        if not payload_dict:
+            logger.warning(f"[TTM CF Store] TTM Cash Flow for {ticker_symbol} is empty after to_dict. Skipping.")
+            return
+
+        item_data = {
+            'ticker': ticker_symbol,
+            'item_type': "CASH_FLOW_STATEMENT",
+            'item_time_coverage': "TTM",
+            'item_key_date': item_key_date_naive,
+            'item_source': "yfinance.Ticker.ttm_cashflow",
+            'item_data_payload': payload_dict
+        }
+        
+        logger.debug(f"[TTM CF Store] Prepared item_data for {ticker_symbol}, key_date {item_key_date_naive.date()}.")
+        inserted_id = await db_repo.upsert_single_ttm_statement(item_data)
+        if inserted_id:
+            logger.info(f"[TTM CF Store] Processed TTM cash flow for {ticker_symbol}, ID: {inserted_id}.")
+        else:
+            logger.info(f"[TTM CF Store] TTM cash flow for {ticker_symbol} (key_date {item_key_date_naive.date()}) likely already existed or error; no new record.")
+
+    except Exception as e:
+        logger.error(f"[TTM CF Store] Error fetching/processing for {ticker_symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"--- Fetch & Store FINISHED for TTM Cash Flow Statement: {ticker_symbol} ---")
+
+# --- End Cash Flow Statement Functions ---
+
+# --- NEW: Function to fetch and store Dividend History ---
+async def fetch_and_store_dividend_history(ticker_symbol: str, db_repo: YahooDataRepository):
+    """Fetches dividend history using yfinance (.get_dividends())
+       and stores it as a single cumulative record in ticker_data_items.
+       item_type: DIVIDEND_HISTORY, item_time_coverage: CUMULATIVE.
+       item_key_date is the date of the most recent dividend.
+       Uses upsert_single_ttm_statement to manage the single record per ticker.
+    """
+    logger.info(f"--- Starting Fetch & Store for Dividend History: {ticker_symbol} ---")
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+        dividends_series = yf_ticker.get_dividends()
+
+        if not isinstance(dividends_series, pd.Series) or dividends_series.empty:
+            logger.warning(f"[Dividend History Store] No dividend data found for {ticker_symbol}, or data is not a Series. Skipping.")
+            # Potentially insert a record indicating no dividends if that's a desired state to capture
+            # For now, just skipping.
+            return
+
+        # Determine item_key_date from the most recent dividend
+        # yfinance Series index is typically DatetimeIndex
+        if not isinstance(dividends_series.index, pd.DatetimeIndex):
+            logger.error(f"[Dividend History Store] Dividend Series index for {ticker_symbol} is not a DatetimeIndex. Skipping.")
+            return
+            
+        item_key_date_ts = dividends_series.index[-1] # Most recent date
+        item_key_date_naive = item_key_date_ts.to_pydatetime().replace(tzinfo=None)
+
+        # Prepare payload: dict of {date_str: amount}
+        payload_dict = {}
+        for date_val, amount in dividends_series.items():
+            if isinstance(date_val, pd.Timestamp):
+                payload_dict[date_val.strftime('%Y-%m-%d')] = amount
+            else: # Should not happen if index is DatetimeIndex, but as a fallback
+                payload_dict[str(date_val)] = amount
+        
+        if not payload_dict: # Should not happen if series was not empty
+            logger.warning(f"[Dividend History Store] Dividend payload dict is empty for {ticker_symbol} after processing. Skipping.")
+            return
+
+        item_data = {
+            'ticker': ticker_symbol,
+            'item_type': "DIVIDEND_HISTORY",
+            'item_time_coverage': "CUMULATIVE",
+            'item_key_date': item_key_date_naive, # Date of the latest dividend
+            'item_source': "yfinance.Ticker.get_dividends()",
+            'item_data_payload': payload_dict # The entire history as a dict
+        }
+
+        logger.debug(f"[Dividend History Store] Prepared item_data for {ticker_symbol}, latest dividend date {item_key_date_naive.date()}.")
+        
+        # Use the TTM upsert logic to ensure only one record (the latest) per ticker/type/coverage exists
+        inserted_id = await db_repo.upsert_single_ttm_statement(item_data) 
+        
+        if inserted_id:
+            logger.info(f"[Dividend History Store] Successfully processed dividend history for {ticker_symbol} (inserted/updated), new/effective ID: {inserted_id}.")
+        else:
+            logger.info(f"[Dividend History Store] Dividend history for {ticker_symbol} (latest dividend {item_key_date_naive.date()}) likely already current or an error occurred; no new record inserted.")
+
+    except Exception as e:
+        logger.error(f"[Dividend History Store] Error fetching/processing dividend history for {ticker_symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"--- Fetch & Store FINISHED for Dividend History: {ticker_symbol} ---")
+# --- End Dividend History Function ---
+
+# --- NEW: Function to fetch and store Earnings Estimate History ---
+async def fetch_and_store_earnings_estimate_history(ticker_symbol: str, db_repo: YahooDataRepository):
+    """Fetches earnings estimate history from yfinance (.earnings_history),
+       merges it with existing stored history, and stores the combined record.
+       item_type: EARNINGS_ESTIMATE_HISTORY, item_time_coverage: CUMULATIVE.
+       item_key_date is the fetch timestamp. Uses upsert_single_ttm_statement.
+    """
+    logger.info(f"--- Starting Fetch & Store for Earnings Estimate History: {ticker_symbol} ---")
+    current_fetch_time = datetime.now() # Used for item_key_date and to ensure consistency if called by other functions
+    item_type_val = "EARNINGS_ESTIMATE_HISTORY"
+    item_time_coverage_val = "CUMULATIVE"
+
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+        # .earnings_history might be an attribute or a method, let's try as attribute first
+        # and then as a method call if the attribute is None or not what we expect.
+        new_estimates_df = None
+        try:
+            data = yf_ticker.earnings_history
+            if isinstance(data, pd.DataFrame):
+                new_estimates_df = data
+            elif callable(data): # If it's a method like get_earnings_history()
+                logger.debug("[Earnings Est Store] .earnings_history is callable, attempting to call.")
+                new_estimates_df = data() # Call the method
+        except Exception as e_fetch:
+            logger.warning(f"[Earnings Est Store] Error trying to access/call .earnings_history for {ticker_symbol}: {e_fetch}. Trying get_earnings_history().")
+            try:
+                 new_estimates_df = yf_ticker.get_earnings_history()
+            except Exception as e_get_fetch:
+                logger.error(f"[Earnings Est Store] Error calling .get_earnings_history() for {ticker_symbol}: {e_get_fetch}")
+                new_estimates_df = None
+
+        if not isinstance(new_estimates_df, pd.DataFrame) or new_estimates_df.empty:
+            logger.warning(f"[Earnings Est Store] No earnings estimate data found for {ticker_symbol}. Skipping.")
+            return
+
+        # Prepare newly fetched estimates
+        newly_fetched_estimates_dict = {}
+        for quarter_date, row in new_estimates_df.iterrows():
+            if isinstance(quarter_date, pd.Timestamp) and 'epsEstimate' in row and pd.notna(row['epsEstimate']):
+                newly_fetched_estimates_dict[quarter_date.strftime('%Y-%m-%d')] = row['epsEstimate']
+            # else: Skip if date is not Timestamp or epsEstimate is missing/NaN
+
+        if not newly_fetched_estimates_dict:
+            logger.warning(f"[Earnings Est Store] No valid EPS estimates extracted from fetched data for {ticker_symbol}. Skipping.")
+            return
+
+        # Retrieve existing history
+        existing_history_payload = await db_repo.get_latest_item_payload(
+            ticker_symbol, item_type_val, item_time_coverage_val
+        )
+        
+        merged_estimates_dict = existing_history_payload.copy() if existing_history_payload else {}
+        # Update with new estimates, new ones overwrite old for the same quarter date
+        merged_estimates_dict.update(newly_fetched_estimates_dict)
+
+        # Check if the merged data is different from the existing stored data
+        # This avoids a DB write if nothing effectively changed.
+        if existing_history_payload == merged_estimates_dict:
+            logger.info(f"[Earnings Est Store] Earnings estimate history for {ticker_symbol} is unchanged. No update needed.")
+            return
+
+        item_data = {
+            'ticker': ticker_symbol,
+            'item_type': item_type_val,
+            'item_time_coverage': item_time_coverage_val,
+            'item_key_date': current_fetch_time, # Current fetch time
+            'item_source': "yfinance.Ticker.earnings_history/get_earnings_history()",
+            'item_data_payload': merged_estimates_dict
+        }
+
+        logger.debug(f"[Earnings Est Store] Prepared merged earnings estimate data for {ticker_symbol}.")
+        
+        inserted_id = await db_repo.upsert_single_ttm_statement(item_data)
+        
+        if inserted_id:
+            logger.info(f"[Earnings Est Store] Successfully processed earnings estimate history for {ticker_symbol}. Effective ID: {inserted_id}.")
+        else:
+            logger.info(f"[Earnings Est Store] Earnings estimate history for {ticker_symbol} processed; no new record ID returned (e.g., exact same fetch time record existed or error during upsert).")
+
+    except Exception as e:
+        logger.error(f"[Earnings Est Store] Error fetching/processing earnings estimate history for {ticker_symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"--- Fetch & Store FINISHED for Earnings Estimate History: {ticker_symbol} ---")
+# --- End Earnings Estimate History Function ---
+
+# --- NEW: Function to Inspect Forecast Data (Temporary for Planning) ---
+async def inspect_raw_forecast_data(ticker_symbol: str):
+    """Fetches and prints raw data from get_eps_trend() and get_revenue_estimate() for inspection."""
+    logger.info(f"--- Inspecting Raw Forecast Data for: {ticker_symbol} ---")
+    print(f"\n--- Inspecting Raw Forecast Data for: {ticker_symbol} ---")
+    
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+
+        # --- EPS Trend Data ---
+        print("\n\n--- EPS Trend Data (yf_ticker.get_eps_trend()) ---")
+        eps_trend_df = None
+        try:
+            eps_trend_df = yf_ticker.get_eps_trend()
+            if eps_trend_df is not None:
+                print("\n* DataFrame Info (eps_trend_df.info()):")
+                eps_trend_df.info()
+                print("\n* DataFrame Head (eps_trend_df.head().to_string()):")
+                print(eps_trend_df.head().to_string())
+                print(f"\n* Index Name: {eps_trend_df.index.name}")
+                print(f"* Index Values: {list(eps_trend_df.index)}")
+                print(f"* Column Names: {list(eps_trend_df.columns)}")
+            else:
+                print("eps_trend_df is None.")
+        except Exception as e_eps:
+            print(f"Error fetching or processing get_eps_trend(): {e_eps}")
+            logger.error(f"Error fetching get_eps_trend() for {ticker_symbol}: {e_eps}", exc_info=True)
+
+        # --- Revenue Estimate Data ---
+        print("\n\n--- Revenue Estimate Data (yf_ticker.get_revenue_estimate()) ---")
+        revenue_estimate_df = None
+        try:
+            revenue_estimate_df = yf_ticker.get_revenue_estimate()
+            if revenue_estimate_df is not None:
+                print("\n* DataFrame Info (revenue_estimate_df.info()):")
+                revenue_estimate_df.info()
+                print("\n* DataFrame Head (revenue_estimate_df.head().to_string()):")
+                print(revenue_estimate_df.head().to_string())
+                print(f"\n* Index Name: {revenue_estimate_df.index.name}")
+                print(f"* Index Values: {list(revenue_estimate_df.index)}")
+                print(f"* Column Names: {list(revenue_estimate_df.columns)}")
+            else:
+                print("revenue_estimate_df is None.")
+        except Exception as e_rev:
+            print(f"Error fetching or processing get_revenue_estimate(): {e_rev}")
+            logger.error(f"Error fetching get_revenue_estimate() for {ticker_symbol}: {e_rev}", exc_info=True)
+
+    except Exception as e:
+        print(f"An error occurred setting up Ticker object for {ticker_symbol}: {e}")
+        logger.error(f"Error setting up Ticker for forecast inspection ({ticker_symbol}): {e}", exc_info=True)
+    finally:
+        print(f"\n--- Finished Inspecting Raw Forecast Data for: {ticker_symbol} ---")
+        logger.info(f"--- Finished Inspecting Raw Forecast Data for: {ticker_symbol} ---")
+# --- End Inspect Forecast Data Function ---
+
+async def fetch_and_store_forecast_summary(ticker_symbol: str, db_repo: YahooDataRepository):
+    """
+    Fetches EPS trend and revenue estimate data, combines them into a single
+    cumulative record, and stores it using upsert_single_ttm_statement.
+    item_type="FORECAST_SUMMARY", item_time_coverage="CUMULATIVE".
+    item_key_date is the fetch timestamp.
+    Labels used for periods: '0q' -> 'current_qtr', '+1q' -> 'next_qtr',
+                             '0y' -> 'current_fyear', '+1y' -> 'next_fyear'.
+    """
+    logger.info(f"--- Starting Fetch & Store for Forecast Summary: {ticker_symbol} ---")
+    current_fetch_time = datetime.now()
+    item_type_val = "FORECAST_SUMMARY"
+    item_time_coverage_val = "CUMULATIVE"
+    item_source_val = "yfinance.Ticker.get_eps_trend() & .get_revenue_estimate()"
+
+    combined_payload = {}
+    period_label_map = {
+        '0q': 'current_qtr',
+        '+1q': 'next_qtr',
+        '0y': 'current_fyear',
+        '+1y': 'next_fyear'
+    }
+
+    try:
+        yf_ticker = yf.Ticker(ticker_symbol)
+
+        # 1. Fetch EPS Trend
+        eps_trend_df = None
+        try:
+            eps_trend_df = yf_ticker.get_eps_trend()
+            if not isinstance(eps_trend_df, pd.DataFrame) or eps_trend_df.empty:
+                logger.warning(f"[Forecast Summary Store] EPS trend data for {ticker_symbol} is not a non-empty DataFrame. Skipping EPS part.")
+                eps_trend_df = None # Ensure it's None if not valid
+            else:
+                logger.info(f"[Forecast Summary Store] Fetched EPS trend data for {ticker_symbol}, shape: {eps_trend_df.shape}")
+        except Exception as e_eps:
+            logger.error(f"[Forecast Summary Store] Error fetching EPS trend for {ticker_symbol}: {e_eps}", exc_info=True)
+            eps_trend_df = None
+
+        # 2. Fetch Revenue Estimates
+        revenue_estimate_df = None
+        try:
+            revenue_estimate_df = yf_ticker.get_revenue_estimate()
+            if not isinstance(revenue_estimate_df, pd.DataFrame) or revenue_estimate_df.empty:
+                logger.warning(f"[Forecast Summary Store] Revenue estimate data for {ticker_symbol} is not a non-empty DataFrame. Skipping revenue part.")
+                revenue_estimate_df = None # Ensure it's None if not valid
+            else:
+                logger.info(f"[Forecast Summary Store] Fetched revenue estimate data for {ticker_symbol}, shape: {revenue_estimate_df.shape}")
+        except Exception as e_rev:
+            logger.error(f"[Forecast Summary Store] Error fetching revenue estimates for {ticker_symbol}: {e_rev}", exc_info=True)
+            revenue_estimate_df = None
+
+        all_periods = set()
+        if eps_trend_df is not None:
+            all_periods.update(eps_trend_df.index)
+        if revenue_estimate_df is not None:
+            all_periods.update(revenue_estimate_df.index)
+
+        if not all_periods:
+            logger.warning(f"[Forecast Summary Store] No data fetched for either EPS trend or revenue estimates for {ticker_symbol}. Skipping store.")
+            return
+
+        for period_orig_label in sorted(list(all_periods)): # Sort for consistent key order
+            descriptive_label = period_label_map.get(period_orig_label, period_orig_label) 
+
+            # Process EPS Trend data for this period
+            if eps_trend_df is not None and period_orig_label in eps_trend_df.index:
+                eps_row = eps_trend_df.loc[period_orig_label]
+                for col_name, value in eps_row.items():
+                    if pd.notna(value): 
+                        safe_col_name = str(col_name).replace(' ', '_').replace('(', '').replace(')', '')
+                        # Explicitly cast to float, as EPS trends are float64
+                        combined_payload[f"{descriptive_label}_eps_{safe_col_name}"] = float(value)
+            
+            # Process Revenue Estimate data for this period (only 'avg' column)
+            if revenue_estimate_df is not None and period_orig_label in revenue_estimate_df.index:
+                if 'avg' in revenue_estimate_df.columns:
+                    avg_revenue = revenue_estimate_df.loc[period_orig_label, 'avg']
+                    if pd.notna(avg_revenue):
+                        # Explicitly cast to int, as revenue avg is int64
+                        combined_payload[f"{descriptive_label}_revenue_avg"] = int(avg_revenue)
+                else:
+                    logger.warning(f"[Forecast Summary Store] 'avg' column not found in revenue estimates for period {period_orig_label}, ticker {ticker_symbol}.")
+
+        if not combined_payload:
+            logger.warning(f"[Forecast Summary Store] Combined payload for {ticker_symbol} is empty. Skipping store.")
+            return
+
+        existing_payload = await db_repo.get_latest_item_payload(
+            ticker_symbol, item_type_val, item_time_coverage_val
+        )
+        if existing_payload == combined_payload:
+            logger.info(f"[Forecast Summary Store] Forecast summary data for {ticker_symbol} is unchanged. No update needed.")
+            return
+
+        item_data = {
+            'ticker': ticker_symbol,
+            'item_type': item_type_val,
+            'item_time_coverage': item_time_coverage_val,
+            'item_key_date': current_fetch_time,
+            'item_source': item_source_val,
+            'item_data_payload': combined_payload
+        }
+
+        logger.debug(f"[Forecast Summary Store] Prepared item_data for {ticker_symbol}. Payload keys (first 5): {list(combined_payload.keys())[:5]}...")
+        
+        inserted_id = await db_repo.upsert_single_ttm_statement(item_data)
+        
+        if inserted_id:
+            logger.info(f"[Forecast Summary Store] Successfully processed Forecast Summary for {ticker_symbol}. Effective ID: {inserted_id}.")
+        else:
+            logger.info(f"[Forecast Summary Store] Forecast Summary for {ticker_symbol} processed. Check logs for DB operation details.")
+
+    except Exception as e:
+        logger.error(f"[Forecast Summary Store] General error fetching/processing forecast summary for {ticker_symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"--- Fetch & Store FINISHED for Forecast Summary: {ticker_symbol} ---")
+
 # --- ATR Calculation Functions ---
 
 def _calculate_true_range_on_df(historical_data: pd.DataFrame) -> pd.DataFrame:
@@ -1269,7 +1983,7 @@ async def get_latest_atr( # RENAMED and SIMPLIFIED from fetch_and_calculate_atr_
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="Fetch Yahoo Finance data, update DB, or calculate ATR.", # Description remains similar
+        description="Fetch Yahoo Finance data, update DB, or calculate ATR.", 
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
@@ -1281,8 +1995,19 @@ if __name__ == '__main__':
     parser.add_argument(
         "--update-mode",
         default="full",
-        choices=['full', 'fast', 'upsert_analyst_summary', 'store_annual_bs', 'test_fetch_historical', 'calculate_atr'], 
-        help="Specify the operation: 'full' (DB update), 'fast' (market DB update), 'upsert_analyst_summary' (DB), 'store_annual_bs' (DB), 'test_fetch_historical' (console output), or 'calculate_atr' (calculate and print latest ATR value)." # UPDATED help for calculate_atr
+        choices=[
+            'full', 'fast', 
+            'upsert_analyst_summary', 
+            'store_annual_bs', 'store_quarterly_bs', 
+            'store_annual_is', 'store_quarterly_is', 'store_ttm_is',
+            'store_annual_cf', 'store_quarterly_cf', 'store_ttm_cf',
+            'store_dividend_history',
+            'store_earnings_estimates',
+            'inspect_forecast_data', # ADDED mode for inspection
+            'store_forecast_summary', # New mode
+            'test_fetch_historical', 'calculate_atr'
+        ], 
+        help="Specify the operation: e.g., 'full', 'inspect_forecast_data', 'store_forecast_summary', etc." # Simplified help
     )
     parser.add_argument(
         "--start-date",
@@ -1365,7 +2090,18 @@ if __name__ == '__main__':
         logger.info(f"Starting main task for ticker '{cli_args.ticker}' with mode '{cli_args.update_mode}'")
         try:
             # Ensure DB tables exist (common for modes needing DB)
-            if cli_args.update_mode in ['full', 'fast', 'upsert_analyst_summary', 'store_annual_bs']: # ADDED new mode
+            if cli_args.update_mode in [
+                'full', 'fast', 
+                'upsert_analyst_summary', 
+                'store_annual_bs', 'store_quarterly_bs',
+                'store_annual_is', 'store_quarterly_is', 'store_ttm_is',
+                'store_annual_cf', 'store_quarterly_cf', 'store_ttm_cf',
+                'store_dividend_history',
+                'store_earnings_estimates',
+                'inspect_forecast_data', # ADDED mode for inspection
+                'store_forecast_summary' # New mode
+                # inspect_forecast_data does not need DB, so not included here
+            ]: 
                 logger.info("Ensuring database tables exist...")
                 await db_repo.create_tables()
                 logger.info("Database tables checked/created.")
@@ -1405,6 +2141,50 @@ if __name__ == '__main__':
             elif cli_args.update_mode == 'store_annual_bs': # ADDED new mode block
                 logger.info(f"Running Annual Balance Sheet Storage for: {cli_args.ticker}")
                 await fetch_and_store_annual_balance_sheets(cli_args.ticker, db_repo)
+            
+            elif cli_args.update_mode == 'store_quarterly_bs': # ADDED new mode block
+                logger.info(f"Running Quarterly Balance Sheet Storage for: {cli_args.ticker}")
+                await fetch_and_store_quarterly_balance_sheets(cli_args.ticker, db_repo)
+            
+            elif cli_args.update_mode == 'store_annual_is':
+                logger.info(f"Running Annual Income Statement Storage for: {cli_args.ticker}")
+                await fetch_and_store_annual_income_statements(cli_args.ticker, db_repo)
+            
+            elif cli_args.update_mode == 'store_quarterly_is':
+                logger.info(f"Running Quarterly Income Statement Storage for: {cli_args.ticker}")
+                await fetch_and_store_quarterly_income_statements(cli_args.ticker, db_repo)
+
+            elif cli_args.update_mode == 'store_ttm_is':
+                logger.info(f"Running TTM Income Statement Storage for: {cli_args.ticker}")
+                await fetch_and_store_ttm_income_statement(cli_args.ticker, db_repo)
+            
+            elif cli_args.update_mode == 'store_annual_cf':
+                logger.info(f"Running Annual Cash Flow Statement Storage for: {cli_args.ticker}")
+                await fetch_and_store_annual_cash_flow_statements(cli_args.ticker, db_repo)
+            
+            elif cli_args.update_mode == 'store_quarterly_cf':
+                logger.info(f"Running Quarterly Cash Flow Statement Storage for: {cli_args.ticker}")
+                await fetch_and_store_quarterly_cash_flow_statements(cli_args.ticker, db_repo)
+
+            elif cli_args.update_mode == 'store_ttm_cf':
+                logger.info(f"Running TTM Cash Flow Statement Storage for: {cli_args.ticker}")
+                await fetch_and_store_ttm_cash_flow_statement(cli_args.ticker, db_repo)
+            
+            elif cli_args.update_mode == 'store_dividend_history':
+                logger.info(f"Running Dividend History Storage for: {cli_args.ticker}")
+                await fetch_and_store_dividend_history(cli_args.ticker, db_repo)
+            
+            elif cli_args.update_mode == 'store_earnings_estimates':
+                logger.info(f"Running Earnings Estimate History Storage for: {cli_args.ticker}")
+                await fetch_and_store_earnings_estimate_history(cli_args.ticker, db_repo)
+            
+            elif cli_args.update_mode == 'inspect_forecast_data':
+                logger.info(f"Running Raw Forecast Data Inspection for: {cli_args.ticker}")
+                await inspect_raw_forecast_data(cli_args.ticker)
+
+            elif cli_args.update_mode == 'store_forecast_summary':
+                logger.info(f"Running Forecast Summary Storage for: {cli_args.ticker}")
+                await fetch_and_store_forecast_summary(cli_args.ticker, db_repo)
             
             elif cli_args.update_mode == 'test_fetch_historical':
                 logger.info(f"Running Historical Data Fetch Test for: {cli_args.ticker}")
