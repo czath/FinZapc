@@ -111,6 +111,10 @@
                     const resp = await fetch('/api/portfolio/tickers');
                     if (!resp.ok) throw new Error('Failed to fetch portfolio tickers');
                     tickers = await resp.json();
+                } else if (source === 'yahoo_master') {
+                    const resp = await fetch('/api/yahoo/master_tickers');
+                    if (!resp.ok) throw new Error('Failed to fetch Yahoo master tickers');
+                    tickers = await resp.json();
                 } else if (source === 'pretrans') {
                     const mainModule = window.AnalyticsMainModule;
                     if (!mainModule) throw new Error('Analytics module not available');
