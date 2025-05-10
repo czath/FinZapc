@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import json
+import sqlalchemy
+from sqlalchemy import inspect
 
 # Import the models specific to Yahoo
 from .yahoo_models import YahooTickerMasterModel, TickerDataItemsModel
@@ -619,3 +621,69 @@ class YahooDataRepository:
         """Return a list of all tickers in the Yahoo master ticker table."""
         records = await self.get_ticker_masters_by_criteria()
         return [rec['ticker'] for rec in records if 'ticker' in rec and rec['ticker']]
+
+    async def get_all_yahoo_fields_for_analytics(self) -> list[dict]:
+        """
+        Returns a list of all Yahoo fields for analytics configuration:
+        - Ticker master fields: {name: 'yf_tm_<col>', type: <db_type>}
+        - Data item payload fields: {name: 'yf_<item_type>_<item_time_coverage>_<key>', type: <inferred_type>}
+        """
+        fields = []
+        # --- Ticker Master fields ---
+        async with self.engine.begin() as conn:
+            def get_columns(sync_conn):
+                insp = inspect(sync_conn)
+                tm_table = YahooTickerMasterModel.__table__
+                for col in tm_table.columns:
+                    if col.primary_key:
+                        continue
+                    col_name = f"yf_tm_{col.name}"
+                    col_type = str(col.type)
+                    fields.append({"name": col_name, "type": col_type})
+            
+            await conn.run_sync(get_columns)
+
+        # --- Data Item payload fields ---
+        async with self.async_session_factory() as session:
+            # Get all unique (item_type, item_time_coverage)
+            stmt = sqlalchemy.select(
+                TickerDataItemsModel.item_type,
+                TickerDataItemsModel.item_time_coverage
+            ).distinct()
+            result = await session.execute(stmt)
+            unique_types = result.all()
+            for item_type, item_time_coverage in unique_types:
+                # Sample one record for this type/coverage
+                sample_stmt = (
+                    sqlalchemy.select(TickerDataItemsModel)
+                    .where(TickerDataItemsModel.item_type == item_type)
+                    .where(TickerDataItemsModel.item_time_coverage == item_time_coverage)
+                    .limit(1)
+                )
+                sample_result = await session.execute(sample_stmt)
+                sample = sample_result.scalar_one_or_none()
+                if not sample:
+                    continue
+                try:
+                    payload = sample.item_data_payload
+                    if isinstance(payload, str):
+                        payload = json.loads(payload)
+                except Exception:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                for key, value in payload.items():
+                    field_name = f"yf_{item_type.lower()}_{item_time_coverage.lower()}_{key}"
+                    # Infer type
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        field_type = "numeric"
+                    elif isinstance(value, str):
+                        field_type = "text"
+                    elif isinstance(value, bool):
+                        field_type = "boolean"
+                    elif value is None:
+                        field_type = "unknown"
+                    else:
+                        field_type = type(value).__name__
+                    fields.append({"name": field_name, "type": field_type})
+        return fields

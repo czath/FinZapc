@@ -2837,16 +2837,16 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // --- Data Loading & State Update (Preparation Tab) ---
      function processLoadedDataAndUpdateState() {
          if (!fullProcessedData || fullProcessedData.length === 0) {
-             availableFields = [];
-             fieldMetadata = {}; // Clear metadata if no data
+             finvizFields = [];
+             finvizFieldMetadata = {};
+             mergeAndSetFields();
              // Keep loaded weights/enabled status? Or clear them?
-             // Let's keep them for now, in case user reloads data.
              // fieldEnabledStatus = {};
              console.log("No processed data loaded or data is empty.");
              // Re-render empty UIs
              renderFieldConfigUI();
              renderFilterUI();
-             applyFilters(); // Clear output area if needed
+             applyFilters();
              return;
          }
 
@@ -2857,100 +2857,78 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                  Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
              }
          });
-         discoveredFields.add('source'); // --- ADD 'source' FIELD EXPLICITLY --- 
-         availableFields = [...discoveredFields].sort();
-         console.log("Discovered fields (including source):", availableFields);
-
+         discoveredFields.add('source');
+         finvizFields = [...discoveredFields].sort();
          // --- Calculate Metadata --- 
          const newFieldMetadata = {};
-         const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100; // Limit for text dropdowns
-
-         availableFields.forEach(field => {
-            let numericCount = 0;
-            let existingValueCount = 0; // <<< Initialize counter for existing values
-            let min = Infinity;
-            let max = -Infinity;
-            let sum = 0; // <<< ADDED for average
-            let numericValues = []; // <<< ADDED for median
-            const allUniqueTextValues = new Set(); // <<< Use Set to get ALL unique text values
-
-            fullProcessedData.forEach(item => {
-                // --- Get value based on field (source vs processed_data) --- 
-                let value = null;
-                if (field === 'source') {
-                    if (item && item.source) {
-                        value = item.source;
-                    }
-                } else if (item && item.processed_data && item.processed_data.hasOwnProperty(field)) {
+         const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100;
+         finvizFields.forEach(field => {
+             let numericCount = 0;
+             let existingValueCount = 0;
+             let min = Infinity;
+             let max = -Infinity;
+             let sum = 0;
+             let numericValues = [];
+             const allUniqueTextValues = new Set();
+             fullProcessedData.forEach(item => {
+                 let value = null;
+                 if (field === 'source') {
+                     if (item && item.source) {
+                         value = item.source;
+                     }
+                 } else if (item && item.processed_data && item.processed_data.hasOwnProperty(field)) {
                      value = item.processed_data[field];
-                }
-                // --- End Get value ---
-                
-                // Check if the value exists and is not null/undefined/empty string/placeholder '-'
-                const valueExists = value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-';
-                
-                if (valueExists) {
-                     existingValueCount++; // <<< Increment count if value exists
+                 }
+                 const valueExists = value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-';
+                 if (valueExists) {
+                     existingValueCount++;
                      const num = Number(value);
                      if (!isNaN(num)) {
                          numericCount++;
                          if (num < min) min = num;
                          if (num > max) max = num;
-                         sum += num; // <<< ADDED
-                         numericValues.push(num); // <<< ADDED
+                         sum += num;
+                         numericValues.push(num);
                      } else {
-                         // Collect ALL unique non-numeric strings
-                         allUniqueTextValues.add(String(value)); // Store as string
+                         allUniqueTextValues.add(String(value));
                      }
-                }
-            });
-
-            // Determine field type and store metadata
-            if (existingValueCount === 0) {
-                newFieldMetadata[field] = { 
-                    type: 'empty', 
-                    existingValueCount: 0 
-                }; // Field exists but no valid values
-            } else if (numericCount / existingValueCount >= 0.8) { // Heuristic: >= 80% numeric?
-                // <<< Calculate average and median BEFORE creating metadata object >>>
-                const average = (numericCount > 0) ? sum / numericCount : null;
-                const median = calculateMedian(numericValues);
-
-                newFieldMetadata[field] = {
-                    type: 'numeric',
-                    min: min === Infinity ? null : min, // Store null
-                    max: max === -Infinity ? null : max, // Store null
-                    average: average, // <<< ADDED
-                    median: median,   // <<< ADDED
-                    existingValueCount: existingValueCount
-                };
-            } else {
-                const totalUniqueCount = allUniqueTextValues.size; // <<< Get total unique count
-                // Create the potentially truncated array for dropdowns
-                const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
-                
-                newFieldMetadata[field] = { 
-                    type: 'text', 
-                    uniqueValues: uniqueValuesForDropdown, // For dropdowns
-                    totalUniqueCount: totalUniqueCount,   // Exact total unique count
-                    existingValueCount: existingValueCount 
-                };
-            }
+                 }
+             });
+             if (existingValueCount === 0) {
+                 newFieldMetadata[field] = { type: 'empty', existingValueCount: 0 };
+             } else if (numericCount / existingValueCount >= 0.8) {
+                 const average = (numericCount > 0) ? sum / numericCount : null;
+                 const median = calculateMedian(numericValues);
+                 newFieldMetadata[field] = {
+                     type: 'numeric',
+                     min: min === Infinity ? null : min,
+                     max: max === -Infinity ? null : max,
+                     average: average,
+                     median: median,
+                     existingValueCount: existingValueCount
+                 };
+             } else {
+                 const totalUniqueCount = allUniqueTextValues.size;
+                 const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
+                 newFieldMetadata[field] = {
+                     type: 'text',
+                     uniqueValues: uniqueValuesForDropdown,
+                     totalUniqueCount: totalUniqueCount,
+                     existingValueCount: existingValueCount
+                 };
+             }
          });
-         fieldMetadata = newFieldMetadata; // Update global metadata
-         console.log("Calculated field metadata:", fieldMetadata);
-
+         finvizFieldMetadata = newFieldMetadata;
+         mergeAndSetFields();
          // --- Initialize Enabled Status for New Fields --- 
          let statusChanged = false;
          availableFields.forEach(field => {
-             // Default enabled status true if not present
              if (!(field in fieldEnabledStatus)) {
                  fieldEnabledStatus[field] = true;
                  statusChanged = true;
                  console.log(`Initialized enabled status for new field '${field}' to true.`);
              }
          });
-
          // Optional: Clean up status for fields no longer present in the data
          const currentAvailableSet = new Set(availableFields);
          Object.keys(fieldEnabledStatus).forEach(field => {
@@ -2960,26 +2938,19 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                  statusChanged = true;
              }
          });
-
-         // Save if defaults were added or stale entries removed
          if (statusChanged) saveEnabledStatusToStorage();
-
          // --- Initialize Numeric Format Status for New Numeric Fields --- 
          let formatStatusChanged = false;
          availableFields.forEach(field => {
              const meta = fieldMetadata[field] || {};
-             // Only apply to numeric fields
              if (meta.type === 'numeric') {
-                 // Default format is 'default' if not present
                  if (!(field in fieldNumericFormats)) {
-                     fieldNumericFormats[field] = 'default'; 
+                     fieldNumericFormats[field] = 'default';
                      formatStatusChanged = true;
                      console.log(`Initialized numeric format for new field '${field}' to 'default'.`);
                  }
              }
          });
-
-         // Optional: Clean up formats for fields no longer numeric or present
          const currentNumericFields = new Set(availableFields.filter(f => (fieldMetadata[f] || {}).type === 'numeric'));
          Object.keys(fieldNumericFormats).forEach(field => {
              if (!currentNumericFields.has(field)) {
@@ -2988,16 +2959,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                  formatStatusChanged = true;
              }
          });
-
-         // Save if defaults were added or stale entries removed
          if (formatStatusChanged) saveNumericFormatsToStorage();
-         // --- End Initialize Numeric Format Status ---
-
-         // --- REMOVE Re-render UIs --- 
-         // renderFieldConfigUI(); // Render config first (populates fieldEnabledStatus)
-         // renderFilterUI(); // Then render filters (uses fieldEnabledStatus)
-         // populateReportFieldSelector(); // Populates BOTH X and Y now
-         // populateReportColorSelector(); 
      }
 
     // --- Button Listeners (Preparation Tab) ---
@@ -4034,4 +3996,47 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     }
     // --- END NEW ---
 
+    // --- Fetch unified analytics field list from backend and set up fields ---
+    async function fetchAndSetAnalyticsFields() {
+        try {
+            const response = await fetch('/api/analytics/fields');
+            if (!response.ok) throw new Error('Failed to fetch analytics fields');
+            const fields = await response.json();
+            yahooFields = fields.map(f => f.name);
+            yahooFieldMetadata = {};
+            fields.forEach(f => {
+                yahooFieldMetadata[f.name] = {
+                    type: f.type || 'unknown',
+                    description: f.description || '',
+                };
+            });
+            mergeAndSetFields();
+        } catch (err) {
+            console.error('Error fetching analytics fields:', err);
+        }
+    }
+
+    fetchAndSetAnalyticsFields();
+
+    // --- Add global storage for Yahoo and Finviz fields ---
+    let yahooFields = [];
+    let yahooFieldMetadata = {};
+    let finvizFields = [];
+    let finvizFieldMetadata = {};
+
+    // --- Helper to merge and set availableFields/fieldMetadata ---
+    function mergeAndSetFields() {
+        // Merge field names (union, preserve order: Finviz first, then Yahoo-only)
+        const mergedFields = Array.from(new Set([...finvizFields, ...yahooFields]));
+        // Merge metadata (Finviz takes precedence if duplicate field name)
+        const mergedMetadata = { ...yahooFieldMetadata, ...finvizFieldMetadata };
+        mergedFields.forEach(f => {
+            if (finvizFieldMetadata[f]) mergedMetadata[f] = finvizFieldMetadata[f];
+            else if (yahooFieldMetadata[f]) mergedMetadata[f] = yahooFieldMetadata[f];
+        });
+        availableFields = mergedFields;
+        fieldMetadata = mergedMetadata;
+        renderFieldConfigUI();
+    }
+    // ... existing code ...
 }); 
