@@ -357,6 +357,43 @@
             </div>
             {# --- End Finviz Import Card --- #}
 
+            {# --- Yahoo Mass Fetch Card --- #}
+            <div class="my-3 p-3 border rounded bg-body-tertiary">
+                <h5 class="mb-3">Yahoo Mass Fetch</h5>
+                <div class="row gy-3">
+                    <div class="col-md-12">
+                        <div class="mb-3">
+                            <label for="yahoo-mf-source" class="form-label">Select Ticker Source:</label>
+                            <select id="yahoo-mf-source" class="form-select" style="max-width: 350px;">
+                                <option value="upload">Uploaded TXT file</option>
+                                <option value="screener">Screener table</option>
+                                <option value="portfolio">Portfolio</option>
+                                <option value="pretrans">Pre-transformation table</option>
+                                <option value="posttrans">Post-transformation table</option>
+                            </select>
+                        </div>
+                        
+                        <div id="yahoo-mf-dropzone" class="border p-4 text-center mb-3" style="cursor: pointer; border-style: dashed !important; background-color: var(--bs-tertiary-bg);">
+                            <p class="mb-0">
+                                <span class="status-icon bi bi-cloud-arrow-up me-2 align-middle"></span>
+                                <span class="status-text">Drag & drop .txt file or click</span>
+                            </p>
+                        </div>
+                        <input type="file" id="yahoo-mf-file" accept=".txt" style="display: none;">
+                        
+                        <div class="mb-3">
+                            <button id="yahoo-mf-fetch" class="btn btn-success" disabled>
+                                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span>
+                                <span class="button-text">Fetch</span>
+                            </button>
+                        </div>
+                        
+                        <div id="yahoo-mf-status" class="mt-2 small text-muted"></div>
+                    </div>
+                </div>
+            </div>
+            {# --- End Yahoo Mass Fetch Card --- #}
+
             {# --- Placeholder for Future Import Sources --- #}
             <!-- 
             <div class="my-3 p-3 border rounded bg-body-tertiary">
@@ -933,6 +970,7 @@
     <script src="{{ url_for('static', path='js/analytics_transform.js') }}"></script> <!-- Load Transform Logic -->
     <script src="{{ url_for('static', path='js/analytics.js') }}"></script> <!-- Load Main Analytics Logic LAST -->
     <script src="{{ url_for('static', path='js/analytics_spider_chart.js') }}"></script> <!-- ADDED: Spider Chart Logic -->
+    <script src="{{ url_for('static', path='js/yahoo_mass_fetch.js') }}"></script> <!-- Yahoo Mass Fetch UI -->
 
     {# <<< Add any other page-specific JS files here >>> #}
 {% endblock %}

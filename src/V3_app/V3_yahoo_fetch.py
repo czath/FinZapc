@@ -1982,30 +1982,30 @@ async def get_latest_atr( # RENAMED and SIMPLIFIED from fetch_and_calculate_atr_
 
 # --- End ATR Calculation Functions ---
 
-async def mass_load_yahoo_data_from_file(ticker_filepath: str, db_repo: YahooDataRepository):
-    """Reads tickers from a file and processes them for full data loading."""
-    logger.info(f"--- Starting Mass Load from File: {ticker_filepath} ---")
+async def mass_load_yahoo_data_from_file(ticker_source, db_repo, progress_callback=None):
+    """Reads tickers from a file or list and processes them for full data loading.
+    Optionally calls progress_callback(current, total, last_ticker) after each ticker."""
+    logger.info(f"--- Starting Mass Load ---")
     processed_count = 0
     error_count = 0
     tickers_with_errors = []
 
-    try:
-        with open(ticker_filepath, 'r', encoding='utf-8') as f:
-            tickers = [line.strip() for line in f if line.strip()]
-    except FileNotFoundError:
-        logger.error(f"[Mass Load] Ticker file not found: {ticker_filepath}")
-        return
-    except Exception as e:
-        logger.error(f"[Mass Load] Error reading ticker file {ticker_filepath}: {e}", exc_info=True)
+    # Get tickers from either file or list
+    if isinstance(ticker_source, str):
+        try:
+            with open(ticker_source, 'r', encoding='utf-8') as f:
+                tickers = [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            logger.error(f"[Mass Load] Error reading ticker file {ticker_source}: {e}")
+            return
+    elif isinstance(ticker_source, list):
+        tickers = [t.strip().upper() for t in ticker_source if t and isinstance(t, str)]
+    else:
+        logger.error(f"[Mass Load] Invalid ticker_source type: {type(ticker_source)}")
         return
 
-    if not tickers:
-        logger.warning("[Mass Load] No tickers found in the file.")
-        return
-
-    logger.info(f"[Mass Load] Found {len(tickers)} tickers in file. Starting processing...")
-
-    for ticker_symbol in tickers:
+    total = len(tickers)
+    for idx, ticker_symbol in enumerate(tickers, 1):
         logger.info(f"[Mass Load] >>> Processing ticker: {ticker_symbol} <<<")
         ticker_had_errors = False
         try:
@@ -2017,7 +2017,6 @@ async def mass_load_yahoo_data_from_file(ticker_filepath: str, db_repo: YahooDat
                 logger.info(f"[Mass Load][{ticker_symbol}] Ticker Master record updated/inserted.")
             else:
                 logger.warning(f"[Mass Load][{ticker_symbol}] Failed to fetch master data. Skipping Ticker Master update.")
-                # ticker_had_errors = True # Decide if this constitutes a full ticker error for the summary
 
             # --- Step C: Ticker Data Items Update ---
             logger.info(f"[Mass Load][{ticker_symbol}] Updating Ticker Data Items...")
@@ -2042,31 +2041,28 @@ async def mass_load_yahoo_data_from_file(ticker_filepath: str, db_repo: YahooDat
                     await fetch_func(ticker_symbol, db_repo)
                     logger.info(f"[Mass Load][{ticker_symbol}] {item_name} processed.")
                 except Exception as e_item:
-                    logger.error(f"[Mass Load][{ticker_symbol}] Error processing {item_name}: {e_item}", exc_info=False) # Set exc_info=False for brevity in mass load
-                    # ticker_had_errors = True # Mark that this ticker had at least one item error
-            
-            # Simulate some processing time or add a small delay if needed later
-            # await asyncio.sleep(0.1) # Small delay to prevent overwhelming logs if many tickers
-
+                    logger.error(f"[Mass Load][{ticker_symbol}] Error processing {item_name}: {e_item}", exc_info=False)
             logger.info(f"[Mass Load] <<< Finished processing for ticker: {ticker_symbol} >>>")
             processed_count += 1
         except Exception as e_ticker:
             logger.error(f"[Mass Load] UNEXPECTED CRITICAL ERROR processing ticker {ticker_symbol}: {e_ticker}", exc_info=True)
             error_count += 1
             tickers_with_errors.append(ticker_symbol)
-            ticker_had_errors = True # Should be caught by inner try-excepts normally
-        
-        # Optional: Add a delay between tickers to be kind to the API
-        # if len(tickers) > 1: # Only delay if it's a batch
-        #     delay_seconds = random.uniform(1, 3) # e.g., 1 to 3 seconds
-        #     logger.info(f"[Mass Load] Waiting {delay_seconds:.2f}s before next ticker...")
-        #     await asyncio.sleep(delay_seconds)
-
+            ticker_had_errors = True
+        # --- Progress callback ---
+        if progress_callback:
+            await progress_callback(idx, total, ticker_symbol)
+            await asyncio.sleep(0)  # Yield to event loop for UI polling
     logger.info(f"--- Mass Load from File FINISHED ---")
     logger.info(f"Successfully processed tickers: {processed_count}")
     logger.info(f"Tickers with errors: {error_count}")
     if tickers_with_errors:
         logger.warning(f"Tickers that encountered errors: {tickers_with_errors}")
+    return {
+        'errors': tickers_with_errors,
+        'success_count': processed_count,
+        'error_count': error_count
+    }
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(

@@ -673,6 +673,8 @@ def create_app():
     try: # <-- Add try block here
         # --- Correct Indentation Starts Here ---
         app = FastAPI(title="Financial App V3") # Revert: Keep title
+        from .V3_backend_api import router as backend_router
+        app.include_router(backend_router)
 
         # Revert: Put back static files setup?
         # Assuming it was correct before
@@ -2918,4 +2920,5 @@ def add_websocket_route(app_instance: FastAPI):
 # from V3_web import create_app, add_websocket_route
 # app = create_app()
 # add_websocket_route(app) 
+
         
