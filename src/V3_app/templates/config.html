@@ -190,7 +190,7 @@
                 <div class="mb-4">
                     <div class="card h-100">
                         <div class="card-header d-flex justify-content-between align-items-center">
-                            <span>Yahoo Pull Interval</span>
+                            <span>Yahoo Data Refresh</span>
                             <div class="form-check form-switch">
                                 <input class="form-check-input job-active-toggle" type="checkbox" role="switch" 
                                        id="yahoo-active-switch" 
@@ -203,68 +203,28 @@
                         </div>
                          <div class="card-body">
                             <p class="card-text">
-                                <small>Set the frequency for pulling data from Yahoo Finance. Use numbers with units (e.g., '1 day', '6 hours', '900 seconds').</small>
+                                <small>Set the calendar schedule for Yahoo data refresh using cron syntax (e.g., "0 16 * * 1" for Mondays at 4pm).</small>
                             </p>
                              <div class="input-group mb-3">
                                 <input type="text" class="form-control" 
                                        id="yahoo-schedule-input"
-                                       placeholder="e.g., 1 day, 6 hours, 900"
-                                       aria-label="Yahoo pull interval"
-                                       value="{{ interval_to_human(yahoo_schedule_seconds) }}">
+                                       placeholder="e.g., 0 16 * * 1 (Mon 4pm)"
+                                       aria-label="Yahoo data refresh schedule"
+                                       value="{{ yahoo_schedule_cron }}">
                                 <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
                                         data-job-id="yahoo_data_fetch" 
                                         data-input-id="yahoo-schedule-input"
                                         data-bs-toggle="tooltip" data-bs-placement="top" 
-                                        title="Update Yahoo pull interval">
+                                        title="Update Yahoo data refresh schedule">
                                     Update
                                 </button>
                             </div>
-                             <small class="text-muted">Current interval: <span id="current-yahoo_data_fetch-interval">{{ interval_to_human(yahoo_schedule_seconds) }}</span></small>
+                             <small class="text-muted">Current schedule: <span id="current-yahoo_data_fetch-interval">{{ yahoo_schedule_cron }}</span></small>
+                             <small class="text-muted d-block">Use standard 5-field cron syntax. <a href="https://crontab.guru/" target="_blank">Help</a></small>
                         </div>
                     </div>
                 </div>
                 {# --- End Harmonized Yahoo Card --- #}
-                
-                {# --- Moved Investing.com Card INSIDE Scheduler Pane --- #}
-                 <div class="mb-4"> {# Removed col-* classes #}
-                    <div class="card h-100">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <span>Investing.com Pull Interval</span>
-                            <div class="form-check form-switch">
-                                <input class="form-check-input job-active-toggle" type="checkbox" role="switch" 
-                                       id="investingcom-active-switch" 
-                                       data-job-id="investingcom_data_fetch"
-                                       {% if investingcom_is_active %}checked{% endif %} 
-                                       data-bs-toggle="tooltip" data-bs-placement="top" 
-                                       title="Enable/Disable scheduled data pull from Investing.com">
-                                <label class="form-check-label" for="investingcom-active-switch">
-                                    <small>Active</small>
-                                </label>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <p class="card-text">
-                                <small>Set the frequency for pulling data from Investing.com. Use numbers with units (e.g., '1 day', '6 hours', '900 seconds').</small>
-                            </p>
-                            <div class="input-group mb-3">
-                                <input type="text" class="form-control" 
-                                       id="investingcom-schedule-input"
-                                       placeholder="e.g., 1 day, 6 hours, 900"
-                                       aria-label="Investing.com pull interval"
-                                       value="{{ interval_to_human(investingcom_schedule_seconds) }}">
-                                <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
-                                        data-job-id="investingcom_data_fetch" 
-                                        data-input-id="investingcom-schedule-input"
-                                        data-bs-toggle="tooltip" data-bs-placement="top" 
-                                        title="Update Investing.com pull interval">
-                                    Update
-                                </button>
-                            </div>
-                            <small class="text-muted">Current interval: <span id="current-investingcom_data_fetch-interval">{{ interval_to_human(investingcom_schedule_seconds) }}</span></small>
-                        </div>
-                    </div>
-                </div>
-                {# --- End Moved Investing.com Card --- #}
                 
             </div>
 
@@ -1063,11 +1023,20 @@
                 return;
             }
             const scheduleValue = scheduleInput.value.trim();
-            const displaySpan = document.getElementById(`current-${jobId.replace('_data_fetch', '')}-interval`); // Find display span
+            const displaySpan = document.getElementById(`current-${jobId}-interval`); // Use full job ID
 
             if (!scheduleValue) {
                 showAlert('Schedule input cannot be empty.', 'warning');
                 return;
+            }
+
+            // Validate cron syntax for Yahoo job
+            if (jobId === 'yahoo_data_fetch') {
+                const cronRegex = /^(\*|[0-9]{1,2}|\*\/[0-9]{1,2})(\s+(\*|[0-9]{1,2}|\*\/[0-9]{1,2})){4}$/;
+                if (!cronRegex.test(scheduleValue)) {
+                    showAlert('Invalid cron syntax. Please use standard 5-field format (e.g., "0 16 * * 1").', 'warning');
+                    return;
+                }
             }
 
             const url = '/config/schedule/generic_update';
@@ -1086,18 +1055,17 @@
                 
                 showAlert(result.message || `Schedule updated for ${jobId}!`, 'success');
                 
-                // Update the display span with the human-readable format
-                if (displaySpan && result.schedule_seconds !== undefined) {
-                    displaySpan.textContent = intervalSecondsToHumanJS(result.schedule_seconds);
+                // Update the display span with the schedule value
+                if (displaySpan) {
+                    if (jobId === 'yahoo_data_fetch') {
+                        displaySpan.textContent = scheduleValue; // For Yahoo, show raw cron
+                    } else {
+                        displaySpan.textContent = intervalSecondsToHumanJS(result.schedule_seconds); // For others, show human readable
+                    }
                     console.log(`Updated display span #${displaySpan.id} to: ${displaySpan.textContent}`);
-                } else if (displaySpan) {
-                    console.warn(`Could not update display span #${displaySpan.id}, schedule_seconds missing from response?`);
                 } else {
                     console.warn(`Display span for ${jobId} not found.`);
                 }
-                
-                // Also update the input field value itself (optional, shows raw seconds)
-                // scheduleInput.value = result.schedule_seconds;
 
             } catch (error) {
                 console.error(`Error updating ${jobId}:`, error);

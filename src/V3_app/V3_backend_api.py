@@ -98,4 +98,10 @@ async def get_portfolio_tickers(db: AsyncSession = Depends(get_db)):
         tickers = [row[0] for row in result.fetchall() if row[0]]
         return JSONResponse(content=tickers)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching portfolio tickers: {e}") 
+        raise HTTPException(status_code=500, detail=f"Error fetching portfolio tickers: {e}")
+
+@router.get('/api/yahoo/master_tickers', summary='Get all tickers from Yahoo master ticker table')
+async def get_yahoo_master_tickers(request: Request):
+    repo = YahooDataRepository(request.app.state.repository.database_url)
+    tickers = await repo.get_all_master_tickers()
+    return JSONResponse(content=tickers) 

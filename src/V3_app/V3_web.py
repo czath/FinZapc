@@ -14,7 +14,7 @@ import os
 import logging
 import importlib # <-- ADD THIS LINE
 from typing import Dict, Any, List, Optional, Union
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, WebSocketDisconnect, Body, Depends, status, BackgroundTasks # ADDED BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -1141,10 +1141,19 @@ def create_app():
                 
                 if is_active:
                     logger.info(f"Job '{job_id}' is active. Proceeding with fetch and update.")
-                    await fetch_and_store_yahoo_data(repository)
+                    # Add at the top with other imports
+                    from .V3_yahoo_fetch import mass_load_yahoo_data_from_file
+                    from .yahoo_repository import YahooDataRepository
+                    # Get all master tickers
+                    yahoo_repo = YahooDataRepository(repository.database_url)
+                    tickers = await yahoo_repo.get_all_master_tickers()
+                    if not tickers:
+                        logger.warning("No master tickers found for Yahoo scheduled job.")
+                        return
+                    await mass_load_yahoo_data_from_file(tickers, yahoo_repo)
                     fetch_successful = True # Mark fetch as attempted/done
                     
-                    await update_screener_from_yahoo(repository)
+                    # await update_screener_from_yahoo(repository)
                     update_successful = True # Mark update as attempted/done
                     
                     logger.info(f"Scheduled Yahoo fetch and screener update completed.")
@@ -1387,6 +1396,61 @@ def create_app():
             # logger.info("Application startup: Scheduling initial Finviz data fetch.") # REMOVE/COMMENT THIS
             # asyncio.create_task(run_initial_finviz_fetch()) # REMOVE/COMMENT THIS
             # --- END NEW Finviz Fetch ---
+
+            # Add at the top with other imports
+            from apscheduler.triggers.cron import CronTrigger
+            import pytz
+
+            # Add this async function near other helpers
+            async def catch_up_yahoo_job(repository, scheduled_yahoo_job):
+                job_id = 'yahoo_data_fetch'
+                job_config = await repository.get_job_config(job_id)
+                if not job_config or 'schedule' not in job_config:
+                    logger.warning(f"No schedule found for {job_id}, skipping catch-up check.")
+                    return
+                try:
+                    schedule_json = job_config['schedule']
+                    if isinstance(schedule_json, str):
+                        schedule_json = json.loads(schedule_json)
+                    cron_expr = schedule_json.get('cron')
+                    if not cron_expr:
+                        logger.warning(f"No cron expression found in schedule for {job_id}.")
+                        return
+                except Exception as e:
+                    logger.error(f"Error parsing cron schedule for {job_id}: {e}")
+                    return
+                last_run = job_config.get('last_run')
+                if last_run and isinstance(last_run, str):
+                    try:
+                        last_run = datetime.fromisoformat(last_run)
+                    except Exception:
+                        last_run = None
+                if last_run is not None and last_run.tzinfo is None:
+                    last_run = pytz.timezone('Europe/Athens').localize(last_run)
+                cron_fields = cron_expr.split()
+                if len(cron_fields) != 5:
+                    logger.warning(f"Invalid cron expression for {job_id}: {cron_expr}")
+                    return
+                cron_kwargs = dict(
+                    minute=cron_fields[0],
+                    hour=cron_fields[1],
+                    day=cron_fields[2],
+                    month=cron_fields[3],
+                    day_of_week=cron_fields[4],
+                    timezone=pytz.timezone('Europe/Athens')
+                )
+                trigger = CronTrigger(**cron_kwargs)
+                now = datetime.now(pytz.timezone('Europe/Athens'))
+                prev_run_time = get_prev_fire_time(trigger, now)
+                if last_run is None or (prev_run_time and last_run < prev_run_time):
+                    logger.info(f"Missed scheduled Yahoo job ({job_id}) at {prev_run_time}. Running catch-up now.")
+                    await scheduled_yahoo_job()
+                    await repository.update_job_config(job_id, {'last_run': now})
+                else:
+                    logger.info(f"No catch-up needed for {job_id}. Last run: {last_run}, last scheduled: {prev_run_time}")
+
+            # In startup_event, after scheduler/repository are ready, add:
+            await catch_up_yahoo_job(repository, scheduled_yahoo_job)
 
         @app.on_event("shutdown")
         async def shutdown_event():
@@ -1671,6 +1735,19 @@ def create_app():
                 portfolio_rules = await repository.get_all_portfolio_rules()
                 portfolio_rules_json = json.dumps(portfolio_rules, default=str) # Keep JSON for JS
 
+                # Fetch Yahoo cron schedule string
+                yahoo_job_config = await repository.get_job_config('yahoo_data_fetch')
+                yahoo_schedule_cron = None
+                if yahoo_job_config and 'schedule' in yahoo_job_config:
+                    try:
+                        schedule_json = yahoo_job_config['schedule']
+                        if isinstance(schedule_json, str):
+                            schedule_json = json.loads(schedule_json)
+                        if schedule_json.get('trigger') == 'cron':
+                            yahoo_schedule_cron = schedule_json.get('cron')
+                    except Exception as e:
+                        logger.warning(f"Could not parse Yahoo cron schedule: {e}")
+
                 # CORRECTED context dictionary
                 context = {
                     "request": request,
@@ -1681,6 +1758,7 @@ def create_app():
                     "ibkr_snapshot_schedule_seconds": ibkr_snapshot_seconds,
                     "finviz_schedule_seconds": finviz_seconds,
                     "yahoo_schedule_seconds": yahoo_seconds,
+                    "yahoo_schedule_cron": yahoo_schedule_cron,
                     "investingcom_schedule_seconds": investingcom_seconds,
                     # Scheduler Statuses
                     "ibkr_is_active": ibkr_active,
@@ -1768,87 +1846,104 @@ def create_app():
 
         @app.post("/config/schedule/generic_update", response_class=JSONResponse)
         async def update_generic_schedule(request: Request, payload: GenericScheduleUpdatePayload):
-            """Update schedule for FinViz/Yahoo (converts input to seconds JSON)."""
+            """Update schedule for FinViz/Yahoo (supports interval string or cron JSON for Yahoo Mass Fetch)."""
             repository: SQLiteRepository = request.app.state.repository
-            # --- Add investing.com to valid jobs --- 
-            # ADD 'ibkr_fetch' to the list of valid job IDs
             valid_job_ids = ['yahoo_data_fetch', 'finviz_data_fetch', 'investingcom_data_fetch', 'ibkr_fetch', 'ibkr_sync_snapshot'] 
-            # --- End Add --- 
             job_id = payload.job_id
-            raw_schedule_input = payload.schedule.strip().lower()
-            seconds = 0
-
+            raw_schedule_input = payload.schedule.strip()
             logger.info(f"Received generic schedule update for {job_id}: '{raw_schedule_input}'")
 
             if job_id not in valid_job_ids:
                 raise HTTPException(status_code=400, detail=f"Invalid job_id for generic update: {job_id}")
 
-            # --- Input Parsing Logic (Convert to Seconds) --- 
             if not raw_schedule_input:
                 raise HTTPException(status_code=400, detail="Schedule cannot be empty.")
+
+            # Handle Yahoo job differently - expect cron expression
+            if job_id == 'yahoo_data_fetch':
+                # Validate cron syntax (5 fields)
+                cron_pattern = re.compile(r'^(\*|[0-9]{1,2}|\*\/[0-9]{1,2})(\s+(\*|[0-9]{1,2}|\*\/[0-9]{1,2})){4}$')
+                if not cron_pattern.match(raw_schedule_input):
+                    raise HTTPException(status_code=400, detail="Invalid cron syntax. Use standard 5-field format (e.g., '0 16 * * 1').")
                 
-            # UPDATED regex to handle singular/plural units and optional unit
-            time_pattern = re.compile(r"^(\d+)\s*(days?|d|hours?|h|minutes?|min|m|seconds?|sec|s)?$")
-            match = time_pattern.match(raw_schedule_input)
-
-            if raw_schedule_input == 'daily':
-                seconds = 86400
-            elif raw_schedule_input == 'hourly':
-                seconds = 3600
-            elif match:
-                value = int(match.group(1))
-                unit = match.group(2)
-                if unit in ['day', 'd']:
-                    seconds = value * 86400
-                elif unit in ['hour', 'h', 'hours']: # Adjusted unit check
-                    seconds = value * 3600
-                elif unit in ['minute', 'min', 'm', 'minutes']: # Adjusted unit check
-                    seconds = value * 60
-                else: # Includes second, sec, s, seconds or no unit
-                    seconds = value
+                # Store as cron JSON
+                schedule_json_str = json.dumps({"trigger": "cron", "cron": raw_schedule_input})
+                seconds = None  # No seconds for cron jobs
             else:
-                raise HTTPException(status_code=400, detail="Invalid format. Use N (days|d|hours|h|minutes|min|m|seconds|sec|s) or daily/hourly.") # Updated error message
+                # Handle other jobs with interval parsing
+                raw_schedule_input = raw_schedule_input.lower()
+                seconds = 0
+                
+                # UPDATED regex to handle singular/plural units and optional unit
+                time_pattern = re.compile(r"^(\d+)\s*(days?|d|hours?|h|minutes?|min|m|seconds?|sec|s)?$")
+                match = time_pattern.match(raw_schedule_input)
 
-            if seconds <= 0:
-                raise HTTPException(status_code=400, detail="Calculated interval must be positive.")
-            # --- End Parsing Logic --- 
-                 
-            schedule_json_str = json.dumps({"trigger": "interval", "seconds": seconds})
+                if raw_schedule_input == 'daily':
+                    seconds = 86400
+                elif raw_schedule_input == 'hourly':
+                    seconds = 3600
+                elif match:
+                    value = int(match.group(1))
+                    unit = match.group(2)
+                    if unit in ['day', 'd']:
+                        seconds = value * 86400
+                    elif unit in ['hour', 'h', 'hours']:
+                        seconds = value * 3600
+                    elif unit in ['minute', 'min', 'm', 'minutes']:
+                        seconds = value * 60
+                    else: # Includes second, sec, s, seconds or no unit
+                        seconds = value
+                else:
+                    raise HTTPException(status_code=400, detail="Invalid format. Use N (days|d|hours|h|minutes|min|m|seconds|sec|s) or daily/hourly.")
+
+                if seconds <= 0:
+                    raise HTTPException(status_code=400, detail="Calculated interval must be positive.")
+                
+                schedule_json_str = json.dumps({"trigger": "interval", "seconds": seconds})
 
             try:
                 job_config_data = {
                     'job_id': job_id,
-                    'schedule': schedule_json_str, # Save standard JSON
+                    'schedule': schedule_json_str,
                 }
-                # save_job_config handles job_type, is_active, timestamps, and upsert
                 await repository.save_job_config(job_config_data)
                 logger.info(f"Generic job config for '{job_id}' updated with JSON: '{schedule_json_str}'")
                 
                 # --- Reschedule the running job --- 
                 try:
-                    # Check if job exists before rescheduling
                     existing_job = scheduler.get_job(job_id)
                     if existing_job:
-                        scheduler.reschedule_job(
-                            job_id,
-                            trigger='interval',
-                            seconds=seconds
-                        )
-                        logger.info(f"Successfully rescheduled job '{job_id}' to run every {seconds} seconds.")
-                        message = f"Schedule for {job_id} updated to {seconds} seconds and rescheduled."
+                        if job_id == 'yahoo_data_fetch':
+                            # Parse the cron expression
+                            cron_parts = raw_schedule_input.split()
+                            scheduler.reschedule_job(
+                                job_id,
+                                trigger='cron',
+                                minute=cron_parts[0],
+                                hour=cron_parts[1],
+                                day=cron_parts[2],
+                                month=cron_parts[3],
+                                day_of_week=cron_parts[4]
+                            )
+                            logger.info(f"Successfully rescheduled job '{job_id}' with cron: '{raw_schedule_input}'")
+                            message = f"Schedule for {job_id} updated to '{raw_schedule_input}' and rescheduled."
+                        else:
+                            scheduler.reschedule_job(
+                                job_id,
+                                trigger='interval',
+                                seconds=seconds
+                            )
+                            logger.info(f"Successfully rescheduled job '{job_id}' to run every {seconds} seconds.")
+                            message = f"Schedule for {job_id} updated to {seconds} seconds and rescheduled."
                     else:
-                        # Job might not be running if it was inactive or failed to schedule initially
                         logger.warning(f"Job '{job_id}' not found in running scheduler. Database updated, but job not rescheduled.")
-                        message = f"Schedule for {job_id} updated to {seconds} seconds in DB (job not running)."
+                        message = f"Schedule for {job_id} updated in DB (job not running)."
                     
                 except Exception as schedule_err:
                     logger.error(f"Error rescheduling job '{job_id}': {schedule_err}", exc_info=True)
-                    # Return success but mention rescheduling issue
-                    message = f"Schedule updated to {seconds}s in DB, but failed to reschedule running job: {schedule_err}"
-                    # Keep status 200, but maybe adjust message type?
-                # --- End Reschedule --- 
+                    message = f"Schedule updated in DB, but failed to reschedule running job: {schedule_err}"
                 
-                return {"message": message, "schedule_seconds": seconds}
+                return {"message": message, "schedule_seconds": seconds if job_id != 'yahoo_data_fetch' else None}
             except Exception as e:
                 logger.error(f"Error saving generic schedule for '{job_id}': {e}", exc_info=True)
                 raise HTTPException(status_code=500, detail=f"Error saving schedule for {job_id}")
@@ -2539,6 +2634,19 @@ def create_app():
                 portfolio_rules = await repository.get_all_portfolio_rules()
                 portfolio_rules_json = json.dumps(portfolio_rules, default=str) # Keep JSON for JS
 
+                # Fetch Yahoo cron schedule string
+                yahoo_job_config = await repository.get_job_config('yahoo_data_fetch')
+                yahoo_schedule_cron = None
+                if yahoo_job_config and 'schedule' in yahoo_job_config:
+                    try:
+                        schedule_json = yahoo_job_config['schedule']
+                        if isinstance(schedule_json, str):
+                            schedule_json = json.loads(schedule_json)
+                        if schedule_json.get('trigger') == 'cron':
+                            yahoo_schedule_cron = schedule_json.get('cron')
+                    except Exception as e:
+                        logger.warning(f"Could not parse Yahoo cron schedule: {e}")
+
                 # CORRECTED context dictionary
                 context = {
                     "request": request,
@@ -2549,6 +2657,7 @@ def create_app():
                     "ibkr_snapshot_schedule_seconds": ibkr_snapshot_seconds,
                     "finviz_schedule_seconds": finviz_seconds,
                     "yahoo_schedule_seconds": yahoo_seconds,
+                    "yahoo_schedule_cron": yahoo_schedule_cron,
                     "investingcom_schedule_seconds": investingcom_seconds,
                     # Scheduler Statuses
                     "ibkr_is_active": ibkr_active,
@@ -2920,5 +3029,23 @@ def add_websocket_route(app_instance: FastAPI):
 # from V3_web import create_app, add_websocket_route
 # app = create_app()
 # add_websocket_route(app) 
+
+# Add this helper function near the catch_up_yahoo_job definition
+from datetime import timedelta
+
+def get_prev_fire_time(trigger, now, lookback_days=14):
+    # Start from now - lookback_days, walk forward to now
+    start = now - timedelta(days=lookback_days)
+    fire_time = trigger.get_next_fire_time(None, start)
+    prev = None
+    while fire_time and fire_time < now:
+        prev = fire_time
+        fire_time = trigger.get_next_fire_time(fire_time, now)
+    return prev
+
+# In catch_up_yahoo_job, replace:
+# prev_run_time = trigger.get_prev_fire_time(None, now)
+# with:
+# prev_run_time = get_prev_fire_time(trigger, now)
 
         

@@ -614,3 +614,8 @@ class YahooDataRepository:
         except Exception as e_gen:
             logger.error(f"[DB Get DataItems By Criteria] Unexpected error for {ticker}/{item_type}: {e_gen}", exc_info=True)
             return []
+
+    async def get_all_master_tickers(self) -> list[str]:
+        """Return a list of all tickers in the Yahoo master ticker table."""
+        records = await self.get_ticker_masters_by_criteria()
+        return [rec['ticker'] for rec in records if 'ticker' in rec and rec['ticker']]
