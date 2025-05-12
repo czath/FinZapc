@@ -54,7 +54,6 @@ from .V3_ibkr_api import IBKRService, IBKRError, SyncIBKRService # ADD SyncIBKRS
 from .V3_finviz_fetch import fetch_and_store_finviz_data, update_screener_from_finviz # Corrected import
 from .V3_finviz_fetch import fetch_and_store_analytics_finviz
 # from .V3_yahoo_api import YahooFinanceAPI, YahooError # Assuming Yahoo API integration
-from .V3_investingcom_fetch import fetch_and_store_investingcom_data, update_screener_from_investingcom # Corrected import
 from .V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate, add_or_update_exchange_rate_conid, update_screener_multi_fields_sync, get_screener_tickers_and_conids_sync, get_exchange_rates_and_conids_sync # Import new DB function AND SQLiteRepository
 # --- End Local Application Imports ---
 
@@ -674,6 +673,22 @@ def create_app():
         # --- Correct Indentation Starts Here ---
         app = FastAPI(title="Financial App V3") # Revert: Keep title
         from .V3_backend_api import router as backend_router
+        @app.get("/api/analytics/fields", summary="Get unified analytics field list", tags=["Analytics"])
+        async def get_analytics_fields_endpoint(
+            repository: SQLiteRepository = Depends(get_repository)
+        ):
+            """
+            Returns a unified list of all fields available for analytics configuration (Finviz + Yahoo).
+            """
+            from .V3_analytics import get_finviz_fields_for_analytics
+            finviz_fields = get_finviz_fields_for_analytics(global_processed_analytics_data)
+            yahoo_db_url = repository.database_url if hasattr(repository, 'database_url') else None
+            if not yahoo_db_url:
+                return {"error": "Yahoo DB URL not found"}
+            from .yahoo_repository import YahooDataRepository
+            yahoo_repo = YahooDataRepository(yahoo_db_url)
+            yahoo_fields = await yahoo_repo.get_all_yahoo_fields_for_analytics()
+            return finviz_fields + yahoo_fields
         app.include_router(backend_router)
 
         # Revert: Put back static files setup?
@@ -1041,73 +1056,6 @@ def create_app():
                 except Exception as db_update_err:
                      logger.error(f"Failed to update last_run time for {job_id}: {db_update_err}")
 
-        # --- NEW Investing.com Scheduled Job --- 
-        async def scheduled_investingcom_job():
-            """Job function for fetching Investing.com data and updating screener."""
-            job_id = "investingcom_data_fetch"
-            logger.info(f"Scheduler executing {job_id}...")
-
-            # --- ADD Check is_active status --- 
-            try:
-                repository: SQLiteRepository = app.state.repository
-                is_active = await repository.get_job_is_active(job_id)
-                if not is_active:
-                    logger.info(f"Job '{job_id}' is inactive in DB. Skipping execution.")
-                    return
-            except Exception as check_err:
-                logger.error(f"Error checking active status for {job_id}: {check_err}. Skipping execution.", exc_info=True)
-                return
-            # --- END Check ---
-
-            fetch_successful = False
-            update_successful = False
-            job_lock: asyncio.Lock = app.state.job_execution_lock
-            
-            if job_lock.locked():
-                logger.warning(f"Skipping {job_id}: Another job is already running.")
-                return
-            
-            await job_lock.acquire() # Acquire lock
-            try:
-                repository: SQLiteRepository = app.state.repository
-                is_active = await repository.get_job_is_active(job_id, default_active=False)
-                
-                if is_active:
-                    logger.info(f"Job '{job_id}' is active. Proceeding with fetch and update.")
-                    await fetch_and_store_investingcom_data(repository)
-                    fetch_successful = True # Mark fetch as attempted/done
-                    
-                    await update_screener_from_investingcom(repository)
-                    update_successful = True # Mark update as attempted/done
-                    
-                    logger.info(f"Scheduled Investing.com fetch and screener update completed.")
-                    
-                    # --- Broadcast Update --- 
-                    try:
-                        logger.info(f"[{job_id}] Broadcasting data update notification.")
-                        await app.state.manager.broadcast(json.dumps({"event": "data_updated"}))
-                    except Exception as broadcast_err:
-                        logger.error(f"[{job_id}] Error during broadcast: {broadcast_err}")
-                    # --- End Broadcast --- 
-                else:
-                    logger.info(f"Job '{job_id}' is inactive. Skipping execution.")
-                    
-            except Exception as e:
-                logger.error(f"Error during scheduled {job_id} execution: {str(e)}")
-                logger.exception(f"Scheduled {job_id} failed:")
-            finally:
-                 job_lock.release() # Release lock in finally block
-                 logger.debug(f"Job lock released by {job_id}")
-
-            # Update last_run time in DB if the job was active (regardless of internal success)
-            if is_active: 
-                try:
-                    now = datetime.now()
-                    logger.info(f"Updating last_run for job '{job_id}' to {now}")
-                    await repository.update_job_config(job_id, {'last_run': now})
-                except Exception as db_update_err:
-                     logger.error(f"Failed to update last_run time for {job_id}: {db_update_err}")
-
         # --- NEW Yahoo Scheduled Job --- 
         async def scheduled_yahoo_job():
             """Job function for fetching Yahoo data and updating screener."""
@@ -1270,33 +1218,6 @@ def create_app():
                     logger.warning(f"Job '{finviz_job_id}' has invalid interval ({finviz_interval_seconds}s). Not scheduling.")
                 # --- End Schedule Finviz Job ---
 
-                # --- Schedule Investing.com Job --- 
-                investingcom_job_id = "investingcom_data_fetch"
-                investingcom_default_seconds = 86400 # Default to 1 day
-                investingcom_interval_seconds = await repository.get_job_schedule_seconds(investingcom_job_id, default_seconds=investingcom_default_seconds)
-                investingcom_is_active = await repository.get_job_is_active(investingcom_job_id, default_active=True) # Check DB
-                
-                # Always add the job if interval is valid
-                if investingcom_interval_seconds > 0:
-                    try:
-                        scheduler.add_job(
-                            scheduled_investingcom_job, 
-                            trigger='interval',
-                            seconds=investingcom_interval_seconds,
-                            id=investingcom_job_id, # Ensure unique ID
-                            replace_existing=True
-                        )
-                        logger.info(f"Added job '{investingcom_job_id}' with interval: {investingcom_interval_seconds} seconds.")
-                        # Pause it immediately if it's not active
-                        if not investingcom_is_active:
-                            scheduler.pause_job(investingcom_job_id)
-                            logger.info(f"Job '{investingcom_job_id}' is inactive in DB. Paused in scheduler.")
-                    except Exception as e:
-                         logger.error(f"Failed to add or pause job '{investingcom_job_id}': {e}", exc_info=True)
-                else:
-                     logger.warning(f"Job '{investingcom_job_id}' has invalid interval ({investingcom_interval_seconds}s). Not scheduling.")
-                # --- End Schedule Investing.com Job --- 
-                
                 # --- Schedule Yahoo Job --- 
                 yahoo_job_id = "yahoo_data_fetch"
                 yahoo_default_seconds = 86400 # Default to 1 day
@@ -1721,15 +1642,13 @@ def create_app():
                 ibkr_snapshot_seconds = await repository.get_job_schedule_seconds('ibkr_sync_snapshot')
                 finviz_seconds = await repository.get_job_schedule_seconds('finviz_data_fetch')
                 yahoo_seconds = await repository.get_job_schedule_seconds('yahoo_data_fetch')
-                investingcom_seconds = await repository.get_job_schedule_seconds('investingcom_data_fetch')
-                
+                                
                 # Fetch ALL active statuses
                 ibkr_active = await repository.get_job_is_active('ibkr_fetch')
                 ibkr_snapshot_active = await repository.get_job_is_active('ibkr_sync_snapshot')
                 finviz_active = await repository.get_job_is_active('finviz_data_fetch')
                 yahoo_active = await repository.get_job_is_active('yahoo_data_fetch')
-                investingcom_active = await repository.get_job_is_active('investingcom_data_fetch')
-                
+                                
                 # Fetch other data
                 exchange_rates = await get_exchange_rates(request.state.db_session) 
                 portfolio_rules = await repository.get_all_portfolio_rules()
@@ -1759,13 +1678,13 @@ def create_app():
                     "finviz_schedule_seconds": finviz_seconds,
                     "yahoo_schedule_seconds": yahoo_seconds,
                     "yahoo_schedule_cron": yahoo_schedule_cron,
-                    "investingcom_schedule_seconds": investingcom_seconds,
+                    
                     # Scheduler Statuses
                     "ibkr_is_active": ibkr_active,
                     "ibkr_snapshot_is_active": ibkr_snapshot_active,
                     "finviz_is_active": finviz_active,
                     "yahoo_is_active": yahoo_active,
-                    "investingcom_is_active": investingcom_active,
+                    
                     # Other Data
                     "exchange_rates": exchange_rates,
                     "portfolio_rules": portfolio_rules, # Pass the list for Jinja
@@ -1784,13 +1703,13 @@ def create_app():
                     "ibkr_snapshot_schedule_seconds": 0, 
                     "finviz_schedule_seconds": 0,
                     "yahoo_schedule_seconds": 0,
-                    "investingcom_schedule_seconds": 0,
+                    
                     # Default Statuses (assume active on error?)
                     "ibkr_is_active": True, 
                     "ibkr_snapshot_is_active": True,
                     "finviz_is_active": True,
                     "yahoo_is_active": True,
-                    "investingcom_is_active": True,
+                    
                      # Default Other Data
                     "exchange_rates": {},
                     "portfolio_rules": [], 
@@ -1848,7 +1767,7 @@ def create_app():
         async def update_generic_schedule(request: Request, payload: GenericScheduleUpdatePayload):
             """Update schedule for FinViz/Yahoo (supports interval string or cron JSON for Yahoo Mass Fetch)."""
             repository: SQLiteRepository = request.app.state.repository
-            valid_job_ids = ['yahoo_data_fetch', 'finviz_data_fetch', 'investingcom_data_fetch', 'ibkr_fetch', 'ibkr_sync_snapshot'] 
+            valid_job_ids = ['yahoo_data_fetch', 'finviz_data_fetch', 'ibkr_fetch', 'ibkr_sync_snapshot'] 
             job_id = payload.job_id
             raw_schedule_input = payload.schedule.strip()
             logger.info(f"Received generic schedule update for {job_id}: '{raw_schedule_input}'")
@@ -2620,14 +2539,14 @@ def create_app():
                 ibkr_snapshot_seconds = await repository.get_job_schedule_seconds('ibkr_sync_snapshot')
                 finviz_seconds = await repository.get_job_schedule_seconds('finviz_data_fetch')
                 yahoo_seconds = await repository.get_job_schedule_seconds('yahoo_data_fetch')
-                investingcom_seconds = await repository.get_job_schedule_seconds('investingcom_data_fetch')
+                
                 
                 # Fetch ALL active statuses
                 ibkr_active = await repository.get_job_is_active('ibkr_fetch')
                 ibkr_snapshot_active = await repository.get_job_is_active('ibkr_sync_snapshot')
                 finviz_active = await repository.get_job_is_active('finviz_data_fetch')
                 yahoo_active = await repository.get_job_is_active('yahoo_data_fetch')
-                investingcom_active = await repository.get_job_is_active('investingcom_data_fetch')
+                
                 
                 # Fetch other data
                 exchange_rates = await get_exchange_rates(request.state.db_session) 
@@ -2658,13 +2577,13 @@ def create_app():
                     "finviz_schedule_seconds": finviz_seconds,
                     "yahoo_schedule_seconds": yahoo_seconds,
                     "yahoo_schedule_cron": yahoo_schedule_cron,
-                    "investingcom_schedule_seconds": investingcom_seconds,
+                    
                     # Scheduler Statuses
                     "ibkr_is_active": ibkr_active,
                     "ibkr_snapshot_is_active": ibkr_snapshot_active,
                     "finviz_is_active": finviz_active,
                     "yahoo_is_active": yahoo_active,
-                    "investingcom_is_active": investingcom_active,
+                    
                     # Other Data
                     "exchange_rates": exchange_rates,
                     "portfolio_rules": portfolio_rules, # Pass the list for Jinja
@@ -2683,14 +2602,13 @@ def create_app():
                     "ibkr_snapshot_schedule_seconds": 0, 
                     "finviz_schedule_seconds": 0,
                     "yahoo_schedule_seconds": 0,
-                    "investingcom_schedule_seconds": 0,
+                    
                     # Default Statuses (assume active on error?)
                     "ibkr_is_active": True, 
                     "ibkr_snapshot_is_active": True,
                     "finviz_is_active": True,
                     "yahoo_is_active": True,
-                    "investingcom_is_active": True,
-                     # Default Other Data
+                    # Default Other Data
                     "exchange_rates": {},
                     "portfolio_rules": [], 
                     "portfolio_rules_json": "[]", 
@@ -3048,4 +2966,3 @@ def get_prev_fire_time(trigger, now, lookback_days=14):
 # with:
 # prev_run_time = get_prev_fire_time(trigger, now)
 
-        

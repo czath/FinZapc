@@ -1,6 +1,6 @@
 """SQLAlchemy models for Yahoo Finance specific data."""
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, UniqueConstraint, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -135,6 +135,7 @@ class TickerDataItemsModel(Base):
     fetch_timestamp_utc = Column(DateTime, nullable=False, default=datetime.now)
     item_source = Column(String, nullable=True) 
     item_data_payload = Column(Text, nullable=False) # Use Text for potentially large JSON
+    prun = Column(Boolean, nullable=False, default=False) # Flag for pruning status
 
     # Relationship back to YahooTickerMasterModel
     ticker_master_record = relationship("src.V3_app.yahoo_models.YahooTickerMasterModel", back_populates="data_items")

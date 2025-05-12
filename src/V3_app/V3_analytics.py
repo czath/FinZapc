@@ -144,3 +144,58 @@ def preprocess_raw_analytics_data(raw_analytics_entries: List[Dict[str, Any]]) -
 #     processed_data = preprocess_finviz_data(sample_raw_data)
 #     import json
 #     print(json.dumps(processed_data, indent=2)) 
+
+# --- Helper to expose Finviz field metadata for analytics config ---
+def get_finviz_fields_for_analytics(processed_data: list[dict]) -> list[dict]:
+    """
+    Returns a list of Finviz fields for analytics configuration:
+    - Each field: {name, type, description}
+    - Uses the same logic as the frontend (fieldMetadata)
+    """
+    if not processed_data:
+        return []
+    # Discover fields
+    discovered_fields = set()
+    for item in processed_data:
+        if item and 'processed_data' in item:
+            discovered_fields.update(item['processed_data'].keys())
+    discovered_fields.add('source')
+    available_fields = sorted(discovered_fields)
+    # Calculate metadata
+    field_metadata = {}
+    for field in available_fields:
+        values = []
+        for item in processed_data:
+            if item and 'processed_data' in item and field in item['processed_data']:
+                v = item['processed_data'][field]
+                if v is not None:
+                    values.append(v)
+        existing_value_count = len(values)
+        if existing_value_count == 0:
+            field_metadata[field] = { 'type': 'empty', 'description': 'Empty' }
+        else:
+            numeric_count = sum(1 for v in values if isinstance(v, (int, float)) and not isinstance(v, bool))
+            if numeric_count / existing_value_count >= 0.8:
+                # Numeric field
+                min_v = min((v for v in values if isinstance(v, (int, float))), default=None)
+                max_v = max((v for v in values if isinstance(v, (int, float))), default=None)
+                avg_v = sum((v for v in values if isinstance(v, (int, float))), 0) / numeric_count if numeric_count else None
+                sorted_vals = sorted(v for v in values if isinstance(v, (int, float)))
+                median_v = None
+                if sorted_vals:
+                    mid = len(sorted_vals) // 2
+                    if len(sorted_vals) % 2 == 0:
+                        median_v = (sorted_vals[mid-1] + sorted_vals[mid]) / 2
+                    else:
+                        median_v = sorted_vals[mid]
+                desc = f"Numeric | Min: {min_v} | Max: {max_v} | Avg: {avg_v} | Median: {median_v}"
+                field_metadata[field] = { 'type': 'numeric', 'description': desc }
+            else:
+                unique_vals = set(str(v) for v in values if isinstance(v, str))
+                desc = f"Text ({len(unique_vals)} unique)"
+                field_metadata[field] = { 'type': 'text', 'description': desc }
+    # Build output
+    return [
+        { 'name': field, 'type': field_metadata[field]['type'], 'description': field_metadata[field]['description'] }
+        for field in available_fields
+    ] 

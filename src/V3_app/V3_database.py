@@ -192,20 +192,6 @@ class FinvizRawDataModel(Base):
     last_fetched_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
 # --- End Finviz Raw Data Model ---
 
-# --- NEW Investing.com Raw Data Model ---
-class InvestingComRaw(Base):
-    __tablename__ = 'investingcom_raw'
-
-    # TODO: Consider relationship back to screener if t_source2 becomes unique/indexed?
-    slug = Column(String, primary_key=True, nullable=False) # Use slug as PK
-    name = Column(String, nullable=True)
-    ticker_symbol = Column(String, nullable=True) # Ticker symbol extracted from page
-    lastprice = Column(Float, nullable=True)
-    p_change = Column(Float, nullable=True)
-    currency = Column(String, nullable=True)
-    data_state = Column(String, nullable=True)
-    timestamp = Column(DateTime, nullable=True) # Last successful update timestamp
-
 # --- NEW Analytics Raw Data Model ---
 class AnalyticsRawDataModel(Base):
     __tablename__ = 'analytics_raw'
@@ -329,7 +315,7 @@ class SQLiteRepository:
     async def create_tables(self) -> None:
          """Creates tables using Base.metadata."""
          try:
-             logger.info("[DB Init] Creating tables (including investingcom_raw).")
+             logger.info("[DB Init] Creating tables.")
              async with self.engine.begin() as conn:
                   await conn.run_sync(Base.metadata.create_all)
                   await conn.run_sync(lambda sync_conn: exchange_rates.create(sync_conn, checkfirst=True))
@@ -1222,74 +1208,6 @@ class SQLiteRepository:
         await conn.execute(deactivation_stmt)
         logger.info(f"[DB] Deactivation complete for rules named '{rule_name}'.")
 
-    # --- NEW Method for Investing.com Raw Data ---
-    async def save_or_update_investingcom_data(self, slug: str, data: Optional[Dict[str, Any]]) -> None:
-        """Saves or updates data in investingcom_raw using slug as key. If data is None, updates status only."""
-        if not slug or not slug.strip():
-            logger.error("[DB Investing.com Raw] Cannot save data without a slug.")
-            return
-        cleaned_slug = slug.strip()
-
-        now = datetime.now()
-
-        try:
-            async with self.engine.begin() as conn:
-                # Check if the slug exists first
-                select_stmt = select(InvestingComRaw.slug).where(InvestingComRaw.slug == cleaned_slug).limit(1)
-                result = await conn.execute(select_stmt)
-                exists = result.scalar_one_or_none() is not None
-
-                if data is None: # Fetch failed
-                    logger.warning(f"[DB Investing.com Raw] Fetch failed for slug '{cleaned_slug}'. Updating status to 'Delayed Data'.")
-                    update_values = {
-                        'data_state': "Delayed Data"
-                        # DO NOT update timestamp on failure
-                    }
-                    if exists:
-                        # Update only data_state for the existing slug
-                        stmt = update(InvestingComRaw).where(InvestingComRaw.slug == cleaned_slug).values(**update_values)
-                        await conn.execute(stmt)
-                        logger.info(f"[DB Investing.com Raw] Updated status to Delayed Data for existing slug '{cleaned_slug}'")
-                    else:
-                        # Insert new record with only slug and delayed status
-                        insert_values = {
-                            'slug': cleaned_slug,
-                            'data_state': "Delayed Data"
-                            # All other fields will be NULL by default
-                        }
-                        stmt = insert(InvestingComRaw).values(**insert_values)
-                        await conn.execute(stmt)
-                        logger.info(f"[DB Investing.com Raw] Inserted new slug '{cleaned_slug}' with Delayed Data status.")
-
-                else: # Fetch succeeded
-                    logger.info(f"[DB Investing.com Raw] Saving/updating data for slug '{cleaned_slug}'")
-                    update_values = {
-                        'name': data.get('Name'),
-                        'ticker_symbol': data.get('Ticker Symbol'), # Store the extracted symbol
-                        'lastprice': data.get('Last Price'),
-                        'p_change': data.get('Percentage Change'),
-                        'currency': data.get('Currency'),
-                        'data_state': data.get('Data Status'),
-                        'timestamp': data.get('_fetch_timestamp', now) # Use fetched timestamp or current time
-                    }
-
-                    if exists:
-                         # Use standard update for existing record identified by slug
-                         stmt = update(InvestingComRaw).where(InvestingComRaw.slug == cleaned_slug).values(**update_values)
-                         await conn.execute(stmt)
-                         logger.info(f"[DB Investing.com Raw] Updated data for existing slug '{cleaned_slug}'")
-                    else:
-                         # Insert new record with all data, using slug as key
-                         insert_values = update_values.copy()
-                         insert_values['slug'] = cleaned_slug # Add slug for insert
-                         stmt = insert(InvestingComRaw).values(**insert_values)
-                         await conn.execute(stmt)
-                         logger.info(f"[DB Investing.com Raw] Inserted new data for slug '{cleaned_slug}'")
-
-        except Exception as e:
-            logger.error(f"[DB Investing.com Raw] Error saving data for slug '{cleaned_slug}': {e}", exc_info=True)
-            # Consider re-raising if needed by the caller
-    # --- End Method for Investing.com Raw Data ---
 
     # --- NEW Method to Clear Finviz Raw Data ---
     async def clear_finviz_raw_data(self) -> None:
@@ -1391,97 +1309,6 @@ class SQLiteRepository:
             logger.error(f"[DB] Error saving/updating Finviz raw data for {ticker}: {e}", exc_info=True)
             raise
     # --- End Finviz Raw Data Save/Update ---
-
-    # --- ADDED METHODS FOR INVESTING.COM CLEANUP ---
-
-    async def get_all_screener_slugs(self) -> Optional[Set[str]]:
-        """Fetches all non-null t_source2 slugs from the screener table."""
-        logger.debug("[DB] Fetching all t_source2 slugs from screener table.")
-        try:
-            async with AsyncSession(self.engine) as session:
-                result = await session.execute(
-                    select(ScreenerModel.t_source2).where(ScreenerModel.t_source2.isnot(None))
-                )
-                # Use .scalars().all() to get a list of slugs directly
-                slugs = set(result.scalars().all())
-                logger.debug(f"[DB] Found {len(slugs)} slugs in screener.")
-                return slugs
-        except Exception as e:
-            logger.error(f"[DB] Error fetching screener slugs: {e}", exc_info=True)
-            return None # Return None on error
-
-    async def get_all_investingcom_raw_slugs(self) -> Optional[Set[str]]:
-        """Fetches all slugs from the investingcom_raw table."""
-        logger.debug("[DB] Fetching all slugs from investingcom_raw table.")
-        try:
-            async with AsyncSession(self.engine) as session:
-                result = await session.execute(
-                    select(InvestingComRaw.slug)
-                )
-                slugs = set(result.scalars().all())
-                logger.debug(f"[DB] Found {len(slugs)} slugs in investingcom_raw.")
-                return slugs
-        except Exception as e:
-            logger.error(f"[DB] Error fetching investingcom_raw slugs: {e}", exc_info=True)
-            return None # Return None on error
-
-    async def delete_investingcom_data_by_slugs(self, slugs: List[str]) -> Optional[int]:
-        """Deletes records from investingcom_raw based on a list of slugs."""
-        if not slugs:
-            logger.info("[DB] No slugs provided for deletion. Skipping.")
-            return 0
-
-        logger.warning(f"[DB] Attempting to delete {len(slugs)} records from investingcom_raw.")
-        try:
-            async with self.engine.begin() as conn: # Use begin for transaction
-                stmt = delete(InvestingComRaw).where(InvestingComRaw.slug.in_(slugs))
-                result = await conn.execute(stmt)
-                deleted_count = result.rowcount
-                logger.info(f"[DB] Successfully deleted {deleted_count} records from investingcom_raw.")
-                return deleted_count
-        except Exception as e:
-            logger.error(f"[DB] Error deleting investingcom_raw data by slugs: {e}", exc_info=True)
-            return None # Return None on error
-
-    # --- END ADDED METHODS ---
-
-    # --- ADDED METHODS FOR SCREENER UPDATE FROM INVESTING.COM ---
-
-    async def get_all_investingcom_raw_data(self) -> List[Dict[str, Any]]:
-        """Fetches all records from the investingcom_raw table."""
-        logger.info("[DB] Fetching all data from investingcom_raw table.")
-        try:
-            async with self.engine.connect() as conn:
-                stmt = select(InvestingComRaw) # Select the whole model
-                result = await conn.execute(stmt)
-                rows = result.mappings().all()
-                logger.info(f"[DB] Fetched {len(rows)} records from investingcom_raw.")
-                return [dict(row) for row in rows]
-        except Exception as e:
-            logger.error(f"[DB] Error fetching from investingcom_raw table: {e}", exc_info=True)
-            raise # Re-raise error
-
-    async def get_screener_by_slug(self, slug: str) -> Optional[Dict[str, Any]]:
-        """Fetches a screener record by its t_source2 (slug)."""
-        if not slug:
-            return None
-        logger.debug(f"[DB] Fetching screener entry for slug (t_source2): {slug}")
-        try:
-            async with self.engine.connect() as conn:
-                stmt = select(ScreenerModel).where(ScreenerModel.t_source2 == slug).limit(1)
-                result = await conn.execute(stmt)
-                row = result.mappings().first()
-                if row:
-                    logger.debug(f"[DB] Found screener entry for slug {slug}: Ticker {row.get('ticker')}")
-                    return dict(row)
-                else:
-                    logger.debug(f"[DB] No screener entry found for slug {slug}")
-                    return None
-        except Exception as e:
-            logger.error(f"[DB] Error fetching screener entry by slug {slug}: {e}", exc_info=True)
-            return None # Return None on error
-
-    # --- END ADDED METHODS ---
 
     # --- NEW Method to get active order configurations ---
     async def get_all_active_order_configs(self) -> Dict[str, Dict[str, float]]:

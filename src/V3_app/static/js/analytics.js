@@ -1489,9 +1489,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
          // 1. Determine Columns/Headers based on enabled fields
          const enabledFields = availableFields.filter(field => fieldEnabledStatus[field] === true);
-         // Always include Ticker first, consider including 'source' and 'error' if needed?
-         // For now, just ticker + enabled processed_data fields.
-         const currentHeaders = ['Ticker', ...enabledFields]; 
+         const currentHeaders = ['Ticker', ...enabledFields];
          console.log("Table Headers:", currentHeaders);
 
          // 2. Format data for the table (array of arrays)
@@ -1578,86 +1576,27 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
              try {
                  outputDataTable = $('#output-table').DataTable({
                      data: tableData,
-                     // columns: currentHeaders.map(header => ({ title: header })), // Let header update handle titles
-                     paging: true,       // Enable pagination
-                     searching: true,    // Enable search box
-                     lengthChange: true, // Allow user to change number of rows shown
-                     pageLength: 50,     // Default number of rows per page
-                     scrollX: true,      // Enable horizontal scrolling if needed
-                     scrollY: '400px',   // Set vertical scroll height
-                     scrollCollapse: true,// Collapse table height when few records
-                     destroy: true,      // Allows re-initialization
-                     stateSave: false,   // Don't save search/sort state in localStorage (can conflict with our filters)
-                     order: [[0, 'asc']], // Default sort by first column (Ticker)
-                     language: { // Customize text if needed
+                     columns: currentHeaders.map(header => ({ title: header, width: '120px' })), // Fixed width for all columns
+                     paging: true,
+                     searching: true,
+                     lengthChange: true,
+                     pageLength: 50,
+                     scrollX: true,
+                     scrollY: '400px',
+                     scrollCollapse: true,
+                     destroy: true,
+                     stateSave: false,
+                     autoWidth: false, // Prevent DataTables from recalculating widths
+                     order: [[0, 'asc']],
+                     language: {
                          emptyTable: "No matching records found based on current filters.",
                          zeroRecords: "No matching records found"
-                     },
-                     // <<< Add dom and buttons configuration >>>
-                     dom: "<'row'<'col-sm-12 col-md-6'l><'col-sm-12 col-md-6 d-flex justify-content-end align-items-center'fB>>" +
-                          "<'row'<'col-sm-12'tr>>" +
-                          "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>", // Add B for Buttons near filter f
-                     buttons: [
-                        // 'copyHtml5', // OLD
-                        // 'excelHtml5', // OLD
-                        // 'csvHtml5' // OLD
-                        // PDF export excluded as requested
-                         {
-                            extend: 'copyHtml5',
-                            filename: function() { return generateTimestampedFilename('FilteredData_Copy'); },
-                            title: function() { return `Filtered Data (${new Date().toLocaleString()})`; } // Optional: Title for copy
-                        },
-                        {
-                            extend: 'excelHtml5',
-                            filename: function() { return generateTimestampedFilename('FilteredData'); },
-                            title: function() { return `Filtered Data (${new Date().toLocaleString()})`; } // Optional: Title for Excel sheet
-                        },
-                        {
-                            extend: 'csvHtml5',
-                            filename: function() { return generateTimestampedFilename('FilteredData'); },
-                            title: function() { return `Filtered Data (${new Date().toLocaleString()})`; } // Optional: Title for CSV
-                        }
-                    ],
-                    // <<< NEW: columnDefs for negative number styling >>>
-                    columnDefs: currentHeaders.map((headerText, index) => {
-                        // Skip 'Ticker' column (index 0)
-                        if (index === 0) {
-                            return null; // Return null for columns we don't want to define specifically
-                        }
-                        
-                        const fieldName = headerText; // For non-ticker columns, headerText is fieldName
-                        const meta = fieldMetadata[fieldName] || {};
-                        
-                        if (meta.type === 'numeric') {
-                            const format = fieldNumericFormats[fieldName] || 'default';
-                            return {
-                                targets: index, // Target this specific column index
-                                render: function (data, type, row) { // 'data' is the cell's original data
-                                    // Apply styling only for display rendering
-                                    if (type === 'display') {
-                                        const rawValue = data; // Use the 'data' parameter directly (should be raw number)
-                                        const num = Number(rawValue);
-                                        const formattedValue = formatNumericValue(rawValue, format); // <<< CORRECTED: Always format here for display
-                                        
-                                        // Check if the raw number is negative
-                                        if (!isNaN(num) && num < 0) {
-                                            return `<span class="text-negative">${formattedValue}</span>`; // Wrap the formatted value
-                                        } else {
-                                            return formattedValue; // Return formatted value without span
-                                        }
-                                    }
-                                    // For sorting, filtering, type detection etc., return the raw data
-                                    return data; // Return original data (raw number or string)
-                                }
-                            };
-                        } else {
-                            return null; // Return null for non-numeric columns
-                        }
-                    }).filter(def => def !== null) // Remove null entries from the array
-                    // <<< END columnDefs >>>
+                     }
                  });
 +                // <<< Force column width recalculation after initialization >>>
 +                outputDataTable.columns.adjust().draw();
++                // Force table-layout: fixed for header/cell alignment
++                $('#output-table').css('table-layout', 'fixed');
              } catch (error) {
                  console.error("Error initializing DataTable:", error);
                  // Handle initialization error (e.g., display message to user)
