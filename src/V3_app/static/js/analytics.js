@@ -547,6 +547,20 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             return "(Metadata not available)"; // Fallback
         }
 
+        // NEW: For Yahoo fields (yf_ prefix), show type and example
+        if (fieldName.startsWith('yf_')) {
+            let desc = metadata.type ? metadata.type.charAt(0).toUpperCase() + metadata.type.slice(1) : 'Unknown Type';
+            if (metadata.example !== null && metadata.example !== undefined && String(metadata.example).trim() !== '') {
+                // Truncate long examples for display purposes
+                let exampleStr = String(metadata.example);
+                if (exampleStr.length > 50) {
+                    exampleStr = exampleStr.substring(0, 47) + "...";
+                }
+                desc += ` (example: ${exampleStr})`;
+            }
+            return desc;
+        }
+
         // const count = metadata.existingValueCount; // Count is now displayed separately
 
         switch (metadata.type) {
@@ -3947,6 +3961,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                 yahooFieldMetadata[f.name] = {
                     type: f.type || 'unknown',
                     description: f.description || '',
+                    example: f.example // This line is crucial
                 };
             });
             mergeAndSetFields();

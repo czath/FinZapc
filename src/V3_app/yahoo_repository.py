@@ -622,11 +622,24 @@ class YahooDataRepository:
         records = await self.get_ticker_masters_by_criteria()
         return [rec['ticker'] for rec in records if 'ticker' in rec and rec['ticker']]
 
+    def _normalize_db_type(self, db_type: str) -> str:
+        """Normalize SQLAlchemy type string to 'numeric', 'text', 'boolean', 'date', or 'unknown'."""
+        t = db_type.lower()
+        if any(x in t for x in ['float', 'real', 'integer', 'int', 'numeric', 'decimal', 'double']):
+            return 'numeric'
+        if any(x in t for x in ['varchar', 'text', 'char', 'string']):
+            return 'text'
+        if 'bool' in t:
+            return 'boolean'
+        if 'date' in t:  # Handles both 'date' and 'datetime'
+            return 'date'
+        return 'unknown'
+
     async def get_all_yahoo_fields_for_analytics(self) -> list[dict]:
         """
         Returns a list of all Yahoo fields for analytics configuration:
-        - Ticker master fields: {name: 'yf_tm_<col>', type: <db_type>}
-        - Data item payload fields: {name: 'yf_<item_type>_<item_time_coverage>_<key>', type: <inferred_type>}
+        - Ticker master fields: {name: 'yf_tm_<col>', type: <normalized_type>, example: <sample_value>}
+        - Data item payload fields: {name: 'yf_<item_type>_<item_time_coverage>_<key>', type: <inferred_type>, example: <sample_value>}
         Only samples records where prun is False (0) to ensure we get active/valid data.
         """
         fields = []
@@ -639,8 +652,26 @@ class YahooDataRepository:
                     if col.primary_key:
                         continue
                     col_name = f"yf_tm_{col.name}"
-                    col_type = str(col.type)
-                    fields.append({"name": col_name, "type": col_type})
+                    col_type_str = str(col.type)
+                    normalized_type = self._normalize_db_type(col_type_str)
+                    
+                    sample_value = None
+                    try:
+                        # Query the first non-null value for this column from YahooTickerMasterModel
+                        # Ensure the column name used in getattr matches the model's attribute name (usually same as col.name)
+                        stmt = select(getattr(YahooTickerMasterModel, col.name)).where(getattr(YahooTickerMasterModel, col.name) != None).limit(1)
+                        result = sync_conn.execute(stmt)
+                        row = result.scalar_one_or_none() # Use scalar_one_or_none to get the value directly
+                        if row is not None:
+                            sample_value = row
+                            # If the sample value is a datetime object, convert it to ISO format string
+                            if isinstance(sample_value, datetime):
+                                sample_value = sample_value.isoformat()
+                    except Exception as e:
+                        logger.warning(f"Could not fetch sample for yf_tm field {col.name}: {e}")
+                        pass # Continue if sample fetching fails for a column
+
+                    fields.append({"name": col_name, "type": normalized_type, "example": sample_value})
             
             await conn.run_sync(get_columns)
 
@@ -666,25 +697,37 @@ class YahooDataRepository:
                     .limit(1)
                 )
                 sample_result = await session.execute(sample_stmt)
-                sample = sample_result.scalar_one_or_none()
-                if sample and sample.item_data_payload:
+                sample_record = sample_result.scalar_one_or_none()
+                if sample_record and sample_record.item_data_payload:
                     try:
-                        payload = json.loads(sample.item_data_payload) if isinstance(sample.item_data_payload, str) else sample.item_data_payload
+                        payload = json.loads(sample_record.item_data_payload) if isinstance(sample_record.item_data_payload, str) else sample_record.item_data_payload
                         if isinstance(payload, dict):
                             for key, value in payload.items():
                                 field_name = f"yf_{item_type.lower()}_{item_time_coverage.lower()}_{key}"
+                                field_type_inferred = "unknown" # Default
                                 # Infer type based on value
                                 if isinstance(value, (int, float)) and not isinstance(value, bool):
-                                    field_type = "numeric"
+                                    field_type_inferred = "numeric"
                                 elif isinstance(value, str):
-                                    field_type = "text"
+                                    field_type_inferred = "text"
                                 elif isinstance(value, bool):
-                                    field_type = "boolean"
+                                    field_type_inferred = "boolean"
+                                # Assuming date strings in payload would be handled as 'text' by default
+                                # or require specific parsing if they need to be 'date' type.
+                                # For now, only basic types are inferred here.
                                 elif value is None:
-                                    field_type = "unknown"
+                                    field_type_inferred = "unknown" # Or perhaps 'empty' if that distinction is useful
                                 else:
-                                    field_type = type(value).__name__
-                                fields.append({"name": field_name, "type": field_type})
-                    except Exception:
+                                    # Fallback for other complex types, or could be refined
+                                    field_type_inferred = type(value).__name__ 
+
+                                # If the value is a datetime object (less likely for JSON, but defensive)
+                                example_value_to_store = value
+                                if isinstance(example_value_to_store, datetime):
+                                    example_value_to_store = example_value_to_store.isoformat()
+
+                                fields.append({"name": field_name, "type": field_type_inferred, "example": example_value_to_store})
+                    except Exception as e:
+                        logger.warning(f"Could not process payload sample for {item_type}/{item_time_coverage}: {e}")
                         continue
         return fields
