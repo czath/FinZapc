@@ -569,7 +569,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                 const max = metadata.max; // Already handles null from step 2
                 const average = metadata.average; // <<< ADDED
                 const median = metadata.median;   // <<< ADDED
-                const format = fieldNumericFormats[fieldName] || 'default'; // Use specific field format
+                const format = fieldNumericFormats[fieldName] || 'raw'; // Use specific field format
 
                 // Inline helper for consistent formatting
                 const formatNumberForDescriptor = (num) => {
@@ -732,8 +732,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         // --- Update hint text using the new descriptor function (which now includes formatting) --- 
         let hintText = fieldName ? getFieldDescriptor(fieldName) : '';
         // Append the input scale guidance if applicable
-        if (fieldNumericFormats[fieldName] || 'default') {
-            const format = fieldNumericFormats[fieldName] || 'default';
+        if (fieldNumericFormats[fieldName] || 'raw') {
+            const format = fieldNumericFormats[fieldName] || 'raw';
             switch (format) {
                 case 'percent': hintText += ' (Enter % value, e.g., 5 for 5%)'; break;
                 case 'million': hintText += ' (Enter value in Millions, e.g., 1.5 for 1.5M)'; break;
@@ -1185,7 +1185,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     const option = document.createElement('option');
                     option.value = fmt.value;
                     option.textContent = fmt.text;
-                    if (fieldNumericFormats[field] === fmt.value) {
+                    // Select if format matches state OR if state is undefined and current option is 'raw'
+                    if (fieldNumericFormats[field] === fmt.value || (fieldNumericFormats[field] === undefined && fmt.value === 'raw')) {
                         option.selected = true;
                     }
                     formatSelect.appendChild(option);
@@ -2898,9 +2899,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
              const meta = fieldMetadata[field] || {};
              if (meta.type === 'numeric') {
                  if (!(field in fieldNumericFormats)) {
-                     fieldNumericFormats[field] = 'default';
+                     fieldNumericFormats[field] = 'raw';
                      formatStatusChanged = true;
-                     console.log(`Initialized numeric format for new field '${field}' to 'default'.`);
+                     console.log(`Initialized numeric format for new field '${field}' to 'raw'.`);
                  }
              }
          });
@@ -3488,9 +3489,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             // Initialize format for numeric fields if not already set
             const meta = finalFieldMetadata[field] || {};
             if (meta.type === 'numeric' && !(field in fieldNumericFormats)) {
-                fieldNumericFormats[field] = 'default';
+                fieldNumericFormats[field] = 'raw';
                 formatStatusChanged = true;
-                 console.log(`[updateFinalFieldsAndMetadata] Initialized numeric format for field '${field}' to 'default'.`);
+                 console.log(`[updateFinalFieldsAndMetadata] Initialized numeric format for field '${field}' to 'raw'.`);
             }
         });
         // Don't clean up here - preserve settings even if field temporarily disappears
