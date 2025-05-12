@@ -179,6 +179,15 @@ document.addEventListener('DOMContentLoaded', function() {
             try {
                 finalDataTableInstance.destroy();
                 $(tableElement).empty(); // Clear headers/footers left by destroy
+                
+                // <<< Explicitly remove any lingering pagination controls from previous instances >>>
+                const oldPagination = $('#final-data-table_paginate');
+                if (oldPagination.length) {
+                    console.log("[DataTableModule] Removing lingering pagination controls (#final-data-table_paginate).");
+                    oldPagination.remove();
+                }
+                // <<< END Explicit Cleanup >>>
+                
             } catch (e) { console.error("[DataTableModule] Error destroying instance:", e); }
             finalDataTableInstance = null;
         }
@@ -399,19 +408,20 @@ document.addEventListener('DOMContentLoaded', function() {
                      deferRender: true,
                      paging: true,
                      searching: true,
-                     lengthChange: true,
-                     pageLength: 50,
-                     scrollX: true,
-                     scrollY: '500px', // Adjust as needed
-                     scrollCollapse: true,
+                     lengthChange: false, // Match pre-transform table
+                     pageLength: 10, // Keep page length
+                     // scrollX: true, // REMOVED to match pre-transform table
+                     // scrollY: '500px', // Adjust as needed // <<< COMMENT OUT
+                     // scrollCollapse: true, // <<< COMMENT OUT
                      stateSave: false,
                      language: {
                          emptyTable: "No data available after transformations and filtering.",
                          zeroRecords: "No matching records found"
                      },
-                     dom: "<'row'<'col-sm-12 col-md-6'l><'col-sm-12 col-md-6 d-flex justify-content-end align-items-center'fB>>" +
-                          "<'row'<'col-sm-12'tr>>" +
-                          "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>",
+                     // Restore standard DOM structure. Elements will be MOVED by initComplete.
+                     dom: "<\'row\'<\'col-sm-12 col-md-6\'l><\'col-sm-12 col-md-6 d-flex justify-content-end align-items-center\'fB>>" +
+                          "<\'row\'<\'col-sm-12\'tr>>" +
+                          "<\'row\'<\'col-sm-12 col-md-5\'i><\'col-sm-12 col-md-7\'p>>",
                      buttons: [
                          { 
                              extend: 'copyHtml5', 
@@ -459,8 +469,8 @@ document.addEventListener('DOMContentLoaded', function() {
                              const preTransformNumericFormats = modules?.mainModule?.getNumericFieldFormats ? modules.mainModule.getNumericFieldFormats() : {};
                               // <<< ADD access via getter INSIDE callback >>>
                              const formatNumericValue = (modules.mainModule && typeof modules.mainModule.getFormatter === 'function')
-                                                           ? modules.mainModule.getFormatter()
-                                                           : ((val, fmt) => String(val));
+                                                                   ? modules.mainModule.getFormatter()
+                                                                   : ((val, fmt) => String(val));
  
                              columns.every(function (colIdx) {
                                  const header = currentHeaders[colIdx]; 
@@ -481,8 +491,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                          var skewness = calculateSkewness(colData);
                                          // --- END NEW --- 
                                          const effectiveFormat = postTransformNumericFormats.hasOwnProperty(header) 
-                                                                 ? postTransformNumericFormats[header] 
-                                                                 : (preTransformNumericFormats[header] || 'default');
+                                                                                 ? postTransformNumericFormats[header] 
+                                                                                 : (preTransformNumericFormats[header] || 'default');
                                          // <<< Use the locally retrieved formatNumericValue >>>
                                          summaryData[header] = { 
                                              raw: {
@@ -518,11 +528,69 @@ document.addEventListener('DOMContentLoaded', function() {
                  } // Else: rowGroup option is omitted, disabling it
 
                  // Initialize DataTable for the first time or after destruction
-                 console.log("[DataTableModule] Initializing DataTable.");
+                 console.log("[DataTableModule] Initializing DataTable with options:", dtOptions);
+                 
+                 // Add initComplete callback to handle pagination move after draw
+                 dtOptions.initComplete = function(settings, json) {
+                     console.log("[DataTableModule] initComplete callback triggered.");
+                     const api = this.api(); // Get the DataTable API instance
+  
+                     // Adjust columns after initial draw
+                     try {
+                         api.columns.adjust().draw(false); // Use false to prevent recursion if draw triggers initComplete again
+                         console.log("[DataTableModule] Columns adjusted in initComplete.");
+                     } catch (e) {
+                         console.error("[DataTableModule] Error adjusting columns in initComplete:", e);
+                     }
+  
+                     // <<< Move Pagination Controls (within initComplete) >>>
+                     const tableNode = $(api.table().node()); // Get the actual <table> DOM node
+                     const tableWrapper = tableNode.closest('.table-responsive'); // Find the ancestor .table-responsive div
+                     const mainDtWrapper = $(api.table().container()); // Get the main <div class="dataTables_wrapper...">
+                     const paginationControls = mainDtWrapper.find('.dataTables_paginate'); // Find the pagination controls *within* the DT wrapper
+                     const searchControl = mainDtWrapper.find('#final-data-table_filter'); // Find search control
+                     const buttonsControl = mainDtWrapper.find('div.dt-buttons'); // Find buttons container
+  
+                     // Get placeholders (outside the DT wrapper)
+                     const searchPlaceholder = $('#final-table-search-container');
+                     const buttonsPlaceholder = $('#final-table-buttons-container');
+   
+                     if (tableWrapper.length && paginationControls.length) {
+                         console.log("[DataTableModule - initComplete] Moving pagination controls AFTER the .table-responsive wrapper.");
+                         paginationControls.insertAfter(tableWrapper); // Move it after the responsive wrapper
+                         paginationControls.addClass('mt-2'); 
+                     } else {
+                         console.warn("[DataTableModule - initComplete] Could not move pagination. Check selectors/DOM structure.");
+                         if (!tableWrapper.length) console.warn("  - .table-responsive ancestor not found.");
+                         if (!paginationControls.length) console.warn("  - .dataTables_paginate element not found within DT wrapper. Check 'p' in dom?"); // Keep check
+                     }
+                     
+                     // Move Search Input
+                     if (searchControl.length && searchPlaceholder.length) {
+                         searchPlaceholder.empty().append(searchControl); // Clear placeholder and append search
+                         console.log("[DataTableModule - initComplete] Moved search control (#final-data-table_filter).");
+                     } else {
+                          console.warn("[DataTableModule - initComplete] Could not move search control. Check selectors/DOM structure.");
+                          if (!searchControl.length) console.warn("  - #final-data-table_filter not found within DT wrapper. Check 'f' removed from dom?");
+                          if (!searchPlaceholder.length) console.warn("  - #final-table-search-container placeholder not found in HTML.");
+                     }
+                     
+                     // Move Buttons
+                     if (buttonsControl.length && buttonsPlaceholder.length) {
+                         buttonsPlaceholder.empty().append(buttonsControl); // Clear placeholder and append buttons
+                         console.log("[DataTableModule - initComplete] Moved buttons control (.dt-buttons).");
+                     } else {
+                          console.warn("[DataTableModule - initComplete] Could not move buttons control. Check selectors/DOM structure.");
+                          if (!buttonsControl.length) console.warn("  - .dt-buttons not found within DT wrapper. Check 'B' removed from dom?");
+                          if (!buttonsPlaceholder.length) console.warn("  - #final-table-buttons-container placeholder not found in HTML.");
+                     }
+                     // <<< END: Move Pagination Controls >>>
+                 };
+  
+                 // Initialize DataTable with the modified options
                  finalDataTableInstance = $(tableElement).DataTable(dtOptions);
-                // Adjust columns after initial draw
-                finalDataTableInstance.columns.adjust().draw();
-                 // Update group by options
+  
+                 // Update group by options (can potentially move inside initComplete too if needed, but likely fine here)
                  populateGroupBySelector(currentHeaders);
              }
 
