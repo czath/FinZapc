@@ -863,8 +863,9 @@ document.addEventListener('DOMContentLoaded', function() {
             // Determine new sort direction
             let currentOrder = finalDataTableInstance.order(); // Get current full order
             let newDirection = 'asc';
-            // Check if the clicked column is already the secondary sort
-            if (currentOrder.length > 1 && currentOrder[1][0] === clickedColumnIndex) {
+            // Check if the clicked column is already the *dynamic* sort (secondary sort)
+            // orderFixed handles the primary group sort, currentOrder holds the dynamic part.
+            if (currentOrder.length > 0 && currentOrder[0][0] === clickedColumnIndex) {
                 newDirection = currentOrder[1][1] === 'asc' ? 'desc' : 'asc';
             }
 
