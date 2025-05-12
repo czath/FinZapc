@@ -627,6 +627,7 @@ class YahooDataRepository:
         Returns a list of all Yahoo fields for analytics configuration:
         - Ticker master fields: {name: 'yf_tm_<col>', type: <db_type>}
         - Data item payload fields: {name: 'yf_<item_type>_<item_time_coverage>_<key>', type: <inferred_type>}
+        Only samples records where prun is False (0) to ensure we get active/valid data.
         """
         fields = []
         # --- Ticker Master fields ---
@@ -645,45 +646,45 @@ class YahooDataRepository:
 
         # --- Data Item payload fields ---
         async with self.async_session_factory() as session:
-            # Get all unique (item_type, item_time_coverage)
+            # Get all unique (item_type, item_time_coverage) from non-pruned records
             stmt = sqlalchemy.select(
                 TickerDataItemsModel.item_type,
                 TickerDataItemsModel.item_time_coverage
+            ).where(
+                TickerDataItemsModel.prun == False  # Only get non-pruned records
             ).distinct()
             result = await session.execute(stmt)
             unique_types = result.all()
+            
+            # For each unique type/coverage, sample one non-pruned record to analyze payload
             for item_type, item_time_coverage in unique_types:
-                # Sample one record for this type/coverage
                 sample_stmt = (
                     sqlalchemy.select(TickerDataItemsModel)
                     .where(TickerDataItemsModel.item_type == item_type)
                     .where(TickerDataItemsModel.item_time_coverage == item_time_coverage)
+                    .where(TickerDataItemsModel.prun == False)  # Only sample non-pruned records
                     .limit(1)
                 )
                 sample_result = await session.execute(sample_stmt)
                 sample = sample_result.scalar_one_or_none()
-                if not sample:
-                    continue
-                try:
-                    payload = sample.item_data_payload
-                    if isinstance(payload, str):
-                        payload = json.loads(payload)
-                except Exception:
-                    continue
-                if not isinstance(payload, dict):
-                    continue
-                for key, value in payload.items():
-                    field_name = f"yf_{item_type.lower()}_{item_time_coverage.lower()}_{key}"
-                    # Infer type
-                    if isinstance(value, (int, float)) and not isinstance(value, bool):
-                        field_type = "numeric"
-                    elif isinstance(value, str):
-                        field_type = "text"
-                    elif isinstance(value, bool):
-                        field_type = "boolean"
-                    elif value is None:
-                        field_type = "unknown"
-                    else:
-                        field_type = type(value).__name__
-                    fields.append({"name": field_name, "type": field_type})
+                if sample and sample.item_data_payload:
+                    try:
+                        payload = json.loads(sample.item_data_payload) if isinstance(sample.item_data_payload, str) else sample.item_data_payload
+                        if isinstance(payload, dict):
+                            for key, value in payload.items():
+                                field_name = f"yf_{item_type.lower()}_{item_time_coverage.lower()}_{key}"
+                                # Infer type based on value
+                                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                                    field_type = "numeric"
+                                elif isinstance(value, str):
+                                    field_type = "text"
+                                elif isinstance(value, bool):
+                                    field_type = "boolean"
+                                elif value is None:
+                                    field_type = "unknown"
+                                else:
+                                    field_type = type(value).__name__
+                                fields.append({"name": field_name, "type": field_type})
+                    except Exception:
+                        continue
         return fields
