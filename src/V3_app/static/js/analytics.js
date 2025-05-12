@@ -1024,9 +1024,18 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
         fieldConfigContainer.innerHTML = ''; // Clear previous content
 
-        // --- Create and Prepend Search Input --- //
+        // --- Create Wrapper for Sticky Elements --- //
+        const stickyWrapper = document.createElement('div');
+        stickyWrapper.style.position = 'sticky';
+        stickyWrapper.style.top = '0';
+        stickyWrapper.style.zIndex = '10'; // Can be lower now, just needs to be > 0
+        stickyWrapper.style.backgroundColor = 'var(--bs-body-bg, white)'; // Background needed
+        // --- End Wrapper --- //
+
+        // --- Create and Add Search Input (INSIDE WRAPPER) --- //
         const searchGroup = document.createElement('div');
-        searchGroup.className = 'input-group input-group-sm mb-2 px-2'; // Added padding
+        searchGroup.className = 'input-group input-group-sm mb-2 px-2'; // Added padding, keep margin-bottom
+        // --- REMOVED STICKY STYLES FROM SEARCH --- 
         const searchIcon = document.createElement('span');
         searchIcon.className = 'input-group-text';
         searchIcon.innerHTML = '<i class="bi bi-search"></i>';
@@ -1037,20 +1046,16 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         searchInput.placeholder = 'Search fields...';
         searchGroup.appendChild(searchIcon);
         searchGroup.appendChild(searchInput);
-        fieldConfigContainer.appendChild(searchGroup);
+        stickyWrapper.appendChild(searchGroup); // Add search to wrapper
         // --- End Search Input ---
 
-        // --- Create Header Row --- //
+        // --- Create Header Row (INSIDE WRAPPER) --- //
         const headerRow = document.createElement('div');
         headerRow.className = 'd-flex align-items-center mb-2 p-2 border-bottom fw-bold text-muted small';
-        // ... (rest of header row creation remains the same) ...
-        headerRow.style.position = 'sticky';
-        headerRow.style.top = '0';
-        headerRow.style.backgroundColor = 'var(--bs-body-bg, white)'; // Use CSS variable for background, fallback to white
-        headerRow.style.zIndex = '10'; // Ensure it stays above scrolling content
+        // --- REMOVED STICKY STYLES FROM HEADER --- 
 
         const headers = [
-            { key: 'name', text: 'Field name', width: '120px', align: 'start', extraClasses: 'me-3' }, // <<< DECREASED WIDTH
+            { key: 'name', text: 'Field name', width: '350px', align: 'start', extraClasses: 'me-3' }, // <<< INCREASED WIDTH
             { key: 'count', text: 'Occured', width: '80px', align: 'end', extraClasses: 'me-3 text-end' }, // Updated text and width
             { key: 'descriptor', text: 'Data descriptor', width: 'auto', align: 'start', extraClasses: 'flex-grow-1 me-3' },
             { key: 'format', text: 'Format', width: '140px', align: 'start', extraClasses: 'me-3' }, // <<< Increased width
@@ -1091,57 +1096,168 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             headerRow.appendChild(headerEl);
         });
 
-        fieldConfigContainer.appendChild(headerRow);
-        updateSortIndicators(); // Initial indicator update
+        stickyWrapper.appendChild(headerRow); // Add header to wrapper
         // --- End Header Row ---
+
+        // --- Append the Sticky Wrapper to the main container --- //
+        fieldConfigContainer.appendChild(stickyWrapper);
+        // --- End Appending Wrapper ---
+
+        // --- NEW: Create container specifically for data rows --- //
+        const rowsContainer = document.createElement('div');
+        rowsContainer.id = 'field-rows-container'; // Add ID for targeting
+        // Optional: Add styling if needed, e.g., for overflow if container needs scroll
+        fieldConfigContainer.appendChild(rowsContainer);
+        // --- END NEW Rows Container ---
+
+        updateSortIndicators(); // Initial indicator update
 
         if (!availableFields || availableFields.length === 0) {
             // Append message *after* header if no data
             const noDataMsg = document.createElement('p');
             noDataMsg.className = 'text-muted small mt-2 ms-2'; // Added ms-2 for indent
-            noDataMsg.textContent = 'Load data first to configure fields.';
-            fieldConfigContainer.appendChild(noDataMsg);
+            // Append to rowsContainer instead of main container
+            rowsContainer.appendChild(noDataMsg);
              // Attach listener even if no data, so it works if data loads later?
              applyPreTransformSearchListener();
-            return;
+            // Still need to add the bottom sticky wrapper even if no data
+        } else {
+            // --- Render Data Rows (using a separate function now for clarity) ---
+            renderFieldDataRows(availableFields);
         }
-
-        // --- Render Data Rows (using a separate function now for clarity) ---
-        renderFieldDataRows(availableFields);
 
         // --- Attach Search Listener --- //
         applyPreTransformSearchListener();
+
+        // --- NEW: Add Batch Action Buttons (within a sticky container) --- //
+        const stickyActionWrapper = document.createElement('div');
+        stickyActionWrapper.style.position = 'sticky';
+        stickyActionWrapper.style.bottom = '0';
+        stickyActionWrapper.style.zIndex = '10'; // Same level as header background
+        stickyActionWrapper.style.backgroundColor = 'var(--bs-body-bg, white)';
+        stickyActionWrapper.style.padding = '0.5rem 0.5rem'; // Add some padding
+        stickyActionWrapper.style.borderTop = '1px solid var(--bs-border-color)'; // Optional separator
+
+        const actionButtonContainer = document.createElement('div');
+        actionButtonContainer.className = 'd-flex flex-wrap gap-2'; // Keep original styling for buttons
+
+        const createActionButton = (id, text, styleClass, prefix, enable) => {
+            const btn = document.createElement('button');
+            btn.id = id;
+            btn.textContent = text;
+            btn.className = `btn btn-sm ${styleClass}`;
+            btn.dataset.prefix = prefix;
+            btn.dataset.enable = enable ? 'true' : 'false';
+            btn.dataset.actionType = prefix ? 'prefix' : 'non-prefix'; // Differentiate action
+            actionButtonContainer.appendChild(btn);
+            return btn; // Return button for listener attachment
+        };
+
+        // Buttons for yf_tm_ (Master) fields - Keep IDs, update text
+        createActionButton('btn-enable-yftm', 'Enable Yahoo Master Fields', 'btn-outline-success', 'yf_tm_', true);
+        createActionButton('btn-disable-yftm', 'Disable Yahoo Master Fields', 'btn-outline-danger', 'yf_tm_', false);
+
+        // Buttons for all yf_ (All Yahoo) fields - Update IDs, text, and prefix
+        createActionButton('btn-enable-yf-all', 'Enable All Yahoo Fields', 'btn-outline-primary', 'yf_', true);
+        createActionButton('btn-disable-yf-all', 'Disable All Yahoo Fields', 'btn-outline-secondary', 'yf_', false);
+
+        stickyActionWrapper.appendChild(actionButtonContainer); // Add buttons to sticky wrapper
+        fieldConfigContainer.appendChild(stickyActionWrapper); // Add sticky wrapper to main container
+        // --- END NEW: Batch Action Buttons ---
+
+        // --- NEW: Attach Listeners to Buttons (target buttons within the container) --- //
+        actionButtonContainer.querySelectorAll('button').forEach(button => {
+            button.addEventListener('click', handleBatchFieldToggle);
+        });
+        // --- END Attach Listeners ---
     }
+
+    // --- NEW: Handler for Batch Toggle Buttons ---
+    function handleBatchFieldToggle(event) {
+        // Get data from the clicked button
+        const button = event.target;
+        const prefix = button.dataset.prefix;
+        const enable = button.dataset.enable === 'true';
+
+        // Log the action (using simple concatenation)
+        console.log('Batch action: ' + (enable ? 'Enable' : 'Disable') + ', Prefix: ' + prefix);
+
+        // Check if fields are available
+        if (!availableFields || availableFields.length === 0) {
+            console.log("No fields available for batch toggle.");
+            return;
+        }
+
+        let changed = false;
+        availableFields.forEach(field => {
+            // Simplified check: Apply if the field starts with the button's prefix
+            if (field.startsWith(prefix)) {
+                // Check if the status is actually changing
+                if (fieldEnabledStatus[field] !== enable) {
+                    fieldEnabledStatus[field] = enable;
+                    changed = true;
+                }
+            }
+        });
+
+        if (changed) {
+            console.log("Field statuses updated:", fieldEnabledStatus);
+            saveEnabledStatusToStorage();
+            // Re-render the data rows to reflect changes
+            renderFieldDataRows(availableFields);
+            renderFilterUI(); // Update filter dropdowns
+            applyFilters(); // Re-apply filters which depend on enabled fields
+             // <<< Explicitly re-attach modification listeners for save/load >>>
+            if (window.AnalyticsConfigManager?.initializeModificationDetection) {
+                window.AnalyticsConfigManager.initializeModificationDetection();
+            }
+        } else {
+            console.log("No field statuses needed changing.");
+        }
+    }
+    // --- END NEW Handler ---
 
     // --- NEW: Separate function to render just the data rows ---
     function renderFieldDataRows(fieldsToRender) {
-         // Clear only existing data rows (keep header)
-         const existingRows = fieldConfigContainer.querySelectorAll('.field-data-row');
-         existingRows.forEach(row => row.remove());
+         // <<< TARGET the new rowsContainer >>>
+         const rowsContainer = document.getElementById('field-rows-container');
+         if (!rowsContainer) {
+             console.error("Could not find #field-rows-container to render data rows.");
+             return;
+         }
+         // Clear only existing data rows within the rowsContainer
+         rowsContainer.innerHTML = ''; // Clear previous rows efficiently
 
          fieldsToRender.forEach(field => {
             const metadata = fieldMetadata[field] || {}; // Get metadata or empty obj
-            const isEnabled = fieldEnabledStatus.hasOwnProperty(field) ? fieldEnabledStatus[field] : true;
+            // <<< CHANGE DEFAULT TO false >>>
+            const isEnabled = fieldEnabledStatus.hasOwnProperty(field) ? fieldEnabledStatus[field] : false;
             const existingCount = metadata.existingValueCount !== undefined ? metadata.existingValueCount : null; // Use null for sorting
             const descriptorText = getFieldDescriptor(field);
 
             const row = document.createElement('div');
             // Add specific class for data rows
             row.className = 'd-flex align-items-center mb-2 p-2 border-bottom field-data-row small'; // <<< ADDED .small CLASS
-            row.dataset.fieldName = field; 
+            row.dataset.fieldName = field;
             if (!isEnabled) {
-                row.style.opacity = '0.6'; 
+                row.style.opacity = '0.6';
             }
 
             // Create elements with matching widths/alignment from header config
             // 1. Name
             const nameSpan = document.createElement('span');
             nameSpan.textContent = field;
-            nameSpan.className = 'fw-bold me-3'; // Match header spacing
-            nameSpan.style.minWidth = '120px'; // <<< DECREASED WIDTH
-            nameSpan.style.flexBasis = '120px'; // <<< DECREASED WIDTH
+            nameSpan.className = 'fw-bold me-3 field-name-display'; // <<< ADDED CLASS
+            nameSpan.style.minWidth = '350px'; // <<< INCREASED WIDTH
+            nameSpan.style.flexBasis = '350px'; // <<< INCREASED WIDTH
             nameSpan.style.flexShrink = '0';
-            nameSpan.title = field; 
+            // <<< ADDED OVERFLOW STYLES >>>
+            nameSpan.style.whiteSpace = 'nowrap';
+            nameSpan.style.overflow = 'hidden';
+            nameSpan.style.textOverflow = 'ellipsis';
+            // <<< END ADDED STYLES >>>
+            nameSpan.style.fontSize = '0.85em'; // <<< ADDED FONT SIZE REDUCTION
+            nameSpan.title = field; // Keep the title attribute for full name on hover
             row.appendChild(nameSpan);
 
             // 2. Count
@@ -1149,7 +1265,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             // Handle null count appropriately for display
             countSpan.textContent = (metadata.type === 'empty' || existingCount === null) ? '-' : existingCount;
             countSpan.className = 'small text-muted text-end me-3'; // Match header spacing & align
-            countSpan.style.minWidth = '80px'; // <<< MATCH UPDATED HEADER WIDTH 
+            countSpan.style.minWidth = '80px'; // <<< MATCH UPDATED HEADER WIDTH
             countSpan.style.flexBasis = '80px'; // <<< MATCH UPDATED HEADER WIDTH
             countSpan.style.flexShrink = '0';
             row.appendChild(countSpan);
@@ -1157,7 +1273,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             // 3. Descriptor
             const descriptorSpan = document.createElement('span');
             descriptorSpan.textContent = descriptorText;
-            descriptorSpan.className = 'small text-muted flex-grow-1 me-3'; // Match header spacing 
+            descriptorSpan.className = 'small text-muted flex-grow-1 me-3'; // Match header spacing
             row.appendChild(descriptorSpan);
             
             // 4. Format Dropdown (for numeric fields)
@@ -1248,8 +1364,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             // 5. Enabled Checkbox (was 4)
             const enabledWrapper = document.createElement('div');
             // Center checkbox within its allocated space
-            enabledWrapper.className = 'form-check form-switch d-flex justify-content-center'; 
-            enabledWrapper.style.minWidth = '70px'; 
+            enabledWrapper.className = 'form-check form-switch d-flex justify-content-center';
+            enabledWrapper.style.minWidth = '70px';
             enabledWrapper.style.flexBasis = '70px';
             enabledWrapper.style.flexShrink = '0';
             const enabledCheckbox = document.createElement('input');
@@ -1263,7 +1379,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                 fieldEnabledStatus[field] = newStatus;
                 saveEnabledStatusToStorage();
                 row.style.opacity = newStatus ? '1' : '0.6';
-                // Re-rendering the whole table is complex due to sorting, 
+                // Re-rendering the whole table is complex due to sorting,
                 // so we just update opacity here. Filters will use updated status.
                 // Consider a full re-sort/re-render if needed after toggle?
                 renderFilterUI();
@@ -1285,7 +1401,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             });
             // <<< END NEW >>>
 
-            fieldConfigContainer.appendChild(row);
+            // <<< APPEND row to the specific rowsContainer >>>
+            rowsContainer.appendChild(row);
         });
     }
     // --- END NEW Data Row Render Function ---
@@ -1520,11 +1637,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                      rawValue = item.processed_data[field];
                      // Apply formatting for display in the table
                      const format = fieldNumericFormats[field] || 'default';
-                     if (fieldMetadata[field]?.type === 'numeric') { 
-                        // value = formatNumericValue(rawValue, format); // OLD: Formatted value
-                        value = rawValue; // <<< CORRECTED: Push RAW value for numeric types
-                     } else {
-                         value = (rawValue === null || rawValue === undefined) ? '' : String(rawValue);
+                     if (fieldMetadata[field]?.type === 'numeric') {
+                        value = formatNumericValue(rawValue, format); // Apply formatting
+                     } else { // Handle non-numeric types
+                        value = (rawValue === null || rawValue === undefined) ? '' : String(rawValue); // Use raw string value or empty
                      }
                  }
                  row.push(value);
