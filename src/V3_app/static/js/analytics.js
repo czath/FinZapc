@@ -1203,6 +1203,12 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         if (changed) {
             console.log("Field statuses updated:", fieldEnabledStatus);
             saveEnabledStatusToStorage();
+            // <<< ADDED: Mark scenario as modified >>>
+            if (window.AnalyticsConfigManager?._markScenarioAsModified) {
+                window.AnalyticsConfigManager._markScenarioAsModified();
+            } else {
+                console.warn("AnalyticsConfigManager or _markScenarioAsModified not found. Cannot mark scenario as modified after batch toggle.");
+            }
             // Re-render the data rows to reflect changes
             renderFieldDataRows(availableFields);
             renderFilterUI(); // Update filter dropdowns
