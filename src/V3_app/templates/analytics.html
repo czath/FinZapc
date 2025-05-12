@@ -110,6 +110,21 @@
             color: var(--bs-body-emphasis-color) !important;
         }
 
+        /* <<< NEW: Duplicate highlight styles for PRE-TRANSFORM data table >>> */
+        #pre-transform-data-set-table tbody tr.row-highlight td,
+        #pre-transform-data-set-table tbody td.col-highlight {
+            background-color: var(--bs-primary-bg-subtle) !important; /* Use subtle primary blue for row/col */
+        }
+        #pre-transform-data-set-table tbody tr.row-highlight td.col-highlight {
+            background-color: var(--bs-info-bg-subtle) !important;    /* Use subtle info (usually lighter blue/cyan) for intersection */
+        }
+        /* Ensure text contrast on highlight, especially dark mode */
+        [data-bs-theme="dark"] #pre-transform-data-set-table tbody tr.row-highlight td,
+        [data-bs-theme="dark"] #pre-transform-data-set-table tbody td.col-highlight,
+        [data-bs-theme="dark"] #pre-transform-data-set-table tbody tr.row-highlight td.col-highlight {
+            color: var(--bs-body-emphasis-color) !important; /* Ensure contrast for all highlights */
+        }
+
         /* Optional: slightly shift buttons down to align better with search */
         div.dataTables_wrapper div.dt-buttons {
             padding-top: 0.25rem; /* Adjust as needed */
@@ -219,6 +234,15 @@
             overflow-wrap: break-word;
             text-overflow: ellipsis;
         }
+
+        /* <<< ADDED: Reduce font size for the new pre-transform table >>> */
+        #pre-transform-data-set-table,
+        #pre-transform-data-set-table th,
+        #pre-transform-data-set-table td {
+            font-size: 0.8rem !important; /* Smaller font size */
+        }
+
+        /* <<< REMOVED STICKY PAGINATION ATTEMPTS >>> */
 
     </style>
 {% endblock %}
@@ -502,7 +526,7 @@
 
                     {# <<< NEW: Filtered Data Sub-Tab Pane >>> #}
                     <div class="tab-pane fade" id="filtered-data-subtab-pane" role="tabpanel" aria-labelledby="filtered-data-subtab" tabindex="0">
-                        {# Content moved here #}
+                        {# <<< RESTORED START >>> #}
                         <div id="processed-analytics-output-container" class="mt-3">
                             <span id="filter-results-count" class="ms-2 small text-muted"></span>
                             <div class="table-responsive mt-2"> {# Make table horizontally scrollable on small screens #}
@@ -510,20 +534,33 @@
                                      <thead>
                                          {# Table headers will be added dynamically by JS #}
                                          <tr>
-                                             {# Placeholder - will be replaced #}
-                                             <th>Loading...</th>
+                                             {# <<< REMOVED Placeholder TH >>> #}
                                          </tr>
                                      </thead>
                                      <tbody>
                                          {# Table body content will be added dynamically by JS #}
-                                         {# Add a placeholder row or message? #}
-                                         <tr>
-                                             <td class="text-center text-muted small">Apply filters to view data.</td>
-                                         </tr>
+                                         {# <<< REMOVED Placeholder TR >>> #}
                                      </tbody>
                                 </table>
                             </div>
                             {# --- End Table --- #}
+                        </div>
+                        {# <<< RESTORED END >>> #}
+
+                        {# <<< NEW: Pre-Transform Data Set Table (Now the main filtered table) >>> #}
+                        <div class="mb-3">
+                            <h6>Filtered Data Table</h6> {# <<< RENAMED Heading >>> #}
+                            <p class="small text-muted">Data after filters applied, before transformations. Should have correct formatting and sorting.</p>
+                            <div class="table-responsive">
+                                <table id="pre-transform-data-set-table" class="display compact table table-sm table-striped table-bordered" style="width:100%;">
+                                    <thead>
+                                        {# Headers will be added by JS #}
+                                    </thead>
+                                    <tbody>
+                                        {# Data will be added by JS #}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                     {# <<< END NEW >>> #}
@@ -983,7 +1020,8 @@
     <script src="{{ url_for('static', path='js/analytics_post_transform.js') }}"></script>
     <script src="{{ url_for('static', path='js/analytics_data_table.js') }}"></script> <!-- Load Data Table Module -->
     <script src="{{ url_for('static', path='js/analytics_transform.js') }}"></script> <!-- Load Transform Logic -->
-    <script src="{{ url_for('static', path='js/analytics.js') }}"></script> <!-- Load Main Analytics Logic LAST -->
+    <script src="{{ url_for('static', path='js/analytics_pre_transform_table.js') }}"></script> <!-- Load New Table Module BEFORE analytics.js -->
+    <script src="{{ url_for('static', path='js/analytics.js') }}"></script> <!-- Load Main Analytics Logic -->
     <script src="{{ url_for('static', path='js/analytics_spider_chart.js') }}"></script> <!-- ADDED: Spider Chart Logic -->
     <script src="{{ url_for('static', path='js/yahoo_mass_fetch.js') }}"></script> <!-- Yahoo Mass Fetch UI -->
 

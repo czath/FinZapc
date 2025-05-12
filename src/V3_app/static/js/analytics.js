@@ -1658,89 +1658,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
              return row;
          });
 
-         // 3. Check if DataTable needs destruction/re-initialization (headers changed)
-         const headersChanged = JSON.stringify(currentHeaders) !== JSON.stringify(lastAppliedHeaders);
-         if (headersChanged && $.fn.dataTable.isDataTable('#output-table')) {
-             console.log("Headers changed, destroying existing DataTable.");
-             outputDataTable.destroy();
-             outputDataTable = null;
-             // Clear the tbody and thead manually after destroying
-             $('#output-table tbody').empty(); 
-             $('#output-table thead tr').empty();
-         }
-         lastAppliedHeaders = [...currentHeaders]; // Store current headers
-
-         // 4. Update Table Header (if not initialized or headers changed)
-         if (!outputDataTable || headersChanged) {
-             const theadRow = outputTable.querySelector('thead tr');
-             theadRow.innerHTML = ''; // Clear placeholder or old headers
-             currentHeaders.forEach(headerText => {
-                 const th = document.createElement('th');
-                 th.textContent = headerText;
-
-                 // <<< NEW: Add Tooltip Attributes (Step 6) >>>
-                 if (headerText !== 'Ticker') { // Don't add tooltips to the 'Ticker' column itself
-                     const infoText = fieldInfoTips[headerText] || ''; // Get info text using headerText as field name
-                     if (infoText) {
-                         th.title = infoText;
-                         th.dataset.bsToggle = 'tooltip';
-                         th.dataset.bsPlacement = 'top';
-                     } else {
-                         // Important: Remove attributes if infoText is empty
-                         th.removeAttribute('title');
-                         th.removeAttribute('data-bs-toggle');
-                         th.removeAttribute('data-bs-placement');
-                     }
-                 }
-                 // <<< END NEW >>>
-
-                 theadRow.appendChild(th);
-             });
-         }
-
-         // 5. Initialize or Update DataTable
-         if (outputDataTable) {
-             // Table exists, just update data
-             console.log("Updating existing DataTable data.");
-             outputDataTable.clear();
-             outputDataTable.rows.add(tableData);
-             outputDataTable.draw();
-+            // <<< Force column width recalculation after updating data >>>
-+            outputDataTable.columns.adjust().draw(false); // draw(false) prevents resetting paging
-         } else {
-             // Initialize DataTable for the first time or after destruction
-             console.log("Initializing DataTable.");
-             try {
-                 outputDataTable = $('#output-table').DataTable({
-                     data: tableData,
-                     columns: currentHeaders.map(header => ({ title: header, width: '120px' })), // Fixed width for all columns
-                     paging: true,
-                     searching: true,
-                     lengthChange: true,
-                     pageLength: 50,
-                     scrollX: true,
-                     scrollY: '400px',
-                     scrollCollapse: true,
-                     destroy: true,
-                     stateSave: false,
-                     autoWidth: false, // Prevent DataTables from recalculating widths
-                     order: [[0, 'asc']],
-                     language: {
-                         emptyTable: "No matching records found based on current filters.",
-                         zeroRecords: "No matching records found"
-                     }
-                 });
-+                // <<< Force column width recalculation after initialization >>>
-+                outputDataTable.columns.adjust().draw();
-+                // Force table-layout: fixed for header/cell alignment
-+                $('#output-table').css('table-layout', 'fixed');
-             } catch (error) {
-                 console.error("Error initializing DataTable:", error);
-                 // Handle initialization error (e.g., display message to user)
-                 filterResultsCount.textContent = 'Error displaying results table.';
-             }
-         }
-         // --- END DataTable Update Logic ---
+         // Store the headers that were just used to build/update the table
+         lastAppliedHeaders = [...currentHeaders]; // <<< KEPT THIS LINE >>>
 
          // --- OLD JSON Output Logic (Removed) ---
          // const dataForDisplay = filteredData.map(item => { ... });
@@ -1766,8 +1685,25 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         // <<< END NEW >>>
 
         console.log("Filter application complete.");
-    }
-    // --- END applyFilters definition ---
+
+        // --- Call the new pre-transform table module --- 
+        console.log("!!! [AnalyticsMain] Checking for AnalyticsPreTransformTableModule right before calling:", window.AnalyticsPreTransformTableModule);
+        if (window.AnalyticsPreTransformTableModule && typeof window.AnalyticsPreTransformTableModule.updateTable === 'function') {
+            console.log("[AnalyticsMain] Calling AnalyticsPreTransformTableModule.updateTable...");
+            window.AnalyticsPreTransformTableModule.updateTable(
+                filteredData,         // Pass the array of filtered data objects
+                currentHeaders,       // Pass the array of header strings for active columns
+                fieldMetadata,        // Pass the existing fieldMetadata object
+                fieldNumericFormats,  // Pass the existing fieldNumericFormats object
+                formatNumericValue    // Pass the actual formatNumericValue function reference
+            );
+        } else {
+            console.warn("[AnalyticsMain] AnalyticsPreTransformTableModule or its updateTable method not found.");
+        }
+        // --- End call to new module ---
+
+     }
+     // --- END applyFilters definition ---
 
     // --- NEW: Populate Report Field Selector --- 
     function populateReportFieldSelector() {
