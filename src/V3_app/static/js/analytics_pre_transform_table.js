@@ -6,6 +6,7 @@ console.log(">>> Executing analytics_pre_transform_table.js (global scope start)
 
     let tableElement = null;
     let dataTableInstance = null;
+    let outputDataTable = null; // <<< Keep track of the DataTable instance
 
     /**
      * Initializes the module, caching DOM elements.
@@ -59,6 +60,11 @@ console.log(">>> Executing analytics_pre_transform_table.js (global scope start)
         if (dataTableInstance) {
             console.log("[PreTransformTable] Destroying existing DataTable instance.");
             dataTableInstance.destroy();
+            // <<< ADD: Explicitly remove old controls >>>
+            $('#pre-transform-data-set-table_paginate').remove();
+            $('#pre-transform-data-set-table_filter').remove(); 
+            $('#pre-transform-data-set-table_info').remove();    
+            $('#pre-transform-data-set-table_length').remove(); // Remove length if using default 'l'
             // Clear the table body and header explicitly after destroying
             $(tableElement).empty(); 
             dataTableInstance = null;

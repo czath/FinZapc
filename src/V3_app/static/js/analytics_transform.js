@@ -1427,7 +1427,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 filteredItem.processed_data = {};
                 for (const field in item.processed_data) {
                     // Default to true if status is missing (for new fields created by transform)
-                    const isEnabled = enabledStatus[field] !== false; 
+                    const isEnabled = enabledStatus[field] === true; 
                     if (isEnabled) {
                         filteredItem.processed_data[field] = item.processed_data[field];
                     }
@@ -1578,36 +1578,49 @@ document.addEventListener('DOMContentLoaded', function() {
                 fieldPickerMenu.style.overflowY = 'auto'; // Enable vertical scroll
                 fieldPickerMenu.innerHTML = '<li><span class="dropdown-item-text text-muted small">Loading...</span></li>'; // Placeholder
 
-                // Get available fields (needs access to main module data)
-                let availableFields = [];
-                let numericFields = [];
+                // --- Get Available Fields from Main Module (with error handling) ---
+                let availableFieldsFromMain = [];
+                let fieldEnabledStatus = {}; // To store enabled status
                 try {
-                    // Attempt to get fields and metadata from the main module
-                    const mainModule = window.AnalyticsMainModule;
-                    if (mainModule && typeof mainModule.getAvailableFields === 'function' && typeof mainModule.getFieldMetadata === 'function') {
-                        availableFields = mainModule.getAvailableFields(); // Get ALL fields first
-                        const metadata = mainModule.getFieldMetadata();
-                        // Filter for numeric fields
-                        numericFields = availableFields.filter(f => metadata[f]?.type === 'numeric');
-                        console.log("[Field Picker] Populating with numeric fields:", numericFields);
+                    if (window.AnalyticsMainModule) {
+                        if (typeof window.AnalyticsMainModule.getAvailableFields === 'function') {
+                            availableFieldsFromMain = window.AnalyticsMainModule.getAvailableFields() || [];
+                        } else {
+                            console.warn("[Transform Modal] getAvailableFields function not found on AnalyticsMainModule.");
+                        }
+                        // Get enabled status
+                        if (typeof window.AnalyticsMainModule.getFieldEnabledStatus === 'function') {
+                            fieldEnabledStatus = window.AnalyticsMainModule.getFieldEnabledStatus() || {};
+                        } else {
+                             console.warn("[Transform Modal] getFieldEnabledStatus function not found on AnalyticsMainModule.");
+                        }
+                         // <<< ADD LOGGING HERE >>>
+                         console.log("[Transform Modal DEBUG] Data received before filtering:");
+                         console.log("[Transform Modal DEBUG] availableFieldsFromMain:", JSON.stringify(availableFieldsFromMain));
+                         console.log("[Transform Modal DEBUG] fieldEnabledStatus:", JSON.stringify(fieldEnabledStatus));
+                         // <<< END LOGGING >>>
                     } else {
-                         console.error("[Field Picker] AnalyticsMainModule or required functions (getAvailableFields/getFieldMetadata) not found.");
-                         numericFields = []; // Fallback to empty
+                         console.warn("[Transform Modal] AnalyticsMainModule not found. Cannot get fields or status.");
                     }
                 } catch (e) {
-                    console.error("[Field Picker] Error getting fields from main module:", e);
-                    numericFields = []; // Fallback to empty
+                    console.error("[Transform Modal] Error getting fields/status from AnalyticsMainModule:", e);
                 }
 
-                // Clear placeholder before populating
-                fieldPickerMenu.innerHTML = '';
+                // Filter fields based on enabled status (strict true check)
+                const enabledFieldsForDropdown = availableFieldsFromMain.filter(field => {
+                    const isEnabled = fieldEnabledStatus[field] === true;
+                    return isEnabled;
+                });
+                console.log("[Transform Modal] Fields for dropdown after filtering by enabled status (strict true check):", enabledFieldsForDropdown);
 
-                if (numericFields.length > 0) {
-                    numericFields.sort().forEach(fieldName => {
+                // --- Populate Field Selectors ---
+                fieldPickerMenu.innerHTML = '';
+                if (enabledFieldsForDropdown.length > 0) {
+                    enabledFieldsForDropdown.forEach(fieldName => {
                         const li = document.createElement('li');
                         const button = document.createElement('button');
                         button.type = 'button';
-                        button.className = 'dropdown-item btn btn-link btn-sm py-0 text-start'; // Use btn styling
+                        button.className = 'dropdown-item btn btn-link btn-sm py-0 text-start';
                         button.textContent = fieldName;
                         button.addEventListener('click', (e) => {
                             e.preventDefault();
@@ -1618,8 +1631,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         fieldPickerMenu.appendChild(li);
                     });
                 } else {
-                    // Show message if no numeric fields found
-                    fieldPickerMenu.innerHTML = '<li><span class="dropdown-item-text text-muted small">(No numeric fields found)</span></li>';
+                    fieldPickerMenu.innerHTML = '<li><span class="dropdown-item-text text-muted small">(No fields)</span></li>';
                 }
 
                 fieldPickerGroup.appendChild(fieldPickerBtn);
@@ -2202,9 +2214,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             window.hideSpinner(applyTransformationsButton, null); // Pass null as we handle enabling others manually
                             buttonsToDisable.forEach(btn => { if(btn) btn.disabled = false; });
                         } else {
-                             console.error("Global hideSpinner function not found!");
-                             // Fallback: just re-enable the main button
-                             applyTransformationsButton.disabled = false;
+                            console.error("Global hideSpinner function not found!");
+                            // Fallback: just re-enable the main button
+                            applyTransformationsButton.disabled = false;
                         }
                     }
                 }, 0); // Timeout of 0 ms yields control briefly
