@@ -482,6 +482,18 @@
                     <div class="tab-pane fade show active" id="load-data-subtab-pane" role="tabpanel" aria-labelledby="load-data-subtab" tabindex="0">
                         <h6>Load Data</h6>
                         <p class="small text-muted">Load and process all raw analytics data currently stored in the database.</p>
+                        
+                        {# <<< ADDED Data Source Pipe Selector >>> #}
+                        <div class="mb-3">
+                            <label for="data-source-pipe-selector" class="form-label">Data Source Pipe:</label>
+                            <select class="form-select form-select-sm" id="data-source-pipe-selector" style="max-width: 250px;">
+                                <option value="finviz_only" selected>Finviz data only</option>
+                                <option value="yahoo_only">Yahoo data only</option>
+                                <option value="both">Both (Finviz & Yahoo)</option>
+                            </select>
+                        </div>
+                        {# <<< END ADDED >>> #}
+
                         {# Moved Button and Status Here #}
                         <button id="process-analytics-data-btn" class="btn btn-secondary me-2">
                             <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span> <!-- Spinner -->

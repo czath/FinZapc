@@ -596,79 +596,62 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- NEW: Helper Function to Get Field Descriptor String ---
     function getFieldDescriptor(fieldName) {
-        const metadata = fieldMetadata[fieldName];
-
-        if (!metadata) {
-            return "(Metadata not available)"; // Fallback
+        const meta = fieldMetadata[fieldName]; // Get the rich metadata object from global fieldMetadata
+        if (!meta) {
+            // If no metadata, return a simple type if known, or just 'No metadata'
+            const basicType = fieldMetadata[fieldName]?.type ? (fieldMetadata[fieldName].type.charAt(0).toUpperCase() + fieldMetadata[fieldName].type.slice(1)) : 'No metadata';
+            return fieldName ? basicType : 'N/A (No field name provided for descriptor)';
         }
 
-        // NEW: For Yahoo fields (yf_ prefix), show type and example
-        if (fieldName.startsWith('yf_')) {
-            let desc = metadata.type ? metadata.type.charAt(0).toUpperCase() + metadata.type.slice(1) : 'Unknown Type';
-            if (metadata.example !== null && metadata.example !== undefined && String(metadata.example).trim() !== '') {
-                // Truncate long examples for display purposes
-                let exampleStr = String(metadata.example);
-                if (exampleStr.length > 50) {
-                    exampleStr = exampleStr.substring(0, 47) + "...";
-                }
-                desc += ` (example: ${exampleStr})`;
+        let parts = []; // <<< MODIFICATION: Initialize as empty array
+        
+        if (meta.type) {
+            parts.push(meta.type.charAt(0).toUpperCase() + meta.type.slice(1));
+        } else {
+            parts.push('Unknown Type');
+        }
+
+        if (meta.count !== undefined) {
+            parts.push(`Count: ${meta.count}`);
+        }
+
+        if (meta.type === 'numeric') {
+            // Use the current numeric format for display in the descriptor
+            const currentFormat = fieldNumericFormats[fieldName] || 'default';
+            // const formatFunc = getNumericFormatFunction(currentFormat); // <<< REMOVE THIS LINE
+
+            if (meta.min_value !== undefined && meta.max_value !== undefined) {
+                parts.push(`Min: ${formatNumericValue(meta.min_value, currentFormat)}`); // <<< USE formatNumericValue DIRECTLY
+                parts.push(`Max: ${formatNumericValue(meta.max_value, currentFormat)}`); // <<< USE formatNumericValue DIRECTLY
             }
-            return desc;
+            if (meta.avg_value !== undefined) {
+                parts.push(`Avg: ${formatNumericValue(meta.avg_value, currentFormat)}`); // <<< USE formatNumericValue DIRECTLY
+            }
+            if (meta.median_value !== undefined) {
+                parts.push(`Median: ${formatNumericValue(meta.median_value, currentFormat)}`); // <<< USE formatNumericValue DIRECTLY
+            }
+            // Show example_value if it exists and no min/max (or to supplement)
+            if (meta.example_value !== undefined && meta.min_value === undefined) { 
+                parts.push(`e.g. ${formatNumericValue(meta.example_value, currentFormat)}`); // <<< USE formatNumericValue DIRECTLY
+            }
+        } else if (meta.type === 'text' || meta.type === 'boolean') {
+            if (meta.unique_values_sample && meta.unique_values_sample.length > 0) {
+                let sampleStr = meta.unique_values_sample.slice(0, 2).join(', ');
+                if (meta.unique_values_sample.length > 2) sampleStr += ', ...';
+                parts.push(`e.g. ${sampleStr}`);
+            } else if (meta.example_value !== undefined && meta.example_value !== null && String(meta.example_value).trim() !== '') {
+                let exValStr = String(meta.example_value);
+                parts.push(`e.g. ${exValStr.substring(0, 50)}` + (exValStr.length > 50 ? '...' : ''));
+            }
         }
 
-        // const count = metadata.existingValueCount; // Count is now displayed separately
-
-        switch (metadata.type) {
-            case 'numeric':
-                const min = metadata.min; // Already handles null from step 2
-                const max = metadata.max; // Already handles null from step 2
-                const average = metadata.average; // <<< ADDED
-                const median = metadata.median;   // <<< ADDED
-                const format = fieldNumericFormats[fieldName] || 'raw'; // Use specific field format
-
-                // Inline helper for consistent formatting
-                const formatNumberForDescriptor = (num) => {
-                    if (num === null || num === undefined) return 'N/A';
-                    // Use the field's specific format for min/max/avg/median display
-                    return formatNumericValue(num, format);
-                };
-
-                const minFormatted = formatNumberForDescriptor(min);
-                const maxFormatted = formatNumberForDescriptor(max);
-                const avgFormatted = formatNumberForDescriptor(average);     // <<< ADDED
-                const medianFormatted = formatNumberForDescriptor(median); // <<< ADDED
-
-                // <<< Modified return string >>>
-                return `Numeric | Min: ${minFormatted} | Max: ${maxFormatted} | Avg: ${avgFormatted} | Median: ${medianFormatted}`;
-            case 'text':
-                const uniqueCount = metadata.totalUniqueCount !== undefined ? metadata.totalUniqueCount : 'N/A';
-                // const textCountDisplay = typeof count === 'number' ? `(${count} records)` : '(count N/A)'; // REMOVED count display
-                let examples = '';
-                let introPhrase = '';
-                if (metadata.uniqueValues && metadata.uniqueValues.length > 0) {
-                    const numExamples = Math.min(metadata.uniqueValues.length, 3);
-                    const exampleValues = metadata.uniqueValues.slice(0, numExamples).map(v => `"${v}"`); // Add quotes
-                    examples = exampleValues.join(', ');
-                    
-                    if (numExamples === 1) {
-                        introPhrase = 'First value found: ';
-                    } else if (numExamples === 2) {
-                        introPhrase = 'First two found: ';
-                    } else { // 3 or more (but we only show 3)
-                        introPhrase = 'First three found: ';
-                    }
-                } else {
-                    introPhrase = '(No values found)'
-                }
-                // REMOVED count display from return string
-                return `Text (${uniqueCount} unique values). ${introPhrase}${examples}`;
-            case 'empty':
-                return 'Empty'; 
-            default:
-                // Fallback, still try to show count if available // REMOVED count display
-                // const fallbackCountDisplay = typeof count === 'number' ? `(${count} records)` : ''; 
-                return `(Unknown type: ${metadata.type})`.trim(); // Keep trim just in case
+        if (meta.all_null_or_empty === true && meta.count === 0) {
+            // If type known, show it, otherwise just all_null_or_empty
+            let baseType = meta.type && meta.type !== 'unknown' ? meta.type.charAt(0).toUpperCase() + meta.type.slice(1) : '';
+            return `${meta.name || fieldName} (${baseType} All null/empty)`.trim();
         }
+
+        return parts.join(' | ');
     }
     // --- END NEW Helper Function ---
 
@@ -1110,6 +1093,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         // --- Create Table and Table Head ---
         const table = document.createElement('table');
         table.className = 'table table-sm table-hover analytics-field-config-table'; // Add a class for styling
+        table.style.width = '100%'; // <<< ADDED: Ensure table uses full width
         const thead = document.createElement('thead');
         thead.className = 'sticky-table-header'; // For potential specific styling
 
@@ -1117,7 +1101,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         // Define headers
         const headers = [
             { key: 'name', text: 'Field Name', width: '300px' },
-            { key: 'count', text: 'Count', width: '70px', align: 'end' },
+            // { key: 'count', text: 'Count', width: '70px', align: 'end' }, // <<< REMOVED Count Header
             { key: 'descriptor', text: 'Descriptor', width: 'auto' },
             { key: 'format', text: 'Format', width: '150px' },
             { key: 'info', text: 'Info/Notes', width: '250px' },
@@ -1202,7 +1186,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         updateSortIndicators(); // Update sort indicators on the new header
 
         if (!availableFields || availableFields.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="' + headers.length + '" class="text-muted small p-3">No fields available to configure. Load data first.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="' + headers.length + '" class="text-muted small p-3">No fields available to configure. Load data first.</td></tr>'; // Adjusted colspan
         } else {
             renderFieldDataRows(availableFields); // Populate the newly created tbody
         }
@@ -1268,27 +1252,25 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             const nameTd = document.createElement('td');
             nameTd.textContent = field;
             nameTd.className = 'fw-bold me-3 field-name-display'; // <<< ADDED CLASS
-            nameTd.style.minWidth = '350px'; // <<< INCREASED WIDTH
-            nameTd.style.flexBasis = '350px'; // <<< INCREASED WIDTH
+            nameTd.style.minWidth = '300px'; // <<< Ensure consistency with header 
+            nameTd.style.flexBasis = '300px'; // <<< Ensure consistency with header
             nameTd.style.flexShrink = '0';
-            // <<< ADDED OVERFLOW STYLES >>>
             nameTd.style.whiteSpace = 'nowrap';
             nameTd.style.overflow = 'hidden';
             nameTd.style.textOverflow = 'ellipsis';
-            // <<< END ADDED STYLES >>>
-            nameTd.style.fontSize = '0.85em'; // <<< ADDED FONT SIZE REDUCTION
-            nameTd.title = field; // Keep the title attribute for full name on hover
+            nameTd.style.fontSize = '0.85em'; 
+            nameTd.title = field; 
             row.appendChild(nameTd);
 
             // 2. Count
-            const countTd = document.createElement('td');
+            // const countTd = document.createElement('td'); // <<< REMOVE Count Cell
             // Handle null count appropriately for display
-            countTd.textContent = (metadata.type === 'empty' || existingCount === null) ? '-' : existingCount;
-            countTd.className = 'small text-muted text-end me-3'; // Match header spacing & align
-            countTd.style.minWidth = '80px'; // <<< MATCH UPDATED HEADER WIDTH
-            countTd.style.flexBasis = '80px'; // <<< MATCH UPDATED HEADER WIDTH
-            countTd.style.flexShrink = '0';
-            row.appendChild(countTd);
+            // countTd.textContent = (metadata.type === 'empty' || existingCount === null) ? '-' : existingCount; // <<< REMOVE Count Cell
+            // countTd.className = 'small text-muted text-end me-3'; // Match header spacing & align // <<< REMOVE Count Cell
+            // countTd.style.minWidth = '80px'; // <<< MATCH UPDATED HEADER WIDTH // <<< REMOVE Count Cell
+            // countTd.style.flexBasis = '80px'; // <<< MATCH UPDATED HEADER WIDTH // <<< REMOVE Count Cell
+            // countTd.style.flexShrink = '0'; // <<< REMOVE Count Cell
+            // row.appendChild(countTd); // <<< REMOVE Count Cell
 
             // 3. Descriptor
             const descriptorTd = document.createElement('td');
@@ -1299,8 +1281,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             // 4. Format Dropdown (for numeric fields)
             const formatTd = document.createElement('td');
             formatTd.className = 'me-3'; // Match header spacing
-            formatTd.style.minWidth = '140px'; // Match increased header width
-            formatTd.style.flexBasis = '140px';
+            formatTd.style.minWidth = '150px'; // <<< Ensure consistency with header
+            formatTd.style.flexBasis = '150px'; // <<< Ensure consistency with header
             formatTd.style.flexShrink = '0';
             
             if (metadata.type === 'numeric') {
@@ -1357,8 +1339,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             // 4.5. <<< NEW: Info Text Input >>>
             const infoTd = document.createElement('td');
             infoTd.className = 'me-3'; // Match header spacing
-            infoTd.style.minWidth = '300px'; // <<< INCREASED WIDTH
-            infoTd.style.flexBasis = '300px'; // <<< INCREASED WIDTH
+            infoTd.style.minWidth = '250px'; // <<< Ensure consistency with header
+            infoTd.style.flexBasis = '250px'; // <<< Ensure consistency with header
             infoTd.style.flexShrink = '0';
 
             const infoInput = document.createElement('input');
@@ -1387,8 +1369,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             const enabledTd = document.createElement('td');
             // Center checkbox within its allocated space
             enabledTd.className = 'form-check form-switch d-flex justify-content-center';
-            enabledTd.style.minWidth = '70px';
-            enabledTd.style.flexBasis = '70px';
+            enabledTd.style.minWidth = '80px'; // <<< Ensure consistency with header
+            enabledTd.style.flexBasis = '80px'; // <<< Ensure consistency with header
             enabledTd.style.flexShrink = '0';
             const enabledCheckbox = document.createElement('input');
             enabledCheckbox.type = 'checkbox';
@@ -2858,173 +2840,128 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // --- END Highlight Functions ---
 
     // --- Data Loading & State Update (Preparation Tab) ---
-     function processLoadedDataAndUpdateState(sourceMetaData) { // Signature already updated
-         // --- TEMPORARY DEBUG LOGGING ---
-         console.log("[DEBUG analytics.js] processLoadedDataAndUpdateState called.");
-         console.log("[DEBUG analytics.js] Received sourceMetaData:", sourceMetaData); // Log already added
-         if (fullProcessedData && fullProcessedData.length > 0) {
-             console.log("[DEBUG analytics.js] fullProcessedData - First item:", JSON.parse(JSON.stringify(fullProcessedData[0])));
-             console.log("[DEBUG analytics.js] fullProcessedData - Total records:", fullProcessedData.length);
-         } else {
-             console.log("[DEBUG analytics.js] fullProcessedData is empty or not available.");
-         }
-         // --- END TEMPORARY DEBUG LOGGING ---
+     function processLoadedDataAndUpdateState(dataFromApi, sourceMetaData) {
+        console.log("[processLoadedDataAndUpdateState] Received dataFromApi count:", dataFromApi ? dataFromApi.length : 0);
+        console.log("[processLoadedDataAndUpdateState] Received sourceMetaData:", sourceMetaData);
 
-         if (!fullProcessedData || fullProcessedData.length === 0) {
-             availableFields = [];
-             finvizFields = []; // Clear explicitly
-             yahooFields = [];  // Clear explicitly
-             finvizFieldMetadata = {}; // Clear explicitly
-             yahooFieldMetadata = {}; // Clear explicitly
-             fieldMetadata = {}; // This will be repopulated by mergeAndSetFields
-             mergeAndSetFields();
-             console.log("No processed data loaded or data is empty.");
-             renderFieldConfigUI();
-             renderFilterUI();
-             applyFilters();
-             return;
-         }
+        fullProcessedData = dataFromApi || [];
+        // filteredData = [...fullProcessedData]; // <<< NOTE: filteredData is updated by applyFilters(), not directly here.
 
-         // --- Discover Fields from fullProcessedData ---
-         const discoveredFields = new Set();
-         fullProcessedData.forEach(item => {
-             if (item && typeof item === 'object') {
-                 Object.keys(item).forEach(key => discoveredFields.add(key));
-             }
-         });
-         console.log("[DEBUG analytics.js] All discovered fields from fullProcessedData before sorting:", Array.from(discoveredFields));
-         const currentAvailableFields = [...discoveredFields].sort(); // These are all fields from the current load
+        if (sourceMetaData && sourceMetaData.field_metadata) {
+            // Update the global fieldMetadata with the rich metadata from ADP.
+            // This replaces any prior fieldMetadata.
+            fieldMetadata = JSON.parse(JSON.stringify(sourceMetaData.field_metadata));
+            console.log("[processLoadedDataAndUpdateState] Global fieldMetadata updated from ADP:", JSON.parse(JSON.stringify(fieldMetadata)));
 
-         // --- Calculate Metadata for ALL currentAvailableFields ---
-         const newFieldMetadataForAllCurrent = {};
-         const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100;
-         currentAvailableFields.forEach(field => {
-             let numericCount = 0;
-             let existingValueCount = 0;
-             let min = Infinity;
-             let max = -Infinity;
-             let sum = 0;
-             let numericValues = [];
-             const allUniqueTextValues = new Set();
-             fullProcessedData.forEach(item => {
-                 let value = null;
-                 if (item && item.hasOwnProperty(field)) {
-                     value = item[field];
-                 }
-                 const valueExists = value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-';
-                 if (valueExists) {
-                     existingValueCount++;
-                     const num = Number(value);
-                     if (!isNaN(num)) {
-                         numericCount++;
-                         if (num < min) min = num;
-                         if (num > max) max = num;
-                         sum += num;
-                         numericValues.push(num);
+            availableFields = Object.keys(fieldMetadata).sort(); // <<< UPDATE: Use global availableFields
+            console.log("[processLoadedDataAndUpdateState] availableFields derived from ADP metadata:", availableFields); // <<< UPDATE: Use global availableFields
+
+            // Attempt to categorize fields based on source_selection and prefixes
+             finvizFields = [];
+            yahooFields = [];
+            const sourceSelection = sourceMetaData.source_selection;
+
+            availableFields.forEach(field => { // <<< UPDATE: Use global availableFields
+                // Default assumption: if not 'yf_', it could be Finviz or a common field like 'ticker'
+                // If ADP adds a 'source' property to each field's metadata, that would be more robust.
+                const isYahooOrigin = field.startsWith('yf_') || (fieldMetadata[field] && fieldMetadata[field].source === 'yahoo'); // Hypothetical
+                const isFinvizOrigin = !field.startsWith('yf_') && (fieldMetadata[field] && fieldMetadata[field].source === 'finviz'); // Hypothetical
+
+                if (sourceSelection === 'finviz_only') {
+                    finvizFields.push(field);
+                } else if (sourceSelection === 'yahoo_only') {
+                    if (isYahooOrigin || field === 'ticker') { // Assume ticker can come from Yahoo context
+                        yahooFields.push(field);
+                    }
+                } else if (sourceSelection === 'both') {
+                    if (isYahooOrigin) {
+                        yahooFields.push(field);
+                    } else { // Assumes non-Yahoo are Finviz or common in 'both' mode
+                        finvizFields.push(field);
+                    }
+                } else { // Fallback if source_selection is unexpected, categorize by prefix
+                    if (isYahooOrigin) {
+                        yahooFields.push(field);
                      } else {
-                         allUniqueTextValues.add(String(value));
+                        finvizFields.push(field);
                      }
                  }
              });
-             if (existingValueCount === 0) {
-                 newFieldMetadataForAllCurrent[field] = { type: 'empty', existingValueCount: 0 };
-             } else if (numericCount / existingValueCount >= 0.8) {
-                 const average = (numericCount > 0) ? sum / numericCount : null;
-                 const median = calculateMedian(numericValues);
-                 newFieldMetadataForAllCurrent[field] = {
-                     type: 'numeric',
-                     min: min === Infinity ? null : min,
-                     max: max === -Infinity ? null : max,
-                     average: average,
-                     median: median,
-                     existingValueCount: existingValueCount
-                 };
-             } else {
-                 const totalUniqueCount = allUniqueTextValues.size;
-                 const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
-                 newFieldMetadataForAllCurrent[field] = {
-                     type: 'text',
-                     uniqueValues: uniqueValuesForDropdown,
-                     totalUniqueCount: totalUniqueCount,
-                     existingValueCount: existingValueCount
-                 };
-             }
-         });
+            // Ensure 'ticker' is in one of the lists if available, prioritize Finviz for 'both'
+            if (availableFields.includes('ticker')) { // <<< UPDATE: Use global availableFields
+                if (sourceSelection === 'both' && !finvizFields.includes('ticker')) {
+                    finvizFields.unshift('ticker');
+                    yahooFields = yahooFields.filter(f => f !== 'ticker');
+                } else if (sourceSelection === 'yahoo_only' && !yahooFields.includes('ticker')) {
+                     yahooFields.unshift('ticker');
+                } else if (sourceSelection === 'finviz_only' && !finvizFields.includes('ticker')) {
+                     finvizFields.unshift('ticker');
+                }
+            }
+            finvizFields = [...new Set(finvizFields)].sort(); // Deduplicate and sort
+            yahooFields = [...new Set(yahooFields)].sort();   // Deduplicate and sort
 
-         // --- Populate global field lists and metadata based on source ---
-         // This part is crucial for mergeAndSetFields to work correctly.
-         console.log("[DEBUG analytics.js] processLoadedDataAndUpdateState - Populating source-specific field lists and metadata.");
-         if (sourceMetaData && sourceMetaData.source_selection === 'finviz_only') {
-             finvizFields = [...currentAvailableFields]; 
-             finvizFieldMetadata = { ...newFieldMetadataForAllCurrent }; 
-             // DO NOT CLEAR yahooFields or yahooFieldMetadata. They hold definitions.
-             console.log("[DEBUG analytics.js] Finviz-only mode: finvizFields and finvizFieldMetadata populated with current data.");
-         } else if (sourceMetaData && sourceMetaData.source_selection === 'yahoo_only') {
-             yahooFields = [...currentAvailableFields]; // These are data-driven Yahoo fields if we were to load only Yahoo
-             yahooFieldMetadata = { ...newFieldMetadataForAllCurrent }; // This would be data-driven Yahoo metadata
-             // For now, this will effectively override the definitional yahooFieldMetadata if a field name matches.
-             // This needs to be reconciled with the definitional yahoo metadata loaded from API.
-             // Maybe: definitionalYahooMetadata = { ...originalYahooFromAPI }
-             //        currentYahooDataDrivenMetadata = { ...newFieldMetadataForAllCurrent }
-             //        Then merge them carefully.
-             // DO NOT CLEAR finvizFields or finvizFieldMetadata.
-             console.log("[DEBUG analytics.js] Yahoo-only mode: yahooFields and data-driven yahooFieldMetadata populated.");
-         } else if (sourceMetaData && sourceMetaData.source_selection === 'both') {
-             // This is complex. For now, treat all fields as potentially Finviz for merge priority.
-             // This will need a robust strategy for distinguishing field origins if 'both' is used.
-             finvizFields = [...currentAvailableFields];
-             finvizFieldMetadata = { ...newFieldMetadataForAllCurrent };
-             console.warn("[DEBUG analytics.js] 'both' mode: Needs proper field/metadata assignment logic. Treating all as finviz for now.");
-         } else {
-             console.error("[DEBUG analytics.js] CRITICAL: sourceMetaData.source_selection is missing or unexpected:", sourceMetaData ? sourceMetaData.source_selection : 'sourceMetaData missing or falsey');
-             // Fallback: if no source selection, assume current data is finviz as per test case
-             finvizFields = [...currentAvailableFields];
-             finvizFieldMetadata = { ...newFieldMetadataForAllCurrent };
-         }
 
-         mergeAndSetFields();
-
-         // --- Initialize Enabled Status for New Fields (uses the global availableFields from mergeAndSetFields) --- 
-         let statusChanged = false;
-         availableFields.forEach(field => { // global availableFields is now correctly merged
-             if (!(field in fieldEnabledStatus)) {
-                 fieldEnabledStatus[field] = true;
-                 statusChanged = true;
-                 console.log(`Initialized enabled status for new field '${field}' to true.`);
-             }
-         });
-         const currentAvailableSet = new Set(availableFields);
-         Object.keys(fieldEnabledStatus).forEach(field => {
-             if (!currentAvailableSet.has(field)) {
-                 delete fieldEnabledStatus[field];
-                 statusChanged = true;
-             }
-         });
-         if (statusChanged) saveEnabledStatusToStorage();
-
-         // --- Initialize Numeric Format Status for New Numeric Fields (uses global fieldMetadata) ---
-         let formatStatusChanged = false;
-         availableFields.forEach(field => {
-             const meta = fieldMetadata[field] || {}; // global fieldMetadata is now correctly merged
-             if (meta.type === 'numeric') {
-                 if (!(field in fieldNumericFormats)) {
-                     fieldNumericFormats[field] = 'raw';
-                     formatStatusChanged = true;
+                     } else {
+            console.warn("[processLoadedDataAndUpdateState] No field_metadata found in sourceMetaData. Field lists may be incomplete.");
+            if (fullProcessedData.length > 0) {
+                let discoveredFields = new Set();
+                fullProcessedData.forEach(item => {
+                    // Ensure item itself and item.processed_data are checked for keys
+                    if (item) {
+                        Object.keys(item).forEach(key => {
+                            if (key !== 'processed_data') discoveredFields.add(key);
+                        });
+                        if (item.processed_data && typeof item.processed_data === 'object') {
+                            Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
+                     }
                  }
-             }
-         });
-         const currentNumericFields = new Set(availableFields.filter(f => (fieldMetadata[f] || {}).type === 'numeric'));
-         Object.keys(fieldNumericFormats).forEach(field => {
-             if (!currentNumericFields.has(field)) {
-                 delete fieldNumericFormats[field];
-                 formatStatusChanged = true;
-             }
-         });
-         if (formatStatusChanged) saveNumericFormatsToStorage();
+             });
+                availableFields = Array.from(discoveredFields).sort(); // <<< UPDATE: Use global availableFields
+                fieldMetadata = {}; // Clear it to reflect lack of rich metadata
+             } else {
+                availableFields = []; // <<< UPDATE: Use global availableFields
+                fieldMetadata = {};
+            }
+            // Update finvizFields and yahooFields based on the new global availableFields
+            const sourceSelection = sourceMetaData ? sourceMetaData.source_selection : 'unknown';
+            finvizFields = sourceSelection === 'finviz_only' ? [...availableFields] : [];
+            yahooFields = sourceSelection === 'yahoo_only' ? [...availableFields] : [];
+             if (sourceSelection === 'both' || sourceSelection === 'unknown') { // Basic split for 'both' or if no metadata
+                finvizFields = availableFields.filter(f => !f.startsWith('yf_'));
+                yahooFields = availableFields.filter(f => f.startsWith('yf_'));
+            }
+        }
+        
+        // Initialize fieldEnabledStatus and fieldNumericFormats for newly available fields
+        availableFields.forEach(field => { // <<< UPDATE: Use global availableFields
+            if (fieldEnabledStatus[field] === undefined) {
+                // Default new fields to true, unless they are known to be problematic or rarely used
+                // For now, default all to true for simplicity during ADP integration.
+                fieldEnabledStatus[field] = true; 
+            }
+            if (fieldNumericFormats[field] === undefined) {
+                // Use the type from the new rich metadata if available
+                const fieldType = fieldMetadata[field] ? fieldMetadata[field].type : 'text'; // fieldMetadata is now global
+                // Use 'raw' as the default format for numeric fields from ADP initially.
+                fieldNumericFormats[field] = (fieldType === 'numeric') ? 'raw' : 'default';
+            }
+        });
+        // saveFieldPreferences(); // This will be called by saveEnabledStatusToStorage / saveNumericFormatsToStorage if needed
 
-         renderFieldConfigUI();
-         renderFilterUI();
-         applyFilters(); 
+        console.log("[processLoadedDataAndUpdateState] availableFields (global):", availableFields); // <<< UPDATE: Use global availableFields
+        console.log("[processLoadedDataAndUpdateState] Finviz fields for UI:", finvizFields);
+        console.log("[processLoadedDataAndUpdateState] Yahoo fields for UI:", yahooFields);
+        console.log("[processLoadedDataAndUpdateState] Updated fieldMetadata (global):", JSON.parse(JSON.stringify(fieldMetadata)));
+        console.log("[processLoadedDataAndUpdateState] Updated fieldEnabledStatus (global):", JSON.parse(JSON.stringify(fieldEnabledStatus)));
+        console.log("[processLoadedDataAndUpdateState] Updated fieldNumericFormats (global):", JSON.parse(JSON.stringify(fieldNumericFormats)));
+
+
+        // updateRecordCount(filteredData.length, fullProcessedData.length); // updateRecordCount is not defined, filterResultsCount is updated in applyFilters
+        // renderFieldConfigUI(); // These UI updates will be handled by updateAnalyticsUI called by the caller
+        // renderFilterUI();      
+        // updateTableAndCharts(filteredData); 
+        // updateTransformationRulesUI(); 
      }
 
     // --- Button Listeners (Preparation Tab) ---
@@ -3072,13 +3009,20 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     if (processButton) {
         // <<< MOVE processStatus declaration HERE >>>
         const processStatus = document.getElementById('process-analytics-status');
+        const dataSourceSelector = document.getElementById('data-source-pipe-selector'); // <<< ADDED: Get selector
+        
         console.log("Locating processStatus element just before adding listener:", processStatus); // <<< ADD LOG
+        console.log("Locating dataSourceSelector element:", dataSourceSelector); // <<< ADDED: Log selector
         
         // Check if status element was found before adding listener
-        if (processStatus) {
+        if (processStatus && dataSourceSelector) { // <<< ADDED: Check selector too
             console.log("Adding event listener to processButton."); 
             processButton.addEventListener('click', async function() {
-                console.log("processButton clicked! (ADP Test - Finviz Only)"); 
+                console.log("processButton clicked!"); 
+                
+                const selectedDataSource = dataSourceSelector.value; // <<< ADDED: Get selected value
+                console.log("Selected Data Source Pipe:", selectedDataSource); // <<< ADDED: Log selected value
+
                 // <<< Show spinner and disable button >>>
                 if (typeof window.showSpinner === 'function') {
                     window.showSpinner(processButton);
@@ -3087,14 +3031,13 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     processButton.disabled = true; // Fallback
                 }
                 // Use the processStatus variable captured just above
-                processStatus.textContent = 'Loading Finviz data via ADP...'; //  <-- MODIFIED TEXT
+                processStatus.textContent = `Loading ${selectedDataSource.replace('_', ' ')} data via ADP...`; //  <-- MODIFIED TEXT
                 processStatus.className = 'ms-2 text-info';
                 if(filterResultsCount) filterResultsCount.textContent = ''; // Clear count
 
                 try {
-                    // Step 1: Call the NEW ADP endpoint for Finviz data
-                    const dataSourceSelection = "finviz_only"; // Hardcoded for this test
-                    const endpointUrl = `/api/v3/analytics/processed_data?data_source_selection=${dataSourceSelection}`;
+                    // Step 1: Call the NEW ADP endpoint
+                    const endpointUrl = `/api/v3/analytics/processed_data?data_source_selection=${selectedDataSource}`; // <<< MODIFIED: Use selectedDataSource
                     console.log(`Calling ${endpointUrl} endpoint...`);
 
                     const response = await fetch(endpointUrl, {
@@ -3132,7 +3075,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
                     // Step 3: Process loaded data (extract fields, init weights/status)
                     console.log("Processing loaded data and updating PRE-transform state...");
-                    processLoadedDataAndUpdateState(result.metaData); // <<< ENSURE result.metaData IS PASSED
+                    processLoadedDataAndUpdateState(result.originalData, result.metaData); // <<< CORRECTED ARGUMENTS
  
                     // Step 3.5: Initialize FINAL state based on loaded data
                     console.log("Initializing final state based on loaded data...");
@@ -3173,7 +3116,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: true }); 
                 } finally {
                      processButton.disabled = false;
-                     console.log("ADP Processing/fetching finished (Finviz only test).");
+                     console.log(`ADP Processing/fetching for ${selectedDataSource} finished.`); // <<< MODIFIED: Log correct source
                      if (typeof window.hideSpinner === 'function') {
                          window.hideSpinner(processButton);
                      } else {
@@ -3515,40 +3458,40 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
             if (isFieldInData) {
                 // Field has data in finalDataForAnalysis, calculate metadata from it
-                let numericCount = 0;
-                let existingValueCount = 0;
-                let min = Infinity;
-                let max = -Infinity;
-                let sum = 0;
-                let numericValues = [];
-                const allUniqueTextValues = new Set();
+            let numericCount = 0;
+            let existingValueCount = 0;
+            let min = Infinity;
+            let max = -Infinity;
+            let sum = 0;
+            let numericValues = [];
+            const allUniqueTextValues = new Set();
 
-                data.forEach(item => {
-                    let value = null;
+            data.forEach(item => {
+                let value = null;
                     if (field === 'ticker') {
                         value = item?.ticker;
                     } else if (item?.processed_data && item.processed_data.hasOwnProperty(field)) {
-                        value = item.processed_data[field];
-                    }
-                    const valueExists = value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-';
+                     value = item.processed_data[field];
+                 }
+                const valueExists = value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-';
 
-                    if (valueExists) {
-                        existingValueCount++;
-                        const num = Number(value);
-                        if (!isNaN(num)) {
-                            numericCount++;
-                            if (num < min) min = num;
-                            if (num > max) max = num;
-                            sum += num;
-                            numericValues.push(num);
-                        } else {
-                            allUniqueTextValues.add(String(value));
-                        }
+                if (valueExists) {
+                    existingValueCount++;
+                    const num = Number(value);
+                    if (!isNaN(num)) {
+                        numericCount++;
+                        if (num < min) min = num;
+                        if (num > max) max = num;
+                        sum += num;
+                        numericValues.push(num);
+                    } else {
+                        allUniqueTextValues.add(String(value));
                     }
-                });
+                }
+            });
 
-                if (existingValueCount === 0) {
-                    newFinalFieldMetadata[field] = { type: 'empty', existingValueCount: 0 };
+            if (existingValueCount === 0) {
+                newFinalFieldMetadata[field] = { type: 'empty', existingValueCount: 0 };
                 } else if (numericCount / existingValueCount >= 0.8) { // Primarily numeric
                     newFinalFieldMetadata[field] = {
                         type: 'numeric',
@@ -3944,8 +3887,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         getFullProcessedData: () => fullProcessedData,
         getFilteredData: () => filteredDataForChart, // Expose pre-transform filtered data
         getFinalDataForAnalysis: () => finalDataForAnalysis, // Expose post-transform data
-        getAvailableFields: () => availableFields, // Pre-transform fields
-        getFieldMetadata: () => fieldMetadata, // Pre-transform metadata
+        getAvailableFields: () => availableFields, // Pre-transform fields (now correctly global)
+        getFieldMetadata: () => fieldMetadata, // Pre-transform metadata (now correctly global)
         getFinalAvailableFields: () => finalAvailableFields, // Post-transform fields
         getFinalFieldMetadata: () => finalFieldMetadata, // Post-transform metadata
         getFieldEnabledStatus: () => fieldEnabledStatus,
@@ -4153,13 +4096,132 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             }
         });
 
-        availableFields = mergedFieldNames.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())); // Sort case-insensitive
-        fieldMetadata = mergedMetadataResult;
+        availableFields = mergedFieldNames.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())); // Sort case-insensitive // <<< This is now the main global availableFields
+        fieldMetadata = mergedMetadataResult; // <<< This is now the main global fieldMetadata
 
         console.log("[DEBUG analytics.js] mergeAndSetFields completed.");
         console.log("[DEBUG analytics.js] Merged global availableFields (sample):", availableFields.slice(0,10));
         // console.log("[DEBUG analytics.js] Merged global fieldMetadata (sample for 'P/E'):", fieldMetadata['P/E']);
         // console.log("[DEBUG analytics.js] Merged global fieldMetadata (sample for 'yf_tm_sector'):", fieldMetadata['yf_tm_sector']);
+
+        // After merging, re-initialize enabled status and formats for any *newly* discovered fields
+        // that weren't part of the initial ADP load (if this function is called at other times).
+        // However, processLoadedDataAndUpdateState already does this for ADP-loaded fields.
+        // So, only do this if mergeAndSetFields is called independently with new fields.
+        // For now, assume processLoadedDataAndUpdateState is the primary driver for new fields.
     }
     // ... existing code ...
+
+    function populateFieldConfigList() {
+        const fieldListBody = document.getElementById('field-config-tbody');
+        if (!fieldListBody) {
+            console.error("[populateFieldConfigList] Field config tbody not found");
+            return;
+        }
+        fieldListBody.innerHTML = ''; 
+
+        // Use the global availableFields, which is now the single source of truth after ADP load and processing.
+        const displayFields = [...availableFields].sort(); // Use the global availableFields directly
+        
+        console.log("[populateFieldConfigList] Rendering based on global availableFields:", displayFields);
+        // console.log("[populateFieldConfigList] Full fieldMetadata at render time:", JSON.parse(JSON.stringify(fieldMetadata))); // Can be very verbose
+
+        if (displayFields.length === 0) {
+            const row = fieldListBody.insertRow();
+            const cell = row.insertCell();
+            cell.colSpan = 4; // Adjusted colspan (Name, Descriptor, Format, Enabled)
+            cell.textContent = 'No fields available. Load data first.';
+            cell.className = 'text-center text-muted';
+            return;
+        }
+
+        displayFields.forEach(fieldName => {
+            const meta = fieldMetadata[fieldName]; // Get rich metadata from global object
+            if (!meta) {
+                console.warn(`[populateFieldConfigList] No metadata found for field: ${fieldName}. Skipping UI row.`);
+                return;
+            }
+
+            const row = fieldListBody.insertRow();
+            row.id = `field-config-row-${fieldName.replace(/\W/g, '_')}`;
+
+            // 1. Field Name Cell
+            const nameCell = row.insertCell();
+            nameCell.textContent = meta.name || fieldName; // Use name from meta if available
+            if (fieldName.startsWith('yf_')) { // Simple check for Yahoo fields for styling
+                nameCell.classList.add('text-primary'); 
+            }
+
+            // 2. Data Count Cell (REMOVED)
+            // const countCell = row.insertCell();
+            // countCell.textContent = meta.count !== undefined ? meta.count : 'N/A';
+            // countCell.className = 'text-end';
+
+            // 3. Descriptor Cell (uses the updated getFieldDescriptor)
+            const descriptorCell = row.insertCell();
+            descriptorCell.innerHTML = getFieldDescriptor(fieldName); 
+            descriptorCell.className = 'text-muted small field-descriptor-cell'; // Added a class for potential styling
+            
+            // 4. Formatting Dropdown Cell (for numeric types, using meta.type)
+            const formatCell = row.insertCell();
+            formatCell.className = 'text-center';
+            if (meta.type === 'numeric') {
+                const select = document.createElement('select');
+                select.className = 'form-select form-select-sm numeric-format-selector';
+                select.dataset.fieldName = fieldName;
+                // Values for options should match keys in NUMERIC_FORMATTERS and logic in getNumericFormatFunction
+                const formatOptions = {
+                    'default': 'Raw',
+                    'thousands': 'K (Thousands)',
+                    'millions': 'M (Millions)',
+                    'billions': 'B (Billions)',
+                    'trillions': 'T (Trillions)',
+                    'percent': '% (Percentage)'
+                };
+                for (const [value, text] of Object.entries(formatOptions)) {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = text;
+                    if ((fieldNumericFormats[fieldName] || 'default') === value) {
+                        option.selected = true;
+                    }
+                    select.appendChild(option);
+                }
+                select.addEventListener('change', function(event) {
+                    fieldNumericFormats[this.dataset.fieldName] = this.value;
+                    saveFieldPreferences();
+                    updateTableAndCharts(filteredData); 
+                    renderFilterUI(); 
+                    // Update the descriptor cell for this specific row immediately
+                    const parentRow = this.closest('tr');
+                    if (parentRow) {
+                        const descCell = parentRow.querySelector('.field-descriptor-cell');
+                        if (descCell) {
+                            descCell.innerHTML = getFieldDescriptor(this.dataset.fieldName);
+                        }
+                    }
+                });
+                formatCell.appendChild(select);
+            } else {
+                formatCell.textContent = 'N/A';
+            }
+
+            // 5. Enable/Disable Toggle Cell
+            const toggleCell = row.insertCell();
+            toggleCell.className = 'text-center';
+            const toggle = document.createElement('input');
+            toggle.type = 'checkbox';
+            toggle.className = 'form-check-input field-enable-toggle';
+            toggle.dataset.fieldName = fieldName;
+            toggle.checked = fieldEnabledStatus[fieldName] !== false; 
+            toggle.addEventListener('change', function(event) {
+                fieldEnabledStatus[this.dataset.fieldName] = this.checked;
+                saveFieldPreferences();
+                renderFilterUI();
+                updateTransformationRulesUI();
+                updateTableAndCharts(filteredData);
+            });
+            toggleCell.appendChild(toggle);
+        });
+    }
 }); 
