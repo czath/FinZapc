@@ -150,80 +150,70 @@ class AnalyticsDataProcessor:
         return flattened_yahoo_data # Return the flattened data
 
     def _merge_data(self, finviz_data: List[Dict[str, Any]], yahoo_data: List[Dict[str, Any]], progress_callback: Optional[Callable] = None) -> List[Dict[str, Any]]:
-        """
-        Merges Finviz and Yahoo data using an outer join on the 'ticker' field.
-        Yahoo data fields will be prefixed with 'yf_' to avoid naming collisions,
-        except for the 'ticker' field used for joining.
-        """
-        logger.info("ADP: Merging Finviz and Yahoo data...")
+        logger.info(f"ADP: Merging {len(finviz_data)} Finviz records (expecting 'fv_' prefix) and {len(yahoo_data)} Yahoo records (expecting 'yf_' prefixes)...")
         if progress_callback:
-            # Progress for merging can be tricky to quantify precisely in steps
-            # For now, simple start/complete messages
-            asyncio.create_task(progress_callback(task_name="merge_data", status="started"))
+            asyncio.create_task(progress_callback(task_name="merge_data", status="started", progress=0, message="Starting data merge"))
 
+        merged_data_dict: Dict[str, Dict[str, Any]] = {}
+        
+        # --- TEST LOGGING: Define test tickers ---
+        test_tickers_to_log = ["META", "GOOG", "NVDA"]
+        # --- END TEST LOGGING ---
 
-        # TODO: Implement actual merging logic
-        # - Create a dictionary of Yahoo data keyed by ticker.
-        # - Iterate through Finviz data, merging with Yahoo data.
-        # - Iterate through Yahoo data for tickers not in Finviz, adding them.
-        # - Ensure proper prefixing for Yahoo fields (e.g., yf_somefield)
-        
-        merged_data = [] # Placeholder
-        
-        # Example simplified merge logic (needs to be robust)
-        yahoo_data_map = {item['ticker']: item for item in yahoo_data if 'ticker' in item}
-        
-        processed_tickers = set()
-
-        # Process Finviz data and merge with Yahoo
+        # 1. Process Finviz data: Add all Finviz items to the dictionary first.
+        # This ensures that if a ticker is only in Finviz, it's included.
         for fv_item in finviz_data:
             ticker = fv_item.get('ticker')
             if not ticker:
-                # Handle items without a ticker if necessary, or skip
-                merged_data.append(fv_item) 
+                logger.warning(f"ADP Merge: Finviz item missing ticker, skipping: {fv_item.get('fv_Name', 'N/A')}")
                 continue
             
-            processed_tickers.add(ticker)
-            y_item_master = yahoo_data_map.get(ticker, {}).get('master_data', {})
-            y_item_financials = yahoo_data_map.get(ticker, {}).get('financial_items', {})
+            # --- TEST LOGGING: Log Finviz record if it's a test ticker ---
+            if ticker in test_tickers_to_log:
+                logger.info(f"ADP Merge - PRE-FINVIZ-PROCESS Test Ticker {ticker}: {fv_item}")
+            # --- END TEST LOGGING ---
 
-            combined_item = {**fv_item} # Start with Finviz item
+            # If ticker already exists (e.g. duplicate ticker in finviz_data), current item overwrites previous.
+            merged_data_dict[ticker] = {**fv_item} 
 
-            # Add Yahoo master data fields with yf_tm_ prefix
-            for key, value in y_item_master.items():
-                if key != 'ticker': # Avoid duplicating the join key
-                    combined_item[f"yf_tm_{key}"] = value
-            
-            # Add Yahoo financial items (already prefixed in a sense by their keys)
-            for key, value in y_item_financials.items():
-                 combined_item[f"yf_item_{key}"] = value # e.g. yf_item_analyst_price_targets_latest
-
-            merged_data.append(combined_item)
-
-        # Add Yahoo data for tickers not present in Finviz
-        for ticker, y_data_container in yahoo_data_map.items():
-            if ticker not in processed_tickers:
-                y_item_master = y_data_container.get('master_data', {})
-                y_item_financials = y_data_container.get('financial_items', {})
-                
-                # Create a new item, starting with the ticker
-                new_item = {'ticker': ticker}
-                
-                # Add Yahoo master data fields with yf_tm_ prefix
-                for key, value in y_item_master.items():
-                    if key != 'ticker':
-                        new_item[f"yf_tm_{key}"] = value
-                
-                # Add Yahoo financial items
-                for key, value in y_item_financials.items():
-                    new_item[f"yf_item_{key}"] = value
-                
-                merged_data.append(new_item)
-        
-        logger.info(f"ADP: Data merging complete. Total {len(merged_data)} records after merge.")
         if progress_callback:
-            asyncio.create_task(progress_callback(task_name="merge_data", status="completed", count=len(merged_data)))
-        return merged_data
+            # Using create_task for potentially async callback
+            asyncio.create_task(progress_callback(task_name="merge_data", status="processing", progress=33, message="Finviz data processed, starting Yahoo merge."))
+
+        # 2. Process Yahoo data: Merge with existing items or add new ones
+        # Yahoo fields are already prefixed (e.g., yf_tm_shortName) from _load_yahoo_data
+        for y_item in yahoo_data:
+            ticker = y_item.get('ticker')
+            if not ticker:
+                logger.warning(f"ADP Merge: Yahoo item missing ticker, skipping: {y_item.get('yf_tm_shortName', 'N/A')}")
+                continue
+
+            if ticker in merged_data_dict:
+                # Ticker exists (came from Finviz)
+                # Add/overwrite Yahoo fields into the existing Finviz item.
+                for key, value in y_item.items():
+                    if key != 'ticker': # Don't overwrite the ticker itself
+                        merged_data_dict[ticker][key] = value
+            else:
+                # Ticker is new (only in Yahoo data), add the full Yahoo item
+                merged_data_dict[ticker] = {**y_item}
+        
+        if progress_callback:
+             asyncio.create_task(progress_callback(task_name="merge_data", status="processing", progress=66, message="Yahoo data merged."))
+
+        # --- TEST LOGGING: Log merged records for test tickers ---
+        for test_ticker in test_tickers_to_log:
+            if test_ticker in merged_data_dict:
+                logger.info(f"ADP Merge - POST-YAHOO-PROCESS Test Ticker {test_ticker}: {merged_data_dict[test_ticker]}")
+            else:
+                logger.info(f"ADP Merge - POST-YAHOO-PROCESS Test Ticker {test_ticker}: NOT FOUND in merged_data_dict")
+        # --- END TEST LOGGING ---
+        
+        logger.info(f"ADP Merge: Merged data contains {len(merged_data_dict)} unique records.")
+        if progress_callback:
+            asyncio.create_task(progress_callback(task_name="merge_data", status="completed", progress=100, count=len(merged_data_dict), message="Merge complete."))
+        
+        return list(merged_data_dict.values())
 
     def _generate_field_metadata(self, data: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         """

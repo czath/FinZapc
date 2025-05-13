@@ -36,6 +36,11 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     let fieldInfoTips = {}; // New global variable for in-memory storage
     const TEXT_FILTER_DROPDOWN_THRESHOLD = 30; // <<< ADD THIS CONSTANT
 
+    // --- NEW: Global Filter Logic ---
+    let globalFilterLogic = 'AND'; // Default to AND
+    const GLOBAL_FILTER_LOGIC_STORAGE_KEY = 'analyticsGlobalFilterLogic';
+    // --- END NEW ---
+
     // --- NEW: STUB for missing function ---
     function handleBatchFieldToggle(event) {
         console.warn("handleBatchFieldToggle STUB called. Prefixes:", event.target.dataset.prefix, "Enable:", event.target.dataset.enable);
@@ -59,11 +64,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         let changedCount = 0;
         availableFields.forEach(field => {
             let match = false;
-            if (prefix === '') { // Special case: empty prefix for "all Finviz" (non-Yahoo)
-                if (!field.startsWith('yf_')) {
-                    match = true;
-                }
-            } else if (field.startsWith(prefix)) {
+            if (field.startsWith(prefix)) { // Universal check now, works for 'yf_', 'yf_tm_', 'fv_'
                 match = true;
             }
 
@@ -908,6 +909,42 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         if (!filterControlsContainer) return; // Check if container exists
         filterControlsContainer.innerHTML = ''; // Clear existing rows
 
+        // --- NEW: Add Global Filter Logic Toggle UI ---
+        const logicToggleDiv = document.createElement('div');
+        logicToggleDiv.className = 'mb-3 d-flex align-items-center';
+        
+        const logicLabel = document.createElement('label');
+        logicLabel.htmlFor = 'global-filter-logic-select';
+        logicLabel.textContent = 'Combine Filters Using:';
+        logicLabel.className = 'form-label me-2 mb-0'; // Added mb-0 for alignment
+        logicToggleDiv.appendChild(logicLabel);
+
+        const logicSelect = document.createElement('select');
+        logicSelect.id = 'global-filter-logic-select';
+        logicSelect.className = 'form-select form-select-sm w-auto';
+        
+        const andOption = document.createElement('option');
+        andOption.value = 'AND';
+        andOption.textContent = 'AND (all conditions must match)';
+        logicSelect.appendChild(andOption);
+
+        const orOption = document.createElement('option');
+        orOption.value = 'OR';
+        orOption.textContent = 'OR (any condition can match)';
+        logicSelect.appendChild(orOption);
+
+        logicSelect.value = globalFilterLogic; // Set current value
+
+        logicSelect.addEventListener('change', (e) => {
+            globalFilterLogic = e.target.value;
+            saveGlobalFilterLogicToStorage();
+            applyFilters(); // Re-apply filters when logic changes
+        });
+
+        logicToggleDiv.appendChild(logicSelect);
+        filterControlsContainer.appendChild(logicToggleDiv);
+        // --- END NEW: Global Filter Logic Toggle UI ---
+
         // Filter available fields based on enabled status
         const enabledFields = availableFields.filter(field => fieldEnabledStatus[field] === true);
         console.log("Rendering filters using enabled fields:", enabledFields);
@@ -1172,8 +1209,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         createBatchActionButton('btn-enable-yf-all', 'Enable All Yahoo', 'btn-outline-primary', 'yf_', true);
         createBatchActionButton('btn-disable-yf-all', 'Disable All Yahoo', 'btn-outline-secondary', 'yf_', false);
         // Add buttons for Finviz fields
-        createBatchActionButton('btn-enable-finviz', 'Enable Finviz', 'btn-outline-info', '', true); // No prefix for all non-yf
-        createBatchActionButton('btn-disable-finviz', 'Disable Finviz', 'btn-outline-warning', '', false); // No prefix for all non-yf
+        createBatchActionButton('btn-enable-finviz', 'Enable Finviz', 'btn-outline-info', 'fv_', true); // MODIFIED: Use 'fv_' prefix
+        createBatchActionButton('btn-disable-finviz', 'Disable Finviz', 'btn-outline-warning', 'fv_', false); // MODIFIED: Use 'fv_' prefix
 
         stickyActionWrapper.appendChild(actionButtonContainer);
         fieldConfigContainer.appendChild(stickyActionWrapper);
@@ -1487,6 +1524,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         console.log("Applying filters...");
         console.log("Data to filter:", fullProcessedData.length);
         console.log("Enabled status:", fieldEnabledStatus);
+        console.log("Global filter logic:", globalFilterLogic); // Log the current logic
 
         // Changed from outputArea to outputTableContainer // TODO: Verify if outputTableContainer is the correct ID
         const outputTable = document.getElementById('output-table'); // <<< CHANGED: Get table element
@@ -1515,106 +1553,129 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
         if (activeFilters.length > 0) {
              filteredData = fullProcessedData.filter(item => {
-                 if (!item) return false; // Removed || !item.processed_data check here, handle inside loop
+                 if (!item) return false;
 
-                 for (const filter of activeFilters) {
-                     // --- Get item value based on field --- 
-                     let itemValue = item[filter.field]; // <<< CORRECTED LINE
-                     // --- End Get item value ---
-
-                     // --- Get filter value and operator (Declared only once) --- 
-                     const filterValue = filter.value;
-                     const operator = filter.operator;
-                     // --- End Get value/operator --- 
-
-                     // --- Multi-Select Handling --- // (Keep existing filter logic)
-                     if (Array.isArray(filterValue)) {
-                        const itemValueStr = String(itemValue);
-                        if (operator === '=') {
-                            if (!filterValue.includes(itemValueStr)) return false;
-                        } else if (operator === '!=') {
-                            if (filterValue.includes(itemValueStr)) return false;
-                        } else {
-                            console.warn(`Operator '${operator}' not directly supported for multi-select field '${filter.field}'. Filter skipped.`);
-                            return false;
+                 // --- MODIFIED: Apply globalFilterLogic ---
+                 if (globalFilterLogic === 'OR') {
+                    if (activeFilters.length === 0) return true; // No filters, include if OR logic
+                    for (const filter of activeFilters) {
+                        if (evaluateFilterForItem(item, filter)) {
+                            return true; // If OR, and one filter passes, include item
                         }
-                        continue; 
-                     }
-
-                     // --- Single Value Handling --- // (Keep existing filter logic)
-                     const filterValueStr = String(filterValue || ''); 
-                     const valueExists = !(itemValue === null || itemValue === undefined || String(itemValue).trim() === '' || String(itemValue).trim() === '-');
-
-                     if (operator === 'exists') {
-                         if (!valueExists) return false;
-                         continue; 
-                     }
-                     if (operator === 'notExists') {
-                         if (valueExists) return false; 
-                         continue; 
-                     }
-
-                     if (!valueExists) {
-                        if ((operator === '=' || operator === '!=') && (filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined')) {
-                            const isItemEmpty = !valueExists;
-                            const isFilterConsideredEmpty = (filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined');
-                            if (operator === '=' && isItemEmpty !== isFilterConsideredEmpty) return false;
-                            if (operator === '!=' && isItemEmpty === isFilterConsideredEmpty) return false;
-                            continue; 
-                        } else {
-                             return false;
+                    }
+                    return false; // If OR, and no filters passed, exclude item
+                 } else { // Default to AND logic
+                    for (const filter of activeFilters) {
+                        if (!evaluateFilterForItem(item, filter)) {
+                            return false; // If AND, and one filter fails, exclude item
                         }
-                     }
-
-                     const itemValueStr = String(itemValue).toLowerCase();
-                     const filterValueLower = filterValueStr.toLowerCase();
-                     const itemNum = parseFloat(itemValue); 
-                     const filterNum = parseFloat(filterValueStr); 
-                     let numericComparisonDone = false;
-
-                     if (!isNaN(itemNum) && !isNaN(filterNum)) {
-                        numericComparisonDone = true;
-                        let parsedFilterNum = filterNum; 
-                        const format = fieldNumericFormats[filter.field] || 'default';
-                        if (['percent', 'million', 'billion'].includes(format)) {
-                            const parsedVal = parseFormattedValue(filterValueStr, format);
-                            if (!isNaN(parsedVal)) {
-                                parsedFilterNum = parsedVal; 
-                            } else {
-                                console.warn(`Filter skipped: Could not parse filter value '${filterValueStr}' for field '${filter.field}' with format '${format}'.`);
-                                return false; 
-                            }
-                        } 
-                         switch (operator) {
-                             case '=': if (!(itemNum === parsedFilterNum)) return false; break;
-                             case '>': if (!(itemNum > parsedFilterNum)) return false; break;
-                             case '<': if (!(itemNum < parsedFilterNum)) return false; break;
-                             case '>=': if (!(itemNum >= parsedFilterNum)) return false; break;
-                             case '<=': if (!(itemNum <= parsedFilterNum)) return false; break;
-                             case '!=': if (!(itemNum !== parsedFilterNum)) return false; break;
-                             default: numericComparisonDone = false; 
-                         }
-                      } else {
-                         if (['>', '<', '>=', '<='].includes(operator)) {
-                             console.warn(`Numeric comparison operator '${operator}' used, but values are not both numeric: Field='${filter.field}', Item='${itemValue}', Filter='${filterValueStr}'. Filter fails.`);
-                             return false; 
-                         }
-                         numericComparisonDone = false;
-                     }
-
-                     if (!numericComparisonDone) {
-                        switch(operator) {
-                            case '=': if (!(itemValueStr === filterValueLower)) return false; break;
-                            case '!=': if (!(itemValueStr !== filterValueLower)) return false; break;
-                            case 'contains': if (!itemValueStr.includes(filterValueLower)) return false; break;
-                            case 'startsWith': if (!itemValueStr.startsWith(filterValueLower)) return false; break;
-                            case 'endsWith': if (!itemValueStr.endsWith(filterValueLower)) return false; break;
-                        }
-                     }
+                    }
+                    return true; // If AND, and all filters passed (or no active filters), include item
                  }
-                 return true;
+                 // --- END MODIFICATION ---
              });
         }
+
+         // --- NEW: Helper function to evaluate a single filter for an item ---
+         // This encapsulates the existing complex filter evaluation logic
+         function evaluateFilterForItem(item, filter) {
+            // --- Get item value based on field --- 
+            let itemValue = item[filter.field]; 
+            // --- End Get item value ---\n
+            // --- Get filter value and operator (Declared only once) --- 
+            const filterValue = filter.value;
+            const operator = filter.operator;
+            // --- End Get value/operator --- 
+
+            // --- Multi-Select Handling --- 
+            if (Array.isArray(filterValue)) {
+                const itemValueStr = String(itemValue);
+                if (operator === '=') {
+                    if (!filterValue.includes(itemValueStr)) return false;
+                } else if (operator === '!=') {
+                    if (filterValue.includes(itemValueStr)) return false;
+                } else {
+                    console.warn(`Operator '${operator}' not directly supported for multi-select field '${filter.field}'. Filter skipped.`);
+                    return false; // Consider this a fail for the filter
+                }
+                return true; // Multi-select condition met
+            }
+
+            // --- Single Value Handling --- 
+            const filterValueStr = String(filterValue || ''); 
+            const valueExists = !(itemValue === null || itemValue === undefined || String(itemValue).trim() === '' || String(itemValue).trim() === '-');
+
+            if (operator === 'exists') {
+                return valueExists;
+            }
+            if (operator === 'notExists') {
+                return !valueExists;
+            }
+
+            // If operator is not exists/notExists, and the item value doesn't exist,
+            // then it can only pass if the filter is also looking for an empty/null/undefined state.
+            if (!valueExists) {
+                if ((operator === '=' || operator === '!=') && (filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined')) {
+                    const isItemEmpty = !valueExists; // true
+                    const isFilterConsideredEmpty = (filterValueStr === '' || filterValueStr === 'null' || filterValueStr === 'undefined'); // true
+                    if (operator === '=') return isItemEmpty === isFilterConsideredEmpty; // true === true -> true
+                    if (operator === '!=') return isItemEmpty !== isFilterConsideredEmpty; // true !== true -> false
+                }
+                // If itemValue doesn't exist and filter isn't specifically for empty, it's a fail for most operators
+                return false; 
+            }
+
+            const itemValueStr = String(itemValue).toLowerCase();
+            const filterValueLower = filterValueStr.toLowerCase();
+            const itemNum = parseFloat(itemValue); 
+            const filterNum = parseFloat(filterValueStr); 
+            let numericComparisonDone = false;
+
+            if (!isNaN(itemNum) && !isNaN(filterNum)) {
+                numericComparisonDone = true;
+                let parsedFilterNum = filterNum; 
+                const format = fieldNumericFormats[filter.field] || 'default';
+                if (['percent', 'million', 'billion'].includes(format)) {
+                    const parsedVal = parseFormattedValue(filterValueStr, format);
+                    if (!isNaN(parsedVal)) {
+                        parsedFilterNum = parsedVal; 
+                    } else {
+                        console.warn(`Filter evaluation skipped: Could not parse filter value '${filterValueStr}' for field '${filter.field}' with format '${format}'.`);
+                        return false; // Cannot evaluate
+                    }
+                } 
+                switch (operator) {
+                    case '=': if (!(itemNum === parsedFilterNum)) return false; break;
+                    case '>': if (!(itemNum > parsedFilterNum)) return false; break;
+                    case '<': if (!(itemNum < parsedFilterNum)) return false; break;
+                    case '>=': if (!(itemNum >= parsedFilterNum)) return false; break;
+                    case '<=': if (!(itemNum <= parsedFilterNum)) return false; break;
+                    case '!=': if (!(itemNum !== parsedFilterNum)) return false; break;
+                    default: numericComparisonDone = false; // Fall through to string comparison if operator unknown for numbers
+                }
+             } else { // One or both are not numbers
+                if (['>', '<', '>=', '<='].includes(operator)) {
+                    console.warn(`Numeric comparison operator '${operator}' used, but values are not both numeric: Field='${filter.field}', Item='${itemValue}', Filter='${filterValueStr}'. Filter fails.`);
+                    return false; 
+                }
+                numericComparisonDone = false;
+            }
+
+            if (!numericComparisonDone) { // Perform string comparisons if numeric didn't complete or wasn't applicable
+                switch(operator) {
+                    case '=': if (!(itemValueStr === filterValueLower)) return false; break;
+                    case '!=': if (!(itemValueStr !== filterValueLower)) return false; break;
+                    case 'contains': if (!itemValueStr.includes(filterValueLower)) return false; break;
+                    case 'startsWith': if (!itemValueStr.startsWith(filterValueLower)) return false; break;
+                    case 'endsWith': if (!itemValueStr.endsWith(filterValueLower)) return false; break;
+                    // If operator is not any of the above, and not numeric, it's a fail by default.
+                    // This case should ideally not be reached if operators are well-defined.
+                    default: return false; 
+                }
+            }
+            return true; // If all checks for this filter pass
+        }
+        // --- END NEW Helper ---
 
          // --- NEW: DataTable Update Logic --- 
 
@@ -4224,4 +4285,27 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             toggleCell.appendChild(toggle);
         });
     }
+
+    // --- NEW: Storage for Global Filter Logic ---
+    function loadGlobalFilterLogicFromStorage() {
+        console.log("Loading global filter logic from localStorage...");
+        const savedLogic = localStorage.getItem(GLOBAL_FILTER_LOGIC_STORAGE_KEY);
+        if (savedLogic === 'OR' || savedLogic === 'AND') {
+            globalFilterLogic = savedLogic;
+            console.log("Loaded global filter logic:", globalFilterLogic);
+        } else {
+            globalFilterLogic = 'AND'; // Default to AND if invalid or not found
+            console.log("No valid global filter logic found in storage, defaulting to AND.");
+        }
+    }
+
+    function saveGlobalFilterLogicToStorage() {
+        console.log("Saving global filter logic to localStorage:", globalFilterLogic);
+        try {
+            localStorage.setItem(GLOBAL_FILTER_LOGIC_STORAGE_KEY, globalFilterLogic);
+        } catch (e) {
+            console.error("Error saving global filter logic to localStorage:", e);
+        }
+    }
+    // --- END NEW: Storage for Global Filter Logic ---
 }); 

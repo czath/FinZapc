@@ -258,76 +258,64 @@ class SQLiteRepository:
     # --- NEW Method to Get Analytics Raw Data by Source ---
     async def get_analytics_raw_data_by_source(self, source_filter: str) -> List[Dict[str, Any]]:
         """
-        Fetches records from the analytics_raw table, filtered by the source column.
-        Assumes raw_data is a JSON string and parses it into a dictionary.
-        Returns a list of dictionaries, where each dictionary is the parsed raw_data, 
-        with 'ticker' and 'source' keys added.
+        Fetches records from the analytics_raw table for a specific source
+        and parses the raw_data field.
+        For 'finviz' source, field names (except 'ticker') will be prefixed with 'fv_'.
         """
-        logger.info(f"[DB] Fetching data from analytics_raw table, source: {source_filter}")
-        async with self.async_session_factory() as session:
-            try:
-                stmt = select(AnalyticsRawDataModel).where(AnalyticsRawDataModel.source == source_filter)
+        logger.info(f"[DB] Fetching analytics_raw data for source: {source_filter}")
+        try:
+            async with self.async_session_factory() as session: # Use async_session_factory
+                stmt = select(AnalyticsRawDataModel).filter(AnalyticsRawDataModel.source == source_filter)
                 result = await session.execute(stmt)
-                rows = result.scalars().all()
-                
-                parsed_data_list = []
-                for row in rows:
-                    row_dict = row.to_dict() # Convert SQLAlchemy model to dict
-                    ticker = row_dict.get('ticker', 'UnknownTicker')
-                    raw_data_str = row_dict.get('raw_data')
-                    
-                    parsed_item_data = {"ticker": ticker} # Start with ticker
+                records = result.scalars().all()
 
-                    if raw_data_str:
+                data_list = []
+                for record in records:
+                    parsed_data = {}
+                    if record.raw_data:
                         try:
-                            # Attempt to parse the custom string format: Key1=Value1,Key2=Value2,...
-                            # Check if it looks like our custom format or actual JSON
-                            if '=' in raw_data_str and ',' in raw_data_str and not raw_data_str.strip().startswith('{'):
-                                data_dict = {}
-                                pairs = raw_data_str.split(',')
-                                for pair in pairs:
-                                    if '=' in pair:
-                                        key, value = pair.split('=', 1)
-                                        # Attempt to convert to number if possible, else keep as string
-                                        # Handle potential empty strings for values as well
-                                        if value:
-                                            try:
-                                                num_value = float(value)
-                                                # Check if it's an integer after conversion
-                                                if num_value.is_integer():
-                                                    data_dict[key.strip()] = int(num_value)
-                                                else:
-                                                    data_dict[key.strip()] = num_value
-                                            except ValueError:
-                                                data_dict[key.strip()] = value.strip() # Keep as string if not a number
-                                        else:
-                                            data_dict[key.strip()] = None # Or empty string: ''
-                                    else:
-                                        # Handle cases where a part might not be a key-value pair (e.g. trailing comma)
-                                        # For now, we'll log a warning if this happens, or just skip it.
-                                        logger.warning(f"[DB] Malformed pair in raw_data for ticker {ticker}, source {source_filter}: '{pair}'")
-                                parsed_item_data.update(data_dict)
-                            else:
-                                # Assume it might be actual JSON (fallback or other sources)
-                                parsed_item_data.update(json.loads(raw_data_str))
-                            
-                        except json.JSONDecodeError as e_json:
-                            logger.error(f"[DB] JSONDecodeError for ticker {ticker}, source {source_filter}: {e_json}. Raw data: '{raw_data_str[:100]}...'")
-                            parsed_item_data["error"] = "json_decode_failed"
-                        except Exception as e_parse: # Catch other potential parsing errors
-                            logger.error(f"[DB] Error parsing raw_data for ticker {ticker}, source {source_filter}: {e_parse}. Raw data: '{raw_data_str[:100]}...'")
-                            parsed_item_data["error"] = "custom_parse_failed"
-                    else:
-                        logger.warning(f"[DB] Missing raw_data for ticker {ticker}, source {source_filter}")
-                        parsed_item_data["error"] = "missing_raw_data"
+                            # Attempt to parse as JSON first
+                            parsed_data = json.loads(record.raw_data)
+                        except json.JSONDecodeError:
+                            # Fallback to comma-separated key-value parsing
+                            try:
+                                parsed_data = dict(pair.split('=', 1) for pair in record.raw_data.split(',') if '=' in pair)
+                            except ValueError:
+                                logger.warning(f"ADP_DB: Could not parse raw_data for {record.ticker} (source: {record.source}) as key-value pairs: {record.raw_data[:100]}...")
+                                parsed_data = {"error_parsing_raw_data": record.raw_data}
+                    
+                    # Ensure 'ticker' is present, using the model's ticker attribute as authoritative.
+                    # This also standardizes the ticker key to lowercase 'ticker'.
+                    final_record = {'ticker': record.ticker} 
+                    
+                    # Merge parsed_data into final_record
+                    for key_original, value in parsed_data.items():
+                        # Skip 'ticker' from parsed_data, as record.ticker is the source of truth.
+                        # Perform a case-insensitive check.
+                        if key_original.lower() == 'ticker':
+                            continue
 
-                    parsed_data_list.append(parsed_item_data)
+                        if source_filter == 'finviz':
+                            # Prefix Finviz fields with 'fv_'
+                            final_key = f"fv_{key_original}"
+                            final_record[final_key] = value
+                        else:
+                            # For other sources, use the original key
+                            final_record[key_original] = value
+                    
+                    data_list.append(final_record)
                 
-                logger.info(f"[DB] Successfully fetched and parsed {len(parsed_data_list)} records from analytics_raw for source {source_filter}.")
-                return parsed_data_list
-            except Exception as e:
-                logger.error(f"[DB] Error fetching from analytics_raw for source {source_filter}: {e}", exc_info=True)
-                raise # Re-raise the exception after logging
+                logger.info(f"[DB] Successfully fetched and parsed {len(data_list)} records for source: {source_filter}.")
+                # Example logging for the first record if data exists, to verify prefixing
+                if data_list and source_filter == 'finviz':
+                    logger.debug(f"[DB] Example Finviz record after prefixing: {data_list[0]}")
+                elif data_list:
+                    logger.debug(f"[DB] Example record for source {source_filter}: {data_list[0]}")
+
+                return data_list
+        except Exception as e:
+            logger.error(f"[DB] Error fetching analytics_raw data for source {source_filter}: {e}", exc_info=True)
+            return []
     # --- End Method to Get Analytics Raw Data by Source ---
 
     # --- NEW Method for Analytics Raw Data Save/Update (Moved from end of file) ---
