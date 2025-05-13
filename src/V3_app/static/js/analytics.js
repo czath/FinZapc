@@ -18,6 +18,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // <<< NEW: Declare post-transform state variables globally >>>
     let finalAvailableFields = [];
     let finalFieldMetadata = {};
+    let yahooFieldMetadata = {}; // For when only Yahoo data is loaded/used initially // LOADED FROM API
+    let finvizFieldMetadata = {}; // DYNAMICALLY CALCULATED FROM LOADED FINVIZ DATA
+    let yahooFields = []; // LOADED FROM API
+    let finvizFields = []; // DYNAMICALLY CALCULATED FROM LOADED FINVIZ DATA
     // <<< END NEW >>>
     // <<< ADDED: To store previous chart selections >>>
     let previousXValue = null;
@@ -31,6 +35,57 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     const FIELD_INFO_TIPS_STORAGE_KEY = 'analyticsFieldInfoTips'; // New storage key
     let fieldInfoTips = {}; // New global variable for in-memory storage
     const TEXT_FILTER_DROPDOWN_THRESHOLD = 30; // <<< ADD THIS CONSTANT
+
+    // --- NEW: STUB for missing function ---
+    function handleBatchFieldToggle(event) {
+        console.warn("handleBatchFieldToggle STUB called. Prefixes:", event.target.dataset.prefix, "Enable:", event.target.dataset.enable);
+        // TODO: Implement actual batch toggle logic later if needed
+    }
+    // --- END STUB ---
+
+    // --- MODIFIED: Implement batch field toggle logic ---
+    function handleBatchFieldToggle(event) {
+        const button = event.currentTarget; // Get the button that was clicked
+        const prefix = button.dataset.prefix;
+        const enable = button.dataset.enable === 'true'; // Convert string to boolean
+
+        console.log(`Batch toggle: Prefix='${prefix}', Enable=${enable}`);
+
+        if (prefix === undefined || typeof enable !== 'boolean') {
+            console.error("handleBatchFieldToggle: Missing prefix or invalid enable value.", button.dataset);
+            return;
+        }
+
+        let changedCount = 0;
+        availableFields.forEach(field => {
+            let match = false;
+            if (prefix === '') { // Special case: empty prefix for "all Finviz" (non-Yahoo)
+                if (!field.startsWith('yf_')) {
+                    match = true;
+                }
+            } else if (field.startsWith(prefix)) {
+                match = true;
+            }
+
+            if (match) {
+                if (fieldEnabledStatus[field] !== enable) {
+                    fieldEnabledStatus[field] = enable;
+                    changedCount++;
+                }
+            }
+        });
+
+        if (changedCount > 0) {
+            console.log(`Batch toggled ${changedCount} fields matching prefix '${prefix}' to ${enable}.`);
+            saveEnabledStatusToStorage();
+            renderFieldConfigUI(); // Re-render the field config table
+            renderFilterUI();      // Re-render filters as available fields might change for them
+            applyFilters();        // Re-apply filters to update output table
+        } else {
+            console.log(`No fields changed state for prefix '${prefix}' and enable=${enable}.`);
+        }
+    }
+    // --- END MODIFICATION ---
 
     // --- Element References ---
     // Import Tab
@@ -732,13 +787,14 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         // --- Update hint text using the new descriptor function (which now includes formatting) --- 
         let hintText = fieldName ? getFieldDescriptor(fieldName) : '';
         // Append the input scale guidance if applicable
-        if (fieldNumericFormats[fieldName] || 'raw') {
-            const format = fieldNumericFormats[fieldName] || 'raw';
-            switch (format) {
-                case 'percent': hintText += ' (Enter % value, e.g., 5 for 5%)'; break;
-                case 'million': hintText += ' (Enter value in Millions, e.g., 1.5 for 1.5M)'; break;
-                case 'billion': hintText += ' (Enter value in Billions, e.g., 2.1 for 2.1B)'; break;
-                // No specific suffix needed for default, integer, raw
+        const currentFormat = fieldNumericFormats[fieldName] || 'raw'; // Get the format
+        if (metadata && metadata.type === 'numeric') { // Only for numeric fields
+            switch (currentFormat) {
+                case 'percent': hintText += ' (Enter as %, e.g., 5 for 5%)'; break;
+                case 'million': hintText += ' (Enter in Millions, e.g., 1.5)'; break;
+                case 'billion': hintText += ' (Enter in Billions, e.g., 2.1)'; break;
+                case 'integer': hintText += ' (Enter as integer, e.g., 123)'; break;
+                // default and raw don't need extra scaling hints
             }
         }
         hintSpan.textContent = hintText;
@@ -1019,220 +1075,178 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     }
 
     function renderFieldConfigUI() {
-        console.log("Rendering Field Config UI...");
-        if (!fieldConfigContainer) return;
+        console.log("[DEBUG analytics.js] renderFieldConfigUI called.");
+        if (!fieldConfigContainer) {
+            console.error("[DEBUG analytics.js] fieldConfigContainer not found!");
+            return;
+        }
 
-        fieldConfigContainer.innerHTML = ''; // Clear previous content
+        // Clear previous content
+        fieldConfigContainer.innerHTML = '';
 
-        // --- Create Wrapper for Sticky Elements --- //
-        const stickyWrapper = document.createElement('div');
-        stickyWrapper.style.position = 'sticky';
-        stickyWrapper.style.top = '0';
-        stickyWrapper.style.zIndex = '10'; // Can be lower now, just needs to be > 0
-        stickyWrapper.style.backgroundColor = 'var(--bs-body-bg, white)'; // Background needed
-        // --- End Wrapper --- //
+        // --- Create Wrapper for Sticky Elements (Search and Header) ---
+        const stickyHeaderWrapper = document.createElement('div');
+        stickyHeaderWrapper.style.position = 'sticky';
+        stickyHeaderWrapper.style.top = '0';
+        stickyHeaderWrapper.style.zIndex = '10';
+        stickyHeaderWrapper.style.backgroundColor = 'var(--bs-body-bg, white)';
+        fieldConfigContainer.appendChild(stickyHeaderWrapper);
 
-        // --- Create and Add Search Input (INSIDE WRAPPER) --- //
+        // --- Create and Add Search Input ---
         const searchGroup = document.createElement('div');
-        searchGroup.className = 'input-group input-group-sm mb-2 px-2'; // Added padding, keep margin-bottom
-        // --- REMOVED STICKY STYLES FROM SEARCH --- 
+        searchGroup.className = 'input-group input-group-sm mb-2 px-2 pt-2'; // Added padding
         const searchIcon = document.createElement('span');
         searchIcon.className = 'input-group-text';
         searchIcon.innerHTML = '<i class="bi bi-search"></i>';
         const searchInput = document.createElement('input');
         searchInput.type = 'text';
-        searchInput.id = 'pre-transform-field-search'; // Unique ID
+        searchInput.id = 'pre-transform-field-search';
         searchInput.className = 'form-control form-control-sm';
         searchInput.placeholder = 'Search fields...';
         searchGroup.appendChild(searchIcon);
         searchGroup.appendChild(searchInput);
-        stickyWrapper.appendChild(searchGroup); // Add search to wrapper
-        // --- End Search Input ---
+        stickyHeaderWrapper.appendChild(searchGroup);
 
-        // --- Create Header Row (INSIDE WRAPPER) --- //
-        const headerRow = document.createElement('div');
-        headerRow.className = 'd-flex align-items-center mb-2 p-2 border-bottom fw-bold text-muted small';
-        // --- REMOVED STICKY STYLES FROM HEADER --- 
+        // --- Create Table and Table Head ---
+        const table = document.createElement('table');
+        table.className = 'table table-sm table-hover analytics-field-config-table'; // Add a class for styling
+        const thead = document.createElement('thead');
+        thead.className = 'sticky-table-header'; // For potential specific styling
 
+        const headerRow = document.createElement('tr');
+        // Define headers
         const headers = [
-            { key: 'name', text: 'Field name', width: '350px', align: 'start', extraClasses: 'me-3' }, // <<< INCREASED WIDTH
-            { key: 'count', text: 'Occured', width: '80px', align: 'end', extraClasses: 'me-3 text-end' }, // Updated text and width
-            { key: 'descriptor', text: 'Data descriptor', width: 'auto', align: 'start', extraClasses: 'flex-grow-1 me-3' },
-            { key: 'format', text: 'Format', width: '140px', align: 'start', extraClasses: 'me-3' }, // <<< Increased width
-            { key: 'info', text: 'Info', width: '300px', align: 'start', extraClasses: 'me-3' }, // <<< INCREASED WIDTH
-            { key: 'enabled', text: 'Included', width: '70px', align: 'center', extraClasses: 'text-center' }
+            { key: 'name', text: 'Field Name', width: '300px' },
+            { key: 'count', text: 'Count', width: '70px', align: 'end' },
+            { key: 'descriptor', text: 'Descriptor', width: 'auto' },
+            { key: 'format', text: 'Format', width: '150px' },
+            { key: 'info', text: 'Info/Notes', width: '250px' },
+            { key: 'enabled', text: 'Included', width: '80px', align: 'center' }
         ];
 
         headers.forEach(headerInfo => {
-            const headerEl = document.createElement('div');
-            headerEl.textContent = headerInfo.text;
-            headerEl.style.minWidth = headerInfo.width;
-            if (headerInfo.width === 'auto') {
-                headerEl.classList.add('flex-grow-1');
-            } else {
-                headerEl.style.flexBasis = headerInfo.width; // Use flex-basis for better control
-                headerEl.style.flexShrink = '0';
-            }
-             headerEl.className += ` ${headerInfo.extraClasses || ''}`;
-            headerEl.dataset.sortKey = headerInfo.key;
-            headerEl.style.cursor = 'pointer';
-            headerEl.title = `Sort by ${headerInfo.text}`; // Update title text
-
-            // Add sort indicator space
+            const th = document.createElement('th');
+            th.textContent = headerInfo.text;
+            th.style.minWidth = headerInfo.width;
+            if (headerInfo.width === 'auto') th.style.width = '100%'; // Make it flexible
+            if (headerInfo.align) th.style.textAlign = headerInfo.align;
+            th.dataset.sortKey = headerInfo.key;
+            th.style.cursor = 'pointer';
+            th.title = `Sort by ${headerInfo.text}`;
             const sortIndicator = document.createElement('span');
-            sortIndicator.className = 'sort-indicator ms-1'; // Add ms-1 for spacing
-            headerEl.appendChild(sortIndicator);
-
-            headerEl.addEventListener('click', () => {
-                const sortKey = headerEl.dataset.sortKey;
+            sortIndicator.className = 'sort-indicator ms-1';
+            th.appendChild(sortIndicator);
+            th.addEventListener('click', () => {
+                const sortKey = th.dataset.sortKey;
                 if (currentSortKey === sortKey) {
                     currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
                 } else {
                     currentSortKey = sortKey;
                     currentSortDirection = 'asc';
                 }
-                sortAndReRenderFields();
+                sortAndReRenderFields(); // This will re-call renderFieldDataRows
             });
-            headerRow.appendChild(headerEl);
+            headerRow.appendChild(th);
         });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+        
+        // --- Create Table Body ---
+        const tbody = document.createElement('tbody');
+        tbody.id = 'analytics-field-config-tbody'; // Ensure it has an ID if needed elsewhere, though querySelector in this func is fine
+        table.appendChild(tbody);
 
-        stickyWrapper.appendChild(headerRow); // Add header to wrapper
-        // --- End Header Row ---
+        fieldConfigContainer.appendChild(table); // Add table to main container
 
-        // --- Append the Sticky Wrapper to the main container --- //
-        fieldConfigContainer.appendChild(stickyWrapper);
-        // --- End Appending Wrapper ---
-
-        // --- NEW: Create container specifically for data rows --- //
-        const rowsContainer = document.createElement('div');
-        rowsContainer.id = 'field-rows-container'; // Add ID for targeting
-        // Optional: Add styling if needed, e.g., for overflow if container needs scroll
-        fieldConfigContainer.appendChild(rowsContainer);
-        // --- END NEW Rows Container ---
-
-        updateSortIndicators(); // Initial indicator update
-
-        if (!availableFields || availableFields.length === 0) {
-            // Append message *after* header if no data
-            const noDataMsg = document.createElement('p');
-            noDataMsg.className = 'text-muted small mt-2 ms-2'; // Added ms-2 for indent
-            // Append to rowsContainer instead of main container
-            rowsContainer.appendChild(noDataMsg);
-             // Attach listener even if no data, so it works if data loads later?
-             applyPreTransformSearchListener();
-            // Still need to add the bottom sticky wrapper even if no data
-        } else {
-            // --- Render Data Rows (using a separate function now for clarity) ---
-            renderFieldDataRows(availableFields);
-        }
-
-        // --- Attach Search Listener --- //
-        applyPreTransformSearchListener();
-
-        // --- NEW: Add Batch Action Buttons (within a sticky container) --- //
+        // --- Batch Action Buttons (Sticky Footer) ---
         const stickyActionWrapper = document.createElement('div');
         stickyActionWrapper.style.position = 'sticky';
         stickyActionWrapper.style.bottom = '0';
-        stickyActionWrapper.style.zIndex = '10'; // Same level as header background
+        stickyActionWrapper.style.zIndex = '10';
         stickyActionWrapper.style.backgroundColor = 'var(--bs-body-bg, white)';
-        stickyActionWrapper.style.padding = '0.5rem 0.5rem'; // Add some padding
-        stickyActionWrapper.style.borderTop = '1px solid var(--bs-border-color)'; // Optional separator
+        stickyActionWrapper.style.padding = '0.5rem';
+        stickyActionWrapper.style.borderTop = '1px solid var(--bs-border-color)';
 
         const actionButtonContainer = document.createElement('div');
-        actionButtonContainer.className = 'd-flex flex-wrap gap-2'; // Keep original styling for buttons
+        actionButtonContainer.className = 'd-flex flex-wrap gap-2';
 
-        const createActionButton = (id, text, styleClass, prefix, enable) => {
+        // Helper to create buttons
+        const createBatchActionButton = (id, text, styleClass, prefix, enable) => {
             const btn = document.createElement('button');
             btn.id = id;
             btn.textContent = text;
             btn.className = `btn btn-sm ${styleClass}`;
             btn.dataset.prefix = prefix;
             btn.dataset.enable = enable ? 'true' : 'false';
-            btn.dataset.actionType = prefix ? 'prefix' : 'non-prefix'; // Differentiate action
+            btn.addEventListener('click', handleBatchFieldToggle);
             actionButtonContainer.appendChild(btn);
-            return btn; // Return button for listener attachment
+            return btn;
         };
 
-        // Buttons for yf_tm_ (Master) fields - Keep IDs, update text
-        createActionButton('btn-enable-yftm', 'Enable Yahoo Master Fields', 'btn-outline-success', 'yf_tm_', true);
-        createActionButton('btn-disable-yftm', 'Disable Yahoo Master Fields', 'btn-outline-danger', 'yf_tm_', false);
+        createBatchActionButton('btn-enable-yftm', 'Enable Yahoo Master', 'btn-outline-success', 'yf_tm_', true);
+        createBatchActionButton('btn-disable-yftm', 'Disable Yahoo Master', 'btn-outline-danger', 'yf_tm_', false);
+        createBatchActionButton('btn-enable-yf-all', 'Enable All Yahoo', 'btn-outline-primary', 'yf_', true);
+        createBatchActionButton('btn-disable-yf-all', 'Disable All Yahoo', 'btn-outline-secondary', 'yf_', false);
+        // Add buttons for Finviz fields
+        createBatchActionButton('btn-enable-finviz', 'Enable Finviz', 'btn-outline-info', '', true); // No prefix for all non-yf
+        createBatchActionButton('btn-disable-finviz', 'Disable Finviz', 'btn-outline-warning', '', false); // No prefix for all non-yf
 
-        // Buttons for all yf_ (All Yahoo) fields - Update IDs, text, and prefix
-        createActionButton('btn-enable-yf-all', 'Enable All Yahoo Fields', 'btn-outline-primary', 'yf_', true);
-        createActionButton('btn-disable-yf-all', 'Disable All Yahoo Fields', 'btn-outline-secondary', 'yf_', false);
+        stickyActionWrapper.appendChild(actionButtonContainer);
+        fieldConfigContainer.appendChild(stickyActionWrapper);
 
-        stickyActionWrapper.appendChild(actionButtonContainer); // Add buttons to sticky wrapper
-        fieldConfigContainer.appendChild(stickyActionWrapper); // Add sticky wrapper to main container
-        // --- END NEW: Batch Action Buttons ---
+        // Load initial states from storage (already done at page load, but good to ensure consistency if this func is called standalone)
+        // loadEnabledStatusFromStorage(); // fieldEnabledStatus is global and updated
+        // loadNumericFormatsFromStorage(); // fieldNumericFormats is global
+        // loadInfoTipsFromStorage(); // fieldInfoTips is global
 
-        // --- NEW: Attach Listeners to Buttons (target buttons within the container) --- //
-        actionButtonContainer.querySelectorAll('button').forEach(button => {
-            button.addEventListener('click', handleBatchFieldToggle);
-        });
-        // --- END Attach Listeners ---
+        updateSortIndicators(); // Update sort indicators on the new header
+
+        if (!availableFields || availableFields.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="' + headers.length + '" class="text-muted small p-3">No fields available to configure. Load data first.</td></tr>';
+        } else {
+            renderFieldDataRows(availableFields); // Populate the newly created tbody
+        }
+        
+        applyPreTransformSearchListener(); // Attach listener to the new search input
     }
 
-    // --- NEW: Handler for Batch Toggle Buttons ---
-    function handleBatchFieldToggle(event) {
-        // Get data from the clicked button
-        const button = event.target;
-        const prefix = button.dataset.prefix;
-        const enable = button.dataset.enable === 'true';
+    // This function generates the actual <tr> elements for the field config table
+    function renderFieldDataRows(fieldsToRender) {
+        console.log("[DEBUG analytics.js] renderFieldDataRows called."); // Log when function is called
 
-        // Log the action (using simple concatenation)
-        console.log('Batch action: ' + (enable ? 'Enable' : 'Disable') + ', Prefix: ' + prefix);
-
-        // Check if fields are available
-        if (!availableFields || availableFields.length === 0) {
-            console.log("No fields available for batch toggle.");
+        // --- DETAILED DEBUG LOGGING --- 
+        if (!fieldsToRender || fieldsToRender.length === 0) {
+            console.warn("[DEBUG analytics.js] renderFieldDataRows: fieldsToRender is empty or undefined.");
             return;
         }
+        console.log("[DEBUG analytics.js] renderFieldDataRows - fieldsToRender (first 150 for brevity):", fieldsToRender.slice(0, 150));
 
-        let changed = false;
-        availableFields.forEach(field => {
-            // Simplified check: Apply if the field starts with the button's prefix
-            if (field.startsWith(prefix)) {
-                // Check if the status is actually changing
-                if (fieldEnabledStatus[field] !== enable) {
-                    fieldEnabledStatus[field] = enable;
-                    changed = true;
-                }
-            }
-        });
+        // Log metadata for a known Finviz field, e.g., 'P/E' and a known Yahoo field for comparison
+        const testFinvizField = 'P/E';
+        const testYahooField = 'yf_tm_sector'; // A field that was visible
 
-        if (changed) {
-            console.log("Field statuses updated:", fieldEnabledStatus);
-            saveEnabledStatusToStorage();
-            // <<< ADDED: Mark scenario as modified >>>
-            if (window.AnalyticsConfigManager?._markScenarioAsModified) {
-                window.AnalyticsConfigManager._markScenarioAsModified();
+        if (fieldsToRender.includes(testFinvizField)) {
+            console.log(`[DEBUG analytics.js] renderFieldDataRows - Metadata for Finviz field '${testFinvizField}':`, 
+                        fieldMetadata[testFinvizField] ? JSON.parse(JSON.stringify(fieldMetadata[testFinvizField])) : 'NOT FOUND IN METADATA');
             } else {
-                console.warn("AnalyticsConfigManager or _markScenarioAsModified not found. Cannot mark scenario as modified after batch toggle.");
-            }
-            // Re-render the data rows to reflect changes
-            renderFieldDataRows(availableFields);
-            renderFilterUI(); // Update filter dropdowns
-            applyFilters(); // Re-apply filters which depend on enabled fields
-             // <<< Explicitly re-attach modification listeners for save/load >>>
-            if (window.AnalyticsConfigManager?.initializeModificationDetection) {
-                window.AnalyticsConfigManager.initializeModificationDetection();
-            }
-        } else {
-            console.log("No field statuses needed changing.");
+            console.log(`[DEBUG analytics.js] renderFieldDataRows - Finviz field '${testFinvizField}' NOT IN fieldsToRender.`);
         }
-    }
-    // --- END NEW Handler ---
 
-    // --- NEW: Separate function to render just the data rows ---
-    function renderFieldDataRows(fieldsToRender) {
-         // <<< TARGET the new rowsContainer >>>
-         const rowsContainer = document.getElementById('field-rows-container');
-         if (!rowsContainer) {
+        if (fieldsToRender.includes(testYahooField)) {
+            console.log(`[DEBUG analytics.js] renderFieldDataRows - Metadata for Yahoo field '${testYahooField}':`, 
+                        fieldMetadata[testYahooField] ? JSON.parse(JSON.stringify(fieldMetadata[testYahooField])) : 'NOT FOUND IN METADATA');
+        } else {
+            console.log(`[DEBUG analytics.js] renderFieldDataRows - Yahoo field '${testYahooField}' NOT IN fieldsToRender.`);
+        }
+        // --- END DETAILED DEBUG LOGGING ---
+
+        const tbody = fieldConfigContainer.querySelector('tbody');
+        if (!tbody) {
              console.error("Could not find #field-rows-container to render data rows.");
              return;
          }
          // Clear only existing data rows within the rowsContainer
-         rowsContainer.innerHTML = ''; // Clear previous rows efficiently
+        tbody.innerHTML = ''; // Clear previous rows efficiently
 
          fieldsToRender.forEach(field => {
             const metadata = fieldMetadata[field] || {}; // Get metadata or empty obj
@@ -1241,9 +1255,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             const existingCount = metadata.existingValueCount !== undefined ? metadata.existingValueCount : null; // Use null for sorting
             const descriptorText = getFieldDescriptor(field);
 
-            const row = document.createElement('div');
+            const row = document.createElement('tr');
             // Add specific class for data rows
-            row.className = 'd-flex align-items-center mb-2 p-2 border-bottom field-data-row small'; // <<< ADDED .small CLASS
+            row.className = 'mb-2 p-2 border-bottom field-data-row small'; 
             row.dataset.fieldName = field;
             if (!isEnabled) {
                 row.style.opacity = '0.6';
@@ -1251,43 +1265,43 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
             // Create elements with matching widths/alignment from header config
             // 1. Name
-            const nameSpan = document.createElement('span');
-            nameSpan.textContent = field;
-            nameSpan.className = 'fw-bold me-3 field-name-display'; // <<< ADDED CLASS
-            nameSpan.style.minWidth = '350px'; // <<< INCREASED WIDTH
-            nameSpan.style.flexBasis = '350px'; // <<< INCREASED WIDTH
-            nameSpan.style.flexShrink = '0';
+            const nameTd = document.createElement('td');
+            nameTd.textContent = field;
+            nameTd.className = 'fw-bold me-3 field-name-display'; // <<< ADDED CLASS
+            nameTd.style.minWidth = '350px'; // <<< INCREASED WIDTH
+            nameTd.style.flexBasis = '350px'; // <<< INCREASED WIDTH
+            nameTd.style.flexShrink = '0';
             // <<< ADDED OVERFLOW STYLES >>>
-            nameSpan.style.whiteSpace = 'nowrap';
-            nameSpan.style.overflow = 'hidden';
-            nameSpan.style.textOverflow = 'ellipsis';
+            nameTd.style.whiteSpace = 'nowrap';
+            nameTd.style.overflow = 'hidden';
+            nameTd.style.textOverflow = 'ellipsis';
             // <<< END ADDED STYLES >>>
-            nameSpan.style.fontSize = '0.85em'; // <<< ADDED FONT SIZE REDUCTION
-            nameSpan.title = field; // Keep the title attribute for full name on hover
-            row.appendChild(nameSpan);
+            nameTd.style.fontSize = '0.85em'; // <<< ADDED FONT SIZE REDUCTION
+            nameTd.title = field; // Keep the title attribute for full name on hover
+            row.appendChild(nameTd);
 
             // 2. Count
-            const countSpan = document.createElement('span');
+            const countTd = document.createElement('td');
             // Handle null count appropriately for display
-            countSpan.textContent = (metadata.type === 'empty' || existingCount === null) ? '-' : existingCount;
-            countSpan.className = 'small text-muted text-end me-3'; // Match header spacing & align
-            countSpan.style.minWidth = '80px'; // <<< MATCH UPDATED HEADER WIDTH
-            countSpan.style.flexBasis = '80px'; // <<< MATCH UPDATED HEADER WIDTH
-            countSpan.style.flexShrink = '0';
-            row.appendChild(countSpan);
+            countTd.textContent = (metadata.type === 'empty' || existingCount === null) ? '-' : existingCount;
+            countTd.className = 'small text-muted text-end me-3'; // Match header spacing & align
+            countTd.style.minWidth = '80px'; // <<< MATCH UPDATED HEADER WIDTH
+            countTd.style.flexBasis = '80px'; // <<< MATCH UPDATED HEADER WIDTH
+            countTd.style.flexShrink = '0';
+            row.appendChild(countTd);
 
             // 3. Descriptor
-            const descriptorSpan = document.createElement('span');
-            descriptorSpan.textContent = descriptorText;
-            descriptorSpan.className = 'small text-muted flex-grow-1 me-3'; // Match header spacing
-            row.appendChild(descriptorSpan);
+            const descriptorTd = document.createElement('td');
+            descriptorTd.textContent = descriptorText;
+            descriptorTd.className = 'small text-muted flex-grow-1 me-3'; // Match header spacing
+            row.appendChild(descriptorTd);
             
             // 4. Format Dropdown (for numeric fields)
-            const formatWrapper = document.createElement('div');
-            formatWrapper.className = 'me-3'; // Match header spacing
-            formatWrapper.style.minWidth = '140px'; // Match increased header width
-            formatWrapper.style.flexBasis = '140px';
-            formatWrapper.style.flexShrink = '0';
+            const formatTd = document.createElement('td');
+            formatTd.className = 'me-3'; // Match header spacing
+            formatTd.style.minWidth = '140px'; // Match increased header width
+            formatTd.style.flexBasis = '140px';
+            formatTd.style.flexShrink = '0';
             
             if (metadata.type === 'numeric') {
                 const formatSelect = document.createElement('select');
@@ -1321,29 +1335,31 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     
                     // Re-render the descriptor span for this row only
                     const updatedDescriptorText = getFieldDescriptor(field);
-                    descriptorSpan.textContent = updatedDescriptorText;
-                    // Also re-render chart if needed? Or wait for filter/apply? Let's wait.
-                    console.log(`Format for field '${field}' changed to '${newFormat}'. Descriptor updated.`);
+                    descriptorTd.textContent = updatedDescriptorText;
+                    
+                    console.log(`Format for field '${field}' changed to '${newFormat}'. Descriptor updated. Triggering filter UI refresh.`);
+                    renderFilterUI(); // <<< ADDED THIS LINE
+                    
                     // <<< Explicitly re-attach modification listeners >>>
                     if (window.AnalyticsConfigManager?.initializeModificationDetection) {
                         window.AnalyticsConfigManager.initializeModificationDetection();
                     }
                 });
 
-                formatWrapper.appendChild(formatSelect);
+                formatTd.appendChild(formatSelect);
             } else {
                  // Optional: Add a placeholder or leave empty for non-numeric fields
-                 formatWrapper.textContent = '-'; // Placeholder
-                 formatWrapper.classList.add('text-muted', 'text-center');
+                 formatTd.textContent = '-'; // Placeholder
+                 formatTd.classList.add('text-muted', 'text-center');
             }
-            row.appendChild(formatWrapper); // Add format selector/placeholder
+            row.appendChild(formatTd); // Add format selector/placeholder
 
             // 4.5. <<< NEW: Info Text Input >>>
-            const infoWrapper = document.createElement('div');
-            infoWrapper.className = 'me-3'; // Match header spacing
-            infoWrapper.style.minWidth = '300px'; // <<< INCREASED WIDTH
-            infoWrapper.style.flexBasis = '300px'; // <<< INCREASED WIDTH
-            infoWrapper.style.flexShrink = '0';
+            const infoTd = document.createElement('td');
+            infoTd.className = 'me-3'; // Match header spacing
+            infoTd.style.minWidth = '300px'; // <<< INCREASED WIDTH
+            infoTd.style.flexBasis = '300px'; // <<< INCREASED WIDTH
+            infoTd.style.flexShrink = '0';
 
             const infoInput = document.createElement('input');
             infoInput.type = 'text';
@@ -1363,17 +1379,17 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                 }
             });
 
-            infoWrapper.appendChild(infoInput);
-            row.appendChild(infoWrapper); // Add info input wrapper to row
+            infoTd.appendChild(infoInput);
+            row.appendChild(infoTd); // Add info input wrapper to row
             // <<< END NEW >>>
 
             // 5. Enabled Checkbox (was 4)
-            const enabledWrapper = document.createElement('div');
+            const enabledTd = document.createElement('td');
             // Center checkbox within its allocated space
-            enabledWrapper.className = 'form-check form-switch d-flex justify-content-center';
-            enabledWrapper.style.minWidth = '70px';
-            enabledWrapper.style.flexBasis = '70px';
-            enabledWrapper.style.flexShrink = '0';
+            enabledTd.className = 'form-check form-switch d-flex justify-content-center';
+            enabledTd.style.minWidth = '70px';
+            enabledTd.style.flexBasis = '70px';
+            enabledTd.style.flexShrink = '0';
             const enabledCheckbox = document.createElement('input');
             enabledCheckbox.type = 'checkbox';
             enabledCheckbox.className = 'form-check-input';
@@ -1395,8 +1411,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     window.AnalyticsConfigManager.initializeModificationDetection();
                 }
             });
-            enabledWrapper.appendChild(enabledCheckbox);
-            row.appendChild(enabledWrapper);
+            enabledTd.appendChild(enabledCheckbox);
+            row.appendChild(enabledTd);
 
             // <<< NEW: Add Hover Effect Listeners >>>
             row.addEventListener('mouseover', () => {
@@ -1408,7 +1424,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             // <<< END NEW >>>
 
             // <<< APPEND row to the specific rowsContainer >>>
-            rowsContainer.appendChild(row);
+            tbody.appendChild(row);
         });
     }
     // --- END NEW Data Row Render Function ---
@@ -1521,12 +1537,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
                  for (const filter of activeFilters) {
                      // --- Get item value based on field --- 
-                     let itemValue = null;
-                     if (filter.field === 'source') {
-                         itemValue = item.source;
-                     } else if (item.processed_data) { // Check if processed_data exists before accessing
-                        itemValue = item.processed_data[filter.field];
-                     }
+                     let itemValue = item[filter.field]; // <<< CORRECTED LINE
                      // --- End Get item value ---
 
                      // --- Get filter value and operator (Declared only once) --- 
@@ -2847,34 +2858,47 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // --- END Highlight Functions ---
 
     // --- Data Loading & State Update (Preparation Tab) ---
-     function processLoadedDataAndUpdateState() {
+     function processLoadedDataAndUpdateState(sourceMetaData) { // Signature already updated
+         // --- TEMPORARY DEBUG LOGGING ---
+         console.log("[DEBUG analytics.js] processLoadedDataAndUpdateState called.");
+         console.log("[DEBUG analytics.js] Received sourceMetaData:", sourceMetaData); // Log already added
+         if (fullProcessedData && fullProcessedData.length > 0) {
+             console.log("[DEBUG analytics.js] fullProcessedData - First item:", JSON.parse(JSON.stringify(fullProcessedData[0])));
+             console.log("[DEBUG analytics.js] fullProcessedData - Total records:", fullProcessedData.length);
+         } else {
+             console.log("[DEBUG analytics.js] fullProcessedData is empty or not available.");
+         }
+         // --- END TEMPORARY DEBUG LOGGING ---
+
          if (!fullProcessedData || fullProcessedData.length === 0) {
-             finvizFields = [];
-             finvizFieldMetadata = {};
+             availableFields = [];
+             finvizFields = []; // Clear explicitly
+             yahooFields = [];  // Clear explicitly
+             finvizFieldMetadata = {}; // Clear explicitly
+             yahooFieldMetadata = {}; // Clear explicitly
+             fieldMetadata = {}; // This will be repopulated by mergeAndSetFields
              mergeAndSetFields();
-             // Keep loaded weights/enabled status? Or clear them?
-             // fieldEnabledStatus = {};
              console.log("No processed data loaded or data is empty.");
-             // Re-render empty UIs
              renderFieldConfigUI();
              renderFilterUI();
              applyFilters();
              return;
          }
 
-         // --- Discover Fields --- 
+         // --- Discover Fields from fullProcessedData ---
          const discoveredFields = new Set();
          fullProcessedData.forEach(item => {
-             if (item && item.processed_data) {
-                 Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
+             if (item && typeof item === 'object') {
+                 Object.keys(item).forEach(key => discoveredFields.add(key));
              }
          });
-         discoveredFields.add('source');
-         finvizFields = [...discoveredFields].sort();
-         // --- Calculate Metadata --- 
-         const newFieldMetadata = {};
+         console.log("[DEBUG analytics.js] All discovered fields from fullProcessedData before sorting:", Array.from(discoveredFields));
+         const currentAvailableFields = [...discoveredFields].sort(); // These are all fields from the current load
+
+         // --- Calculate Metadata for ALL currentAvailableFields ---
+         const newFieldMetadataForAllCurrent = {};
          const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100;
-         finvizFields.forEach(field => {
+         currentAvailableFields.forEach(field => {
              let numericCount = 0;
              let existingValueCount = 0;
              let min = Infinity;
@@ -2884,12 +2908,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
              const allUniqueTextValues = new Set();
              fullProcessedData.forEach(item => {
                  let value = null;
-                 if (field === 'source') {
-                     if (item && item.source) {
-                         value = item.source;
-                     }
-                 } else if (item && item.processed_data && item.processed_data.hasOwnProperty(field)) {
-                     value = item.processed_data[field];
+                 if (item && item.hasOwnProperty(field)) {
+                     value = item[field];
                  }
                  const valueExists = value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-';
                  if (valueExists) {
@@ -2907,11 +2927,11 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                  }
              });
              if (existingValueCount === 0) {
-                 newFieldMetadata[field] = { type: 'empty', existingValueCount: 0 };
+                 newFieldMetadataForAllCurrent[field] = { type: 'empty', existingValueCount: 0 };
              } else if (numericCount / existingValueCount >= 0.8) {
                  const average = (numericCount > 0) ? sum / numericCount : null;
                  const median = calculateMedian(numericValues);
-                 newFieldMetadata[field] = {
+                 newFieldMetadataForAllCurrent[field] = {
                      type: 'numeric',
                      min: min === Infinity ? null : min,
                      max: max === -Infinity ? null : max,
@@ -2922,7 +2942,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
              } else {
                  const totalUniqueCount = allUniqueTextValues.size;
                  const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
-                 newFieldMetadata[field] = {
+                 newFieldMetadataForAllCurrent[field] = {
                      type: 'text',
                      uniqueValues: uniqueValuesForDropdown,
                      totalUniqueCount: totalUniqueCount,
@@ -2930,48 +2950,81 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                  };
              }
          });
-         finvizFieldMetadata = newFieldMetadata;
+
+         // --- Populate global field lists and metadata based on source ---
+         // This part is crucial for mergeAndSetFields to work correctly.
+         console.log("[DEBUG analytics.js] processLoadedDataAndUpdateState - Populating source-specific field lists and metadata.");
+         if (sourceMetaData && sourceMetaData.source_selection === 'finviz_only') {
+             finvizFields = [...currentAvailableFields]; 
+             finvizFieldMetadata = { ...newFieldMetadataForAllCurrent }; 
+             // DO NOT CLEAR yahooFields or yahooFieldMetadata. They hold definitions.
+             console.log("[DEBUG analytics.js] Finviz-only mode: finvizFields and finvizFieldMetadata populated with current data.");
+         } else if (sourceMetaData && sourceMetaData.source_selection === 'yahoo_only') {
+             yahooFields = [...currentAvailableFields]; // These are data-driven Yahoo fields if we were to load only Yahoo
+             yahooFieldMetadata = { ...newFieldMetadataForAllCurrent }; // This would be data-driven Yahoo metadata
+             // For now, this will effectively override the definitional yahooFieldMetadata if a field name matches.
+             // This needs to be reconciled with the definitional yahoo metadata loaded from API.
+             // Maybe: definitionalYahooMetadata = { ...originalYahooFromAPI }
+             //        currentYahooDataDrivenMetadata = { ...newFieldMetadataForAllCurrent }
+             //        Then merge them carefully.
+             // DO NOT CLEAR finvizFields or finvizFieldMetadata.
+             console.log("[DEBUG analytics.js] Yahoo-only mode: yahooFields and data-driven yahooFieldMetadata populated.");
+         } else if (sourceMetaData && sourceMetaData.source_selection === 'both') {
+             // This is complex. For now, treat all fields as potentially Finviz for merge priority.
+             // This will need a robust strategy for distinguishing field origins if 'both' is used.
+             finvizFields = [...currentAvailableFields];
+             finvizFieldMetadata = { ...newFieldMetadataForAllCurrent };
+             console.warn("[DEBUG analytics.js] 'both' mode: Needs proper field/metadata assignment logic. Treating all as finviz for now.");
+         } else {
+             console.error("[DEBUG analytics.js] CRITICAL: sourceMetaData.source_selection is missing or unexpected:", sourceMetaData ? sourceMetaData.source_selection : 'sourceMetaData missing or falsey');
+             // Fallback: if no source selection, assume current data is finviz as per test case
+             finvizFields = [...currentAvailableFields];
+             finvizFieldMetadata = { ...newFieldMetadataForAllCurrent };
+         }
+
          mergeAndSetFields();
-         // --- Initialize Enabled Status for New Fields --- 
+
+         // --- Initialize Enabled Status for New Fields (uses the global availableFields from mergeAndSetFields) --- 
          let statusChanged = false;
-         availableFields.forEach(field => {
+         availableFields.forEach(field => { // global availableFields is now correctly merged
              if (!(field in fieldEnabledStatus)) {
                  fieldEnabledStatus[field] = true;
                  statusChanged = true;
                  console.log(`Initialized enabled status for new field '${field}' to true.`);
              }
          });
-         // Optional: Clean up status for fields no longer present in the data
          const currentAvailableSet = new Set(availableFields);
          Object.keys(fieldEnabledStatus).forEach(field => {
              if (!currentAvailableSet.has(field)) {
-                 console.log(`Removing stale enabled status for field '${field}'.`);
                  delete fieldEnabledStatus[field];
                  statusChanged = true;
              }
          });
          if (statusChanged) saveEnabledStatusToStorage();
-         // --- Initialize Numeric Format Status for New Numeric Fields --- 
+
+         // --- Initialize Numeric Format Status for New Numeric Fields (uses global fieldMetadata) ---
          let formatStatusChanged = false;
          availableFields.forEach(field => {
-             const meta = fieldMetadata[field] || {};
+             const meta = fieldMetadata[field] || {}; // global fieldMetadata is now correctly merged
              if (meta.type === 'numeric') {
                  if (!(field in fieldNumericFormats)) {
                      fieldNumericFormats[field] = 'raw';
                      formatStatusChanged = true;
-                     console.log(`Initialized numeric format for new field '${field}' to 'raw'.`);
                  }
              }
          });
          const currentNumericFields = new Set(availableFields.filter(f => (fieldMetadata[f] || {}).type === 'numeric'));
          Object.keys(fieldNumericFormats).forEach(field => {
              if (!currentNumericFields.has(field)) {
-                 console.log(`Removing stale numeric format for field '${field}'.`);
                  delete fieldNumericFormats[field];
                  formatStatusChanged = true;
              }
          });
          if (formatStatusChanged) saveNumericFormatsToStorage();
+
+         renderFieldConfigUI();
+         renderFilterUI();
+         applyFilters(); 
      }
 
     // --- Button Listeners (Preparation Tab) ---
@@ -3025,7 +3078,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         if (processStatus) {
             console.log("Adding event listener to processButton."); 
             processButton.addEventListener('click', async function() {
-                console.log("processButton clicked!"); 
+                console.log("processButton clicked! (ADP Test - Finviz Only)"); 
                 // <<< Show spinner and disable button >>>
                 if (typeof window.showSpinner === 'function') {
                     window.showSpinner(processButton);
@@ -3034,52 +3087,52 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     processButton.disabled = true; // Fallback
                 }
                 // Use the processStatus variable captured just above
-                processStatus.textContent = 'Processing data...';
+                processStatus.textContent = 'Loading Finviz data via ADP...'; //  <-- MODIFIED TEXT
                 processStatus.className = 'ms-2 text-info';
-                // outputArea.textContent = ''; // No longer needed
                 if(filterResultsCount) filterResultsCount.textContent = ''; // Clear count
 
                 try {
-                    // Step 1: Call the endpoint to process and store data (using the backend python function)
-                    console.log("Calling /api/analytics/process-raw-data endpoint...");
-                    const processResponse = await fetch('/api/analytics/process-raw-data', {
-                        method: 'POST',
+                    // Step 1: Call the NEW ADP endpoint for Finviz data
+                    const dataSourceSelection = "finviz_only"; // Hardcoded for this test
+                    const endpointUrl = `/api/v3/analytics/processed_data?data_source_selection=${dataSourceSelection}`;
+                    console.log(`Calling ${endpointUrl} endpoint...`);
+
+                    const response = await fetch(endpointUrl, {
+                        method: 'GET', // ADP endpoint is GET
                         headers: { 'Accept': 'application/json' }
                     });
 
-                    const processResult = await processResponse.json();
+                    const result = await response.json();
 
-                    if (!processResponse.ok) {
-                        const errorDetail = processResult.detail || `Processing failed with status ${processResponse.status} - ${processResponse.statusText}`;
-                        console.error("Error response from process-raw-data:", processResult);
+                    if (!response.ok) {
+                        const errorDetail = result.detail || `ADP data fetch failed with status ${response.status} - ${response.statusText}`;
+                        console.error(`Error response from ${endpointUrl}:`, result);
                         throw new Error(errorDetail);
                     }
 
-                    console.log("Process request successful:", processResult);
-                    processStatus.textContent = processResult.message || 'Processing request successful.';
+                    console.log("ADP request successful:", result);
+                    processStatus.textContent = result.message || 'Data loaded successfully via ADP.';
                     processStatus.className = 'ms-2 text-success';
 
-                    // Step 2: Call the endpoint to get the processed data
-                    console.log("Calling /api/analytics/get-processed-data endpoint...");
-                    const getResponse = await fetch('/api/analytics/get-processed-data', {
-                        method: 'GET',
-                        headers: { 'Accept': 'application/json' }
-                    });
-
-                    if (!getResponse.ok) {
-                         const getErrorResult = await getResponse.json();
-                         const getErrorDetail = getErrorResult.detail || `Failed to get processed data with status ${getResponse.status} - ${getResponse.statusText}`;
-                         console.error("Error response from get-processed-data:", getErrorResult);
-                         throw new Error(getErrorDetail);
+                    // Step 2: Update frontend state with data from ADP
+                    if (result && result.originalData) {
+                        fullProcessedData = result.originalData;
+                        const recordCount = fullProcessedData.length;
+                        console.log(`Successfully fetched ${recordCount} records from ADP.`);
+                        // Update status message to include record count
+                        processStatus.textContent = result.message || `Successfully loaded ${recordCount} records via ADP.`;
+                        // metaData from ADP (result.metaData) includes 'fields' and 'source_selection'.
+                        // We'll still primarily rely on processLoadedDataAndUpdateState to derive detailed metadata like min/max, types etc.
+                        // However, we can log what ADP provided:
+                        console.log("Metadata from ADP:", result.metaData);
+                    } else {
+                        console.warn("ADP response did not contain originalData. Setting to empty array.");
+                        fullProcessedData = [];
                     }
-
-                    const processedData = await getResponse.json();
-                    console.log(`Successfully fetched ${processedData.length} processed records.`);
-                    fullProcessedData = processedData;
 
                     // Step 3: Process loaded data (extract fields, init weights/status)
                     console.log("Processing loaded data and updating PRE-transform state...");
-                    processLoadedDataAndUpdateState(fullProcessedData); // Calculate PRE-transform state
+                    processLoadedDataAndUpdateState(result.metaData); // <<< ENSURE result.metaData IS PASSED
  
                     // Step 3.5: Initialize FINAL state based on loaded data
                     console.log("Initializing final state based on loaded data...");
@@ -3088,55 +3141,39 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
  
                     // Step 4: Apply initial filters (updates Prep table and filteredDataForChart)
                     console.log("Applying initial filters...");
-                    applyFilters(); // This updates filteredDataForChart and calls renderChart
+                    applyFilters(); 
  
                     // Step 5: Update ALL UI components now that both states are populated
                     console.log("Rendering initial UI...");
                     updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: true });
 
-                    // <<< NEW: Initialize Pivot Table Placeholder >>>
-                    // console.log("Placeholder: Pivot table initialization would happen here after initial load."); // DEBUG REMOVED
-                    // TODO: Add logic here to initialize the pivot table
-                    //       in the '#pivot-table-output' div using the initial 'finalDataForAnalysis' data.
-                    //       Example using a hypothetical 'initializePivotTable' function:
-                    // initializePivotTable(finalDataForAnalysis);
                     const initialPivotStatus = document.getElementById('pivot-table-status');
                     if (initialPivotStatus) {
                         initialPivotStatus.textContent = `Initial data processed. Pivot table library integration needed to display ${finalDataForAnalysis.length} records.`;
                     }
-                    // <<< END NEW >>>
 
-                    // --- Dispatch Data Ready Event --- 
                     if (finalDataForAnalysis && finalDataForAnalysis.length > 0) {
-                        // console.log("Dispatching AnalyticsDataReady event..."); // DEBUG REMOVED
                         window.dispatchEvent(new Event('AnalyticsDataReady'));
-                        // console.log("AnalyticsDataReady event dispatched."); // DEBUG REMOVED
                     } else {
                         console.warn("Not dispatching AnalyticsDataReady event: finalDataForAnalysis is empty.");
                     }
-                    // --- End Dispatch ---
 
                 } catch (error) {
-                    console.error('Error during Finviz data processing/fetching:', error);
-                    // outputArea.textContent = `An error occurred. Check console for details. \nError: ${error.message}`; // No longer using outputArea
-                    // Display error in the status span instead?
+                    console.error('Error during ADP data processing/fetching (Finviz only test):', error);
                     processStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
                     processStatus.className = 'ms-2 text-danger';
-                    fullProcessedData = []; // Clear data on error
-                    // <<< Clear BOTH pre- and post-transform states on error >>>
+                    fullProcessedData = []; 
                     availableFields = [];
                     fieldMetadata = {};
                     finalAvailableFields = []; 
                     finalFieldMetadata = {};
-                    finalDataForAnalysis = []; // Clear final data on error
+                    finalDataForAnalysis = []; 
                     
-                    // processLoadedDataAndUpdateState(); // Re-render UIs (will show empty state) // <<< Don't call this anymore
-                    applyFilters(); // Clear table on error
-                    updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: true }); // Update UI to show empty state
+                    applyFilters(); 
+                    updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: true }); 
                 } finally {
                      processButton.disabled = false;
-                     console.log("Processing/fetching finished.");
-                     // <<< Hide spinner and re-enable button >>>
+                     console.log("ADP Processing/fetching finished (Finviz only test).");
                      if (typeof window.hideSpinner === 'function') {
                          window.hideSpinner(processButton);
                      } else {
@@ -3427,109 +3464,140 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                  Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
              }
         });
-        const allDiscoveredNonTickerFields = [...discoveredFields].sort(); // Get ONLY non-ticker fields discovered
-        // console.log("All discovered non-ticker fields post-transform:", allDiscoveredNonTickerFields);
+        // const allDiscoveredNonTickerFields = [...discoveredFields].sort(); // OLD: Get ONLY non-ticker fields discovered
 
-        // --- Filter discovered non-ticker fields based on PRE-TRANSFORM enabled status ---
+        // --- MODIFIED LOGIC TO DETERMINE FINAL AVAILABLE FIELDS ---
         const preTransformEnabledStatus = fieldEnabledStatus; // Use the global pre-transform status map
-        let tempFinalFields = allDiscoveredNonTickerFields.filter(field => {
-            // Keep field if it's enabled pre-transform (or status missing -> default true)
-            const isEnabledPreTransform = preTransformEnabledStatus[field] !== false; // Default true if undefined/true
-            if (!isEnabledPreTransform) {
-                console.log(`[updateFinalFieldsAndMetadata] Excluding field '${field}' because it was disabled pre-transform.`);
+        let candidateFieldsForFinalList = new Set();
+
+        // 1. Add all fields that were enabled pre-transform
+        Object.keys(preTransformEnabledStatus).forEach(field => {
+            if (preTransformEnabledStatus[field] === true) {
+                candidateFieldsForFinalList.add(field);
             }
-            return isEnabledPreTransform;
         });
-        // console.log("Filtered non-ticker fields:", tempFinalFields);
 
-        // --- Prepend 'ticker' (lowercase) to the list if it was found in the original data --- 
+        // 2. Add all fields discovered in the actual transformed data's processed_data
+        discoveredFields.forEach(field => candidateFieldsForFinalList.add(field));
+        
+        // Remove 'ticker' from this set as it's handled specially
+        candidateFieldsForFinalList.delete('ticker');
+        const sortedNonTickerFinalCandidates = [...candidateFieldsForFinalList].sort((a,b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
         if (tickerFound) {
-             finalAvailableFields = ['ticker', ...tempFinalFields]; // Use lowercase 'ticker'
+            finalAvailableFields = ['ticker', ...sortedNonTickerFinalCandidates];
         } else {
-             finalAvailableFields = tempFinalFields; // Ticker was not present, don't add it
+            finalAvailableFields = sortedNonTickerFinalCandidates;
         }
-        // console.log("Final available fields (post-transform, filtered by pre-transform status):", finalAvailableFields);
-        console.log("Final available fields (post-transform, filtered by pre-transform status, Ticker added if present):", finalAvailableFields);
+        console.log("[updateFinalFieldsAndMetadata] Final list of available fields (pre-metadata calc):", finalAvailableFields);
+        // --- END MODIFIED LOGIC ---
 
-        // --- Calculate Metadata based ONLY on the filtered finalAvailableFields ---
-        // <<< Also calculate metadata for 'ticker' if it was found >>>
-        const newFinalFieldMetadata = {}; // Use separate temp variable
-        const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100; // Limit for text dropdowns
 
-        // Calculate metadata for 'ticker' separately if it exists
-        if (tickerFound) {
-             const allUniqueTextValues = new Set();
-             let existingValueCount = 0;
-             data.forEach(item => {
-                 const value = item?.ticker;
-                 const valueExists = value !== null && value !== undefined && String(value).trim() !== '';
-                 if (valueExists) {
-                     existingValueCount++;
-                     allUniqueTextValues.add(String(value));
-                 }
-            });
-             const totalUniqueCount = allUniqueTextValues.size;
-             const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
-             newFinalFieldMetadata['ticker'] = { 
-                 type: 'text', 
-                 uniqueValues: uniqueValuesForDropdown, 
-                 totalUniqueCount: totalUniqueCount,   
-                 existingValueCount: existingValueCount 
-             };
-        }
+        // --- Calculate Metadata based ONLY on the finalAvailableFields ---
+        const newFinalFieldMetadata = {};
+        const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100;
 
-        // --- Iterate over the FILTERED NON-TICKER finalAvailableFields for other metadata ---
-        // Use tempFinalFields here as it doesn't include 'ticker' yet
-        tempFinalFields.forEach(field => {
-            // ... (rest of metadata calculation logic remains the same) ...
-            // Ensure this logic only uses `tempFinalFields` (which are guaranteed to be in processed_data)
-
-            let numericCount = 0;
-            let existingValueCount = 0;
-            let min = Infinity;
-            let max = -Infinity;
-            let sum = 0;
-            let numericValues = [];
-            const allUniqueTextValues = new Set();
-
-            data.forEach(item => {
-                let value = null;
-                 if (item?.processed_data && item.processed_data.hasOwnProperty(field)) { // Check only processed_data
-                     value = item.processed_data[field];
-                 }
-                const valueExists = value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-';
-
-                if (valueExists) {
-                    existingValueCount++;
-                    const num = Number(value);
-                    if (!isNaN(num)) {
-                        numericCount++;
-                        if (num < min) min = num;
-                        if (num > max) max = num;
-                        sum += num;
-                        numericValues.push(num);
-                    } else {
-                        allUniqueTextValues.add(String(value));
+        finalAvailableFields.forEach(field => {
+            let isFieldInData = false;
+            // Check if this field actually has data in finalDataForAnalysis
+            if (data && data.length > 0) {
+                for (const item of data) {
+                    if (field === 'ticker' && item?.hasOwnProperty('ticker')) {
+                        isFieldInData = true;
+                        break;
+                    }
+                    if (item?.processed_data && item.processed_data.hasOwnProperty(field)) {
+                        isFieldInData = true;
+                        break;
                     }
                 }
-            });
+            }
 
-            // Determine field type and store metadata
-            if (existingValueCount === 0) {
-                newFinalFieldMetadata[field] = { type: 'empty', existingValueCount: 0 };
-            } else if (numericCount / existingValueCount >= 0.8) {
-                const average = (numericCount > 0) ? sum / numericCount : null;
-                const median = calculateMedian(numericValues);
-                newFinalFieldMetadata[field] = { type: 'numeric', min: min === Infinity ? null : min, max: max === -Infinity ? null : max, average: average, median: median, existingValueCount: existingValueCount };
+            if (isFieldInData) {
+                // Field has data in finalDataForAnalysis, calculate metadata from it
+                let numericCount = 0;
+                let existingValueCount = 0;
+                let min = Infinity;
+                let max = -Infinity;
+                let sum = 0;
+                let numericValues = [];
+                const allUniqueTextValues = new Set();
+
+                data.forEach(item => {
+                    let value = null;
+                    if (field === 'ticker') {
+                        value = item?.ticker;
+                    } else if (item?.processed_data && item.processed_data.hasOwnProperty(field)) {
+                        value = item.processed_data[field];
+                    }
+                    const valueExists = value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '-';
+
+                    if (valueExists) {
+                        existingValueCount++;
+                        const num = Number(value);
+                        if (!isNaN(num)) {
+                            numericCount++;
+                            if (num < min) min = num;
+                            if (num > max) max = num;
+                            sum += num;
+                            numericValues.push(num);
+                        } else {
+                            allUniqueTextValues.add(String(value));
+                        }
+                    }
+                });
+
+                if (existingValueCount === 0) {
+                    newFinalFieldMetadata[field] = { type: 'empty', existingValueCount: 0 };
+                } else if (numericCount / existingValueCount >= 0.8) { // Primarily numeric
+                    newFinalFieldMetadata[field] = {
+                        type: 'numeric',
+                        min: min === Infinity ? null : min,
+                        max: max === -Infinity ? null : max,
+                        average: (numericCount > 0) ? sum / numericCount : null,
+                        median: calculateMedian(numericValues),
+                        existingValueCount: existingValueCount
+                    };
+                } else { // Primarily text
+                    newFinalFieldMetadata[field] = {
+                        type: 'text',
+                        uniqueValues: [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN),
+                        totalUniqueCount: allUniqueTextValues.size,
+                        existingValueCount: existingValueCount
+                    };
+                }
+                // Add description/example from global fieldMetadata if this is a known field
+                // This pulls from the merged pre-transform metadata (finviz data-driven + yahoo definitional)
+                if (fieldMetadata[field]?.description) newFinalFieldMetadata[field].description = fieldMetadata[field].description;
+                if (fieldMetadata[field]?.example) newFinalFieldMetadata[field].example = fieldMetadata[field].example;
+
             } else {
-                // const MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN = 100; // Defined elsewhere or remove if not needed here
-                const totalUniqueCount = allUniqueTextValues.size;
-                const uniqueValuesForDropdown = [...allUniqueTextValues].sort().slice(0, MAX_UNIQUE_TEXT_VALUES_FOR_DROPDOWN);
-                newFinalFieldMetadata[field] = { type: 'text', uniqueValues: uniqueValuesForDropdown, totalUniqueCount: totalUniqueCount, existingValueCount: existingValueCount };
+                // Field was enabled pre-transform but not found in finalDataForAnalysis
+                // Use definitional metadata from global fieldMetadata (which is merged from finviz raw and yahoo api)
+                const definitionalMeta = fieldMetadata[field];
+                if (definitionalMeta) {
+                    newFinalFieldMetadata[field] = {
+                        type: definitionalMeta.type || 'unknown',
+                        min: null,
+                        max: null,
+                        average: null,
+                        median: null,
+                        existingValueCount: 0,
+                        uniqueValues: [],
+                        totalUniqueCount: 0,
+                        description: definitionalMeta.description || '',
+                        example: definitionalMeta.example || ''
+                    };
+                    console.log(`[updateFinalFieldsAndMetadata] Field '${field}' (enabled pre-transform) not in transformed data. Using definitional metadata. Type: ${newFinalFieldMetadata[field].type}`);
+                } else {
+                    // This case should be rare if candidateFieldsForFinalList is built correctly
+                    newFinalFieldMetadata[field] = { type: 'unknown', existingValueCount: 0, description: 'Field definition missing' };
+                    console.warn(`[updateFinalFieldsAndMetadata] Definitional metadata (from global fieldMetadata) missing for pre-transform enabled field: ${field}`);
+                }
             }
         });
         finalFieldMetadata = newFinalFieldMetadata; // Update the final metadata object
-        console.log("Calculated final field metadata (post-transform, based on filtered fields):", finalFieldMetadata);
+        console.log("Calculated final field metadata (post-transform, based on extended field list):", finalFieldMetadata);
 
 
         // --- Initialize Enabled Status & Formats for New Fields ---
@@ -4031,25 +4099,67 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     fetchAndSetAnalyticsFields();
 
-    // --- Add global storage for Yahoo and Finviz fields ---
-    let yahooFields = [];
-    let yahooFieldMetadata = {};
-    let finvizFields = [];
-    let finvizFieldMetadata = {};
+    // --- Add global storage for Yahoo and Finviz fields --- (Declarations are at the top now)
+    // let yahooFields = []; // MOVED TO TOP
+    // yahooFieldMetadata = {}; // MOVED TO TOP
+    // let finvizFields = []; // MOVED TO TOP
+    // finvizFieldMetadata = {}; // MOVED TO TOP
 
     // --- Helper to merge and set availableFields/fieldMetadata ---
     function mergeAndSetFields() {
-        // Merge field names (union, preserve order: Finviz first, then Yahoo-only)
-        const mergedFields = Array.from(new Set([...finvizFields, ...yahooFields]));
-        // Merge metadata (Finviz takes precedence if duplicate field name)
-        const mergedMetadata = { ...yahooFieldMetadata, ...finvizFieldMetadata };
-        mergedFields.forEach(f => {
-            if (finvizFieldMetadata[f]) mergedMetadata[f] = finvizFieldMetadata[f];
-            else if (yahooFieldMetadata[f]) mergedMetadata[f] = yahooFieldMetadata[f];
+        console.log("[DEBUG analytics.js] mergeAndSetFields called.");
+        console.log("[DEBUG analytics.js] BEFORE merge: finvizFields (sample):", finvizFields.slice(0,5), "yahooFields (sample):", yahooFields.slice(0,5));
+        // console.log("[DEBUG analytics.js] BEFORE merge: finvizFieldMetadata for P/E:", finvizFieldMetadata['P/E']);
+        // console.log("[DEBUG analytics.js] BEFORE merge: yahooFieldMetadata for yf_tm_sector:", yahooFieldMetadata['yf_tm_sector']);
+
+        const mergedFieldNames = Array.from(new Set([...finvizFields, ...yahooFields]));
+        
+        const mergedMetadataResult = {};
+        mergedFieldNames.forEach(field => {
+            const hasFinvizData = finvizFieldMetadata.hasOwnProperty(field) && finvizFields.includes(field);
+            const hasYahooDefinition = yahooFieldMetadata.hasOwnProperty(field) && yahooFields.includes(field);
+
+            if (hasFinvizData) {
+                // If Finviz metadata (data-driven from current load) exists, it takes precedence
+                mergedMetadataResult[field] = { ...finvizFieldMetadata[field] }; // Copy all from data-driven
+                // Ensure definitional properties from Yahoo are added if not present from Finviz calculation
+                if (hasYahooDefinition) {
+                    if (!mergedMetadataResult[field].hasOwnProperty('description') && yahooFieldMetadata[field].description) {
+                        mergedMetadataResult[field].description = yahooFieldMetadata[field].description;
+                    }
+                    if (!mergedMetadataResult[field].hasOwnProperty('example') && yahooFieldMetadata[field].example) {
+                        mergedMetadataResult[field].example = yahooFieldMetadata[field].example;
+                    }
+                    // 'type' from data-driven Finviz (numeric/text/empty) is usually more accurate for current data than static Yahoo type
+                }
+            } else if (hasYahooDefinition) {
+                // Otherwise, use Yahoo metadata (definitional)
+                mergedMetadataResult[field] = { ...yahooFieldMetadata[field] }; // Copy static definitions
+                // Since no current data was loaded for this Yahoo field, set data-driven properties to defaults
+                mergedMetadataResult[field].existingValueCount = 0;
+                mergedMetadataResult[field].min = null;
+                mergedMetadataResult[field].max = null;
+                mergedMetadataResult[field].average = null;
+                mergedMetadataResult[field].median = null;
+                mergedMetadataResult[field].uniqueValues = [];
+                mergedMetadataResult[field].totalUniqueCount = 0;
+                // If the static type was, e.g., 'numeric', but no data, it will appear as numeric with 0 count.
+                // If the static type was 'text', it will appear as text with 0 unique values.
+            } else {
+                // This case means a field name is in finvizFields or yahooFields but has no corresponding metadata object entry.
+                // This should ideally not happen if finvizFields/yahooFields are populated consistently with their metadata.
+                console.warn(`[mergeAndSetFields] Field '${field}' present in merged names but no metadata found in either source. Defaulting.`);
+                mergedMetadataResult[field] = { type: 'unknown', existingValueCount: 0, description: 'N/A', example: 'N/A' };
+            }
         });
-        availableFields = mergedFields;
-        fieldMetadata = mergedMetadata;
-        renderFieldConfigUI();
+
+        availableFields = mergedFieldNames.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())); // Sort case-insensitive
+        fieldMetadata = mergedMetadataResult;
+
+        console.log("[DEBUG analytics.js] mergeAndSetFields completed.");
+        console.log("[DEBUG analytics.js] Merged global availableFields (sample):", availableFields.slice(0,10));
+        // console.log("[DEBUG analytics.js] Merged global fieldMetadata (sample for 'P/E'):", fieldMetadata['P/E']);
+        // console.log("[DEBUG analytics.js] Merged global fieldMetadata (sample for 'yf_tm_sector'):", fieldMetadata['yf_tm_sector']);
     }
     // ... existing code ...
 }); 

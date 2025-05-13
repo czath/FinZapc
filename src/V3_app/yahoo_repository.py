@@ -731,3 +731,74 @@ class YahooDataRepository:
                         logger.warning(f"Could not process payload sample for {item_type}/{item_time_coverage}: {e}")
                         continue
         return fields
+
+    async def get_master_data_for_analytics(self) -> List[Dict[str, Any]]:
+        """
+        Fetches a specific subset of fields from YahooTickerMasterModel 
+        for all tickers, relevant for the analytics page.
+        """
+        # Define the specific columns you need for analytics to optimize the query.
+        # This list should be reviewed and adjusted based on the actual fields
+        # used in your analytics UI and logic.
+        fields_to_select = [
+            YahooTickerMasterModel.ticker,
+            YahooTickerMasterModel.company_name,
+            YahooTickerMasterModel.asset_type,
+            YahooTickerMasterModel.country,
+            YahooTickerMasterModel.exchange,
+            YahooTickerMasterModel.industry,
+            YahooTickerMasterModel.sector,
+            YahooTickerMasterModel.trade_currency,
+            # Key Market Data
+            YahooTickerMasterModel.current_price,
+            YahooTickerMasterModel.market_cap,
+            YahooTickerMasterModel.average_volume,
+            YahooTickerMasterModel.beta,
+            YahooTickerMasterModel.dividend_yield_ttm,
+            YahooTickerMasterModel.fifty_two_week_high,
+            YahooTickerMasterModel.fifty_two_week_low,
+            # Key Valuation Ratios
+            YahooTickerMasterModel.trailing_pe,
+            YahooTickerMasterModel.pe_forward,
+            YahooTickerMasterModel.price_to_book,
+            YahooTickerMasterModel.price_to_sales_ttm,
+            YahooTickerMasterModel.enterprise_to_revenue,
+            YahooTickerMasterModel.enterprise_to_ebitda,
+            # Key Financial Summary
+            YahooTickerMasterModel.eps_ttm,
+            YahooTickerMasterModel.eps_forward,
+            YahooTickerMasterModel.book_value,
+            YahooTickerMasterModel.current_ratio,
+            YahooTickerMasterModel.debt_to_equity,
+            YahooTickerMasterModel.ebitda_margin, # You mentioned this one
+            YahooTickerMasterModel.operating_margin,
+            YahooTickerMasterModel.profit_margin,
+            YahooTickerMasterModel.return_on_assets,
+            YahooTickerMasterModel.return_on_equity,
+            YahooTickerMasterModel.revenue_growth,
+            YahooTickerMasterModel.earnings_growth,
+            YahooTickerMasterModel.shares_outstanding,
+            YahooTickerMasterModel.shares_float,
+            YahooTickerMasterModel.shares_percent_insiders,
+            YahooTickerMasterModel.shares_percent_institutions,
+            YahooTickerMasterModel.short_ratio,
+            YahooTickerMasterModel.short_percent_of_float,
+            YahooTickerMasterModel.update_last_full, # To know how fresh the master data is
+            YahooTickerMasterModel.update_marketonly 
+        ]
+
+        try:
+            async with self.async_session_factory() as session:
+                stmt = select(*fields_to_select)
+                result = await session.execute(stmt)
+                # Use .mappings().all() to get a list of dict-like RowMapping objects
+                # then convert each to a plain dict.
+                ticker_data_list = [dict(row) for row in result.mappings().all()]
+                logger.info(f"Fetched {len(ticker_data_list)} records from ticker_master for analytics.")
+                return ticker_data_list
+        except SQLAlchemyError as e:
+            logger.error(f"Database error in get_master_data_for_analytics: {e}", exc_info=True)
+            return [] # Return empty list on error
+        except Exception as e:
+            logger.error(f"Unexpected error in get_master_data_for_analytics: {e}", exc_info=True)
+            return [] # Return empty list on error

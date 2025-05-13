@@ -142,22 +142,39 @@ document.addEventListener('DOMContentLoaded', function() {
         let workingData = JSON.parse(JSON.stringify(inputData));
         let ruleErrors = []; // Collect errors during processing
         
-        // Determine initial available fields from the input data structure
-        let initialFields = new Set();
-        if (workingData.length > 0) {
-             // Add keys from the top-level object (like ticker, source, error)
-            Object.keys(workingData[0]).forEach(key => {
-                if (key !== 'processed_data') { // Exclude the container itself
-                    initialFields.add(key);
+        // --- Initialize item.processed_data and availableFieldsDuringTransform --- 
+        let availableFieldsDuringTransform = new Set();
+        workingData.forEach(item => {
+            if (!item) return;
+            const currentProcessedData = item.processed_data || {};
+            item.processed_data = {}; // Ensure a fresh processed_data for this run
+
+            // Copy top-level properties (like P/E, Market Cap from ADP)
+            // to item.processed_data, excluding known non-data fields like ticker, source, error
+            // and also excluding an existing processed_data if it was somehow there.
+            for (const key in item) {
+                if (item.hasOwnProperty(key) && key !== 'ticker' && key !== 'source' && key !== 'error' && key !== 'processed_data') {
+                    item.processed_data[key] = item[key];
+                    availableFieldsDuringTransform.add(key); // Add to available fields
                 }
-            });
-             // Add keys from the first row's processed_data, if it exists
-             if (workingData[0].processed_data) {
-                 Object.keys(workingData[0].processed_data).forEach(key => initialFields.add(key));
-             }
-        }
-        let availableFieldsDuringTransform = new Set(initialFields); // Start with fields from data
-        console.log("Initial available fields for transform:", Array.from(availableFieldsDuringTransform));
+            }
+            // Merge any pre-existing processed_data fields if they were there (e.g. from a previous partial run - less common now)
+            for (const key in currentProcessedData) {
+                if (currentProcessedData.hasOwnProperty(key)) {
+                    item.processed_data[key] = currentProcessedData[key]; // This will overwrite if key was also top-level
+                    availableFieldsDuringTransform.add(key);
+                }
+            }
+
+            // Ensure special fields are available at top level if they exist
+            if (item.ticker) availableFieldsDuringTransform.add('ticker');
+            if (item.source) availableFieldsDuringTransform.add('source');
+            if (item.error) availableFieldsDuringTransform.add('error');
+        });
+        console.log("Initial available fields for transform (after populating processed_data):", Array.from(availableFieldsDuringTransform));
+        
+        // Determine initial available fields from the input data structure
+        // let initialFields = new Set(); // Commented out older logic
 
         // --- Discover ALL potential numeric fields from the entire dataset --- FIX
         console.log("Scanning all data to discover potential fields for aggregation...");
@@ -583,6 +600,11 @@ document.addEventListener('DOMContentLoaded', function() {
             workingData = workingData.map((item, itemIndex) => {
                 if (!item) return item; // Skip if item is somehow null/undefined
                 
+                // Ensure item.processed_data exists, as all new fields go there
+                if (!item.processed_data) {
+                    item.processed_data = {};
+                }
+
                 let newValue = null;
                 try {
                     switch (rule.type) {
@@ -624,7 +646,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Check if the calculation actually produced non-error results before adding
             // (We add it even if some rows failed, as long as the rule didn't skip entirely)
             availableFieldsDuringTransform.add(outputFieldName);
-            console.log(`Rule ${ruleIndex + 1} applied. Available fields now:`, Array.from(availableFieldsDuringTransform));
+            console.log(`Rule ${ruleIndex + 1} ('${outputFieldName}') applied. Available fields now:`, Array.from(availableFieldsDuringTransform));
 
         });
         // --- End Rule Execution Loop ---
@@ -1001,6 +1023,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const args = []; 
         const argNames = []; 
+        let hasInvalidArgument = false; // <<< ADD A FLAG TO TRACK INVALID ARGUMENTS
+
+        // --- Log details for a specific output field for focused debugging ---
+        const isDebugTargetRule = (params.formula.includes('{Cash/sh}') && params.formula.includes('{Shs Outstand}'));
+        if (isDebugTargetRule) {
+            console.log(`[Arithmetic DEBUG for 'total cash'] Item Ticker: ${item.ticker}, Formula: "${params.formula}"`);
+            console.log(`  Initial availableFieldsDuringTransform includes 'Cash/sh': ${availableFields.has('Cash/sh')}, 'Shs Outstand': ${availableFields.has('Shs Outstand')}`);
+        }
+        // --- End Debug Log --- 
 
         fieldNames.forEach((fieldName, index) => {
             const cleanArgName = `arg${index}`; // Create safe variable names (arg0, arg1, ...)
@@ -1021,6 +1052,8 @@ document.addEventListener('DOMContentLoaded', function() {
                  value = item.source;
             } else if (item.processed_data && item.processed_data.hasOwnProperty(fieldName)) {
                  value = item.processed_data[fieldName];
+            } else if (item.hasOwnProperty(fieldName)) { // Fallback to top-level if not in processed_data (less likely for data fields now)
+                value = item[fieldName];
             }
             // else value remains null
 
@@ -1034,23 +1067,47 @@ document.addEventListener('DOMContentLoaded', function() {
             //     args.push(numValue);
             // }
             args.push(value); // Push the raw value (string, number, null, etc.)
+            if (isDebugTargetRule) {
+                console.log(`  [Arithmetic DEBUG for 'total cash'] Arg '${cleanArgName}' ({${fieldName}}): Value = '${value}', Type = '${typeof value}'`);
+            }
         });
 
         // console.log(`[Arithmetic Rule EXECUTION] Final Processed Formula: "${processedFormula}"`); // DEBUG REMOVED
         // console.log(`[Arithmetic Rule EXECUTION] Arguments for function:`, argNames, args); // DEBUG REMOVED
+        
+        // <<< If any field lookup resulted in strictly undefined (meaning it wasn't in item or processed_data), treat as error for this formula for this item >>>
+        if (args.some(arg => arg === undefined && !argNames[args.indexOf(arg)].startsWith('__TEMP_GROUPED_AGG_'))) { // Exclude temp agg placeholders which can be undefined if group missing
+            if (isDebugTargetRule) {
+                console.warn(`  [Arithmetic DEBUG for 'total cash'] At least one critical input field was undefined. Returning null for this item.`);
+            }
+            // Do not throw error here, just return null for this specific item for this rule
+            return null; 
+        }
+
         try {
             if (processedFormula.trim() === '') {
                 throw new Error("Formula is empty after field substitution.");
             }
-            const dynamicFunction = new Function(...argNames, `"use strict"; return (${processedFormula});`);
+            const dynamicFunction = new Function(...argNames, `"use strict"; try { return (${processedFormula}); } catch(e) { console.error(\'Error IN dynamic function for formula ${processedFormula.replace(/'/g, "\\'")}:\' , e); return null; }`);
             const result = dynamicFunction(...args);
+
+            if (isDebugTargetRule) {
+                console.log(`  [Arithmetic DEBUG for 'total cash'] Dynamic function (${dynamicFunction.toString()}) executed. Raw Result = '${result}', Type = '${typeof result}'`);
+            }
 
             if (result === null || result === undefined || !Number.isFinite(result)) {
                 // console.debug(`Arithmetic result is non-finite (NaN/Infinity) for ticker ${item.ticker}. Formula: ${params.formula}. Returning null.`); // DEBUG REMOVED
+                if (isDebugTargetRule && (result !== null && result !== undefined)) { // Log if it's NaN/Infinity but not strictly null/undefined yet
+                    console.warn(`  [Arithmetic DEBUG for 'total cash'] Result is non-finite (NaN/Infinity). Returning null.`);
+                }
                 return null;
             }
             return result;
         } catch (e) {
+            // This catch is for errors during the Function constructor or its immediate synchronous execution if not caught by inner try-catch
+            if (isDebugTargetRule) {
+                console.error(`  [Arithmetic DEBUG for 'total cash'] Outer catch. Error: ${e.message}. Formula: ${params.formula}`);
+            }
             throw new Error(`Formula execution failed: ${e.message}. Formula: ${params.formula}`);
         }
     }
@@ -1080,9 +1137,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Get the value from the item (check top-level and processed_data)
             let value = null;
             if (availableFields.has(fieldName)) { // Check if field should be available
-                if (item.hasOwnProperty(fieldName) && fieldName !== 'processed_data') {
-                    value = item[fieldName];
-                } else if (item.processed_data && item.processed_data.hasOwnProperty(fieldName)) {
+                if (item.processed_data && item.processed_data.hasOwnProperty(fieldName)) {
                     value = item.processed_data[fieldName];
             }
             } else {
@@ -1198,10 +1253,10 @@ document.addEventListener('DOMContentLoaded', function() {
             // Get the value from the item (check top-level and processed_data)
             let value = null;
             if (availableFields.has(fieldName)) {
-                if (item.hasOwnProperty(fieldName) && fieldName !== 'processed_data') {
-                    value = item[fieldName];
-                } else if (item.processed_data && item.processed_data.hasOwnProperty(fieldName)) {
+                if (item.processed_data && item.processed_data.hasOwnProperty(fieldName)) {
                     value = item.processed_data[fieldName];
+                } else if (item.hasOwnProperty(fieldName) && fieldName !== 'processed_data') { // Check top-level for special fields
+                    value = item[fieldName];
                 }
             } else {
                  console.warn(`[Conditional Rule] Field '{${fieldName}}' used in expression is not available for ticker ${item.ticker}. Using null.`);
@@ -1427,7 +1482,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 filteredItem.processed_data = {};
                 for (const field in item.processed_data) {
                     // Default to true if status is missing (for new fields created by transform)
-                    const isEnabled = enabledStatus[field] === true; 
+                    // const isEnabled = enabledStatus[field] === true; 
+                    const isEnabled = enabledStatus[field] !== false; // MODIFIED: New fields (undefined) default to true
                     if (isEnabled) {
                         filteredItem.processed_data[field] = item.processed_data[field];
                     }

@@ -75,20 +75,17 @@ console.log(">>> Executing analytics_pre_transform_table.js (global scope start)
             return headers.map(headerText => {
                 // Handle 'Ticker' potentially being mapped from 'ticker'
                 const fieldName = (headerText === 'Ticker') ? 'ticker' : headerText;
-                let value = null;
+                let value;
 
-                if (fieldName === 'ticker' && item.ticker) {
-                    value = item.ticker;
-                } else if (item.processed_data && item.processed_data.hasOwnProperty(fieldName)) {
-                    value = item.processed_data[fieldName];
-                } else if (item.error) {
-                     value = `Error: ${item.error}`;
+                // Directly access the property on the item using the correct fieldName
+                if (item && item.hasOwnProperty(fieldName)) {
+                    value = item[fieldName];
+                } else if (item && item.error) { // Keep for robustness if item itself is an error placeholder
+                    value = `Error: ${item.error}`;
                 } else {
-                     value = null; // Or some placeholder like 'N/A'
+                    value = null; // Default for missing data
                 }
-                
-                // Return raw value - formatting happens in columnDefs render
-                return value;
+                return value; // Return raw value
             });
         });
         console.log(`[PreTransformTable] Prepared tableData with ${tableData.length} rows.`);
@@ -99,6 +96,23 @@ console.log(">>> Executing analytics_pre_transform_table.js (global scope start)
             const meta = fieldMetadata[fieldName];
             const numericFormat = fieldNumericFormats[fieldName] || 'default';
             const colDef = { targets: index };
+
+            // ---- START DEBUG LOGGING PER COLUMN ----
+            /* // Removing debug logs as formatting is now working
+            if (index < 5 || fieldName === 'Market Cap' || fieldName === 'P/E') { // Log for first 5 columns and specific ones
+                console.log(`[PreTransformTable ColumnDef] Header: '${headerText}', FieldName: '${fieldName}'`, 
+                            `Metadata Type: ${meta ? meta.type : 'N/A'}`, 
+                            `NumericFormat: '${numericFormat}'`);
+                // Log raw data for the first 2 rows for this column for display rendering
+                if (tableData.length > 0 && tableData[0]) {
+                    console.log(`  Raw data[0][${index}]: '${tableData[0][index]}'`);
+                }
+                if (tableData.length > 1 && tableData[1]) {
+                    console.log(`  Raw data[1][${index}]: '${tableData[1][index]}'`);
+                }
+            }
+            */
+            // ---- END DEBUG LOGGING PER COLUMN ----
 
             if (meta && meta.type === 'numeric') {
                 colDef.type = 'num'; // Helps DataTables sorting

@@ -14,7 +14,7 @@ from typing import Dict, Any, List, Optional, Set, Union
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, create_engine, delete, MetaData, Table, insert, update, and_, distinct, Text, Boolean, text, func
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import sessionmaker, relationship, Session
 from sqlalchemy.future import select
 import os
@@ -202,6 +202,13 @@ class AnalyticsRawDataModel(Base):
     last_fetched_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
 
     # Composite primary key defined by setting primary_key=True on both columns
+
+    # --- ADDED to_dict METHOD ---
+    def to_dict(self):
+        """Converts the SQLAlchemy model instance to a dictionary."""
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+    # --- END to_dict METHOD ---
+
 # --- End Analytics Raw Data Model ---
 
 # Define the exchange_rates table
@@ -220,6 +227,13 @@ class SQLiteRepository:
         """Initialize the repository with a database URL."""
         self.database_url = database_url
         self.engine = create_async_engine(database_url)
+        # --- ADDED ---
+        self.async_session_factory = async_sessionmaker(
+            bind=self.engine, 
+            expire_on_commit=False, # Good practice for async sessions
+            class_=AsyncSession # Explicitly state the session class to be used
+        )
+        # --- END ADDED ---
 
     # --- NEW Method to Get All Analytics Raw Data ---
     async def get_all_analytics_raw_data(self) -> List[Dict[str, Any]]:
@@ -240,6 +254,81 @@ class SQLiteRepository:
             logger.error(f"[DB] Error fetching from analytics_raw table: {e}", exc_info=True)
             raise # Re-raise the exception after logging
     # --- End Method to Get All Analytics Raw Data ---
+
+    # --- NEW Method to Get Analytics Raw Data by Source ---
+    async def get_analytics_raw_data_by_source(self, source_filter: str) -> List[Dict[str, Any]]:
+        """
+        Fetches records from the analytics_raw table, filtered by the source column.
+        Assumes raw_data is a JSON string and parses it into a dictionary.
+        Returns a list of dictionaries, where each dictionary is the parsed raw_data, 
+        with 'ticker' and 'source' keys added.
+        """
+        logger.info(f"[DB] Fetching data from analytics_raw table, source: {source_filter}")
+        async with self.async_session_factory() as session:
+            try:
+                stmt = select(AnalyticsRawDataModel).where(AnalyticsRawDataModel.source == source_filter)
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+                
+                parsed_data_list = []
+                for row in rows:
+                    row_dict = row.to_dict() # Convert SQLAlchemy model to dict
+                    ticker = row_dict.get('ticker', 'UnknownTicker')
+                    raw_data_str = row_dict.get('raw_data')
+                    
+                    parsed_item_data = {"ticker": ticker} # Start with ticker
+
+                    if raw_data_str:
+                        try:
+                            # Attempt to parse the custom string format: Key1=Value1,Key2=Value2,...
+                            # Check if it looks like our custom format or actual JSON
+                            if '=' in raw_data_str and ',' in raw_data_str and not raw_data_str.strip().startswith('{'):
+                                data_dict = {}
+                                pairs = raw_data_str.split(',')
+                                for pair in pairs:
+                                    if '=' in pair:
+                                        key, value = pair.split('=', 1)
+                                        # Attempt to convert to number if possible, else keep as string
+                                        # Handle potential empty strings for values as well
+                                        if value:
+                                            try:
+                                                num_value = float(value)
+                                                # Check if it's an integer after conversion
+                                                if num_value.is_integer():
+                                                    data_dict[key.strip()] = int(num_value)
+                                                else:
+                                                    data_dict[key.strip()] = num_value
+                                            except ValueError:
+                                                data_dict[key.strip()] = value.strip() # Keep as string if not a number
+                                        else:
+                                            data_dict[key.strip()] = None # Or empty string: ''
+                                    else:
+                                        # Handle cases where a part might not be a key-value pair (e.g. trailing comma)
+                                        # For now, we'll log a warning if this happens, or just skip it.
+                                        logger.warning(f"[DB] Malformed pair in raw_data for ticker {ticker}, source {source_filter}: '{pair}'")
+                                parsed_item_data.update(data_dict)
+                            else:
+                                # Assume it might be actual JSON (fallback or other sources)
+                                parsed_item_data.update(json.loads(raw_data_str))
+                            
+                        except json.JSONDecodeError as e_json:
+                            logger.error(f"[DB] JSONDecodeError for ticker {ticker}, source {source_filter}: {e_json}. Raw data: '{raw_data_str[:100]}...'")
+                            parsed_item_data["error"] = "json_decode_failed"
+                        except Exception as e_parse: # Catch other potential parsing errors
+                            logger.error(f"[DB] Error parsing raw_data for ticker {ticker}, source {source_filter}: {e_parse}. Raw data: '{raw_data_str[:100]}...'")
+                            parsed_item_data["error"] = "custom_parse_failed"
+                    else:
+                        logger.warning(f"[DB] Missing raw_data for ticker {ticker}, source {source_filter}")
+                        parsed_item_data["error"] = "missing_raw_data"
+
+                    parsed_data_list.append(parsed_item_data)
+                
+                logger.info(f"[DB] Successfully fetched and parsed {len(parsed_data_list)} records from analytics_raw for source {source_filter}.")
+                return parsed_data_list
+            except Exception as e:
+                logger.error(f"[DB] Error fetching from analytics_raw for source {source_filter}: {e}", exc_info=True)
+                raise # Re-raise the exception after logging
+    # --- End Method to Get Analytics Raw Data by Source ---
 
     # --- NEW Method for Analytics Raw Data Save/Update (Moved from end of file) ---
     async def save_or_update_analytics_raw_data(self, ticker: str, source: str, raw_data: str) -> None:
