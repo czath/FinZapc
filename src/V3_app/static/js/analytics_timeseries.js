@@ -2,6 +2,171 @@ document.addEventListener('DOMContentLoaded', function() {
     const LOG_PREFIX = "TimeseriesModule:";
     console.log(LOG_PREFIX, "DOMContentLoaded event fired.");
 
+    // --- Custom Chart.js Plugin for Last Value Indicator ---
+    const lastValueIndicatorPlugin = {
+        id: 'lastValueIndicator',
+        afterDatasetsDraw(chart, args, pluginOptions) {
+            const { ctx, chartArea: { right, top, bottom, left, width, height }, scales: { x: xScale, y: yScale } } = chart;
+            console.log(LOG_PREFIX, '[IndicatorPlugin] afterDatasetsDraw triggered. chartArea.right:', right);
+
+            pluginOptions = pluginOptions || {}; 
+            const defaultFont = '10px Arial';
+            const defaultTextColor = '#333'; // Fallback, should be overridden by theme
+            const defaultXPadding = 5;
+
+            chart.data.datasets.forEach((dataset, i) => {
+                console.log(LOG_PREFIX, `[IndicatorPlugin] Processing dataset ${i}: ${dataset.label}, Visible: ${chart.isDatasetVisible(i)}`);
+                if (!chart.isDatasetVisible(i) || !dataset.data || dataset.data.length === 0) {
+                    console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} skipped (not visible or no data).`);
+                    return; 
+                }
+
+                const meta = chart.getDatasetMeta(i);
+                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} meta.data length: ${meta.data ? meta.data.length : 'undefined'}`);
+                if (!meta.data || meta.data.length === 0) {
+                    console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} skipped (no meta.data).`);
+                    return; 
+                }
+
+                const lastElement = meta.data[meta.data.length - 1];
+                const yPosition = lastElement ? lastElement.y : NaN; // Guard against lastElement being undefined
+                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} lastElement exists: ${!!lastElement}, yPosition: ${yPosition}`);
+
+
+                if (yPosition < top || yPosition > bottom) {
+                     // console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} yPosition ${yPosition} is outside chartArea (top: ${top}, bottom: ${bottom}). Skipping.`);
+                    // return; // Still keeping this commented to see if text appears anywhere if yPosition is odd.
+                }
+
+                let textToDisplay = '';
+                let valueToFormat = NaN;
+                const appChartType = pluginOptions.appChartType || chart.config.type; 
+                const rawLastDataPoint = dataset.data[dataset.data.length - 1];
+                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} appChartType: ${appChartType}, rawLastDataPoint:`, rawLastDataPoint);
+
+
+                if (!rawLastDataPoint) {
+                    console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} skipped (no rawLastDataPoint).`);
+                    return;
+                }
+
+                try { 
+                    if (appChartType === 'performance_comparison_line') {
+                        valueToFormat = rawLastDataPoint.y;
+                        textToDisplay = typeof valueToFormat === 'number' && isFinite(valueToFormat) ? valueToFormat.toFixed(2) + '%' : '';
+                    } else if (appChartType === 'pair_relative_price_line') {
+                        valueToFormat = rawLastDataPoint.y;
+                        textToDisplay = typeof valueToFormat === 'number' && isFinite(valueToFormat) ? valueToFormat.toFixed(4) : '';
+                    } else if (appChartType === 'candlestick' || appChartType === 'ohlc') {
+                        valueToFormat = rawLastDataPoint.c; // Close price for OHLC
+                        textToDisplay = typeof valueToFormat === 'number' && isFinite(valueToFormat) ? valueToFormat.toFixed(2) : '';
+                    } else if (appChartType === 'line') {
+                        if (typeof rawLastDataPoint === 'object' && rawLastDataPoint !== null && typeof rawLastDataPoint.y === 'number') {
+                            valueToFormat = rawLastDataPoint.y; // {x,y} format
+                        } else if (typeof rawLastDataPoint === 'number') { // THIS CASE IS UNLIKELY FOR LINE CHARTS NOW
+                            valueToFormat = rawLastDataPoint; 
+                        }
+                        // For line charts, data is now expected as {x, y} or array of numbers for non-time series.
+                        // For price history line (non-intraday), it's an array of Close prices.
+                        // For intraday line, it's {x, y} with y as Close.
+                        // The existing logic assumes rawLastDataPoint.y or rawLastDataPoint itself.
+                        // Let's ensure this covers the structure from renderTimeseriesChart's line chart processing.
+                        // If data for line chart is `apiData.map(d => d.Close)` (non-intraday)
+                        // then `rawLastDataPoint` is a number.
+                        // If data is `apiData.map(d => ({x: ..., y: d.Close}))` (intraday)
+                        // then `rawLastDataPoint` is an object with `y`.
+                         if (typeof rawLastDataPoint === 'object' && rawLastDataPoint !== null && rawLastDataPoint.hasOwnProperty('Close')) {
+                            // This case might be from an older configuration or if data structure is just {Close: val}
+                            // but current line chart prep uses 'y' or direct numbers.
+                            // Let's ensure we're robust. The plugin is getting raw data from dataset.data
+                            valueToFormat = rawLastDataPoint.Close;
+                         } else if (typeof rawLastDataPoint === 'object' && rawLastDataPoint !== null && typeof rawLastDataPoint.y === 'number') {
+                            valueToFormat = rawLastDataPoint.y;
+                         } else if (typeof rawLastDataPoint === 'number') {
+                            valueToFormat = rawLastDataPoint;
+                         }
+
+                        textToDisplay = typeof valueToFormat === 'number' && isFinite(valueToFormat) ? valueToFormat.toFixed(2) : '';
+                    } else {
+                        console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} unknown appChartType: ${appChartType}`);
+                        return; 
+                    }
+                    console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} valueToFormat: ${valueToFormat}, textToDisplay: '${textToDisplay}'`);
+                } catch (e) {
+                    console.warn(LOG_PREFIX, '[IndicatorPlugin] Error processing data point for last value indicator:', e, rawLastDataPoint);
+                    return;
+                }
+                
+                if (textToDisplay === '' || isNaN(yPosition)) {
+                    console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} skipped (textToDisplay is empty or yPosition is NaN). text: '${textToDisplay}', y: ${yPosition}`);
+                    return;
+                }
+
+                ctx.save();
+                
+                ctx.font = pluginOptions.font || defaultFont;
+
+                let finalTextColor = pluginOptions.textColor || defaultTextColor; 
+                if (!pluginOptions.textColor && 
+                    typeof dataset.borderColor === 'string' && 
+                    !(appChartType === 'candlestick' || appChartType === 'ohlc')) {
+                    finalTextColor = dataset.borderColor;
+                }
+                ctx.fillStyle = finalTextColor;
+                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} finalTextColor: ${finalTextColor}`);
+                
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+
+                const xPadding = pluginOptions.xPadding || defaultXPadding;
+                const xPosition = right + xPadding; // REVERTED: Draw to the right of the (new) chartArea.right
+                // const xPosition = right - 30; // TEMP: Draw further left for testing
+                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} Drawing at x: ${xPosition}, y: ${yPosition} (chartArea.right was ${right})`);
+
+                // Pill background
+                // Use pluginOptions.pillBackgroundColor if provided, otherwise use dataset.borderColor, else default.
+                let actualPillBackgroundColor = pluginOptions.pillBackgroundColor;
+                if (!actualPillBackgroundColor) {
+                    if (typeof dataset.borderColor === 'string') {
+                        actualPillBackgroundColor = dataset.borderColor;
+                    } else {
+                        // Fallback for complex borderColor (like OHLC) or if not a string
+                        actualPillBackgroundColor = 'rgba(200, 200, 200, 0.7)'; // Neutral grey
+                    }
+                }
+
+                if (actualPillBackgroundColor) { // Check if we have a color to draw the pill
+                    const textMetrics = ctx.measureText(textToDisplay);
+                    const pillHPadding = pluginOptions.pillHPadding || 4;
+                    const pillVPadding = pluginOptions.pillVPadding || 2;
+                    const pillWidth = textMetrics.width + (pillHPadding * 2);
+                    const pillHeight = (textMetrics.actualBoundingBoxAscent || parseInt(ctx.font)) + (pillVPadding * 2);
+                    const pillRadius = pluginOptions.pillBorderRadius || 3;
+
+                    ctx.fillStyle = actualPillBackgroundColor;
+                    ctx.beginPath();
+                    ctx.roundRect(xPosition - pillHPadding, yPosition - pillHeight / 2, pillWidth, pillHeight, pillRadius);
+                    ctx.fill();
+                    
+                    // ctx.fillStyle = finalTextColor; // OLD: Reset fillStyle for text to theme-aware color
+                    ctx.fillStyle = '#000000'; // NEW: Set text color inside pill to black
+                    console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} Pill drawn with color: ${actualPillBackgroundColor}. Text color set to #000000.`);
+                } else {
+                    // If no pill is drawn, ensure the finalTextColor (theme-aware) is used for the text
+                    ctx.fillStyle = finalTextColor;
+                }
+
+                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} Attempting ctx.fillText with text: '${textToDisplay}' using color ${ctx.fillStyle}`);
+                ctx.fillText(textToDisplay, xPosition, yPosition);
+                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} ctx.fillText DONE.`);
+                ctx.restore();
+            });
+            console.log(LOG_PREFIX, '[IndicatorPlugin] afterDatasetsDraw finished.');
+        }
+    };
+
+    Chart.register(lastValueIndicatorPlugin);
+
     // --- Constants ---
     const TIMESERIES_TAB_PANE_ID = 'timeseries-tab-pane';
 
@@ -930,11 +1095,11 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Safer logging for the received data package or its length
         if (analyticsOriginalData && typeof analyticsOriginalData.length === 'number') {
-            console.log(LOG_PREFIX, "populateLoadedTickerSelect - analyticsOriginalData count:", analyticsOriginalData.length);
+        console.log(LOG_PREFIX, "populateLoadedTickerSelect - analyticsOriginalData count:", analyticsOriginalData.length);
         } else {
             console.log(LOG_PREFIX, "populateLoadedTickerSelect - analyticsOriginalData is not an array or has no length. Data received:", analyticsOriginalData);
         }
-
+        
         const uniqueTickers = new Set();
         if (Array.isArray(analyticsOriginalData)) {
             analyticsOriginalData.forEach((item, index) => {
@@ -982,6 +1147,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (ppcLoadedTickerSelect) {
             ppcLoadedTickerSelect.innerHTML = ''; // Clear existing options
             if (sortedTickers.length > 0) {
+                const noneOption = document.createElement('option');
+                noneOption.value = ""; // Empty value will be filtered out by current logic
+                noneOption.textContent = "-- None (ignore list below) --";
+                ppcLoadedTickerSelect.appendChild(noneOption);
+
                 sortedTickers.forEach(ticker => {
                     const option = document.createElement('option');
                     option.value = ticker;
@@ -1118,10 +1288,31 @@ document.addEventListener('DOMContentLoaded', function() {
         const ctx = chartCanvas.getContext('2d');
             let datasets;
             let chartJsType; 
+
+            // Determine theme for plugin text color
+            const isDarkMode = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+            const indicatorTextColor = isDarkMode ? '#E0E0E0' : '#333333';
+            // const pillBackgroundColor = isDarkMode ? 'rgba(70, 70, 70, 0.7)' : 'rgba(230, 230, 230, 0.7)'; // REMOVED: Plugin will derive from dataset
+
             let chartOptions = { 
                 responsive: true,
                 maintainAspectRatio: false,
+                layout: { // NEW: Add padding to the right for the indicator
+                    padding: {
+                        right: 60 // Increased to 60px to ensure space for text and pill padding
+                    }
+                },
                 plugins: {
+                    lastValueIndicator: { 
+                        appChartType: chartType,
+                        textColor: indicatorTextColor, 
+                        // pillBackgroundColor: pillBackgroundColor, // REMOVED: Let plugin use dataset.borderColor
+                        font: 'bold 11px Arial',         
+                        xPadding: 11, // UPDATED: 5px gap + 6px pillHPadding = 11px
+                        pillHPadding: 6,                 
+                        pillVPadding: 3,                 
+                        pillBorderRadius: 4              
+                    },
                     legend: { position: 'top' },
                     tooltip: { mode: 'index', intersect: false },
                     zoom: {
@@ -1234,7 +1425,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     data: series.data,
                     borderColor: lineColors[index % lineColors.length],
                     backgroundColor: lineColors[index % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.1)'),
-                    borderWidth: 2,
+                    borderWidth: 1, // MODIFIED: Changed from 2 to 1
                     fill: false,
                     pointRadius: 0,
                     tension: 0.1
