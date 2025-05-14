@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const priceHistoryEndDateContainer = document.getElementById('ts-ph-end-date-container');
     const tsPhChartTypeSelect = document.getElementById('ts-ph-chart-type'); // NEW: Chart Type Selector
     const timeseriesTabPane = document.getElementById(TIMESERIES_TAB_PANE_ID); // Used to mark as initialized
+    const tsResetZoomBtn = document.getElementById('ts-reset-zoom-btn'); // NEW: Reset Zoom Button
 
     // --- Initialization ---
     function initializeTimeseriesModule() {
@@ -106,6 +107,20 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             console.warn(LOG_PREFIX, "Study selector (ts-study-selector) not found.");
         }
+
+        if (tsResetZoomBtn) { // NEW: Add event listener for reset zoom button
+            tsResetZoomBtn.addEventListener('click', () => {
+                if (timeseriesChartInstance && typeof timeseriesChartInstance.resetZoom === 'function') {
+                    timeseriesChartInstance.resetZoom();
+                    console.log(LOG_PREFIX, "Chart zoom reset.");
+                } else {
+                    console.warn(LOG_PREFIX, "Reset zoom clicked, but no chart instance found or resetZoom is not a function.");
+                }
+            });
+        } else {
+            console.warn(LOG_PREFIX, "Reset zoom button (ts-reset-zoom-btn) not found.");
+        }
+
         console.log(LOG_PREFIX, "Event listeners setup complete.");
     }
 
@@ -193,6 +208,10 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        let userStartDateStr = null; // MODIFIED: Declare here for wider scope
+        let userEndDateStr = null; // MODIFIED: Declare here for wider scope
+        let rangeDetails; // NEW: To hold range info for renderTimeseriesChart
+
         const tickerSourceChecked = document.querySelector('input[name="tsPhTickerSource"]:checked');
         if (!tickerSourceChecked) {
             console.error(LOG_PREFIX, "No ticker source selected.");
@@ -227,8 +246,8 @@ document.addEventListener('DOMContentLoaded', function() {
             alert("Please select an interval.");
             return;
         }
-
-        let queryParams = `ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}`;
+        
+        let queryParams = `ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}`; // MODIFIED: Initialize queryParams here
 
         if (selectedPeriod === 'custom') {
             if (!priceHistoryStartDateInput || !priceHistoryEndDateInput) {
@@ -236,19 +255,33 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert("Error: Date input components are missing for custom range.");
                 return;
             }
-            const startDate = priceHistoryStartDateInput.value;
-            const endDate = priceHistoryEndDateInput.value;
-            if (!startDate || !endDate) {
+            userStartDateStr = priceHistoryStartDateInput.value;
+            userEndDateStr = priceHistoryEndDateInput.value;
+
+            if (!userStartDateStr || !userEndDateStr) {
                 alert("Please select a start and end date for custom range.");
                 return;
             }
-            if (new Date(startDate) >= new Date(endDate)) {
-                alert("Start date must be before end date.");
+
+            const startDateObj = new Date(userStartDateStr);
+            const endDateObj = new Date(userEndDateStr);
+
+            // MODIFIED: Allow start date to be the same as end date for single-day queries.
+            if (startDateObj > endDateObj) {
+                alert("Start date must be before or the same as end date.");
                 return;
             }
-            queryParams += `&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
+
+            // Adjust end date for API to make it inclusive
+            const apiEndDateObj = new Date(endDateObj);
+            apiEndDateObj.setDate(apiEndDateObj.getDate() + 1);
+            const apiEndDateStr = apiEndDateObj.toISOString().split('T')[0];
+
+            queryParams += `&start_date=${encodeURIComponent(userStartDateStr)}&end_date=${encodeURIComponent(apiEndDateStr)}`;
+            rangeDetails = { start: userStartDateStr, end: userEndDateStr }; // NEW: Populate for custom range
         } else {
             queryParams += `&period=${encodeURIComponent(selectedPeriod)}`;
+            rangeDetails = { period: selectedPeriod }; // NEW: Populate for predefined period
         }
 
         const apiUrl = `/api/v3/timeseries/price_history?${queryParams}`;
@@ -272,11 +305,9 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log(LOG_PREFIX, "Price History Data Received:", data);
 
             if (data && data.length > 0) {
-                // alert(`Successfully fetched ${data.length} records for ${ticker}. Charting next.`);
-                renderTimeseriesChart(data, ticker, interval, selectedPeriod === 'custom' ? {start: priceHistoryStartDateInput.value, end: priceHistoryEndDateInput.value} : {period: selectedPeriod}, chartType);
+                renderTimeseriesChart(data, ticker, interval, rangeDetails, chartType); // MODIFIED: Use rangeDetails
             } else {
-                // alert(`No price history data found for ${ticker} with the selected parameters.`); // Now handled by renderTimeseriesChart
-                renderTimeseriesChart([], ticker, interval, selectedPeriod === 'custom' ? {start: priceHistoryStartDateInput.value, end: priceHistoryEndDateInput.value} : {period: selectedPeriod}, chartType); // MODIFIED: Pass chartType, Clear chart
+                renderTimeseriesChart([], ticker, interval, rangeDetails, chartType); // MODIFIED: Use rangeDetails
             }
 
         } catch (error) {
@@ -433,7 +464,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderTimeseriesChart(apiData, ticker, interval, range, chartType) {
         console.log(LOG_PREFIX, "renderTimeseriesChart called for ticker:", ticker, "Data points:", apiData?.length, "Chart Type:", chartType);
 
-        const chartCanvas = document.getElementById('ts-chart-canvas');
+        const chartCanvas = document.getElementById('ts-chart-canvas'); 
         const chartPlaceholder = document.getElementById('ts-chart-placeholder');
 
         if (!chartCanvas || !chartPlaceholder) {
@@ -446,15 +477,20 @@ document.addEventListener('DOMContentLoaded', function() {
             timeseriesChartInstance.destroy();
             timeseriesChartInstance = null;
         }
+        // Ensure reset button is hidden initially or when chart is cleared
+        if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'none'; 
 
         if (!apiData || apiData.length === 0) {
             showPlaceholderWithMessage(`No data available for ${ticker} with the selected parameters.`);
-            return;
+            // No return here, showPlaceholderWithMessage handles UI, button is already hidden
+            return; 
         }
-
+        
         const createChartLogic = () => {
             chartCanvas.style.display = 'block';
             chartPlaceholder.style.display = 'none';
+            // Show reset button only if a chart is successfully about to be rendered
+            if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'inline-block'; 
 
             const ctx = chartCanvas.getContext('2d');
             let datasets;
@@ -464,21 +500,43 @@ document.addEventListener('DOMContentLoaded', function() {
                 maintainAspectRatio: false,
                 plugins: {
                     legend: { position: 'top' },
-                    tooltip: { mode: 'index', intersect: false }
+                    tooltip: { mode: 'index', intersect: false },
+                    zoom: {
+                        pan: {
+                            enabled: true,
+                            mode: 'xy',
+                            threshold: 5
+                        },
+                        zoom: {
+                            wheel: {
+                                enabled: true,
+                            },
+                            pinch: {
+                                enabled: true
+                            },
+                            drag: {
+                                enabled: true,
+                                backgroundColor: 'rgba(0,123,255,0.2)'
+                            },
+                            mode: 'xy'
+                        }
+                    }
                 },
                 scales: {
                     y: {
                         title: { display: true, text: 'Price' },
-                        beginAtZero: false
+                        beginAtZero: false 
                     }
                 }
             };
 
             let specificTitlePart = "Price History";
 
-            if (chartType === 'candlestick') {
-                if (!window.Chart || !window.Chart.controllers || !window.Chart.controllers.candlestick) {
-                    const errorMsg = "Candlestick chart components (e.g., Chart.controllers.candlestick) not available. Cannot render chart.";
+            if (chartType === 'candlestick' || chartType === 'ohlc') {
+                // Check for financial library components (candlestick or ohlc controller)
+                if (!window.Chart || !window.Chart.controllers || 
+                    !(window.Chart.controllers.candlestick || window.Chart.controllers.ohlc)) {
+                    const errorMsg = `${chartType === 'candlestick' ? 'Candlestick' : 'OHLC'} chart components not available. Cannot render chart.`;
                     console.error(LOG_PREFIX, errorMsg);
                     alert(errorMsg + " Check if the financial library was loaded and registered correctly with Chart.js.");
                     showPlaceholderWithMessage(errorMsg);
@@ -495,7 +553,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 datasets = [{
                     label: `${ticker} OHLC (${interval})`,
                     data: apiData.map(d => ({
-                        x: new Date(d.Date).valueOf(),
+                        x: new Date(d.Datetime || d.Date).valueOf(),
                         o: d.Open, h: d.High, l: d.Low, c: d.Close
                     })),
                     color: {
@@ -509,35 +567,92 @@ document.addEventListener('DOMContentLoaded', function() {
                         unchanged: 'rgba(150, 150, 150, 1)'
                     }
                 }];
-                chartJsType = 'candlestick';
-                specificTitlePart = "Candlestick Chart";
+                chartJsType = chartType;
+                specificTitlePart = chartType === 'candlestick' ? "Candlestick Chart" : "OHLC Chart";
                 chartOptions.scales.x = {
                     type: 'time',
-                    time: { unit: 'day' /* auto-detect or make configurable */ },
+                    time: { 
+                        tooltipFormat: 'MMM d, yyyy, HH:mm' 
+                    },
                     title: { display: true, text: 'Date' },
                     ticks: { source: 'auto', maxRotation: 45, minRotation: 0 }
+                };
+                // Add custom tooltip callbacks for OHLC data
+                chartOptions.plugins.tooltip.callbacks = {
+                    label: function(tooltipItem) {
+                        const raw = tooltipItem.raw;
+                        if (raw && typeof raw.o === 'number' && typeof raw.h === 'number' && 
+                            typeof raw.l === 'number' && typeof raw.c === 'number') {
+                            return [
+                                `Open:  ${raw.o.toFixed(2)}`,
+                                `High:  ${raw.h.toFixed(2)}`,
+                                `Low:   ${raw.l.toFixed(2)}`,
+                                `Close: ${raw.c.toFixed(2)}`
+                            ];
+                        }
+                        // Fallback (should not be hit often for these chart types if data is correct)
+                        let label = tooltipItem.dataset.label || '';
+                        if (label) {
+                            label += ': ';
+                        }
+                        if (tooltipItem.formattedValue) {
+                            label += tooltipItem.formattedValue;
+                        }
+                        return label;
+                    }
                 };
                  // Might want to disable main legend for candlestick if OHLC label is enough
                 // chartOptions.plugins.legend = { display: false };
             } else { // Default to line chart
-                const labels = apiData.map(d => new Date(d.Date).toLocaleDateString());
-                const closePrices = apiData.map(d => d.Close);
-                datasets = [{
-                    label: `Close Price (${interval})`,
-                    data: closePrices, // Line chart data is simpler
-                    borderColor: 'rgb(75, 192, 192)',
-                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
-                    tension: 0.1,
-                    fill: true
-                }];
+                const isIntraday = ['15m', '30m', '1h'].includes(interval); // Add other intraday intervals if supported
+
+                if (isIntraday) {
+                    // Configure for time axis (intraday)
+                    chartOptions.scales.x = {
+                        type: 'time',
+                        time: {
+                            tooltipFormat: 'MMM d, yyyy, HH:mm'
+                        },
+                        title: { display: true, text: 'Date/Time' }, 
+                        ticks: { source: 'auto', maxRotation: 45, minRotation: 0 }
+                    };
+                    // Data format for time axis: {x: timestamp, y: value}
+                    const lineData = apiData.map(d => ({
+                        x: new Date(d.Datetime || d.Date).valueOf(),
+                        y: d.Close
+                    }));
+                    datasets = [{
+                        label: `Close Price (${interval})`,
+                        data: lineData,
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        borderWidth: 1,
+                        fill: false,
+                        pointRadius: 0
+                    }];
+                } else {
+                    // Configure for category axis (daily or longer)
+                    const labels = apiData.map(d => new Date(d.Datetime || d.Date).toLocaleDateString());
+                    chartOptions.scales.x = {
+                        type: 'category',
+                        labels: labels, // Pass labels for category axis
+                        title: { display: true, text: 'Date' },
+                        ticks: { maxRotation: 45, minRotation: 0 }
+                    };
+                    // Data format for category axis: array of values
+                    const closePrices = apiData.map(d => d.Close);
+                    datasets = [{
+                        label: `Close Price (${interval})`,
+                        data: closePrices,
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        borderWidth: 1,
+                        fill: false,
+                        pointRadius: 0
+                    }];
+                }
                 chartJsType = 'line';
                 specificTitlePart = "Line Chart";
-                chartOptions.scales.x = {
-                    type: 'category',
-                    labels: labels, // Pass labels for category axis
-                    title: { display: true, text: 'Date' },
-                    ticks: { maxRotation: 45, minRotation: 0 }
-                };
             }
 
             let titleRangePart = "";
@@ -561,7 +676,7 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log(LOG_PREFIX, "Chart rendered successfully for", ticker, "as", chartJsType);
         }; // End of createChartLogic
 
-        if (chartType === 'candlestick') {
+        if (chartType === 'candlestick' || chartType === 'ohlc') {
             showLoadingIndicator(true); // Show loading indicator
             loadDateAdapterLibrary() // First, load the date adapter
                 .then(() => {
@@ -575,10 +690,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 })
                 .catch(error => {
                     showLoadingIndicator(false);
-                    const errorMsg = `Failed to load required libraries for candlestick charts: ${error.message}`;
+                    const errorMsg = `Failed to load required libraries for ${chartType === 'candlestick' ? 'candlestick' : 'OHLC'} charts: ${error.message}`;
                     console.error(LOG_PREFIX, errorMsg, error);
                     alert(errorMsg + " Please check the console for details.");
                     showPlaceholderWithMessage(errorMsg);
+                    if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'none'; // Also hide on error
                 });
         } else {
             createChartLogic(); // For line chart, no special library needed beyond core Chart.js

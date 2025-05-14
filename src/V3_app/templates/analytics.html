@@ -244,6 +244,18 @@
 
         /* <<< REMOVED STICKY PAGINATION ATTEMPTS >>> */
 
+        /* NEW: Timeseries Chart Background Control */
+        /* Default (Light Mode) Timeseries Chart Background */
+        #timeseries-tab-pane .chart-container {
+            background-color: #f8f9fa; /* Standard Bootstrap light tertiary background */
+        }
+
+        /* Dark Mode Timeseries Chart Background */
+        [data-bs-theme="dark"] #timeseries-tab-pane .chart-container {
+            background-color: #000000; /* Black */
+        }
+        /* END NEW */
+
     </style>
 {% endblock %}
 
