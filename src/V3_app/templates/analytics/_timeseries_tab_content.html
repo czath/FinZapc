@@ -10,6 +10,7 @@
             <select id="ts-study-selector" class="form-select form-select-sm">
                 <option value="price_history" selected>Price History</option>
                 <option value="price_performance_comparison">Price Performance Comparison</option>
+                <option value="pair_relative_price">Pair Relative Price</option>
                 <!-- Add other studies here later -->
             </select>
         </div>
@@ -207,6 +208,71 @@
                 </div>
             </div>
             <!-- End Price Performance Comparison Pane -->
+
+            <!-- NEW: Pair Relative Price Configuration Pane -->
+            <div id="config-pane-pair_relative_price" class="study-config-pane" style="display: none;">
+                <h6 class="text-muted mb-3">Pair Relative Price Configuration</h6>
+
+                <!-- Ticker 1 Input: Manual Entry -->
+                <div class="mb-3">
+                    <label for="ts-prp-ticker1-input" class="form-label form-label-sm">Ticker 1 (Base):</label>
+                    <input type="text" class="form-control form-control-sm" id="ts-prp-ticker1-input" placeholder="e.g., AAPL">
+                </div>
+
+                <!-- Ticker 2 Input: Manual Entry -->
+                <div class="mb-3">
+                    <label for="ts-prp-ticker2-input" class="form-label form-label-sm">Ticker 2 (Relative to Ticker 1):</label>
+                    <input type="text" class="form-control form-control-sm" id="ts-prp-ticker2-input" placeholder="e.g., MSFT">
+                </div>
+                
+                {# --- Unique selectors for Pair Relative Price: Period, Dates, Interval --- #}
+                <div class="mb-3">
+                    <label for="ts-prp-period-selector" class="form-label form-label-sm">Period:</label>
+                    <select id="ts-prp-period-selector" class="form-select form-select-sm">
+                        <option value="custom" selected>Custom Range</option>
+                        <option value="1d">1 Day</option>
+                        <option value="5d">5 Days</option>
+                        <option value="1mo">1 Month</option>
+                        <option value="3mo">3 Months</option>
+                        <option value="6mo">6 Months</option>
+                        <option value="1y">1 Year</option>
+                        <option value="2y">2 Years</option>
+                        <option value="5y">5 Years</option>
+                        <option value="10y">10 Years</option>
+                        <option value="ytd">Year to Date</option>
+                        <option value="max">Max Available</option>
+                    </select>
+                </div>
+
+                <div class="mb-2" id="ts-prp-start-date-container">
+                    <label for="ts-prp-start-date" class="form-label form-label-sm">Start Date:</label>
+                    <input type="date" id="ts-prp-start-date" class="form-control form-control-sm">
+                </div>
+
+                <div class="mb-2" id="ts-prp-end-date-container">
+                    <label for="ts-prp-end-date" class="form-label form-label-sm">End Date:</label>
+                    <input type="date" id="ts-prp-end-date" class="form-control form-control-sm">
+                </div>
+
+                 <div class="mb-3">
+                    <label for="ts-prp-interval" class="form-label form-label-sm">Interval:</label>
+                    <select id="ts-prp-interval" class="form-select form-select-sm">
+                        <option value="15m">15min</option>
+                        <option value="30m">30min</option>
+                        <option value="1h">1h</option>
+                        <option value="1d" selected>Day</option>
+                        <option value="1wk">Week</option>
+                        <option value="1mo">Month</option>
+                    </select>
+                </div>
+                {# --- End Unique Selectors --- #}
+
+                <!-- Run Study Button -->
+                <div class="mt-4">
+                    <button id="ts-prp-run-study-btn" class="btn btn-info btn-sm w-100">Run Relative Price</button>
+                </div>
+            </div>
+            <!-- End Pair Relative Price Pane -->
 
             <!-- Add other study configuration panes here, e.g.,
             <div id="config-pane-another_study" class="study-config-pane" style="display: none;">

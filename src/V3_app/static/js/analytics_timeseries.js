@@ -49,6 +49,17 @@ document.addEventListener('DOMContentLoaded', function() {
     const ppcEndDateContainer = document.getElementById('ts-ppc-end-date-container');
     const ppcIntervalSelect = document.getElementById('ts-ppc-interval');
 
+    // --- NEW: DOM Elements for Pair Relative Price Study (PRP) ---
+    const prpTicker1Input = document.getElementById('ts-prp-ticker1-input');
+    const prpTicker2Input = document.getElementById('ts-prp-ticker2-input');
+    const prpPeriodSelector = document.getElementById('ts-prp-period-selector');
+    const prpStartDateInput = document.getElementById('ts-prp-start-date');
+    const prpEndDateInput = document.getElementById('ts-prp-end-date');
+    const prpStartDateContainer = document.getElementById('ts-prp-start-date-container');
+    const prpEndDateContainer = document.getElementById('ts-prp-end-date-container');
+    const prpIntervalSelect = document.getElementById('ts-prp-interval');
+    const prpRunButton = document.getElementById('ts-prp-run-study-btn');
+
     // --- Initialization ---
     function initializeTimeseriesModule() {
         console.log(LOG_PREFIX, "Initializing base UI and event listeners (pre-data)...");
@@ -230,6 +241,30 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error(LOG_PREFIX, "Ticker Source Radio elements or containers not found.");
         }
 
+        // --- NEW: Event Listener for Pair Relative Price (PRP) Run Button ---
+        if (prpRunButton) {
+            prpRunButton.addEventListener('click', handleRunPairRelativePrice);
+        } else {
+            console.warn(LOG_PREFIX, "Run Relative Price button (ts-prp-run-study-btn) not found.");
+        }
+
+        // --- NEW: Event Listener for Pair Relative Price (PRP) Period Selector ---
+        if (prpPeriodSelector) {
+            prpPeriodSelector.addEventListener('change', function() {
+                const isCustom = this.value === 'custom';
+                if (prpStartDateContainer) prpStartDateContainer.style.display = isCustom ? 'block' : 'none';
+                if (prpEndDateContainer) prpEndDateContainer.style.display = isCustom ? 'block' : 'none';
+            });
+            // Initial setup for PRP date fields (will also be handled by handleStudySelectionChange when pane becomes active)
+            if (prpStartDateContainer && prpEndDateContainer) {
+                const initialIsCustomPrpPeriod = prpPeriodSelector.value === 'custom';
+                prpStartDateContainer.style.display = initialIsCustomPrpPeriod ? 'block' : 'none';
+                prpEndDateContainer.style.display = initialIsCustomPrpPeriod ? 'block' : 'none';
+           }
+        } else {
+            console.warn(LOG_PREFIX, "Period selector (ts-prp-period-selector) for PRP not found.");
+        }
+
         console.log(LOG_PREFIX, "Event listeners setup complete.");
     }
 
@@ -355,7 +390,7 @@ document.addEventListener('DOMContentLoaded', function() {
             alert("Please select an interval.");
             return;
         }
-        
+
         let queryParams = `ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}`; // MODIFIED: Initialize queryParams here
 
         if (selectedPeriod === 'custom') {
@@ -621,6 +656,158 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
 
+    // --- NEW: Handler for Pair Relative Price Study (PRP) ---
+    async function handleRunPairRelativePrice() {
+        console.log(LOG_PREFIX, "handleRunPairRelativePrice called.");
+
+        if (!prpTicker1Input || !prpTicker2Input || !prpPeriodSelector || !prpIntervalSelect) {
+            console.error(LOG_PREFIX, "Essential UI elements for Pair Relative Price not found!");
+            alert("Error: Essential UI components for Pair Relative Price are missing.");
+            return;
+        }
+
+        const ticker1 = prpTicker1Input.value.trim().toUpperCase();
+        const ticker2 = prpTicker2Input.value.trim().toUpperCase();
+
+        if (!ticker1 || !ticker2) {
+            alert("Please enter both Ticker 1 and Ticker 2 symbols.");
+            return;
+        }
+        if (ticker1 === ticker2) {
+            alert("Ticker 1 and Ticker 2 cannot be the same.");
+            return;
+        }
+
+        const interval = prpIntervalSelect.value;
+        const selectedPeriod = prpPeriodSelector.value;
+
+        if (!interval || !selectedPeriod) {
+            alert("Interval or Period selector not found or value missing for PRP study."); return;
+        }
+
+        let userStartDateStr = null;
+        let userEndDateStr = null;
+        let queryDateParams = {}; 
+        let rangeDetails; // For chart title
+
+        if (selectedPeriod === 'custom') {
+            if (!prpStartDateInput || !prpEndDateInput) {
+                alert("Date input components are missing for PRP custom range."); return;
+            }
+            userStartDateStr = prpStartDateInput.value;
+            userEndDateStr = prpEndDateInput.value;
+            if (!userStartDateStr || !userEndDateStr) {
+                alert("Please select a start and end date for PRP custom range."); return;
+            }
+            const startDateObj = new Date(userStartDateStr);
+            const endDateObj = new Date(userEndDateStr);
+            if (startDateObj > endDateObj) {
+                alert("Start date must be before or the same as end date."); return;
+            }
+            const apiEndDateObj = new Date(endDateObj);
+            apiEndDateObj.setDate(apiEndDateObj.getDate() + 1);
+            
+            queryDateParams.start_date = userStartDateStr;
+            queryDateParams.end_date = apiEndDateObj.toISOString().split('T')[0];
+            rangeDetails = { start: userStartDateStr, end: userEndDateStr };
+        } else {
+            queryDateParams.period = selectedPeriod;
+            rangeDetails = { period: selectedPeriod };
+        }
+
+        console.log(LOG_PREFIX, `PRP Run for ${ticker1}/${ticker2}, Interval: ${interval}, API Dates:`, queryDateParams);
+        showLoadingIndicator(true);
+        showPlaceholderWithMessage(`Fetching data for ${ticker1} and ${ticker2}...`);
+
+        const tickersToFetch = [ticker1, ticker2];
+        const fetchPromises = tickersToFetch.map(ticker => {
+            let apiParams = `ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}`;
+            if (queryDateParams.period) {
+                apiParams += `&period=${encodeURIComponent(queryDateParams.period)}`;
+            } else if (queryDateParams.start_date && queryDateParams.end_date) {
+                apiParams += `&start_date=${encodeURIComponent(queryDateParams.start_date)}&end_date=${encodeURIComponent(queryDateParams.end_date)}`;
+            }
+            const apiUrl = `/api/v3/timeseries/price_history?${apiParams}`;
+            console.log(LOG_PREFIX, `Fetching for PRP (${ticker}): ${apiUrl}`);
+            return fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().catch(() => ({})).then(errData => {
+                            throw new Error(`HTTP error ${response.status} for ${ticker}: ${errData.detail || response.statusText}`);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => ({ ticker, data }))
+                .catch(error => ({ ticker, error: error.message || "Failed to fetch" }));
+        });
+
+        Promise.allSettled(fetchPromises)
+            .then(results => {
+                showLoadingIndicator(false);
+                const fetchedDataMap = new Map();
+                const errors = [];
+
+                results.forEach(result => {
+                    if (result.status === 'fulfilled') {
+                        if (result.value.error) {
+                            errors.push(`${result.value.ticker}: ${result.value.error}`);
+                        } else if (result.value.data && result.value.data.length > 0) {
+                            fetchedDataMap.set(result.value.ticker, result.value.data);
+                        } else {
+                            errors.push(`${result.value.ticker}: No data returned or empty dataset.`);
+                        }
+                    } else {
+                        errors.push(`A ticker (${result.reason?.config?.params?.ticker || 'unknown'}) request failed: ${result.reason?.message || 'Unknown fetch error'}`);
+                    }
+                });
+
+                if (errors.length > 0) {
+                    alert("Errors occurred during data fetching for relative price:\n" + errors.join("\n"));
+                }
+
+                if (fetchedDataMap.size !== 2) {
+                    showPlaceholderWithMessage("Failed to fetch data for one or both tickers. Cannot calculate relative price.");
+                    return;
+                }
+
+                const data1 = fetchedDataMap.get(ticker1);
+                const data2 = fetchedDataMap.get(ticker2);
+
+                // Align data and calculate ratio
+                const alignedRatios = [];
+                const data2Map = new Map(data2.map(item => [ (item.Datetime || item.Date), item.Close ]));
+
+                for (const p1 of data1) {
+                    const dateKey = p1.Datetime || p1.Date;
+                    const close1 = p1.Close;
+                    const close2 = data2Map.get(dateKey);
+
+                    if (typeof close1 === 'number' && typeof close2 === 'number' && close2 !== 0) {
+                        alignedRatios.push({
+                            x: new Date(dateKey).valueOf(),
+                            y: close1 / close2
+                        });
+                    } else if (typeof close1 === 'number' && typeof close2 === 'number' && close2 === 0) {
+                         console.warn(LOG_PREFIX, `Cannot calculate ratio for ${dateKey}: Ticker 2 price is 0.`);
+                    }
+                }
+
+                if (alignedRatios.length === 0) {
+                    showPlaceholderWithMessage(`No common data points found or Ticker 2 price was zero for ${ticker1}/${ticker2}. Cannot calculate relative price.`);
+                    return;
+                }
+
+                console.log(LOG_PREFIX, "Calculated relative price ratios:", alignedRatios.length);
+                renderTimeseriesChart(alignedRatios, `${ticker1}/${ticker2}`, interval, rangeDetails, 'pair_relative_price_line');
+
+            }).catch(overallError => {
+                showLoadingIndicator(false);
+                console.error(LOG_PREFIX, "Generic error in Promise.allSettled for PRP:", overallError);
+                showPlaceholderWithMessage("An unexpected error occurred while processing relative price data.");
+            });
+    }
+
     // --- NEW: Handler for Study Selection Change (Basic for now) ---
     function handleStudySelectionChange(event) {
         const selectedStudy = event.target.value;
@@ -648,6 +835,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     const isCustom = ppcPeriodSelector.value === 'custom';
                     ppcStartDateContainer.style.display = isCustom ? 'block' : 'none';
                     ppcEndDateContainer.style.display = isCustom ? 'block' : 'none';
+                }
+            } else if (selectedStudy === 'pair_relative_price') { // NEW: Handle PRP pane
+                if (prpPeriodSelector && prpStartDateContainer && prpEndDateContainer) {
+                    const isCustom = prpPeriodSelector.value === 'custom';
+                    prpStartDateContainer.style.display = isCustom ? 'block' : 'none';
+                    prpEndDateContainer.style.display = isCustom ? 'block' : 'none';
                 }
             }
         } else {
@@ -721,23 +914,23 @@ document.addEventListener('DOMContentLoaded', function() {
         if (priceHistoryLoadedTickerSelect) {
             priceHistoryLoadedTickerSelect.innerHTML = ''; // Clear existing options
             if (sortedTickers.length > 0) {
-                const placeholderOption = document.createElement('option');
-                placeholderOption.value = "";
-                placeholderOption.textContent = "Select a Ticker...";
-                placeholderOption.disabled = true;
-                placeholderOption.selected = true;
-                priceHistoryLoadedTickerSelect.appendChild(placeholderOption);
+            const placeholderOption = document.createElement('option');
+            placeholderOption.value = "";
+            placeholderOption.textContent = "Select a Ticker...";
+            placeholderOption.disabled = true;
+            placeholderOption.selected = true;
+            priceHistoryLoadedTickerSelect.appendChild(placeholderOption);
                 sortedTickers.forEach(ticker => {
-                    const option = document.createElement('option');
-                    option.value = ticker;
-                    option.textContent = ticker;
-                    priceHistoryLoadedTickerSelect.appendChild(option);
-                });
-            } else {
-                const noTickerOption = document.createElement('option');
-                noTickerOption.value = "";
-                noTickerOption.textContent = "No tickers in loaded data";
-                priceHistoryLoadedTickerSelect.appendChild(noTickerOption);
+                const option = document.createElement('option');
+                option.value = ticker;
+                option.textContent = ticker;
+                priceHistoryLoadedTickerSelect.appendChild(option);
+            });
+        } else {
+            const noTickerOption = document.createElement('option');
+            noTickerOption.value = "";
+            noTickerOption.textContent = "No tickers in loaded data";
+            priceHistoryLoadedTickerSelect.appendChild(noTickerOption);
             }
             console.log(LOG_PREFIX, "populateLoadedTickerSelect - Populated Price History select with tickers:", sortedTickers);
         }
@@ -814,17 +1007,15 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // Always destroy the old instance if it exists
         if (timeseriesChartInstance) {
             timeseriesChartInstance.destroy();
             timeseriesChartInstance = null;
         }
-        // Ensure reset button is hidden initially or when chart is cleared
         if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'none'; 
 
-        if (!apiData || (chartType !== 'performance_comparison_line' && apiData.length === 0)) {
+        if (!apiData || (chartType !== 'performance_comparison_line' && chartType !== 'pair_relative_price_line' && apiData.length === 0)) {
             showPlaceholderWithMessage(`No data available for ${ticker} with the selected parameters.`);
-            return; 
+            return;
         }
         
         const createChartLogic = () => {
@@ -873,14 +1064,10 @@ document.addEventListener('DOMContentLoaded', function() {
             let specificTitlePart = "Price History";
 
             if (chartType === 'candlestick' || chartType === 'ohlc') {
-                // Check for financial library components (candlestick or ohlc controller)
-                if (!window.Chart || !window.Chart.controllers || 
-                    !(window.Chart.controllers.candlestick || window.Chart.controllers.ohlc)) {
-                    const errorMsg = `${chartType === 'candlestick' ? 'Candlestick' : 'OHLC'} chart components not available. Cannot render chart.`;
+                if (!window.Chart || !window.Chart.controllers || !(window.Chart.controllers.candlestick || window.Chart.controllers.ohlc)) {
+                    const errorMsg = `${chartType === 'candlestick' ? 'Candlestick' : 'OHLC'} chart components not available.`;
                     console.error(LOG_PREFIX, errorMsg);
-                    alert(errorMsg + " Check if the financial library was loaded and registered correctly with Chart.js.");
-                    showPlaceholderWithMessage(errorMsg);
-                    return;
+                    showPlaceholderWithMessage(errorMsg); return;
                 }
                 if (!apiData.every(d => d.hasOwnProperty('Open') && d.hasOwnProperty('High') && d.hasOwnProperty('Low') && d.hasOwnProperty('Close'))) {
                     const errorMsg = `Data for ${ticker} is missing required OHLC fields for a candlestick chart.`;
@@ -917,7 +1104,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     title: { display: true, text: 'Date' },
                     ticks: { source: 'auto', maxRotation: 45, minRotation: 0 }
                 };
-                // Add custom tooltip callbacks for OHLC data
                 chartOptions.plugins.tooltip.callbacks = {
                     label: function(tooltipItem) {
                         const raw = tooltipItem.raw;
@@ -930,7 +1116,6 @@ document.addEventListener('DOMContentLoaded', function() {
                                 `Close: ${raw.c.toFixed(2)}`
                             ];
                         }
-                        // Fallback (should not be hit often for these chart types if data is correct)
                         let label = tooltipItem.dataset.label || '';
                         if (label) {
                             label += ': ';
@@ -941,16 +1126,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         return label;
                     }
                 };
-                 // Might want to disable main legend for candlestick if OHLC label is enough
-                // chartOptions.plugins.legend = { display: false };
             } else if (chartType === 'performance_comparison_line') {
                 console.log(LOG_PREFIX, "Configuring for performance_comparison_line chart type.");
-                // apiData here is the normalizedSeries: [{ ticker: 'X', data: [{x,y},...] }, ...]
-                
                 chartJsType = 'line';
                 specificTitlePart = "Price Performance Comparison";
 
-                // Define an array of distinct colors for the lines
                 const lineColors = [
                     'rgb(75, 192, 192)', 'rgb(255, 99, 132)', 'rgb(54, 162, 235)',
                     'rgb(255, 206, 86)', 'rgb(153, 102, 255)', 'rgb(255, 159, 64)',
@@ -959,12 +1139,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 datasets = apiData.map((series, index) => ({
                     label: series.ticker + " Performance",
-                    data: series.data, // Already in {x, y} format
-                    borderColor: lineColors[index % lineColors.length], // Cycle through colors
-                    backgroundColor: lineColors[index % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.1)'), // Slight fill for visibility
-                    borderWidth: 2, // Slightly thicker lines for comparison
+                    data: series.data,
+                    borderColor: lineColors[index % lineColors.length],
+                    backgroundColor: lineColors[index % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.1)'),
+                    borderWidth: 2,
                     fill: false,
-                    pointRadius: 0, // No points by default, lines are clearer
+                    pointRadius: 0,
                     tension: 0.1
                 }));
 
@@ -983,7 +1163,6 @@ document.addEventListener('DOMContentLoaded', function() {
                             return value + '%';
                         }
                     },
-                    // beginAtZero is not strictly needed as data starts at 0% but doesn't hurt
                 };
 
                 chartOptions.plugins.tooltip.callbacks = {
@@ -999,11 +1178,50 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 };
 
-            } else { // Default to line chart (for single ticker price history)
-                const isIntraday = ['15m', '30m', '1h'].includes(interval); // Add other intraday intervals if supported
+            } else if (chartType === 'pair_relative_price_line') {
+                console.log(LOG_PREFIX, "Configuring for pair_relative_price_line chart type.");
+                chartJsType = 'line';
+                specificTitlePart = `Relative Price: ${ticker}`;
+
+                datasets = [{
+                    label: `Ratio (${ticker})`,
+                    data: apiData,
+                    borderColor: 'rgb(255, 159, 64)', 
+                    backgroundColor: 'rgba(255, 159, 64, 0.1)',
+                    borderWidth: 1,
+                    fill: false,
+                    pointRadius: 0,
+                    tension: 0.1
+                }];
+
+                chartOptions.scales.x = {
+                    type: 'time',
+                    time: {
+                        tooltipFormat: 'MMM d, yyyy' + (['15m', '30m', '1h'].includes(interval) ? ', HH:mm' : '')
+                    },
+                    title: { display: true, text: 'Date' + (['15m', '30m', '1h'].includes(interval) ? '/Time' : '') },
+                    ticks: { source: 'auto', maxRotation: 45, minRotation: 0 }
+                };
+                chartOptions.scales.y = {
+                    title: { display: true, text: 'Price Ratio' }, 
+                };
+
+                chartOptions.plugins.tooltip.callbacks = {
+                    label: function(tooltipItem) {
+                        let label = tooltipItem.dataset.label || '';
+                        if (label) {
+                            label += ': ';
+                        }
+                        if (tooltipItem.parsed.y !== null) {
+                            label += tooltipItem.parsed.y.toFixed(4); 
+                        }
+                        return label;
+                    }
+                };
+            } else {
+                const isIntraday = ['15m', '30m', '1h'].includes(interval);
 
                 if (isIntraday) {
-                    // Configure for time axis (intraday)
                     chartOptions.scales.x = {
                         type: 'time',
                         time: {
@@ -1012,7 +1230,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         title: { display: true, text: 'Date/Time' }, 
                         ticks: { source: 'auto', maxRotation: 45, minRotation: 0 }
                     };
-                    // Data format for time axis: {x: timestamp, y: value}
                     const lineData = apiData.map(d => ({
                         x: new Date(d.Datetime || d.Date).valueOf(),
                         y: d.Close
@@ -1027,15 +1244,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         pointRadius: 0
                     }];
                 } else {
-                    // Configure for category axis (daily or longer)
                     const labels = apiData.map(d => new Date(d.Datetime || d.Date).toLocaleDateString());
                     chartOptions.scales.x = {
                         type: 'category',
-                        labels: labels, // Pass labels for category axis
+                        labels: labels,
                         title: { display: true, text: 'Date' },
                         ticks: { maxRotation: 45, minRotation: 0 }
                     };
-                    // Data format for category axis: array of values
                     const closePrices = apiData.map(d => d.Close);
                     datasets = [{
                         label: `Close Price (${interval})`,
@@ -1060,8 +1275,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             chartOptions.plugins.title = {
                 display: true,
-                // For performance comparison, 'ticker' var is a comma-separated string of tickers
-                text: `${chartType === 'performance_comparison_line' ? '' : ticker + " - "}${specificTitlePart} ${titleRangePart ? '('+titleRangePart+')' : ''}`.trim(),
+                text: `${ (chartType === 'performance_comparison_line' || chartType === 'pair_relative_price_line') ? '' : ticker + " - "}${specificTitlePart} ${titleRangePart ? '(' + titleRangePart + ')' : ''}`.trim(),
                 font: { size: 16 }
             };
 
@@ -1073,25 +1287,41 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log(LOG_PREFIX, "Chart rendered successfully for", ticker, "as", chartJsType);
         };
 
-        if (chartType === 'candlestick' || chartType === 'ohlc') {
-            showLoadingIndicator(true); // Show loading indicator
-            loadDateAdapterLibrary() // First, load the date adapter
+        const isIntradayLine = chartType === 'line' && ['15m', '30m', '1h'].includes(interval);
+        
+        const needsDateAdapter = 
+            chartType === 'candlestick' || 
+            chartType === 'ohlc' || 
+            chartType === 'performance_comparison_line' || 
+            chartType === 'pair_relative_price_line' ||
+            isIntradayLine;
+
+        const needsFinancialLib = chartType === 'candlestick' || chartType === 'ohlc';
+
+        if (needsDateAdapter) {
+            console.log(LOG_PREFIX, `Chart type ${chartType} (interval: ${interval}) requires date adapter.`);
+            showLoadingIndicator(true);
+            loadDateAdapterLibrary()
                 .then(() => {
-                    // Then, load the financial chart library
-                    return loadFinancialChartLibrary(); 
+                    if (needsFinancialLib) {
+                        console.log(LOG_PREFIX, `Chart type ${chartType} also requires financial library.`);
+                        return loadFinancialChartLibrary();
+                    }
+                    return Promise.resolve(); // Financial library not needed
                 })
                 .then(() => {
-                    // Both libraries loaded, now create the chart
+                    console.log(LOG_PREFIX, "All required libraries loaded. Proceeding to create chart.");
                     showLoadingIndicator(false);
                     createChartLogic();
                 })
                 .catch(error => {
                     showLoadingIndicator(false);
-                    const errorMsg = `Failed to load required libraries for ${chartType === 'candlestick' ? 'candlestick' : 'OHLC'} charts: ${error.message}`;
+                    const libType = needsFinancialLib ? 'financial and/or date adapter' : 'date adapter';
+                    const errorMsg = `Failed to load required ${libType} for ${chartType} chart: ${error.message}`;
                     console.error(LOG_PREFIX, errorMsg, error);
                     alert(errorMsg + " Please check the console for details.");
                     showPlaceholderWithMessage(errorMsg);
-                    if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'none'; // Also hide on error
+                    if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'none';
                 });
         } else {
             createChartLogic(); // For line chart, no special library needed beyond core Chart.js
