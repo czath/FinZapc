@@ -277,6 +277,11 @@
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="data-table-tab" data-bs-toggle="tab" data-bs-target="#data-table-pane" type="button" role="tab" aria-controls="data-table-pane" aria-selected="false"><i class="bi bi-table me-1"></i> Data Table</button>
         </li>
+        {# <<< NEW: Timeseries Tab Button >>> #}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="timeseries-tab" data-bs-toggle="tab" data-bs-target="#timeseries-tab-pane" type="button" role="tab" aria-controls="timeseries-tab-pane" aria-selected="false"><i class="bi bi-graph-up me-1"></i> Timeseries</button>
+        </li>
+        {# <<< END NEW >>> #}
         {# <<< REMOVED Top-Level Filtered Data Tab Button >>> #}
     </ul>
     {# --- End Main Workflow Tabs --- #}
@@ -906,6 +911,17 @@
             {# --- END REPLACEMENT --- #}
         </div>
         {# --- END NEW: Data Table Tab Pane --- #}
+
+        {# --- NEW: Timeseries Tab Pane --- #}
+        <div class="tab-pane fade" id="timeseries-tab-pane" role="tabpanel" aria-labelledby="timeseries-tab" tabindex="0">
+            <h5>Timeseries Analysis</h5>
+            <p>Perform timeseries analysis and forecasting on selected data.</p>
+            {# Add Timeseries specific content here later #}
+            <div class="my-3 p-3 border rounded bg-body-tertiary">
+                <p class="text-muted">Timeseries module content will go here.</p>
+            </div>
+        </div>
+        {# --- END NEW: Timeseries Tab Pane --- #}
 
     </div>
     {# --- End Main Tab Content --- #}

@@ -3471,30 +3471,28 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         // const allDiscoveredNonTickerFields = [...discoveredFields].sort(); // OLD: Get ONLY non-ticker fields discovered
 
         // --- MODIFIED LOGIC TO DETERMINE FINAL AVAILABLE FIELDS ---
-        const preTransformEnabledStatus = fieldEnabledStatus; // Use the global pre-transform status map
-        let candidateFieldsForFinalList = new Set();
-
-        // 1. Add all fields that were enabled pre-transform
-        Object.keys(preTransformEnabledStatus).forEach(field => {
-            if (preTransformEnabledStatus[field] === true) {
-                candidateFieldsForFinalList.add(field);
+        // finalAvailableFields will now be built *only* from fields present in the transformed `data`.
+        const currentTransformedFields = new Set();
+        let tickerActuallyInTransformedData = false;
+        data.forEach(item => {
+            if (item?.ticker !== undefined) {
+                tickerActuallyInTransformedData = true;
+            }
+            if (item?.processed_data) {
+                Object.keys(item.processed_data).forEach(key => currentTransformedFields.add(key));
             }
         });
 
-        // 2. Add all fields discovered in the actual transformed data's processed_data
-        discoveredFields.forEach(field => candidateFieldsForFinalList.add(field));
-        
-        // Remove 'ticker' from this set as it's handled specially
-        candidateFieldsForFinalList.delete('ticker');
-        const sortedNonTickerFinalCandidates = [...candidateFieldsForFinalList].sort((a,b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+        currentTransformedFields.delete('ticker'); // Remove 'ticker' to handle its addition based on tickerActuallyInTransformedData
+        const sortedNonTickerFinalFields = [...currentTransformedFields].sort((a,b) => a.toLowerCase().localeCompare(b.toLowerCase()));
 
-        if (tickerFound) {
-            finalAvailableFields = ['ticker', ...sortedNonTickerFinalCandidates];
+        if (tickerActuallyInTransformedData) {
+            finalAvailableFields = ['ticker', ...sortedNonTickerFinalFields];
         } else {
-            finalAvailableFields = sortedNonTickerFinalCandidates;
+            finalAvailableFields = sortedNonTickerFinalFields;
         }
-        console.log("[updateFinalFieldsAndMetadata] Final list of available fields (pre-metadata calc):", finalAvailableFields);
-        // --- END MODIFIED LOGIC ---
+        console.log("[updateFinalFieldsAndMetadata] Final list of available fields (based STRICTLY on transformed data):", finalAvailableFields);
+        // --- END MODIFIED LOGIC --
 
 
         // --- Calculate Metadata based ONLY on the finalAvailableFields ---
@@ -3577,7 +3575,8 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
             } else {
                 // Field was enabled pre-transform but not found in finalDataForAnalysis
-                // Use definitional metadata from global fieldMetadata (which is merged from finviz raw and yahoo api)
+                // THIS BLOCK SHOULD IDEALLY NOT BE REACHED IF finalAvailableFields IS BUILT STRICTLY FROM `data`
+                // However, we keep it for safety, or if a field somehow gets into finalAvailableFields without data.
                 const definitionalMeta = fieldMetadata[field];
                 if (definitionalMeta) {
                     newFinalFieldMetadata[field] = {

@@ -142,16 +142,16 @@ async def get_yahoo_query_service(
 # --- Target Item Types ---
 TARGET_ITEM_TYPES = [
     # Type (query string, lowercase), Coverage (actual in DB), Key in output dict
-    ('analyst_price_targets', "CUMULATIVE_SNAPSHOT", 'analyst_price_targets_latest'), 
-    ('forecast_summary', "CUMULATIVE", 'forecast_summary_latest'),          
-    ('balance_sheet', "FYEAR", 'balance_sheet_annual_latest'),
-    ('income_statement', "FYEAR", 'income_statement_annual_latest'),
-    ('cash_flow_statement', "FYEAR", 'cash_flow_annual_latest'), # Changed 'cash_flow' to 'cash_flow_statement'
-    ('balance_sheet', "QUARTER", 'balance_sheet_quarterly_latest'),
-    ('income_statement', "QUARTER", 'income_statement_quarterly_latest'),
-    ('cash_flow_statement', "QUARTER", 'cash_flow_quarterly_latest'), # Changed 'cash_flow' to 'cash_flow_statement'
-    ('income_statement', "TTM", 'income_statement_ttm_latest'), 
-    ('cash_flow_statement', "TTM", 'cash_flow_ttm_latest'), # Changed 'cash_flow' to 'cash_flow_statement'
+    ('analyst_price_targets', "CUMULATIVE_SNAPSHOT", 'analyst_price_targets'),
+    ('forecast_summary', "CUMULATIVE", 'forecast_summary'),
+    ('balance_sheet', "FYEAR", 'balance_sheet_annual'),
+    ('income_statement', "FYEAR", 'income_statement_annual'),
+    ('cash_flow_statement', "FYEAR", 'cash_flow_annual'), # Changed 'cash_flow' to 'cash_flow_statement'
+    ('balance_sheet', "QUARTER", 'balance_sheet_quarterly'),
+    ('income_statement', "QUARTER", 'income_statement_quarterly'),
+    ('cash_flow_statement', "QUARTER", 'cash_flow_quarterly'), # Changed 'cash_flow' to 'cash_flow_statement'
+    ('income_statement', "TTM", 'income_statement_ttm'),
+    ('cash_flow_statement', "TTM", 'cash_flow_ttm'), # Changed 'cash_flow' to 'cash_flow_statement'
 ]
 
 # --- New API Route ---
