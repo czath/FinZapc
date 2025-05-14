@@ -65,6 +65,10 @@ from .V3_ibkr_monitor import register_ibkr_monitor # Use alias to avoid name cla
 # ADD Analytics import <<<<< ADD THIS LINE
 from .V3_analytics import preprocess_raw_analytics_data # CORRECTED Import
 
+# --- Import Utilities Router --- 
+from .routers import utilities_router
+# --- End Import Utilities Router ---
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, # Ensure level is INFO
@@ -1393,6 +1397,16 @@ def create_app():
                 screener_tickers_raw = await repository.get_all_screened_tickers()
                 portfolio_rules_raw = await repository.get_all_portfolio_rules()
                 
+                # --- Create a set of screener tickers with status 'portfolio' for efficient lookup ---
+                screener_portfolio_tickers_set = {t.get('ticker') for t in screener_tickers_raw if t.get('ticker') and t.get('status') == 'portfolio'}
+                logger.info(f"[UI Read Root] Created screener_portfolio_tickers_set with {len(screener_portfolio_tickers_set)} unique tickers (status='portfolio').")
+                # --- End Create Set ---
+
+                # --- Create a map of screener.ticker to screener.beta for beta calculation ---
+                screener_beta_map = {t.get('ticker'): t.get('beta') for t in screener_tickers_raw if t.get('ticker') and t.get('beta') is not None}
+                logger.info(f"[UI Read Root] Created screener_beta_map with {len(screener_beta_map)} entries.")
+                # --- End Beta Map ---
+
                 # --- Fetch Exchange Rates --- 
                 exchange_rates = await get_exchange_rates(session)
                 logger.info(f"[UI Read Root] Fetched exchange rates: {exchange_rates}")
@@ -1446,6 +1460,11 @@ def create_app():
                         pos_currency = pos.get('currency', 'USD') # Default to USD if missing
                         pos_symbol = currency_symbols.get(pos_currency, pos_currency) # Get symbol or use code
                         
+                        # --- Check if position's name is in the set of screener tickers with status 'portfolio' ---
+                        position_name = pos.get('name') # Get the name of the position
+                        name_in_tracked_screener_tickers = position_name in screener_portfolio_tickers_set if position_name else False
+                        # --- End Check ---
+                        
                         # --- Re-calculate Value (EUR) --- 
                         raw_value_eur = 0.0
                         usd_rate = exchange_rates.get('USD', 1.0) 
@@ -1460,12 +1479,29 @@ def create_app():
                             raw_value_eur = mkt_value # Assume 1:1 if rate unknown
                         # --- End Value (EUR) --- 
                         
+                        # --- Get Beta for calculation ---
+                        key_for_beta_lookup = pos.get('name') # positions.name is equivalent to screener.ticker for this lookup
+                        beta_from_screener = screener_beta_map.get(key_for_beta_lookup) # This might be None or not a number
+                        beta_for_calc = 1.0 # Default beta
+                        if isinstance(beta_from_screener, (int, float)):
+                            beta_for_calc = float(beta_from_screener)
+                        elif beta_from_screener is not None:
+                            try:
+                                beta_for_calc = float(beta_from_screener) # Try to convert if it's a string representation of a number
+                            except ValueError:
+                                logger.warning(f"[UI Read Root] Could not convert beta '{beta_from_screener}' to float for '{key_for_beta_lookup}'. Using default 1.0.")
+                                beta_for_calc = 1.0 # Fallback to default if conversion fails
+                        # --- End Get Beta ---
+
                         # Convert datetime to string for JSON serialization
                         last_update_str = pos.get('last_update').isoformat() if pos.get('last_update') else None
                         
                         formatted_pos = {
                             **{k: v for k, v in pos.items() if k != 'last_update'}, # Copy other fields
                             'last_update': last_update_str, # Use string version
+                            'is_untracked_portfolio_item': not name_in_tracked_screener_tickers, # Update flag based on position.name vs screener.ticker (status portfolio)
+                            'mkt_value_eur_raw': raw_value_eur, # Add raw numeric EUR value for JS calculations
+                            'beta_for_calc': beta_for_calc, # Add beta for JS calculations
                             'value_percentage': f"{(raw_value_eur / raw_net_liq * 100):.2f}%" if raw_net_liq else "0.00%", # USE EUR VALUE
                             'value_eur': f"€{raw_value_eur:,.2f}", # Add formatted EUR value
                             'mkt_price_display': f"{pos_symbol}{pos.get('mkt_price', 0.0):,.2f}",
@@ -2012,7 +2048,12 @@ def create_app():
                 logger.info(f"[Tracker] Fetched {len(positions_raw)} live positions and {len(orders_raw)} live orders.")
                 
                 # Create lookups for live data
-                live_positions = { (p['account_id'], p['ticker']): p for p in positions_raw }
+                # --- Create a set of unique names from live positions for efficient lookup ---
+                live_position_names = {p.get('name') for p in positions_raw if p.get('name')}
+                logger.info(f"[Tracker] Created set of {len(live_position_names)} unique names from live positions.")
+                # --- End set creation ---
+                live_positions = { (p['account_id'], p['ticker']): p for p in positions_raw } 
+                
                 # Find relevant orders (e.g., active non-filled stop/trail orders?)
                 # For simplicity now, just store the latest order per ticker/account?
                 # Or store the most relevant (e.g., first active stop/trail)?
@@ -2028,6 +2069,23 @@ def create_app():
                 # 3. Merge Live Data into Screener Data
                 for ticker, item in screener_dict.items():
                     item['in_portfolio'] = False # Default
+                    # --- Check if the screener item's ticker is in live position names ---
+                    screener_item_ticker = item.get('ticker')
+                    if screener_item_ticker and screener_item_ticker in live_position_names:
+                        item['in_portfolio'] = True
+                        # --- If screener.ticker is in positions.name, set screener.status to portfolio for display AND DB ---
+                        current_db_status = item.get('status') # Get status as it was from DB
+                        if current_db_status != 'portfolio':
+                            try:
+                                await repository.update_screener_ticker_details(screener_item_ticker, "status", "portfolio")
+                                logger.info(f"[Tracker] DB UPDATE: Status for screener ticker '{screener_item_ticker}' updated to 'portfolio'.")
+                            except Exception as db_update_err:
+                                logger.error(f"[Tracker] DB UPDATE FAILED: Could not update status for screener ticker '{screener_item_ticker}' to 'portfolio'. Error: {db_update_err}")
+                        # Always update the item for display, even if DB update was just attempted or status was already correct
+                        item['status'] = 'portfolio' 
+                        logger.debug(f"[Tracker] Display status set to 'portfolio' for screener ticker {screener_item_ticker} because it was found in live position names.")
+                    # --- End name check ---
+
                     item['acc_from_live'] = False
                     item['open_pos_from_live'] = False
                     item['cost_base_from_live'] = False
@@ -2035,11 +2093,13 @@ def create_app():
                     item['stop_from_order'] = False
                     item['trail_from_order'] = False
                     item['lmt_ofst_from_order'] = False
-                    # Find matching live position (need account context - how to determine which account?)
-                    # --- Simplified Approach: If ticker appears in *any* live position --- 
-                    matching_pos = next((p for p in positions_raw if p.get('ticker') == ticker), None)
+                    # Find matching live position to enrich screener data (Acc, Open Pos, Cost Base, Currency)
+                    # Match screener.ticker with position.name
+                    screener_item_ticker_for_enrichment = item.get('ticker') 
+                    matching_pos = next((p for p in positions_raw if screener_item_ticker_for_enrichment and p.get('name') == screener_item_ticker_for_enrichment), None)
+                    
                     if matching_pos:
-                         item['in_portfolio'] = True
+                         # item['in_portfolio'] = True # This line is now handled by the name check above
                          item['acc'] = matching_pos.get('account_id') # Overwrite screener acc
                          item['acc_from_live'] = True
                          item['open_pos'] = matching_pos.get('position') # Overwrite screener pos
@@ -2899,8 +2959,28 @@ def create_app():
             return StreamingResponse(event_generator(), media_type="text/event-stream")
         # --- End SSE Endpoint ---
         
+        # --- NEW Utilities Page Route ---
+        @app.get("/utilities", response_class=HTMLResponse, name="get_utilities_page")
+        async def get_utilities_page(request: Request):
+            """
+            Serves the utilities page.
+            """
+            logger.info("Rendering utilities page")
+            # Basic context, can add more if needed
+            context = {"request": request}
+            return request.app.state.templates.TemplateResponse(
+                "utilities.html", context
+            )
+        # --- END Utilities Page Route ---
+
         # ------ Helper for Sync Service Calls -------
         # (Add this if needed for other sync tasks)
+
+        # --- Include Routers ---
+        app.include_router(backend_router) # Existing router
+        app.include_router(utilities_router.router) # Add utilities router
+        logger.info("Included backend_router and utilities_router.")
+        # --- End Include Routers ---
 
         logger.info("FastAPI app instance created and configured successfully.")
         return app 

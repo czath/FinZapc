@@ -349,6 +349,9 @@
              <li class="nav-item">
               <a class="nav-link {% if request.url.path == url_for('get_config_page') %}active{% endif %}" href="{{ url_for('get_config_page') }}">Settings</a>
             </li>
+            <li class="nav-item">
+              <a class="nav-link {% if request.url.path == url_for('get_utilities_page') %}active{% endif %}" href="{{ url_for('get_utilities_page') }}">Utilities</a>
+            </li>
             {# --- IBKR Connection Status --- #}
             <li class="nav-item d-flex align-items-center ms-lg-2"> {# Use flex alignment and margin #}
                 <span id="ibkr-connection-status" class="navbar-text small" title="IBKR Gateway Connection Status">

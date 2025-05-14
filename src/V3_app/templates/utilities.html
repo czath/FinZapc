@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Utilities - {{ super() }}{% endblock %}
+
+{% block head_extra %}
+<style>
+  .utility-section {
+    padding: 20px;
+    margin-bottom: 30px;
+    border-radius: 8px;
+    background-color: var(--bs-card-bg); /* Use theme card background */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1); /* Subtle shadow */
+  }
+  .utility-section h2 {
+    margin-bottom: 20px;
+    color: var(--bs-heading-color);
+  }
+  #atrResult {
+    margin-top: 15px;
+    padding: 10px;
+    border-radius: 4px;
+    /* background-color: var(--bs-tertiary-bg); /* Light background for result */
+    /* border: 1px solid var(--bs-border-color); */
+  }
+  #atrResult.success {
+    background-color: var(--bs-success-bg-subtle, #d1e7dd); /* Bootstrap 5.3 success bg subtle */
+    border-color: var(--bs-success-border-subtle, #badbcc);
+    color: var(--bs-success-text-emphasis, #0a3622);
+  }
+  #atrResult.error {
+    background-color: var(--bs-danger-bg-subtle, #f8d7da); /* Bootstrap 5.3 danger bg subtle */
+    border-color: var(--bs-danger-border-subtle, #f5c2c7);
+    color: var(--bs-danger-text-emphasis, #58151c);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Utilities</h1>
+
+    <div class="utility-section card">
+        <div class="card-header">
+            <h2>ATR Calculator</h2>
+        </div>
+        <div class="card-body">
+            <form id="atrCalculatorForm">
+                <div class="mb-3">
+                    <label for="tickerInput" class="form-label">Ticker Symbol</label>
+                    <input type="text" class="form-control" id="tickerInput" placeholder="Enter ticker (e.g., AAPL)" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Calculate ATR</button>
+            </form>
+            <div id="atrResult" class="mt-3" role="alert" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- More utilities can be added here in separate utility-section divs -->
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }} {# Include scripts from base.html if any #}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const atrForm = document.getElementById('atrCalculatorForm');
+    const tickerInput = document.getElementById('tickerInput');
+    const atrResultDiv = document.getElementById('atrResult');
+
+    atrForm.addEventListener('submit', async function (event) {
+        event.preventDefault();
+        const ticker = tickerInput.value.trim().toUpperCase();
+        if (!ticker) {
+            displayResult('Ticker symbol cannot be empty.', 'error');
+            return;
+        }
+
+        atrResultDiv.style.display = 'block';
+        atrResultDiv.className = ''; // Reset classes
+        atrResultDiv.textContent = 'Calculating...';
+
+        try {
+            // We'll define the API endpoint in the next step (utilities_router.py)
+            const response = await fetch('/api/utilities/calculate_atr', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    // Include CSRF token header if your app uses them
+                    // 'X-CSRF-Token': '' // Example for CSRF, if needed by your app
+                },
+                body: JSON.stringify({ ticker: ticker, period: 14 }) // Default period 14
+            });
+
+            if (!response.ok) {
+                let errorMsg = `Error: ${response.status} ${response.statusText}`;
+                try {
+                    const errData = await response.json();
+                    errorMsg = errData.detail || errData.error || errorMsg;
+                } catch (e) {
+                    // If error response is not JSON, use the initial errorMsg
+                }
+                throw new Error(errorMsg);
+            }
+
+            const data = await response.json();
+
+            if (data.atr_value !== null && data.atr_value !== undefined) {
+                displayResult(`ATR (14) for ${data.ticker}: ${parseFloat(data.atr_value).toFixed(4)}`, 'success');
+            } else if (data.error) {
+                displayResult(`Error: ${data.error}`, 'error');
+            } else {
+                displayResult('Unexpected response from server.', 'error');
+            }
+
+        } catch (error) {
+            console.error('ATR Calculation Error:', error);
+            displayResult(error.message || 'Failed to calculate ATR. Check console for details.', 'error');
+        }
+    });
+
+    function displayResult(message, type) {
+        atrResultDiv.textContent = message;
+        atrResultDiv.className = type; // 'success' or 'error'
+        atrResultDiv.style.display = 'block';
+    }
+});
+</script>
+{% endblock %} 

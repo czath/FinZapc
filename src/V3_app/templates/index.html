@@ -262,8 +262,16 @@
                                 </thead>
                                 <tbody>
                                     {% for pos in account.positions %}
-                                    <tr data-ticker="{{ pos.ticker }}" data-account="{{ pos.account_id }}">
-                                        <td><strong>{{ pos.ticker }}</strong></td>
+                                    <tr data-ticker="{{ pos.ticker }}" 
+                                        data-account="{{ pos.account_id }}"
+                                        data-beta-for-calc="{{ pos.beta_for_calc }}"
+                                        data-mkt-value-eur-raw="{{ pos.mkt_value_eur_raw }}">
+                                        <td>
+                                            {% if pos.is_untracked_portfolio_item %}
+                                                <span class="badge bg-warning text-dark rounded-pill me-1" title="This ticker is in your portfolio but not yet in the screener.">+</span>
+                                            {% endif %}
+                                            <strong>{{ pos.name }}</strong>
+                                        </td>
                                         <td class="numeric">{{ pos.position }}</td>
                                         <td class="numeric">{{ pos.mkt_price_display }}</td>
                                         <td class="numeric">{{ pos.mkt_value_display }}</td>
@@ -504,6 +512,31 @@
                                 .map(([sector, value]) => ({ sector, value }))
                                 .sort((a, b) => b.value - a.value);
 
+                            // --- Portfolio Beta Calculation ---
+                            let weightedBetaSum = 0;
+                            if (totalEuroValue > 0) { // Avoid division by zero if total value is 0
+                                api.rows({ search: 'applied' }).nodes().each(function (rowElement) { // Use .nodes() to get HTML elements
+                                    const $row = $(rowElement);
+                                    const positionBetaStr = $row.data('beta-for-calc');
+                                    const positionMktValueEurRawStr = $row.data('mkt-value-eur-raw');
+
+                                    const positionBeta = parseFloat(positionBetaStr);
+                                    const positionMktValueEurRaw = parseFloat(positionMktValueEurRawStr);
+                                    
+                                    console.log(`Row Data for Beta Calc: Beta=${positionBeta}, MktValEUR=${positionMktValueEurRaw}, Weight=${positionMktValueEurRaw / totalEuroValue}`); // Debug log
+
+                                    if (!isNaN(positionBeta) && !isNaN(positionMktValueEurRaw) && positionMktValueEurRaw !== 0) { // Also check mkt value is not 0 for weight calc
+                                        const positionWeight = positionMktValueEurRaw / totalEuroValue;
+                                        weightedBetaSum += (positionBeta * positionWeight);
+                                        console.log(`  Contributing to Beta: weightedBetaSum is now ${weightedBetaSum}`); // Debug log
+                                    } else {
+                                        console.warn('Skipping position in beta calculation due to invalid/zero beta or market value:', {beta: positionBetaStr, mktVal: positionMktValueEurRawStr});
+                                    }
+                                });
+                            }
+                            summaryHtml += ' | Portfolio Beta: <strong>' + weightedBetaSum.toFixed(2) + '</strong>';
+                            // --- End Portfolio Beta Calculation ---
+
                             summaryHtml += '</small>';
 
                             // Update the dedicated summary div for this table
@@ -657,12 +690,16 @@
                             const ctx = canvasElement.getContext('2d');
                             const labels = popoverData.sortedSectors.map(item => item.sector);
                             const dataValues = popoverData.sortedSectors.map(item => item.value);
+                            const otherLabel = "Other (incl. cash)";
+                            let offsetArray = new Array(dataValues.length).fill(0);
 
                             // Add "Other" slice if applicable
                             const otherValue = popoverData.otherValue || 0;
                             if (otherValue > 0) {
-                                labels.push("Other (incl. cash)");
+                                labels.push(otherLabel);
                                 dataValues.push(otherValue);
+                                // Add offset for the "Other" slice, which is now the last element
+                                offsetArray.push(40); // Explode the "Other" slice
                             }
 
                             // Destroy previous chart instance if it exists (safety measure)
@@ -680,6 +717,7 @@
                                         label: 'Market Value (' + (popoverData.currencySymbol || '') + ')',
                                         data: dataValues,
                                         backgroundColor: pieChartColors, // Apply defined palette
+                                        offset: offsetArray, // Add offset array here
                                         borderWidth: 1
                                     }]
                                 },

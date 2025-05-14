@@ -256,7 +256,7 @@
                                                       role="button">
                                             </span> {# Removed original title #}
                                             {% else %}
-                                                <span class="indicator-red" title="Ticker NOT found in current positions"></span>
+                                                <span class="indicator-red" title="Screener ticker not found among live position names"></span>
                                             {% endif %}
                                         {% endif %}
                                         {# End indicator #}
@@ -827,11 +827,12 @@
                     cell.addClass('popover-active'); 
                 }
             }).on('mouseleave', 'td:first-child', function() {
-                const cell = $(this);
-                // Check if popover was initialized before trying to hide/dispose
-                if (cell.hasClass('popover-active')) { // Check if the popover was actually shown
-                    cell.popover('hide').popover('dispose');
-                    cell.removeClass('popover-active');
+                const cellElement = this; // Get the raw DOM element
+                const popoverInstance = bootstrap.Popover.getInstance(cellElement);
+                if (popoverInstance) {
+                    popoverInstance.dispose();
+                    $(cellElement).removeClass('popover-active'); // Remove class using jQuery on the element
+                    console.log('Popover disposed via Popover.getInstance() on mouseleave');
                 }
             });
             // --- END Ticker Cell Hover Popup Logic ---
@@ -1042,6 +1043,20 @@
                 return;
             }
             console.log(`Deleting ticker: ${ticker}`);
+
+            // --- BEGIN ADDITION: Dispose of tooltips in the row before removing it ---
+            const rowElementToDelete = $(`#row-${ticker}`);
+            if (rowElementToDelete.length) {
+                rowElementToDelete.find('[data-bs-toggle="tooltip"]').each(function() {
+                    const tooltipInstance = bootstrap.Tooltip.getInstance(this);
+                    if (tooltipInstance) {
+                        tooltipInstance.dispose();
+                        console.log(`Disposed tooltip for an element in row ${ticker}`);
+                    }
+                });
+            }
+            // --- END ADDITION ---
+
             fetch('/tracker/delete', {
                 method: 'POST',
                 headers: {
