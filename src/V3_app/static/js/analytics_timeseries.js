@@ -9,6 +9,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let timeseriesChartInstance = null;
     // Add other state variables as needed:
     // e.g., selected tickers, date ranges, data series
+    let financialChartLibraryPromise = null; // NEW: For dynamic library loading
+    let dateAdapterLibraryPromise = null; // NEW: For dynamic date adapter loading
 
     // --- DOM Elements ---
     // Example: const timeSeriesChartCanvas = document.getElementById('timeseries-chart-canvas'); 
@@ -28,6 +30,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const priceHistoryManualTickerContainer = document.getElementById('ts-ph-ticker-input-manual-container'); // Container for manual input
     const priceHistoryStartDateContainer = document.getElementById('ts-ph-start-date-container');
     const priceHistoryEndDateContainer = document.getElementById('ts-ph-end-date-container');
+    const tsPhChartTypeSelect = document.getElementById('ts-ph-chart-type'); // NEW: Chart Type Selector
     const timeseriesTabPane = document.getElementById(TIMESERIES_TAB_PANE_ID); // Used to mark as initialized
 
     // --- Initialization ---
@@ -106,11 +109,85 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log(LOG_PREFIX, "Event listeners setup complete.");
     }
 
+    // NEW: Function to dynamically load a script and return a promise
+    function loadScript(url, libraryName, globalCheck) {
+        return new Promise((resolve, reject) => {
+            if (globalCheck && globalCheck()) { // Check if already available
+                console.log(LOG_PREFIX, `${libraryName} already available.`);
+                resolve();
+                return;
+            }
+            console.log(LOG_PREFIX, `Loading ${libraryName} from ${url}...`);
+            const script = document.createElement('script');
+            script.src = url;
+            script.async = true;
+            script.onload = () => {
+                console.log(LOG_PREFIX, `${libraryName} loaded successfully.`);
+                if (globalCheck && !globalCheck()) {
+                    console.warn(LOG_PREFIX, `${libraryName} did not make expected global components available after loading. Subsequent operations might fail.`);
+                }
+                resolve();
+            };
+            script.onerror = (error) => {
+                console.error(LOG_PREFIX, `Failed to load ${libraryName} from ${url}.`, error);
+                // NEW: Reset the main promise variable for the specific library to allow retry
+                if (libraryName === "Date Adapter Library") {
+                    dateAdapterLibraryPromise = null;
+                }
+                if (libraryName === "Financial Chart Library") {
+                    financialChartLibraryPromise = null;
+                }
+                reject(new Error(`Failed to load ${libraryName}.`));
+            };
+            document.head.appendChild(script);
+        });
+    }
+
+    // NEW: Function to dynamically load the date adapter library
+    function loadDateAdapterLibrary() {
+        if (!dateAdapterLibraryPromise) {
+            // Using date-fns adapter. The bundle includes date-fns itself.
+            const adapterURL = 'https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js';
+            // For date-fns adapter, there isn't a simple single global. 
+            // Chart.js will pick it up if loaded. We rely on Chart.js time scale working after this.
+            // MODIFIED: Pass null for globalCheck to always attempt script append if dateAdapterLibraryPromise is null
+            dateAdapterLibraryPromise = loadScript(adapterURL, "Date Adapter Library", null);
+        }
+        return dateAdapterLibraryPromise;
+    }
+
+    // NEW: Function to dynamically load the financial chart library
+    function loadFinancialChartLibrary() {
+        if (!financialChartLibraryPromise) {
+            const financialLibURL = 'https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.0/dist/chartjs-chart-financial.min.js';
+            financialChartLibraryPromise = loadScript(financialLibURL, "Financial Chart Library", () => window.Chart && window.Chart.controllers && window.Chart.controllers.candlestick);
+        }
+        return financialChartLibraryPromise;
+    }
+
+    // NEW: Helper to show placeholder message and clean up chart
+    function showPlaceholderWithMessage(message) {
+        console.info(LOG_PREFIX, "Showing placeholder: ", message);
+        const chartCanvas = document.getElementById('ts-chart-canvas');
+        const chartPlaceholder = document.getElementById('ts-chart-placeholder');
+
+        if (timeseriesChartInstance) {
+            timeseriesChartInstance.destroy();
+            timeseriesChartInstance = null;
+        }
+
+        if (chartCanvas) chartCanvas.style.display = 'none';
+        if (chartPlaceholder) {
+            chartPlaceholder.style.display = 'block';
+            chartPlaceholder.textContent = message;
+        }
+    }
+
     // --- Event Handlers ---
     // --- NEW: Handler for Price History Study ---
     async function handleRunPriceHistory() {
         console.log(LOG_PREFIX, "handleRunPriceHistory called.");
-        if (!priceHistoryIntervalSelect || !priceHistoryPeriodSelector || !priceHistoryTickerSourceRadios) {
+        if (!priceHistoryIntervalSelect || !priceHistoryPeriodSelector || !priceHistoryTickerSourceRadios || !tsPhChartTypeSelect) {
             console.error(LOG_PREFIX, "Essential UI elements for Price History not found!");
             alert("Error: Essential UI components for Price History are missing.");
             return;
@@ -144,6 +221,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const interval = priceHistoryIntervalSelect.value;
         const selectedPeriod = priceHistoryPeriodSelector.value;
+        const chartType = tsPhChartTypeSelect.value;
 
         if (!interval) {
             alert("Please select an interval.");
@@ -195,10 +273,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (data && data.length > 0) {
                 // alert(`Successfully fetched ${data.length} records for ${ticker}. Charting next.`);
-                renderTimeseriesChart(data, ticker, interval, selectedPeriod === 'custom' ? {start: priceHistoryStartDateInput.value, end: priceHistoryEndDateInput.value} : {period: selectedPeriod});
+                renderTimeseriesChart(data, ticker, interval, selectedPeriod === 'custom' ? {start: priceHistoryStartDateInput.value, end: priceHistoryEndDateInput.value} : {period: selectedPeriod}, chartType);
             } else {
-                alert(`No price history data found for ${ticker} with the selected parameters.`);
-                renderTimeseriesChart([], ticker, interval, selectedPeriod === 'custom' ? {start: priceHistoryStartDateInput.value, end: priceHistoryEndDateInput.value} : {period: selectedPeriod}); // Clear chart
+                // alert(`No price history data found for ${ticker} with the selected parameters.`); // Now handled by renderTimeseriesChart
+                renderTimeseriesChart([], ticker, interval, selectedPeriod === 'custom' ? {start: priceHistoryStartDateInput.value, end: priceHistoryEndDateInput.value} : {period: selectedPeriod}, chartType); // MODIFIED: Pass chartType, Clear chart
             }
 
         } catch (error) {
@@ -351,9 +429,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // --- Charting ---
-    function renderTimeseriesChart(apiData, ticker, interval, range) {
-        console.log(LOG_PREFIX, "renderTimeseriesChart called with data for ticker:", ticker, "Data points:", apiData?.length);
-        const chartCanvas = document.getElementById('ts-chart-canvas'); 
+    // MODIFIED: renderTimeseriesChart to handle different chart types and dynamic library loading
+    function renderTimeseriesChart(apiData, ticker, interval, range, chartType) {
+        console.log(LOG_PREFIX, "renderTimeseriesChart called for ticker:", ticker, "Data points:", apiData?.length, "Chart Type:", chartType);
+
+        const chartCanvas = document.getElementById('ts-chart-canvas');
         const chartPlaceholder = document.getElementById('ts-chart-placeholder');
 
         if (!chartCanvas || !chartPlaceholder) {
@@ -361,81 +441,148 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Always destroy the old instance if it exists
         if (timeseriesChartInstance) {
             timeseriesChartInstance.destroy();
             timeseriesChartInstance = null;
         }
 
         if (!apiData || apiData.length === 0) {
-            chartCanvas.style.display = 'none';
-            chartPlaceholder.style.display = 'block';
-            chartPlaceholder.textContent = `No data available for ${ticker} with the selected parameters.`;
-            console.log(LOG_PREFIX, "renderTimeseriesChart - No data, showing placeholder.");
+            showPlaceholderWithMessage(`No data available for ${ticker} with the selected parameters.`);
             return;
         }
-        
-        chartCanvas.style.display = 'block';
-        chartPlaceholder.style.display = 'none';
 
-        const ctx = chartCanvas.getContext('2d');
-        const labels = apiData.map(d => new Date(d.Date).toLocaleDateString()); // Assuming 'Date' is the correct field
-        const closePrices = apiData.map(d => d.Close); // Assuming 'Close' is the correct field
+        const createChartLogic = () => {
+            chartCanvas.style.display = 'block';
+            chartPlaceholder.style.display = 'none';
 
-        let titleRangePart = "";
-        if (range.period && range.period !== 'custom') {
-            titleRangePart = `Period: ${range.period.toUpperCase()}`;
-        } else if (range.start && range.end) {
-            titleRangePart = `Range: ${new Date(range.start).toLocaleDateString()} - ${new Date(range.end).toLocaleDateString()}`;
-        }
+            const ctx = chartCanvas.getContext('2d');
+            let datasets;
+            let chartJsType; // This will be 'line', 'candlestick'
+            let chartOptions = { // Base options
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: { mode: 'index', intersect: false }
+                },
+                scales: {
+                    y: {
+                        title: { display: true, text: 'Price' },
+                        beginAtZero: false
+                    }
+                }
+            };
 
-        timeseriesChartInstance = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
+            let specificTitlePart = "Price History";
+
+            if (chartType === 'candlestick') {
+                if (!window.Chart || !window.Chart.controllers || !window.Chart.controllers.candlestick) {
+                    const errorMsg = "Candlestick chart components (e.g., Chart.controllers.candlestick) not available. Cannot render chart.";
+                    console.error(LOG_PREFIX, errorMsg);
+                    alert(errorMsg + " Check if the financial library was loaded and registered correctly with Chart.js.");
+                    showPlaceholderWithMessage(errorMsg);
+                    return;
+                }
+                if (!apiData.every(d => d.hasOwnProperty('Open') && d.hasOwnProperty('High') && d.hasOwnProperty('Low') && d.hasOwnProperty('Close'))) {
+                    const errorMsg = `Data for ${ticker} is missing required OHLC fields for a candlestick chart.`;
+                    console.error(LOG_PREFIX, errorMsg);
+                    alert("Error: Candlestick chart requires Open, High, Low, and Close data. Please ensure the API provides this.");
+                    showPlaceholderWithMessage(errorMsg);
+                    return;
+                }
+
+                datasets = [{
+                    label: `${ticker} OHLC (${interval})`,
+                    data: apiData.map(d => ({
+                        x: new Date(d.Date).valueOf(),
+                        o: d.Open, h: d.High, l: d.Low, c: d.Close
+                    })),
+                    color: {
+                        up: 'rgba(80, 160, 115, 0.8)', // Green for up
+                        down: 'rgba(215, 85, 65, 0.8)', // Red for down
+                        unchanged: 'rgba(150, 150, 150, 0.8)' // Grey for unchanged
+                    },
+                    borderColor: {
+                        up: 'rgba(80, 160, 115, 1)',
+                        down: 'rgba(215, 85, 65, 1)',
+                        unchanged: 'rgba(150, 150, 150, 1)'
+                    }
+                }];
+                chartJsType = 'candlestick';
+                specificTitlePart = "Candlestick Chart";
+                chartOptions.scales.x = {
+                    type: 'time',
+                    time: { unit: 'day' /* auto-detect or make configurable */ },
+                    title: { display: true, text: 'Date' },
+                    ticks: { source: 'auto', maxRotation: 45, minRotation: 0 }
+                };
+                 // Might want to disable main legend for candlestick if OHLC label is enough
+                // chartOptions.plugins.legend = { display: false };
+            } else { // Default to line chart
+                const labels = apiData.map(d => new Date(d.Date).toLocaleDateString());
+                const closePrices = apiData.map(d => d.Close);
+                datasets = [{
                     label: `Close Price (${interval})`,
-                    data: closePrices,
+                    data: closePrices, // Line chart data is simpler
                     borderColor: 'rgb(75, 192, 192)',
                     backgroundColor: 'rgba(75, 192, 192, 0.1)',
                     tension: 0.1,
                     fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: `${ticker} - Price History ${titleRangePart ? '('+titleRangePart+')' : ''}`.trim(),
-                        font: { size: 16 }
-                    },
-                    legend: {
-                        position: 'top',
-                    },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                    }
-                },
-                scales: {
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Date'
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Price' 
-                        },
-                        beginAtZero: false 
-                    }
-                }
+                }];
+                chartJsType = 'line';
+                specificTitlePart = "Line Chart";
+                chartOptions.scales.x = {
+                    type: 'category',
+                    labels: labels, // Pass labels for category axis
+                    title: { display: true, text: 'Date' },
+                    ticks: { maxRotation: 45, minRotation: 0 }
+                };
             }
-        });
-        console.log(LOG_PREFIX, "Chart rendered for", ticker);
+
+            let titleRangePart = "";
+            if (range.period && range.period !== 'custom') {
+                titleRangePart = `Period: ${range.period.toUpperCase()}`;
+            } else if (range.start && range.end) {
+                titleRangePart = `Range: ${new Date(range.start).toLocaleDateString()} - ${new Date(range.end).toLocaleDateString()}`;
+            }
+            
+            chartOptions.plugins.title = {
+                display: true,
+                text: `${ticker} - ${specificTitlePart} ${titleRangePart ? '('+titleRangePart+')' : ''}`.trim(),
+                font: { size: 16 }
+            };
+
+            timeseriesChartInstance = new Chart(ctx, {
+                type: chartJsType,
+                data: { datasets: datasets }, // For line chart with category x-axis, labels are in options.scales.x.labels
+                options: chartOptions
+            });
+            console.log(LOG_PREFIX, "Chart rendered successfully for", ticker, "as", chartJsType);
+        }; // End of createChartLogic
+
+        if (chartType === 'candlestick') {
+            showLoadingIndicator(true); // Show loading indicator
+            loadDateAdapterLibrary() // First, load the date adapter
+                .then(() => {
+                    // Then, load the financial chart library
+                    return loadFinancialChartLibrary(); 
+                })
+                .then(() => {
+                    // Both libraries loaded, now create the chart
+                    showLoadingIndicator(false);
+                    createChartLogic();
+                })
+                .catch(error => {
+                    showLoadingIndicator(false);
+                    const errorMsg = `Failed to load required libraries for candlestick charts: ${error.message}`;
+                    console.error(LOG_PREFIX, errorMsg, error);
+                    alert(errorMsg + " Please check the console for details.");
+                    showPlaceholderWithMessage(errorMsg);
+                });
+        } else {
+            createChartLogic(); // For line chart, no special library needed beyond core Chart.js
+        }
     }
 
     // --- Main Execution Logic ---

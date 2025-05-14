@@ -93,6 +93,16 @@
                     </select>
                 </div>
 
+                <!-- NEW: Chart Type -->
+                <div class="mb-3">
+                    <label for="ts-ph-chart-type" class="form-label form-label-sm">Chart Type:</label>
+                    <select id="ts-ph-chart-type" class="form-select form-select-sm">
+                        <option value="line" selected>Line</option>
+                        <option value="candlestick">Candlestick</option>
+                    </select>
+                </div>
+                {# END NEW #}
+
                 <!-- Loading Indicator (hidden by default) -->
                 <div id="timeseries-loading-indicator" class="text-center my-2" style="display: none;">
                     <div class="spinner-border spinner-border-sm text-primary" role="status">
