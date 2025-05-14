@@ -673,27 +673,57 @@ async def fetch_and_write_all_yfinance_data(
 
 async def fetch_daily_historical_data(
     ticker_symbol: str, 
-    start_date: datetime, 
-    end_date: datetime,
-    interval: str = "1d"
+    start_date: Optional[datetime] = None, # Made optional
+    end_date: Optional[datetime] = None,   # Made optional
+    interval: str = "1d",
+    period: Optional[str] = None        # NEW: Added period parameter
 ) -> Optional[pd.DataFrame]:
     """
-    Fetches historical data (OHLCV) for a given ticker symbol between start_date and end_date
-    for the specified interval using yfinance.
+    Fetches historical data (OHLCV) for a given ticker symbol using yfinance.
+    Can fetch data between start_date and end_date OR for a specific period.
     Runs synchronous yfinance calls in a ThreadPoolExecutor.
+
+    Args:
+        ticker_symbol: The stock ticker symbol.
+        start_date: The start date for data fetching (inclusive). Ignored if period is provided.
+        end_date: The end date for data fetching (exclusive). Ignored if period is provided.
+        interval: Data interval (e.g., "1d", "1wk", "1mo").
+        period: Period of data to fetch (e.g., "1y", "max"). If provided, start_date and end_date are ignored.
+
+    Returns:
+        A pandas DataFrame with historical data, or None if fetching fails or no data.
     """
-    logger.info(f"Fetching historical data for {ticker_symbol} from {start_date.date()} to {end_date.date()} with interval '{interval}'")
+    if period:
+        logger.info(f"Fetching historical data for {ticker_symbol} for period '{period}' with interval '{interval}'")
+    elif start_date and end_date:
+        logger.info(f"Fetching historical data for {ticker_symbol} from {start_date.date()} to {end_date.date()} with interval '{interval}'")
+    else:
+        logger.error(f"Insufficient parameters for historical data fetch for {ticker_symbol}. Provide 'period' or both 'start_date' and 'end_date'.")
+        return None
     
-    def _sync_fetch_history(symbol: str, start: datetime, end: datetime, intrvl: str) -> Optional[pd.DataFrame]:
+    def _sync_fetch_history(symbol: str, start: Optional[datetime], end: Optional[datetime], intrvl: str, prd: Optional[str]) -> Optional[pd.DataFrame]:
         try:
             logger.debug(f"[_sync_fetch_history] Creating yf.Ticker('{symbol}')")
             ticker_obj = yf.Ticker(symbol)
             
-            logger.debug(f"[_sync_fetch_history] Fetching .history(start={start.date()}, end={end.date()}, interval='{intrvl}')")
-            history_df = ticker_obj.history(start=start, end=end, interval=intrvl)
+            history_params = {"interval": intrvl}
+            if prd:
+                history_params["period"] = prd
+                logger.debug(f"[_sync_fetch_history] Fetching .history(period='{prd}', interval='{intrvl}')")
+            elif start and end:
+                history_params["start"] = start
+                history_params["end"] = end
+                logger.debug(f"[_sync_fetch_history] Fetching .history(start={start.date()}, end={end.date()}, interval='{intrvl}')")
+            else:
+                # This case should be caught by the initial check in the outer function
+                logger.error("[_sync_fetch_history] Invalid state: period, start, or end not properly provided.")
+                return None
+
+            history_df = ticker_obj.history(**history_params)
             
             if history_df is None or history_df.empty:
-                logger.warning(f"[_sync_fetch_history] No historical data returned for {symbol} between {start.date()} and {end.date()} for interval '{intrvl}'.")
+                log_msg_period_or_dates = f"for period '{prd}'" if prd else f"between {start.date() if start else 'N/A'} and {end.date() if end else 'N/A'}"
+                logger.warning(f"[_sync_fetch_history] No historical data returned for {symbol} {log_msg_period_or_dates} for interval '{intrvl}'.")
                 return None
             
             logger.info(f"[_sync_fetch_history] Successfully fetched {len(history_df)} rows of historical data for {symbol}.")
@@ -710,7 +740,8 @@ async def fetch_daily_historical_data(
             ticker_symbol, 
             start_date, 
             end_date,
-            interval
+            interval,
+            period # Pass period to the sync function
         )
         return historical_data_df
     except Exception as e:

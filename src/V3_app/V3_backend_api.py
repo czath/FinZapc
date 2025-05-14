@@ -9,9 +9,10 @@ import uuid
 import asyncio
 from typing import List, Dict, Any, Optional
 import logging
+from datetime import datetime
 
 # Import your Yahoo fetch logic (adjust import as needed)
-from .V3_yahoo_fetch import mass_load_yahoo_data_from_file, YahooDataRepository
+from .V3_yahoo_fetch import mass_load_yahoo_data_from_file, YahooDataRepository, fetch_daily_historical_data
 from .dependencies import get_db # Assuming you have a get_db dependency provider
 from .yahoo_data_query_srv import YahooDataQueryService
 from .analytics_data_processor import AnalyticsDataProcessor # <-- IMPORT AnalyticsDataProcessor
@@ -24,6 +25,10 @@ yahoo_job_lock = asyncio.Lock()
 
 # --- Logger ---
 logger = logging.getLogger(__name__)
+
+# --- NEW: Allowed values for period and interval ---
+VALID_PERIODS = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
+VALID_INTERVALS = ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"]
 
 class YahooTickerListPayload(BaseModel):
     tickers: List[str]
@@ -294,3 +299,119 @@ async def get_processed_analytics_data(
                 logger.info("ADP HTTP client closed successfully.")
             except Exception as e_close:
                 logger.error(f"Error closing ADP HTTP client: {e_close}", exc_info=True) 
+
+# --- NEW: Timeseries Price History API Endpoint ---
+@router.get(
+    "/api/v3/timeseries/price_history",
+    summary="Fetch historical price data for a ticker",
+    tags=["Timeseries Data"],
+    response_model=List[Dict[str, Any]] # Expecting a list of OHLCV records
+)
+async def get_price_history(
+    ticker: str,
+    interval: str,
+    start_date: Optional[str] = None, # YYYY-MM-DD
+    end_date: Optional[str] = None,   # YYYY-MM-DD
+    period: Optional[str] = None,
+    # No db_repo or query_service needed here as fetch_daily_historical_data is standalone
+):
+    """
+    Fetches historical price data for a given ticker.
+
+    - **ticker**: The stock symbol (e.g., AAPL).
+    - **interval**: Data interval (e.g., "1d", "1wk", "1mo").
+      Valid intervals: "1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo".
+    - **start_date**: Start date in YYYY-MM-DD format (inclusive). Used if 'period' is not provided.
+    - **end_date**: End date in YYYY-MM-DD format (exclusive). Used if 'period' is not provided.
+    - **period**: Predefined period (e.g., "1y", "max"). If provided, start_date and end_date are ignored.
+      Valid periods: "1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max".
+    """
+    logger.info(f"Price history request for {ticker=}, {interval=}, {start_date=}, {end_date=}, {period=}")
+
+    if interval not in VALID_INTERVALS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid interval. Must be one of: {', '.join(VALID_INTERVALS)}"
+        )
+
+    parsed_start_date: Optional[datetime] = None
+    parsed_end_date: Optional[datetime] = None
+
+    if period:
+        if period not in VALID_PERIODS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid period. Must be one of: {', '.join(VALID_PERIODS)}"
+            )
+        if start_date or end_date:
+            logger.warning(f"Both period ('{period}') and start_date/end_date provided. Period will take precedence.")
+            start_date, end_date = None, None # Ensure start/end are not used if period is set
+    elif start_date and end_date:
+        try:
+            parsed_start_date = datetime.strptime(start_date, "%Y-%m-%d")
+            parsed_end_date = datetime.strptime(end_date, "%Y-%m-%d")
+            if parsed_start_date >= parsed_end_date:
+                raise HTTPException(status_code=400, detail="start_date must be before end_date.")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+    else:
+        raise HTTPException(status_code=400, detail="Either 'period' or both 'start_date' and 'end_date' must be provided.")
+
+    try:
+        # Import here to avoid circular dependencies if V3_yahoo_fetch imports things from V3_backend_api
+        # (though currently it doesn't seem to be the case)
+        from .V3_yahoo_fetch import fetch_daily_historical_data 
+        import pandas as pd
+
+        history_df = await fetch_daily_historical_data(
+            ticker_symbol=ticker,
+            start_date=parsed_start_date,
+            end_date=parsed_end_date,
+            interval=interval,
+            period=period
+        )
+
+        if history_df is None:
+            logger.info(f"No historical data found for {ticker} with the given parameters.")
+            # Return 200 with empty list, as this is not strictly an error, just no data.
+            # Frontend can then display "No data available".
+            return [] 
+        
+        if history_df.empty:
+            logger.info(f"Historical data DataFrame is empty for {ticker} with the given parameters.")
+            return []
+
+        # Prepare DataFrame for JSON response
+        # Reset index to make the DatetimeIndex a column
+        history_df.reset_index(inplace=True)
+        
+        # Ensure the date column is named consistently, e.g., 'Datetime' or 'Date'
+        # yfinance usually names it 'Datetime' or 'Date' depending on interval
+        date_col_name = None
+        if 'Datetime' in history_df.columns:
+            date_col_name = 'Datetime'
+        elif 'Date' in history_df.columns:
+            date_col_name = 'Date'
+        
+        if date_col_name:
+            # Convert datetime objects to ISO format strings
+            history_df[date_col_name] = history_df[date_col_name].dt.strftime('%Y-%m-%dT%H:%M:%S')
+        else:
+            logger.warning("Date/Datetime column not found in yfinance history_df after reset_index(). Dates may not be formatted correctly for JSON.")
+
+        # Convert NaN to None for JSON compatibility
+        history_df = history_df.replace({pd.NaT: None, float('nan'): None})
+        
+        # Convert DataFrame to list of dictionaries
+        data_to_return = history_df.to_dict(orient='records')
+        
+        logger.info(f"Successfully fetched and processed {len(data_to_return)} historical records for {ticker}.")
+        return data_to_return
+
+    except HTTPException as http_exc: # Re-raise HTTPException
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Error fetching price history for {ticker}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+# --- END NEW: Timeseries Price History API Endpoint --- 

@@ -1,0 +1,129 @@
+{# Timeseries Tab Content - analytics/_timeseries_tab_content.html #}
+<div class="row mt-3">
+    <!-- Column 1: Controls -->
+    <div class="col-md-3">
+        <h5>Controls</h5>
+        
+        <!-- Study Selection -->
+        <div class="mb-3">
+            <label for="ts-study-selector" class="form-label form-label-sm">Select Study:</label>
+            <select id="ts-study-selector" class="form-select form-select-sm">
+                <option value="price_history" selected>Price History</option>
+                <!-- Add other studies here later -->
+            </select>
+        </div>
+
+        <hr class="my-3">
+
+        <!-- Configuration Pane for Selected Study -->
+        <div id="ts-study-config-panes">
+            <!-- Price History Configuration Pane -->
+            <div id="config-pane-price_history" class="study-config-pane active-study-pane">
+                <h6 class="text-muted mb-3">Price History Configuration</h6>
+
+                <!-- Ticker Source Selection -->
+                <div class="mb-3">
+                    <label class="form-label form-label-sm">Ticker Source:</label>
+                    <div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="tsPhTickerSource" id="ts-ph-ticker-source-loaded" value="loaded" checked>
+                            <label class="form-check-label form-check-label-sm" for="ts-ph-ticker-source-loaded">From Loaded Data</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="tsPhTickerSource" id="ts-ph-ticker-source-manual" value="manual">
+                            <label class="form-check-label form-check-label-sm" for="ts-ph-ticker-source-manual">Enter Manually</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ticker Input: From Loaded Data -->
+                <div id="ts-ph-ticker-select-loaded-container" class="mb-3">
+                    <label for="ts-ph-ticker-select-loaded" class="form-label form-label-sm">Select Ticker:</label>
+                    <select id="ts-ph-ticker-select-loaded" class="form-select form-select-sm">
+                        <option value="">Loading tickers...</option>
+                    </select>
+                </div>
+
+                <!-- Ticker Input: Manual Entry -->
+                <div id="ts-ph-ticker-input-manual-container" class="mb-3" style="display: none;">
+                    <label for="ts-ph-ticker-input" class="form-label form-label-sm">Enter Ticker Symbol:</label>
+                    <input type="text" class="form-control form-control-sm" id="ts-ph-ticker-input" placeholder="e.g., AAPL">
+                </div>
+
+                <!-- Period Selection -->
+                <div class="mb-3">
+                    <label for="ts-ph-period-selector" class="form-label form-label-sm">Period:</label>
+                    <select id="ts-ph-period-selector" class="form-select form-select-sm">
+                        <option value="custom" selected>Custom Range</option>
+                        <option value="1d">1 Day</option>
+                        <option value="5d">5 Days</option>
+                        <option value="1mo">1 Month</option>
+                        <option value="3mo">3 Months</option>
+                        <option value="6mo">6 Months</option>
+                        <option value="1y">1 Year</option>
+                        <option value="2y">2 Years</option>
+                        <option value="5y">5 Years</option>
+                        <option value="10y">10 Years</option>
+                        <option value="ytd">Year to Date</option>
+                        <option value="max">Max Available</option>
+                    </select>
+                </div>
+
+                <!-- Start Date -->
+                <div class="mb-2" id="ts-ph-start-date-container">
+                    <label for="ts-ph-start-date" class="form-label form-label-sm">Start Date:</label>
+                    <input type="date" id="ts-ph-start-date" class="form-control form-control-sm">
+                </div>
+
+                <!-- End Date -->
+                <div class="mb-2" id="ts-ph-end-date-container">
+                    <label for="ts-ph-end-date" class="form-label form-label-sm">End Date:</label>
+                    <input type="date" id="ts-ph-end-date" class="form-control form-control-sm">
+                </div>
+
+                <!-- Interval -->
+                <div class="mb-3">
+                    <label for="ts-ph-interval" class="form-label form-label-sm">Interval:</label>
+                    <select id="ts-ph-interval" class="form-select form-select-sm">
+                        <option value="1d" selected>Daily</option>
+                        <option value="1wk">Weekly</option>
+                        <option value="1mo">Monthly</option>
+                        {# Add other valid intervals as needed from V3_backend_api.py VALID_INTERVALS #}
+                        {# e.g., "1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "5d", "3mo" #}
+                    </select>
+                </div>
+
+                <!-- Loading Indicator (hidden by default) -->
+                <div id="timeseries-loading-indicator" class="text-center my-2" style="display: none;">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span class="ms-2 text-muted small">Fetching data...</span>
+                </div>
+
+                <!-- Run Study Button -->
+                <div class="mt-4">
+                    <button id="ts-ph-run-study-btn" class="btn btn-primary btn-sm w-100">Run</button>
+                </div>
+            </div>
+
+            <!-- Add other study configuration panes here, e.g.,
+            <div id="config-pane-another_study" class="study-config-pane" style="display: none;">
+                <h6>Another Study Configuration</h6>
+                ... inputs ...
+            </div>
+            -->
+        </div>
+
+    </div>
+
+    <!-- Column 2: Chart Area -->
+    <div class="col-md-9">
+        <h5>Timeseries Chart</h5>
+        <div class="chart-container mb-3" style="position: relative; min-height: 400px; background-color: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color); border-radius: var(--bs-border-radius);">
+            <canvas id="ts-chart-canvas"></canvas> 
+            <p id="ts-chart-placeholder" class="text-center text-muted p-5" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">Select a study and configure its parameters, then click "Run".</p>
+        </div>
+        <!-- Further details or summary stats can go here -->
+    </div>
+</div> 

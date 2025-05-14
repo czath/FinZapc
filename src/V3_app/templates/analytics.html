@@ -914,12 +914,15 @@
 
         {# --- NEW: Timeseries Tab Pane --- #}
         <div class="tab-pane fade" id="timeseries-tab-pane" role="tabpanel" aria-labelledby="timeseries-tab" tabindex="0">
+            {# Original content commented out or removed #}
+            {# 
             <h5>Timeseries Analysis</h5>
             <p>Perform timeseries analysis and forecasting on selected data.</p>
-            {# Add Timeseries specific content here later #}
             <div class="my-3 p-3 border rounded bg-body-tertiary">
                 <p class="text-muted">Timeseries module content will go here.</p>
             </div>
+            #}
+            {% include 'analytics/_timeseries_tab_content.html' %}
         </div>
         {# --- END NEW: Timeseries Tab Pane --- #}
 
@@ -1060,6 +1063,7 @@
     <script src="{{ url_for('static', path='js/analytics.js') }}"></script> <!-- Load Main Analytics Logic -->
     <script src="{{ url_for('static', path='js/analytics_spider_chart.js') }}"></script> <!-- ADDED: Spider Chart Logic -->
     <script src="{{ url_for('static', path='js/yahoo_mass_fetch.js') }}"></script> <!-- Yahoo Mass Fetch UI -->
+    <script src="{{ url_for('static', path='js/analytics_timeseries.js') }}"></script> <!-- NEW: Timeseries Module Logic -->
 
     {# <<< Add any other page-specific JS files here >>> #}
 {% endblock %}
