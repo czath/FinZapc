@@ -115,7 +115,7 @@
         /* Custom Popover Size */
         .sector-popover {
             min-width: 620px !important; /* Slightly larger than canvas to accommodate padding/borders */
-            /* max-width: none !important; /* Optional: remove max-width if Bootstrap imposes one */ */
+            /* max-width: none !important; Optional: remove max-width if Bootstrap imposes one */
         }
         /* Apply compact styling to position and order tables */
         .position-table th, .position-table td,
@@ -515,22 +515,50 @@
                             // --- Portfolio Beta Calculation ---
                             let weightedBetaSum = 0;
                             if (totalEuroValue > 0) { // Avoid division by zero if total value is 0
+                                
+                                // Determine if we should do DETAILED console logging for each row this draw cycle
+                                let shouldOutputDetailedLogRowByLogRow = true;
+                                const tableIdForLog = api.table().node().id; // For logging context
+                                if (settings.iDraw === 1) { // If this is the very first draw cycle for this table
+                                    let initCompleteWillRedrawThisTable = false;
+                                    api.columns().every(function() { 
+                                        if (this.index() === 1) { // Position column index, which causes a redraw in initComplete
+                                            initCompleteWillRedrawThisTable = true;
+                                            return false; // Found it, no need to check further columns
+                                        }
+                                    });
+                                    if (initCompleteWillRedrawThisTable) {
+                                        shouldOutputDetailedLogRowByLogRow = false; // Suppress for 1st draw if 2nd is coming from initComplete
+                                        console.log(`[BetaLog] Suppressing detailed logs for ${tableIdForLog}, Draw 1 (initComplete will redraw)`);
+                                    }
+                                }
+
+                                if (shouldOutputDetailedLogRowByLogRow) {
+                                    console.log(`--- Beta Contribution Details for ${tableIdForLog} (Draw ${settings.iDraw}) ---`);
+                                }
+
                                 api.rows({ search: 'applied' }).nodes().each(function (rowElement) { // Use .nodes() to get HTML elements
                                     const $row = $(rowElement);
                                     const positionBetaStr = $row.data('beta-for-calc');
                                     const positionMktValueEurRawStr = $row.data('mkt-value-eur-raw');
+                                    const name = $row.find('td:first-child strong').text().trim(); 
 
                                     const positionBeta = parseFloat(positionBetaStr);
                                     const positionMktValueEurRaw = parseFloat(positionMktValueEurRawStr);
                                     
-                                    console.log(`Row Data for Beta Calc: Beta=${positionBeta}, MktValEUR=${positionMktValueEurRaw}, Weight=${positionMktValueEurRaw / totalEuroValue}`); // Debug log
-
-                                    if (!isNaN(positionBeta) && !isNaN(positionMktValueEurRaw) && positionMktValueEurRaw !== 0) { // Also check mkt value is not 0 for weight calc
+                                    if (!isNaN(positionBeta) && !isNaN(positionMktValueEurRaw) && positionMktValueEurRaw !== 0) { 
                                         const positionWeight = positionMktValueEurRaw / totalEuroValue;
-                                        weightedBetaSum += (positionBeta * positionWeight);
-                                        console.log(`  Contributing to Beta: weightedBetaSum is now ${weightedBetaSum}`); // Debug log
+                                        const betaContribution = positionBeta * positionWeight;
+                                        weightedBetaSum += betaContribution; // Sum always happens
+                                        
+                                        if (shouldOutputDetailedLogRowByLogRow) { // Conditional console log for the row
+                                            console.log(`${name},${positionBeta},${positionMktValueEurRaw},${betaContribution.toFixed(4)}`);
+                                        }
                                     } else {
-                                        console.warn('Skipping position in beta calculation due to invalid/zero beta or market value:', {beta: positionBetaStr, mktVal: positionMktValueEurRawStr});
+                                        // Log warning only if detailed logging is active for this cycle, to reduce noise
+                                        if (shouldOutputDetailedLogRowByLogRow) {
+                                            console.warn(`[BetaLog] Skipping ${name} in beta sum/log: BetaRaw='${positionBetaStr}', MktValEURRaw='${positionMktValueEurRawStr}', ParsedBeta=${positionBeta}, ParsedMktValEUR=${positionMktValueEurRaw}, TotalPortfolioEUR=${totalEuroValue}`);
+                                        }
                                     }
                                 });
                             }

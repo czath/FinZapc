@@ -91,6 +91,32 @@
             margin-left: 1rem; /* Adjust value as needed */
         }
     </style>
+    <!-- ADD Custom CSS for DataTables Buttons Dropdown Text IN DARK MODE -->
+    <style>
+        /* ADD Custom CSS for DataTables Buttons Dropdown Text IN DARK MODE */
+        [data-bs-theme="dark"] .dt-button-collection .dt-button span {
+            color: #dee2e6 !important; /* Light grey text for dark mode */
+        }
+        [data-bs-theme="dark"] .dt-button-collection .dt-button {
+            background-color: #495057 !important; /* Darker grey background for buttons */
+            color: #dee2e6 !important; /* Light grey text for button itself */
+            border-color: #6c757d !important; /* Optional: adjust border */
+        }
+        /* Style for active/selected items in DARK MODE */
+        [data-bs-theme="dark"] .dt-button-collection .dt-button.active span,
+        [data-bs-theme="dark"] .dt-button-collection .dt-button.active {
+            color: #fff !important; /* White text on active */
+            background-color: #0d6efd !important; /* Bootstrap primary blue - should contrast well */
+        }
+        /* Hover styles for DARK MODE */
+        [data-bs-theme="dark"] .dt-button-collection .dt-button:hover {
+            background-color: #5a6268 !important; /* Slightly lighter grey on hover */
+            color: #f8f9fa !important;
+        }
+        [data-bs-theme="dark"] .dt-button-collection .dt-button:hover span {
+            color: #f8f9fa !important;
+        }
+    </style>
 {% endblock %}
 
 {% block content %}
