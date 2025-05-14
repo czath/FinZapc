@@ -1243,6 +1243,7 @@ document.addEventListener('DOMContentLoaded', function() {
              console.log("[Spider Chart Refresh] Settings refreshed.");
              // Re-render the filter UI to apply the new settings/metadata to hints
              renderSpiderFilterUI();
+             populateSelectors(); // <<< ADDED: Repopulate chart field selectors
         } catch (error) {
             console.error("[Spider Chart Refresh] Error refreshing settings:", error);
         }
