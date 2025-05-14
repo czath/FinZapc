@@ -9,6 +9,7 @@
             <label for="ts-study-selector" class="form-label form-label-sm">Select Study:</label>
             <select id="ts-study-selector" class="form-select form-select-sm">
                 <option value="price_history" selected>Price History</option>
+                <option value="price_performance_comparison">Price Performance Comparison</option>
                 <!-- Add other studies here later -->
             </select>
         </div>
@@ -118,6 +119,94 @@
                     <button id="ts-ph-run-study-btn" class="btn btn-primary btn-sm w-100">Run</button>
                 </div>
             </div>
+
+            <!-- NEW: Price Performance Comparison Configuration Pane -->
+            <div id="config-pane-price_performance_comparison" class="study-config-pane" style="display: none;">
+                <h6 class="text-muted mb-3">Price Performance Comparison Configuration</h6>
+
+                <!-- Ticker Source Selection for Comparison -->
+                <div class="mb-3">
+                    <label class="form-label form-label-sm">Ticker Source:</label>
+                    <div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="tsPpcTickerSource" id="ts-ppc-ticker-source-loaded" value="loaded" checked>
+                            <label class="form-check-label form-check-label-sm" for="ts-ppc-ticker-source-loaded">From Loaded Data</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="tsPpcTickerSource" id="ts-ppc-ticker-source-manual" value="manual">
+                            <label class="form-check-label form-check-label-sm" for="ts-ppc-ticker-source-manual">Enter Manually</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ticker Input: From Loaded Data (Multi-Select) -->
+                <div id="ts-ppc-ticker-select-loaded-container" class="mb-3">
+                    <label for="ts-ppc-ticker-select-loaded" class="form-label form-label-sm">Select Tickers (max 5-7 recommended):</label>
+                    <select id="ts-ppc-ticker-select-loaded" class="form-select form-select-sm" multiple size="5">
+                        <option value="">Loading tickers...</option>
+                    </select>
+                    <div class="form-text form-text-sm">Hold Ctrl/Cmd to select multiple.</div>
+                </div>
+
+                <!-- Ticker Input: Manual Entry (Textarea) -->
+                <div id="ts-ppc-ticker-input-manual-container" class="mb-3" style="display: none;">
+                    <label for="ts-ppc-ticker-input-manual" class="form-label form-label-sm">Enter Tickers (comma-separated):</label>
+                    <textarea class="form-control form-control-sm" id="ts-ppc-ticker-input-manual" rows="3" placeholder="e.g., AAPL, MSFT, GOOG"></textarea>
+                </div>
+                
+                {# --- Unique selectors for PPC: Period, Dates, Interval --- #}
+                <div class="mb-3">
+                    <label for="ts-ppc-period-selector" class="form-label form-label-sm">Period:</label>
+                    <select id="ts-ppc-period-selector" class="form-select form-select-sm">
+                        <option value="custom" selected>Custom Range</option>
+                        <option value="1d">1 Day</option>
+                        <option value="5d">5 Days</option>
+                        <option value="1mo">1 Month</option>
+                        <option value="3mo">3 Months</option>
+                        <option value="6mo">6 Months</option>
+                        <option value="1y">1 Year</option>
+                        <option value="2y">2 Years</option>
+                        <option value="5y">5 Years</option>
+                        <option value="10y">10 Years</option>
+                        <option value="ytd">Year to Date</option>
+                        <option value="max">Max Available</option>
+                    </select>
+                </div>
+
+                <div class="mb-2" id="ts-ppc-start-date-container">
+                    <label for="ts-ppc-start-date" class="form-label form-label-sm">Start Date:</label>
+                    <input type="date" id="ts-ppc-start-date" class="form-control form-control-sm">
+                </div>
+
+                <div class="mb-2" id="ts-ppc-end-date-container">
+                    <label for="ts-ppc-end-date" class="form-label form-label-sm">End Date:</label>
+                    <input type="date" id="ts-ppc-end-date" class="form-control form-control-sm">
+                </div>
+
+                 <div class="mb-3">
+                    <label for="ts-ppc-interval" class="form-label form-label-sm">Interval:</label>
+                    <select id="ts-ppc-interval" class="form-select form-select-sm">
+                        <option value="15m">15min</option>
+                        <option value="30m">30min</option>
+                        <option value="1h">1h</option>
+                        <option value="1d" selected>Day</option>
+                        <option value="1wk">Week</option>
+                        <option value="1mo">Month</option>
+                    </select>
+                </div>
+                {# --- End Unique Selectors --- #}
+
+                {# Note: Chart Type for comparison is fixed to 'line', so no selector needed here #}
+
+                <!-- Loading Indicator (reused from Price History, could be made unique if needed) -->
+                <!-- <div id="timeseries-loading-indicator" class="text-center my-2" style="display: none;"> ... </div> -->
+
+                <!-- Run Study Button -->
+                <div class="mt-4">
+                    <button id="ts-ppc-run-study-btn" class="btn btn-success btn-sm w-100">Run Comparison</button>
+                </div>
+            </div>
+            <!-- End Price Performance Comparison Pane -->
 
             <!-- Add other study configuration panes here, e.g.,
             <div id="config-pane-another_study" class="study-config-pane" style="display: none;">

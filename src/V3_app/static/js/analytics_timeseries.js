@@ -34,6 +34,21 @@ document.addEventListener('DOMContentLoaded', function() {
     const timeseriesTabPane = document.getElementById(TIMESERIES_TAB_PANE_ID); // Used to mark as initialized
     const tsResetZoomBtn = document.getElementById('ts-reset-zoom-btn'); // NEW: Reset Zoom Button
 
+    // --- NEW: DOM Elements for Price Performance Comparison Study (PPC) ---
+    const ppcRunButton = document.getElementById('ts-ppc-run-study-btn');
+    const ppcTickerSourceRadios = document.querySelectorAll('input[name="tsPpcTickerSource"]');
+    const ppcLoadedTickerSelect = document.getElementById('ts-ppc-ticker-select-loaded');
+    const ppcLoadedTickerContainer = document.getElementById('ts-ppc-ticker-select-loaded-container');
+    const ppcManualTickerTextarea = document.getElementById('ts-ppc-ticker-input-manual');
+    const ppcManualTickerContainer = document.getElementById('ts-ppc-ticker-input-manual-container');
+    // --- NEW: Unique DOM Elements for PPC Study Date/Period/Interval Controls ---
+    const ppcPeriodSelector = document.getElementById('ts-ppc-period-selector');
+    const ppcStartDateInput = document.getElementById('ts-ppc-start-date');
+    const ppcEndDateInput = document.getElementById('ts-ppc-end-date');
+    const ppcStartDateContainer = document.getElementById('ts-ppc-start-date-container');
+    const ppcEndDateContainer = document.getElementById('ts-ppc-end-date-container');
+    const ppcIntervalSelect = document.getElementById('ts-ppc-interval');
+
     // --- Initialization ---
     function initializeTimeseriesModule() {
         console.log(LOG_PREFIX, "Initializing base UI and event listeners (pre-data)...");
@@ -60,20 +75,27 @@ document.addEventListener('DOMContentLoaded', function() {
             console.warn(LOG_PREFIX, "Run button (ts-ph-run-study-btn) not found.");
         }
 
+        // --- Event Listeners for Price Performance Comparison (PPC) ---
+        if (ppcRunButton) {
+            ppcRunButton.addEventListener('click', handleRunPricePerformanceComparison);
+        } else {
+            console.warn(LOG_PREFIX, "Run Comparison button (ts-ppc-run-study-btn) not found.");
+        }
+
         if (priceHistoryPeriodSelector) {
             priceHistoryPeriodSelector.addEventListener('change', function() {
                 const isCustom = this.value === 'custom';
                 if (priceHistoryStartDateContainer) priceHistoryStartDateContainer.style.display = isCustom ? 'block' : 'none';
                 if (priceHistoryEndDateContainer) priceHistoryEndDateContainer.style.display = isCustom ? 'block' : 'none';
             });
-            // Trigger change on load to set initial state of date inputs
-            if (priceHistoryStartDateContainer && priceHistoryEndDateContainer) { // Ensure containers exist
+            // Trigger change on load to set initial state for PH date inputs
+            if (priceHistoryStartDateContainer && priceHistoryEndDateContainer) {
                  const initialIsCustomPeriod = priceHistoryPeriodSelector.value === 'custom';
                  priceHistoryStartDateContainer.style.display = initialIsCustomPeriod ? 'block' : 'none';
                  priceHistoryEndDateContainer.style.display = initialIsCustomPeriod ? 'block' : 'none';
             }
         } else {
-            console.warn(LOG_PREFIX, "Period selector (ts-ph-period-selector) not found.");
+            console.warn(LOG_PREFIX, "Period selector (ts-ph-period-selector) for Price History not found.");
         }
 
         if (priceHistoryTickerSourceRadios && priceHistoryLoadedTickerContainer && priceHistoryManualTickerContainer && priceHistoryTickerInput) {
@@ -119,6 +141,93 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         } else {
             console.warn(LOG_PREFIX, "Reset zoom button (ts-reset-zoom-btn) not found.");
+        }
+
+        // --- Event Listeners for Price Performance Comparison (PPC) ---
+        if (ppcTickerSourceRadios && ppcLoadedTickerContainer && ppcManualTickerContainer) {
+            console.log(LOG_PREFIX, "Setting up PPC Ticker Source Radio listeners.");
+            ppcTickerSourceRadios.forEach(radio => {
+                radio.addEventListener('change', function() {
+                    console.log(LOG_PREFIX, "PPC Ticker source radio changed to:", this.value);
+                    const isLoaded = this.value === 'loaded';
+                    ppcLoadedTickerContainer.style.display = isLoaded ? 'block' : 'none';
+                    if (ppcManualTickerContainer) ppcManualTickerContainer.style.display = !isLoaded ? 'block' : 'none';
+                });
+            });
+            // Set initial state for PPC ticker source based on checked radio
+            const initialPpcTickerSourceChecked = document.querySelector('input[name="tsPpcTickerSource"]:checked');
+            if (initialPpcTickerSourceChecked) {
+                const initialIsLoaded = initialPpcTickerSourceChecked.value === 'loaded';
+                ppcLoadedTickerContainer.style.display = initialIsLoaded ? 'block' : 'none';
+                if (ppcManualTickerContainer) ppcManualTickerContainer.style.display = !initialIsLoaded ? 'block' : 'none';
+            } else if (ppcTickerSourceRadios.length > 0) { // Default if nothing checked
+                ppcTickerSourceRadios[0].checked = true; // Check the first one (usually 'loaded')
+                ppcLoadedTickerContainer.style.display = 'block';
+                if (ppcManualTickerContainer) ppcManualTickerContainer.style.display = 'none';
+            }
+        } else {
+            console.warn(LOG_PREFIX, "PPC Ticker Source Radio elements or containers not found for event setup.");
+        }
+        // --- End PPC Event Listeners ---
+
+        // --- Event Listener for Price History (PH) Period Selector ---
+        if (priceHistoryPeriodSelector) {
+            priceHistoryPeriodSelector.addEventListener('change', function() {
+                const isCustom = this.value === 'custom';
+                if (priceHistoryStartDateContainer) priceHistoryStartDateContainer.style.display = isCustom ? 'block' : 'none';
+                if (priceHistoryEndDateContainer) priceHistoryEndDateContainer.style.display = isCustom ? 'block' : 'none';
+            });
+            // Trigger change on load to set initial state for PH date inputs
+            if (priceHistoryStartDateContainer && priceHistoryEndDateContainer) {
+                 const initialIsCustomPeriod = priceHistoryPeriodSelector.value === 'custom';
+                 priceHistoryStartDateContainer.style.display = initialIsCustomPeriod ? 'block' : 'none';
+                 priceHistoryEndDateContainer.style.display = initialIsCustomPeriod ? 'block' : 'none';
+            }
+        } else {
+            console.warn(LOG_PREFIX, "Period selector (ts-ph-period-selector) for Price History not found.");
+        }
+
+        // --- NEW: Event Listener for Price Performance Comparison (PPC) Period Selector ---
+        if (ppcPeriodSelector) {
+            ppcPeriodSelector.addEventListener('change', function() {
+                const isCustom = this.value === 'custom';
+                if (ppcStartDateContainer) ppcStartDateContainer.style.display = isCustom ? 'block' : 'none';
+                if (ppcEndDateContainer) ppcEndDateContainer.style.display = isCustom ? 'block' : 'none';
+            });
+            // Trigger change on load/init for PPC date inputs (or handle via handleStudySelectionChange)
+            // For now, ensure correct initial state when pane becomes visible in handleStudySelectionChange
+             if (ppcStartDateContainer && ppcEndDateContainer) { // Initial setup for PPC date fields
+                 const initialIsCustomPpcPeriod = ppcPeriodSelector.value === 'custom';
+                 ppcStartDateContainer.style.display = initialIsCustomPpcPeriod ? 'block' : 'none';
+                 ppcEndDateContainer.style.display = initialIsCustomPpcPeriod ? 'block' : 'none';
+            }
+        } else {
+            console.warn(LOG_PREFIX, "Period selector (ts-ppc-period-selector) for PPC not found.");
+        }
+
+        if (priceHistoryTickerSourceRadios && priceHistoryLoadedTickerContainer && priceHistoryManualTickerContainer && priceHistoryTickerInput) {
+            console.log(LOG_PREFIX, "Setting up Ticker Source Radio listeners.");
+            priceHistoryTickerSourceRadios.forEach(radio => {
+                radio.addEventListener('change', function() {
+                    console.log(LOG_PREFIX, "Ticker source radio changed to:", this.value);
+                    const isLoaded = this.value === 'loaded';
+                    priceHistoryLoadedTickerContainer.style.display = isLoaded ? 'block' : 'none';
+                    priceHistoryManualTickerContainer.style.display = !isLoaded ? 'block' : 'none';
+                });
+            });
+            // Set initial state based on checked radio
+            const initialTickerSourceChecked = document.querySelector('input[name="tsPhTickerSource"]:checked');
+            if (initialTickerSourceChecked) {
+                const initialIsLoaded = initialTickerSourceChecked.value === 'loaded';
+                priceHistoryLoadedTickerContainer.style.display = initialIsLoaded ? 'block' : 'none';
+                priceHistoryManualTickerContainer.style.display = !initialIsLoaded ? 'block' : 'none';
+            } else if (priceHistoryTickerSourceRadios.length > 0) { // Default if nothing checked
+                priceHistoryTickerSourceRadios[0].checked = true; // Check the first one (usually 'loaded')
+                priceHistoryLoadedTickerContainer.style.display = 'block';
+                priceHistoryManualTickerContainer.style.display = 'none';
+            }
+        } else {
+            console.error(LOG_PREFIX, "Ticker Source Radio elements or containers not found.");
         }
 
         console.log(LOG_PREFIX, "Event listeners setup complete.");
@@ -317,6 +426,201 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // --- NEW: Handler for Price Performance Comparison Study ---
+    async function handleRunPricePerformanceComparison() {
+        console.log(LOG_PREFIX, "handleRunPricePerformanceComparison called.");
+        // TODO: Implement full logic: get tickers, period, interval, fetch data for each, normalize, then render.
+
+        let selectedTickers = [];
+        const tickerSourceChecked = document.querySelector('input[name="tsPpcTickerSource"]:checked');
+        if (!tickerSourceChecked) {
+            alert("Please select a ticker source for comparison."); return;
+        }
+        const tickerSource = tickerSourceChecked.value;
+
+        if (tickerSource === 'loaded') {
+            if (!ppcLoadedTickerSelect) { alert("PPC Loaded ticker select not found."); return; }
+            selectedTickers = Array.from(ppcLoadedTickerSelect.selectedOptions).map(option => option.value);
+            if (selectedTickers.length === 0) { alert("Please select at least one ticker from the loaded list."); return; }
+        } else { // manual
+            if (!ppcManualTickerTextarea) { alert("PPC Manual ticker textarea not found."); return; }
+            const manualTickersStr = ppcManualTickerTextarea.value.trim();
+            if (!manualTickersStr) { alert("Please enter ticker symbols manually."); return; }
+            selectedTickers = manualTickersStr.split(',').map(t => t.trim().toUpperCase()).filter(t => t);
+            if (selectedTickers.length === 0) { alert("Please enter valid ticker symbols manually."); return; }
+        }
+
+        if (selectedTickers.length === 0) {
+            alert("No tickers selected for comparison."); return;
+        }
+
+        // Reuse existing selectors for period, date, interval
+        const interval = ppcIntervalSelect ? ppcIntervalSelect.value : null;
+        const selectedPeriod = ppcPeriodSelector ? ppcPeriodSelector.value : null;
+        
+        if (!interval || !selectedPeriod) {
+            alert("Interval or Period selector not found or value missing for PPC study."); return;
+        }
+
+        let userStartDateStr = null;
+        let userEndDateStr = null;
+        let queryDateParams = {}; // Use this to build API params for dates/period
+
+        if (selectedPeriod === 'custom') {
+            if (!ppcStartDateInput || !ppcEndDateInput) {
+                alert("Date input components are missing for PPC custom range."); return;
+            }
+            userStartDateStr = ppcStartDateInput.value;
+            userEndDateStr = ppcEndDateInput.value;
+            if (!userStartDateStr || !userEndDateStr) {
+                alert("Please select a start and end date for PPC custom range."); return;
+            }
+            const startDateObj = new Date(userStartDateStr);
+            const endDateObj = new Date(userEndDateStr);
+            if (startDateObj > endDateObj) {
+                alert("Start date must be before or the same as end date."); return;
+            }
+            const apiEndDateObj = new Date(endDateObj);
+            apiEndDateObj.setDate(apiEndDateObj.getDate() + 1);
+            
+            // For API call
+            queryDateParams.start_date = userStartDateStr;
+            queryDateParams.end_date = apiEndDateObj.toISOString().split('T')[0];
+        } else {
+            // For API call
+            queryDateParams.period = selectedPeriod;
+            // userStartDateStr and userEndDateStr remain null for title purposes if period is not custom
+        }
+
+        console.log(LOG_PREFIX, "PPC Run with Tickers:", selectedTickers, 
+                        "Interval:", interval, 
+                        "API Date Params:", queryDateParams, 
+                        "User Dates (for title if custom):", {start: userStartDateStr, end: userEndDateStr });
+        
+        // alert(`Comparison study run triggered for tickers: ${selectedTickers.join(', ')}. Data fetching & normalization next.`);
+        showLoadingIndicator(true);
+        showPlaceholderWithMessage('Fetching and processing data for comparison...');
+
+        const fetchPromises = selectedTickers.map(ticker => {
+            let apiParams = `ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}`;
+            if (queryDateParams.period) {
+                apiParams += `&period=${encodeURIComponent(queryDateParams.period)}`;
+            } else if (queryDateParams.start_date && queryDateParams.end_date) {
+                apiParams += `&start_date=${encodeURIComponent(queryDateParams.start_date)}&end_date=${encodeURIComponent(queryDateParams.end_date)}`;
+            }
+            const apiUrl = `/api/v3/timeseries/price_history?${apiParams}`;
+            console.log(LOG_PREFIX, `Fetching for PPC: ${apiUrl}`);
+            return fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().catch(() => ({})).then(errData => {
+                            throw new Error(`HTTP error ${response.status} for ${ticker}: ${errData.detail || response.statusText}`);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => ({ ticker, data })) // Tag data with its ticker
+                .catch(error => ({ ticker, error: error.message || "Failed to fetch" })); // Tag error with ticker
+        });
+
+        Promise.allSettled(fetchPromises)
+            .then(results => {
+                showLoadingIndicator(false);
+                const successfullyFetchedData = [];
+                const errors = [];
+
+                results.forEach(result => {
+                    if (result.status === 'fulfilled') {
+                        if (result.value.error) { // Our custom error tagging
+                            errors.push(`${result.value.ticker}: ${result.value.error}`);
+                        } else if (result.value.data && result.value.data.length > 0) {
+                            successfullyFetchedData.push(result.value);
+                        } else {
+                            errors.push(`${result.value.ticker}: No data returned or empty dataset.`);
+                        }
+                    } else { // status === 'rejected' (network error, etc.)
+                        // For Promise.allSettled, error usually in result.reason
+                        // but our structure above puts it in result.value.error if HTTP error was caught by .catch()
+                        // This part might need adjustment based on exact error structure if fetch itself fails fundamentally.
+                        errors.push(`A ticker: Request failed - ${result.reason?.message || 'Unknown fetch error'}`); 
+                    }
+                });
+
+                if (errors.length > 0) {
+                    alert("Errors occurred during data fetching for comparison:\n" + errors.join("\n"));
+                }
+
+                if (successfullyFetchedData.length === 0) {
+                    showPlaceholderWithMessage("No data successfully fetched for any selected tickers for comparison.");
+                    return;
+                }
+
+                // Normalize data
+                const normalizedSeries = successfullyFetchedData.map(tickerDataObj => {
+                    const { ticker, data } = tickerDataObj;
+                    // Find the first valid data point to get the base price
+                    let basePrice = null;
+                    let firstValidDataPointIndex = -1;
+
+                    for (let i = 0; i < data.length; i++) {
+                        if (data[i] && typeof data[i].Close === 'number') {
+                            basePrice = data[i].Close;
+                            firstValidDataPointIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (basePrice === null || firstValidDataPointIndex === -1) {
+                        console.warn(LOG_PREFIX, `Could not find a valid base price for ticker: ${ticker}`);
+                        errors.push(`${ticker}: Could not determine base price for normalization.`);
+                        return null; // Skip this ticker if no base price
+                    }
+
+                    const normalizedPoints = data.slice(firstValidDataPointIndex).map(point => {
+                        const currentClose = point.Close;
+                        let performance = 0;
+                        if (typeof currentClose === 'number' && basePrice !== 0) {
+                            performance = ((currentClose - basePrice) / basePrice) * 100;
+                        }
+                        return {
+                            x: new Date(point.Datetime || point.Date).valueOf(),
+                            y: performance
+                        };
+                    }).filter(p => !isNaN(p.x) && !isNaN(p.y)); // Ensure valid points
+
+                    return {
+                        ticker: ticker,
+                        data: normalizedPoints
+                    };
+                }).filter(series => series && series.data.length > 0); // Filter out nulls or empty series
+
+                if (normalizedSeries.length === 0) {
+                    showPlaceholderWithMessage("No data could be normalized for comparison. Check console for details.");
+                     if (errors.length > 0 && !alertAlreadyShown) { // Avoid double alert if previous one was sufficient
+                        // alert("Additionally, errors occurred during data fetching/normalization:\n" + errors.join("\n"));
+                    } // It might be better to consolidate error display
+                    return;
+                }
+
+                // Pass data to a chart rendering function
+                // The chart type for comparison is always 'line'
+                // The 'range' for the title will be based on userStartDateStr, userEndDateStr or selectedPeriod
+                const titleRange = selectedPeriod === 'custom' && userStartDateStr && userEndDateStr ? 
+                                   { start: userStartDateStr, end: userEndDateStr } : 
+                                   { period: selectedPeriod };
+
+                console.log(LOG_PREFIX, "Normalized series for chart:", normalizedSeries);
+                // Call renderTimeseriesChart, but it needs to be adapted for multi-series and different y-axis
+                // For now, let's assume renderTimeseriesChart can handle this new data structure if we pass a special chartType
+                renderTimeseriesChart(normalizedSeries, `Comparison: ${normalizedSeries.map(s=>s.ticker).join(', ')}`, interval, titleRange, 'performance_comparison_line');
+
+            }).catch(overallError => {
+                showLoadingIndicator(false);
+                console.error(LOG_PREFIX, "Generic error in Promise.allSettled for PPC:", overallError);
+                showPlaceholderWithMessage("An unexpected error occurred while processing comparison data.");
+            });
+    }
+
     // --- NEW: Handler for Study Selection Change (Basic for now) ---
     function handleStudySelectionChange(event) {
         const selectedStudy = event.target.value;
@@ -331,6 +635,21 @@ document.addEventListener('DOMContentLoaded', function() {
         if (selectedPane) {
             selectedPane.style.display = 'block';
             console.log(LOG_PREFIX, `Displayed config pane: ${selectedPaneId}`);
+
+            // NEW: Ensure correct date input visibility for the newly shown pane based on ITS OWN period selector
+            if (selectedStudy === 'price_history') {
+                if (priceHistoryPeriodSelector && priceHistoryStartDateContainer && priceHistoryEndDateContainer) {
+                    const isCustom = priceHistoryPeriodSelector.value === 'custom';
+                    priceHistoryStartDateContainer.style.display = isCustom ? 'block' : 'none';
+                    priceHistoryEndDateContainer.style.display = isCustom ? 'block' : 'none';
+                }
+            } else if (selectedStudy === 'price_performance_comparison') {
+                if (ppcPeriodSelector && ppcStartDateContainer && ppcEndDateContainer) {
+                    const isCustom = ppcPeriodSelector.value === 'custom';
+                    ppcStartDateContainer.style.display = isCustom ? 'block' : 'none';
+                    ppcEndDateContainer.style.display = isCustom ? 'block' : 'none';
+                }
+            }
         } else {
             console.warn(LOG_PREFIX, `Config pane for study '${selectedStudy}' (ID: ${selectedPaneId}) not found.`);
         }
@@ -375,8 +694,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function populateLoadedTickerSelect() {
         console.log(LOG_PREFIX, "populateLoadedTickerSelect called");
-        if (!priceHistoryLoadedTickerSelect) {
-            console.warn(LOG_PREFIX, "priceHistoryLoadedTickerSelect element not found.");
+        if (!priceHistoryLoadedTickerSelect && !ppcLoadedTickerSelect) {
+            console.warn(LOG_PREFIX, "Price history and PPC loaded ticker select elements not found.");
             return;
         }
 
@@ -396,29 +715,52 @@ document.addEventListener('DOMContentLoaded', function() {
             console.warn(LOG_PREFIX, "populateLoadedTickerSelect - analyticsOriginalData is not an array or is null.");
         }
 
-        priceHistoryLoadedTickerSelect.innerHTML = ''; // Clear existing options more cleanly
-        if (uniqueTickers.size > 0) {
-            // Add a default placeholder option
-            const placeholderOption = document.createElement('option');
-            placeholderOption.value = "";
-            placeholderOption.textContent = "Select a Ticker...";
-            placeholderOption.disabled = true;
-            placeholderOption.selected = true;
-            priceHistoryLoadedTickerSelect.appendChild(placeholderOption);
+        const sortedTickers = Array.from(uniqueTickers).sort();
 
-            Array.from(uniqueTickers).sort().forEach(ticker => {
-                const option = document.createElement('option');
-                option.value = ticker;
-                option.textContent = ticker;
-                priceHistoryLoadedTickerSelect.appendChild(option);
-            });
-            console.log(LOG_PREFIX, "populateLoadedTickerSelect - Populated with tickers:", Array.from(uniqueTickers).sort());
-        } else {
-            const noTickerOption = document.createElement('option');
-            noTickerOption.value = "";
-            noTickerOption.textContent = "No tickers in loaded data";
-            priceHistoryLoadedTickerSelect.appendChild(noTickerOption);
-            console.warn(LOG_PREFIX, "populateLoadedTickerSelect - No unique tickers found.");
+        // Populate Price History single select
+        if (priceHistoryLoadedTickerSelect) {
+            priceHistoryLoadedTickerSelect.innerHTML = ''; // Clear existing options
+            if (sortedTickers.length > 0) {
+                const placeholderOption = document.createElement('option');
+                placeholderOption.value = "";
+                placeholderOption.textContent = "Select a Ticker...";
+                placeholderOption.disabled = true;
+                placeholderOption.selected = true;
+                priceHistoryLoadedTickerSelect.appendChild(placeholderOption);
+                sortedTickers.forEach(ticker => {
+                    const option = document.createElement('option');
+                    option.value = ticker;
+                    option.textContent = ticker;
+                    priceHistoryLoadedTickerSelect.appendChild(option);
+                });
+            } else {
+                const noTickerOption = document.createElement('option');
+                noTickerOption.value = "";
+                noTickerOption.textContent = "No tickers in loaded data";
+                priceHistoryLoadedTickerSelect.appendChild(noTickerOption);
+            }
+            console.log(LOG_PREFIX, "populateLoadedTickerSelect - Populated Price History select with tickers:", sortedTickers);
+        }
+
+        // Populate Price Performance Comparison multi-select
+        if (ppcLoadedTickerSelect) {
+            ppcLoadedTickerSelect.innerHTML = ''; // Clear existing options
+            if (sortedTickers.length > 0) {
+                // No placeholder needed for multi-select usually, or make it non-selectable if desired
+                sortedTickers.forEach(ticker => {
+                    const option = document.createElement('option');
+                    option.value = ticker;
+                    option.textContent = ticker;
+                    ppcLoadedTickerSelect.appendChild(option);
+                });
+            } else {
+                const noTickerOption = document.createElement('option');
+                noTickerOption.value = "";
+                noTickerOption.textContent = "No tickers for comparison";
+                noTickerOption.disabled = true; // Make it unselectable
+                ppcLoadedTickerSelect.appendChild(noTickerOption);
+            }
+            console.log(LOG_PREFIX, "populateLoadedTickerSelect - Populated PPC multi-select with tickers:", sortedTickers);
         }
     }
 
@@ -480,22 +822,20 @@ document.addEventListener('DOMContentLoaded', function() {
         // Ensure reset button is hidden initially or when chart is cleared
         if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'none'; 
 
-        if (!apiData || apiData.length === 0) {
+        if (!apiData || (chartType !== 'performance_comparison_line' && apiData.length === 0)) {
             showPlaceholderWithMessage(`No data available for ${ticker} with the selected parameters.`);
-            // No return here, showPlaceholderWithMessage handles UI, button is already hidden
             return; 
         }
         
         const createChartLogic = () => {
             chartCanvas.style.display = 'block';
             chartPlaceholder.style.display = 'none';
-            // Show reset button only if a chart is successfully about to be rendered
             if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'inline-block'; 
 
             const ctx = chartCanvas.getContext('2d');
             let datasets;
-            let chartJsType; // This will be 'line', 'candlestick'
-            let chartOptions = { // Base options
+            let chartJsType; 
+            let chartOptions = { 
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
@@ -603,7 +943,63 @@ document.addEventListener('DOMContentLoaded', function() {
                 };
                  // Might want to disable main legend for candlestick if OHLC label is enough
                 // chartOptions.plugins.legend = { display: false };
-            } else { // Default to line chart
+            } else if (chartType === 'performance_comparison_line') {
+                console.log(LOG_PREFIX, "Configuring for performance_comparison_line chart type.");
+                // apiData here is the normalizedSeries: [{ ticker: 'X', data: [{x,y},...] }, ...]
+                
+                chartJsType = 'line';
+                specificTitlePart = "Price Performance Comparison";
+
+                // Define an array of distinct colors for the lines
+                const lineColors = [
+                    'rgb(75, 192, 192)', 'rgb(255, 99, 132)', 'rgb(54, 162, 235)',
+                    'rgb(255, 206, 86)', 'rgb(153, 102, 255)', 'rgb(255, 159, 64)',
+                    'rgb(199, 199, 199)', 'rgb(83, 102, 255)', 'rgb(100, 255, 100)'
+                ];
+
+                datasets = apiData.map((series, index) => ({
+                    label: series.ticker + " Performance",
+                    data: series.data, // Already in {x, y} format
+                    borderColor: lineColors[index % lineColors.length], // Cycle through colors
+                    backgroundColor: lineColors[index % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.1)'), // Slight fill for visibility
+                    borderWidth: 2, // Slightly thicker lines for comparison
+                    fill: false,
+                    pointRadius: 0, // No points by default, lines are clearer
+                    tension: 0.1
+                }));
+
+                chartOptions.scales.x = {
+                    type: 'time',
+                    time: {
+                        tooltipFormat: 'MMM d, yyyy' + (['15m', '30m', '1h'].includes(interval) ? ', HH:mm' : '')
+                    },
+                    title: { display: true, text: 'Date' + (['15m', '30m', '1h'].includes(interval) ? '/Time' : '') },
+                    ticks: { source: 'auto', maxRotation: 45, minRotation: 0 }
+                };
+                chartOptions.scales.y = {
+                    title: { display: true, text: 'Performance (%)' },
+                    ticks: {
+                        callback: function(value) {
+                            return value + '%';
+                        }
+                    },
+                    // beginAtZero is not strictly needed as data starts at 0% but doesn't hurt
+                };
+
+                chartOptions.plugins.tooltip.callbacks = {
+                    label: function(tooltipItem) {
+                        let label = tooltipItem.dataset.label || '';
+                        if (label) {
+                            label += ': ';
+                        }
+                        if (tooltipItem.parsed.y !== null) {
+                            label += tooltipItem.parsed.y.toFixed(2) + '%';
+                        }
+                        return label;
+                    }
+                };
+
+            } else { // Default to line chart (for single ticker price history)
                 const isIntraday = ['15m', '30m', '1h'].includes(interval); // Add other intraday intervals if supported
 
                 if (isIntraday) {
@@ -656,25 +1052,26 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             let titleRangePart = "";
-            if (range.period && range.period !== 'custom') {
+            if (range && range.period && range.period !== 'custom') {
                 titleRangePart = `Period: ${range.period.toUpperCase()}`;
-            } else if (range.start && range.end) {
+            } else if (range && range.start && range.end) {
                 titleRangePart = `Range: ${new Date(range.start).toLocaleDateString()} - ${new Date(range.end).toLocaleDateString()}`;
             }
             
             chartOptions.plugins.title = {
                 display: true,
-                text: `${ticker} - ${specificTitlePart} ${titleRangePart ? '('+titleRangePart+')' : ''}`.trim(),
+                // For performance comparison, 'ticker' var is a comma-separated string of tickers
+                text: `${chartType === 'performance_comparison_line' ? '' : ticker + " - "}${specificTitlePart} ${titleRangePart ? '('+titleRangePart+')' : ''}`.trim(),
                 font: { size: 16 }
             };
 
             timeseriesChartInstance = new Chart(ctx, {
                 type: chartJsType,
-                data: { datasets: datasets }, // For line chart with category x-axis, labels are in options.scales.x.labels
+                data: { datasets: datasets }, 
                 options: chartOptions
             });
             console.log(LOG_PREFIX, "Chart rendered successfully for", ticker, "as", chartJsType);
-        }; // End of createChartLogic
+        };
 
         if (chartType === 'candlestick' || chartType === 'ohlc') {
             showLoadingIndicator(true); // Show loading indicator
