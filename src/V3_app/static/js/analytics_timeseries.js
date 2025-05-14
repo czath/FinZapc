@@ -36,7 +36,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- NEW: DOM Elements for Price Performance Comparison Study (PPC) ---
     const ppcRunButton = document.getElementById('ts-ppc-run-study-btn');
-    const ppcTickerSourceRadios = document.querySelectorAll('input[name="tsPpcTickerSource"]');
     const ppcLoadedTickerSelect = document.getElementById('ts-ppc-ticker-select-loaded');
     const ppcLoadedTickerContainer = document.getElementById('ts-ppc-ticker-select-loaded-container');
     const ppcManualTickerTextarea = document.getElementById('ts-ppc-ticker-input-manual');
@@ -50,8 +49,18 @@ document.addEventListener('DOMContentLoaded', function() {
     const ppcIntervalSelect = document.getElementById('ts-ppc-interval');
 
     // --- NEW: DOM Elements for Pair Relative Price Study (PRP) ---
-    const prpTicker1Input = document.getElementById('ts-prp-ticker1-input');
-    const prpTicker2Input = document.getElementById('ts-prp-ticker2-input');
+    const prpTicker1SourceRadios = document.querySelectorAll('input[name="tsPrpTicker1Source"]');
+    const prpTicker1LoadedSelect = document.getElementById('ts-prp-ticker1-select-loaded');
+    const prpTicker1LoadedContainer = document.getElementById('ts-prp-ticker1-select-loaded-container');
+    const prpTicker1ManualInput = document.getElementById('ts-prp-ticker1-input-manual');
+    const prpTicker1ManualContainer = document.getElementById('ts-prp-ticker1-input-manual-container');
+
+    const prpTicker2SourceRadios = document.querySelectorAll('input[name="tsPrpTicker2Source"]');
+    const prpTicker2LoadedSelect = document.getElementById('ts-prp-ticker2-select-loaded');
+    const prpTicker2LoadedContainer = document.getElementById('ts-prp-ticker2-select-loaded-container');
+    const prpTicker2ManualInput = document.getElementById('ts-prp-ticker2-input-manual');
+    const prpTicker2ManualContainer = document.getElementById('ts-prp-ticker2-input-manual-container');
+
     const prpPeriodSelector = document.getElementById('ts-prp-period-selector');
     const prpStartDateInput = document.getElementById('ts-prp-start-date');
     const prpEndDateInput = document.getElementById('ts-prp-end-date');
@@ -154,50 +163,6 @@ document.addEventListener('DOMContentLoaded', function() {
             console.warn(LOG_PREFIX, "Reset zoom button (ts-reset-zoom-btn) not found.");
         }
 
-        // --- Event Listeners for Price Performance Comparison (PPC) ---
-        if (ppcTickerSourceRadios && ppcLoadedTickerContainer && ppcManualTickerContainer) {
-            console.log(LOG_PREFIX, "Setting up PPC Ticker Source Radio listeners.");
-            ppcTickerSourceRadios.forEach(radio => {
-                radio.addEventListener('change', function() {
-                    console.log(LOG_PREFIX, "PPC Ticker source radio changed to:", this.value);
-                    const isLoaded = this.value === 'loaded';
-                    ppcLoadedTickerContainer.style.display = isLoaded ? 'block' : 'none';
-                    if (ppcManualTickerContainer) ppcManualTickerContainer.style.display = !isLoaded ? 'block' : 'none';
-                });
-            });
-            // Set initial state for PPC ticker source based on checked radio
-            const initialPpcTickerSourceChecked = document.querySelector('input[name="tsPpcTickerSource"]:checked');
-            if (initialPpcTickerSourceChecked) {
-                const initialIsLoaded = initialPpcTickerSourceChecked.value === 'loaded';
-                ppcLoadedTickerContainer.style.display = initialIsLoaded ? 'block' : 'none';
-                if (ppcManualTickerContainer) ppcManualTickerContainer.style.display = !initialIsLoaded ? 'block' : 'none';
-            } else if (ppcTickerSourceRadios.length > 0) { // Default if nothing checked
-                ppcTickerSourceRadios[0].checked = true; // Check the first one (usually 'loaded')
-                ppcLoadedTickerContainer.style.display = 'block';
-                if (ppcManualTickerContainer) ppcManualTickerContainer.style.display = 'none';
-            }
-        } else {
-            console.warn(LOG_PREFIX, "PPC Ticker Source Radio elements or containers not found for event setup.");
-        }
-        // --- End PPC Event Listeners ---
-
-        // --- Event Listener for Price History (PH) Period Selector ---
-        if (priceHistoryPeriodSelector) {
-            priceHistoryPeriodSelector.addEventListener('change', function() {
-                const isCustom = this.value === 'custom';
-                if (priceHistoryStartDateContainer) priceHistoryStartDateContainer.style.display = isCustom ? 'block' : 'none';
-                if (priceHistoryEndDateContainer) priceHistoryEndDateContainer.style.display = isCustom ? 'block' : 'none';
-            });
-            // Trigger change on load to set initial state for PH date inputs
-            if (priceHistoryStartDateContainer && priceHistoryEndDateContainer) {
-                 const initialIsCustomPeriod = priceHistoryPeriodSelector.value === 'custom';
-                 priceHistoryStartDateContainer.style.display = initialIsCustomPeriod ? 'block' : 'none';
-                 priceHistoryEndDateContainer.style.display = initialIsCustomPeriod ? 'block' : 'none';
-            }
-        } else {
-            console.warn(LOG_PREFIX, "Period selector (ts-ph-period-selector) for Price History not found.");
-        }
-
         // --- NEW: Event Listener for Price Performance Comparison (PPC) Period Selector ---
         if (ppcPeriodSelector) {
             ppcPeriodSelector.addEventListener('change', function() {
@@ -241,11 +206,39 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error(LOG_PREFIX, "Ticker Source Radio elements or containers not found.");
         }
 
-        // --- NEW: Event Listener for Pair Relative Price (PRP) Run Button ---
-        if (prpRunButton) {
-            prpRunButton.addEventListener('click', handleRunPairRelativePrice);
-        } else {
-            console.warn(LOG_PREFIX, "Run Relative Price button (ts-prp-run-study-btn) not found.");
+        // --- NEW: Event Listeners for PRP Ticker Source Radios ---
+        if (prpTicker1SourceRadios && prpTicker1LoadedContainer && prpTicker1ManualContainer) {
+            prpTicker1SourceRadios.forEach(radio => {
+                radio.addEventListener('change', function() {
+                    const isLoaded = this.value === 'loaded';
+                    prpTicker1LoadedContainer.style.display = isLoaded ? 'block' : 'none';
+                    prpTicker1ManualContainer.style.display = !isLoaded ? 'block' : 'none';
+                });
+            });
+            // Set initial state for Ticker 1 based on checked radio (manual is default in HTML)
+            const initialT1Source = document.querySelector('input[name="tsPrpTicker1Source"]:checked');
+            if (initialT1Source) {
+                const isLoaded = initialT1Source.value === 'loaded';
+                prpTicker1LoadedContainer.style.display = isLoaded ? 'block' : 'none';
+                prpTicker1ManualContainer.style.display = !isLoaded ? 'block' : 'none';
+            } // else default HTML state (manual visible, loaded hidden)
+        }
+
+        if (prpTicker2SourceRadios && prpTicker2LoadedContainer && prpTicker2ManualContainer) {
+            prpTicker2SourceRadios.forEach(radio => {
+                radio.addEventListener('change', function() {
+                    const isLoaded = this.value === 'loaded';
+                    prpTicker2LoadedContainer.style.display = isLoaded ? 'block' : 'none';
+                    prpTicker2ManualContainer.style.display = !isLoaded ? 'block' : 'none';
+                });
+            });
+            // Set initial state for Ticker 2 based on checked radio (manual is default in HTML)
+            const initialT2Source = document.querySelector('input[name="tsPrpTicker2Source"]:checked');
+            if (initialT2Source) {
+                const isLoaded = initialT2Source.value === 'loaded';
+                prpTicker2LoadedContainer.style.display = isLoaded ? 'block' : 'none';
+                prpTicker2ManualContainer.style.display = !isLoaded ? 'block' : 'none';
+            } // else default HTML state
         }
 
         // --- NEW: Event Listener for Pair Relative Price (PRP) Period Selector ---
@@ -263,6 +256,13 @@ document.addEventListener('DOMContentLoaded', function() {
            }
         } else {
             console.warn(LOG_PREFIX, "Period selector (ts-prp-period-selector) for PRP not found.");
+        }
+
+        // --- NEW: Event Listener for Pair Relative Price (PRP) Run Button ---
+        if (prpRunButton) {
+            prpRunButton.addEventListener('click', handleRunPairRelativePrice);
+        } else {
+            console.warn(LOG_PREFIX, "Run Relative Price button (ts-prp-run-study-btn) not found.");
         }
 
         console.log(LOG_PREFIX, "Event listeners setup complete.");
@@ -464,32 +464,36 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- NEW: Handler for Price Performance Comparison Study ---
     async function handleRunPricePerformanceComparison() {
         console.log(LOG_PREFIX, "handleRunPricePerformanceComparison called.");
-        // TODO: Implement full logic: get tickers, period, interval, fetch data for each, normalize, then render.
 
-        let selectedTickers = [];
-        const tickerSourceChecked = document.querySelector('input[name="tsPpcTickerSource"]:checked');
-        if (!tickerSourceChecked) {
-            alert("Please select a ticker source for comparison."); return;
+        let loadedTickers = [];
+        if (ppcLoadedTickerSelect) {
+            loadedTickers = Array.from(ppcLoadedTickerSelect.selectedOptions).map(option => option.value.trim().toUpperCase()).filter(t => t);
+        } else {
+            console.warn(LOG_PREFIX, "PPC Loaded ticker select not found.");
+            // alert("PPC Loaded ticker select not found."); // Optional: alert user or just proceed
         }
-        const tickerSource = tickerSourceChecked.value;
 
-        if (tickerSource === 'loaded') {
-            if (!ppcLoadedTickerSelect) { alert("PPC Loaded ticker select not found."); return; }
-            selectedTickers = Array.from(ppcLoadedTickerSelect.selectedOptions).map(option => option.value);
-            if (selectedTickers.length === 0) { alert("Please select at least one ticker from the loaded list."); return; }
-        } else { // manual
-            if (!ppcManualTickerTextarea) { alert("PPC Manual ticker textarea not found."); return; }
+        let manualTickers = [];
+        if (ppcManualTickerTextarea) {
             const manualTickersStr = ppcManualTickerTextarea.value.trim();
-            if (!manualTickersStr) { alert("Please enter ticker symbols manually."); return; }
-            selectedTickers = manualTickersStr.split(',').map(t => t.trim().toUpperCase()).filter(t => t);
-            if (selectedTickers.length === 0) { alert("Please enter valid ticker symbols manually."); return; }
+            if (manualTickersStr) {
+                manualTickers = manualTickersStr.split(',').map(t => t.trim().toUpperCase()).filter(t => t);
+            }
+        } else {
+            console.warn(LOG_PREFIX, "PPC Manual ticker textarea not found.");
         }
 
-        if (selectedTickers.length === 0) {
-            alert("No tickers selected for comparison."); return;
+        // Combine and deduplicate tickers
+        const combinedTickers = [...new Set([...loadedTickers, ...manualTickers])];
+
+        if (combinedTickers.length === 0) {
+            alert("Please select at least one ticker from the list or enter tickers manually for comparison.");
+            return;
         }
 
-        // Reuse existing selectors for period, date, interval
+        const selectedTickers = combinedTickers; // Use the combined and deduplicated list
+        console.log(LOG_PREFIX, "Combined and deduplicated tickers for PPC:", selectedTickers);
+
         const interval = ppcIntervalSelect ? ppcIntervalSelect.value : null;
         const selectedPeriod = ppcPeriodSelector ? ppcPeriodSelector.value : null;
         
@@ -660,14 +664,37 @@ document.addEventListener('DOMContentLoaded', function() {
     async function handleRunPairRelativePrice() {
         console.log(LOG_PREFIX, "handleRunPairRelativePrice called.");
 
-        if (!prpTicker1Input || !prpTicker2Input || !prpPeriodSelector || !prpIntervalSelect) {
+        if (!prpTicker1ManualInput || !prpTicker1LoadedSelect || 
+            !prpTicker2ManualInput || !prpTicker2LoadedSelect || 
+            !prpPeriodSelector || !prpIntervalSelect) {
             console.error(LOG_PREFIX, "Essential UI elements for Pair Relative Price not found!");
             alert("Error: Essential UI components for Pair Relative Price are missing.");
             return;
         }
 
-        const ticker1 = prpTicker1Input.value.trim().toUpperCase();
-        const ticker2 = prpTicker2Input.value.trim().toUpperCase();
+        let ticker1 = '';
+        const ticker1Source = document.querySelector('input[name="tsPrpTicker1Source"]:checked');
+        if (ticker1Source) {
+            if (ticker1Source.value === 'loaded') {
+                ticker1 = prpTicker1LoadedSelect.value;
+            } else {
+                ticker1 = prpTicker1ManualInput.value.trim().toUpperCase();
+            }
+        } else {
+            alert("Please select a source for Ticker 1."); return;
+        }
+
+        let ticker2 = '';
+        const ticker2Source = document.querySelector('input[name="tsPrpTicker2Source"]:checked');
+        if (ticker2Source) {
+            if (ticker2Source.value === 'loaded') {
+                ticker2 = prpTicker2LoadedSelect.value;
+            } else {
+                ticker2 = prpTicker2ManualInput.value.trim().toUpperCase();
+            }
+        } else {
+            alert("Please select a source for Ticker 2."); return;
+        }
 
         if (!ticker1 || !ticker2) {
             alert("Please enter both Ticker 1 and Ticker 2 symbols.");
@@ -887,28 +914,44 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function populateLoadedTickerSelect() {
         console.log(LOG_PREFIX, "populateLoadedTickerSelect called");
-        if (!priceHistoryLoadedTickerSelect && !ppcLoadedTickerSelect) {
-            console.warn(LOG_PREFIX, "Price history and PPC loaded ticker select elements not found.");
-            return;
+        // Check if crucial select elements exist for logging, but proceed regardless for partial UI functionality
+        if (!priceHistoryLoadedTickerSelect) console.warn(LOG_PREFIX, "Price History loaded ticker select element not found at init.");
+        if (!ppcLoadedTickerSelect) console.warn(LOG_PREFIX, "PPC loaded ticker select element not found at init.");
+        if (!prpTicker1LoadedSelect) console.warn(LOG_PREFIX, "PRP Ticker 1 loaded select element not found at init.");
+        if (!prpTicker2LoadedSelect) console.warn(LOG_PREFIX, "PRP Ticker 2 loaded select element not found at init.");
+
+        let analyticsOriginalData;
+        try {
+            analyticsOriginalData = getFinalAnalyticsData();
+        } catch (e) {
+            console.error(LOG_PREFIX, "Error calling getFinalAnalyticsData:", e);
+            analyticsOriginalData = []; // Default to empty on error to prevent further crashes
+        }
+        
+        // Safer logging for the received data package or its length
+        if (analyticsOriginalData && typeof analyticsOriginalData.length === 'number') {
+            console.log(LOG_PREFIX, "populateLoadedTickerSelect - analyticsOriginalData count:", analyticsOriginalData.length);
+        } else {
+            console.log(LOG_PREFIX, "populateLoadedTickerSelect - analyticsOriginalData is not an array or has no length. Data received:", analyticsOriginalData);
         }
 
-        const analyticsOriginalData = getFinalAnalyticsData();
-        console.log(LOG_PREFIX, "populateLoadedTickerSelect - analyticsOriginalData count:", analyticsOriginalData.length);
         const uniqueTickers = new Set();
-        
-        if (analyticsOriginalData && Array.isArray(analyticsOriginalData)) {
+        if (Array.isArray(analyticsOriginalData)) {
             analyticsOriginalData.forEach((item, index) => {
                 if (item && item.ticker) {
                     uniqueTickers.add(item.ticker);
                 } else {
-                    // console.debug(LOG_PREFIX, `populateLoadedTickerSelect - Item at index ${index} is missing ticker. Item:`, item); // Can be verbose
+                    // console.debug(LOG_PREFIX, `populateLoadedTickerSelect - Item at index ${index} is missing ticker. Item:`, item);
                 }
             });
         } else {
-            console.warn(LOG_PREFIX, "populateLoadedTickerSelect - analyticsOriginalData is not an array or is null.");
+            console.warn(LOG_PREFIX, "populateLoadedTickerSelect - analyticsOriginalData is not an array (or is null/undefined). Cannot extract tickers. Data value:", analyticsOriginalData);
         }
 
         const sortedTickers = Array.from(uniqueTickers).sort();
+        if (sortedTickers.length === 0) {
+            console.warn(LOG_PREFIX, "populateLoadedTickerSelect - No unique tickers found after processing analyticsOriginalData. Dropdowns will indicate no data.");
+        }
 
         // Populate Price History single select
         if (priceHistoryLoadedTickerSelect) {
@@ -939,7 +982,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (ppcLoadedTickerSelect) {
             ppcLoadedTickerSelect.innerHTML = ''; // Clear existing options
             if (sortedTickers.length > 0) {
-                // No placeholder needed for multi-select usually, or make it non-selectable if desired
                 sortedTickers.forEach(ticker => {
                     const option = document.createElement('option');
                     option.value = ticker;
@@ -950,10 +992,60 @@ document.addEventListener('DOMContentLoaded', function() {
                 const noTickerOption = document.createElement('option');
                 noTickerOption.value = "";
                 noTickerOption.textContent = "No tickers for comparison";
-                noTickerOption.disabled = true; // Make it unselectable
+                noTickerOption.disabled = true; 
                 ppcLoadedTickerSelect.appendChild(noTickerOption);
             }
             console.log(LOG_PREFIX, "populateLoadedTickerSelect - Populated PPC multi-select with tickers:", sortedTickers);
+        }
+
+        // --- NEW: Populate Pair Relative Price Ticker 1 select ---
+        if (prpTicker1LoadedSelect) {
+            prpTicker1LoadedSelect.innerHTML = ''; // Clear existing options
+            if (sortedTickers.length > 0) {
+                const placeholderOption = document.createElement('option');
+                placeholderOption.value = "";
+                placeholderOption.textContent = "Select Ticker 1...";
+                placeholderOption.disabled = true;
+                placeholderOption.selected = true;
+                prpTicker1LoadedSelect.appendChild(placeholderOption);
+                sortedTickers.forEach(ticker => {
+                    const option = document.createElement('option');
+                    option.value = ticker;
+                    option.textContent = ticker;
+                    prpTicker1LoadedSelect.appendChild(option);
+                });
+            } else {
+                const noTickerOption = document.createElement('option');
+                noTickerOption.value = "";
+                noTickerOption.textContent = "No loaded tickers";
+                prpTicker1LoadedSelect.appendChild(noTickerOption);
+            }
+            console.log(LOG_PREFIX, "populateLoadedTickerSelect - Populated PRP Ticker 1 select.");
+        }
+
+        // --- NEW: Populate Pair Relative Price Ticker 2 select ---
+        if (prpTicker2LoadedSelect) {
+            prpTicker2LoadedSelect.innerHTML = ''; // Clear existing options
+            if (sortedTickers.length > 0) {
+                const placeholderOption = document.createElement('option');
+                placeholderOption.value = "";
+                placeholderOption.textContent = "Select Ticker 2...";
+                placeholderOption.disabled = true;
+                placeholderOption.selected = true;
+                prpTicker2LoadedSelect.appendChild(placeholderOption);
+                sortedTickers.forEach(ticker => {
+                    const option = document.createElement('option');
+                    option.value = ticker;
+                    option.textContent = ticker;
+                    prpTicker2LoadedSelect.appendChild(option);
+                });
+            } else {
+                const noTickerOption = document.createElement('option');
+                noTickerOption.value = "";
+                noTickerOption.textContent = "No loaded tickers";
+                prpTicker2LoadedSelect.appendChild(noTickerOption);
+            }
+            console.log(LOG_PREFIX, "populateLoadedTickerSelect - Populated PRP Ticker 2 select.");
         }
     }
 
@@ -1019,11 +1111,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         const createChartLogic = () => {
-            chartCanvas.style.display = 'block';
-            chartPlaceholder.style.display = 'none';
+        chartCanvas.style.display = 'block';
+        chartPlaceholder.style.display = 'none';
             if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'inline-block'; 
 
-            const ctx = chartCanvas.getContext('2d');
+        const ctx = chartCanvas.getContext('2d');
             let datasets;
             let chartJsType; 
             let chartOptions = { 

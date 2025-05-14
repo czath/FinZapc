@@ -125,24 +125,9 @@
             <div id="config-pane-price_performance_comparison" class="study-config-pane" style="display: none;">
                 <h6 class="text-muted mb-3">Price Performance Comparison Configuration</h6>
 
-                <!-- Ticker Source Selection for Comparison -->
-                <div class="mb-3">
-                    <label class="form-label form-label-sm">Ticker Source:</label>
-                    <div>
-                        <div class="form-check form-check-inline">
-                            <input class="form-check-input" type="radio" name="tsPpcTickerSource" id="ts-ppc-ticker-source-loaded" value="loaded" checked>
-                            <label class="form-check-label form-check-label-sm" for="ts-ppc-ticker-source-loaded">From Loaded Data</label>
-                        </div>
-                        <div class="form-check form-check-inline">
-                            <input class="form-check-input" type="radio" name="tsPpcTickerSource" id="ts-ppc-ticker-source-manual" value="manual">
-                            <label class="form-check-label form-check-label-sm" for="ts-ppc-ticker-source-manual">Enter Manually</label>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Ticker Input: From Loaded Data (Multi-Select) -->
                 <div id="ts-ppc-ticker-select-loaded-container" class="mb-3">
-                    <label for="ts-ppc-ticker-select-loaded" class="form-label form-label-sm">Select Tickers (max 5-7 recommended):</label>
+                    <label for="ts-ppc-ticker-select-loaded" class="form-label form-label-sm">Select from Loaded Tickers (Optional):</label>
                     <select id="ts-ppc-ticker-select-loaded" class="form-select form-select-sm" multiple size="5">
                         <option value="">Loading tickers...</option>
                     </select>
@@ -150,9 +135,9 @@
                 </div>
 
                 <!-- Ticker Input: Manual Entry (Textarea) -->
-                <div id="ts-ppc-ticker-input-manual-container" class="mb-3" style="display: none;">
-                    <label for="ts-ppc-ticker-input-manual" class="form-label form-label-sm">Enter Tickers (comma-separated):</label>
-                    <textarea class="form-control form-control-sm" id="ts-ppc-ticker-input-manual" rows="3" placeholder="e.g., AAPL, MSFT, GOOG"></textarea>
+                <div id="ts-ppc-ticker-input-manual-container" class="mb-3">
+                    <label for="ts-ppc-ticker-input-manual" class="form-label form-label-sm">Add More Tickers Manually (comma-separated, Optional):</label>
+                    <textarea class="form-control form-control-sm" id="ts-ppc-ticker-input-manual" rows="3" placeholder="e.g., SPY, QQQ"></textarea>
                 </div>
                 
                 {# --- Unique selectors for PPC: Period, Dates, Interval --- #}
@@ -213,16 +198,60 @@
             <div id="config-pane-pair_relative_price" class="study-config-pane" style="display: none;">
                 <h6 class="text-muted mb-3">Pair Relative Price Configuration</h6>
 
-                <!-- Ticker 1 Input: Manual Entry -->
-                <div class="mb-3">
-                    <label for="ts-prp-ticker1-input" class="form-label form-label-sm">Ticker 1 (Base):</label>
-                    <input type="text" class="form-control form-control-sm" id="ts-prp-ticker1-input" placeholder="e.g., AAPL">
+                <!-- Ticker 1 Source Selection -->
+                <div class="mb-3 border-bottom pb-3">
+                    <p class="form-label form-label-sm fw-bold mb-1">Ticker 1 (Base)</p>
+                    <label class="form-label form-label-sm">Source:</label>
+                    <div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="tsPrpTicker1Source" id="ts-prp-ticker1-source-loaded" value="loaded">
+                            <label class="form-check-label form-check-label-sm" for="ts-prp-ticker1-source-loaded">From Loaded Data</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="tsPrpTicker1Source" id="ts-prp-ticker1-source-manual" value="manual" checked>
+                            <label class="form-check-label form-check-label-sm" for="ts-prp-ticker1-source-manual">Enter Manually</label>
+                        </div>
+                    </div>
+                    <!-- Ticker 1 Input: From Loaded Data -->
+                    <div id="ts-prp-ticker1-select-loaded-container" class="mt-2" style="display: none;">
+                        <label for="ts-prp-ticker1-select-loaded" class="form-label form-label-sm">Select Ticker:</label>
+                        <select id="ts-prp-ticker1-select-loaded" class="form-select form-select-sm">
+                            <option value="">Loading tickers...</option>
+                        </select>
+                    </div>
+                    <!-- Ticker 1 Input: Manual Entry -->
+                    <div id="ts-prp-ticker1-input-manual-container" class="mt-2">
+                        <label for="ts-prp-ticker1-input-manual" class="form-label form-label-sm">Enter Symbol:</label>
+                        <input type="text" class="form-control form-control-sm" id="ts-prp-ticker1-input-manual" placeholder="e.g., AAPL">
+                    </div>
                 </div>
 
-                <!-- Ticker 2 Input: Manual Entry -->
+                <!-- Ticker 2 Source Selection -->
                 <div class="mb-3">
-                    <label for="ts-prp-ticker2-input" class="form-label form-label-sm">Ticker 2 (Relative to Ticker 1):</label>
-                    <input type="text" class="form-control form-control-sm" id="ts-prp-ticker2-input" placeholder="e.g., MSFT">
+                    <p class="form-label form-label-sm fw-bold mb-1">Ticker 2 (Relative)</p>
+                    <label class="form-label form-label-sm">Source:</label>
+                    <div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="tsPrpTicker2Source" id="ts-prp-ticker2-source-loaded" value="loaded">
+                            <label class="form-check-label form-check-label-sm" for="ts-prp-ticker2-source-loaded">From Loaded Data</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="tsPrpTicker2Source" id="ts-prp-ticker2-source-manual" value="manual" checked>
+                            <label class="form-check-label form-check-label-sm" for="ts-prp-ticker2-source-manual">Enter Manually</label>
+                        </div>
+                    </div>
+                    <!-- Ticker 2 Input: From Loaded Data -->
+                    <div id="ts-prp-ticker2-select-loaded-container" class="mt-2" style="display: none;">
+                        <label for="ts-prp-ticker2-select-loaded" class="form-label form-label-sm">Select Ticker:</label>
+                        <select id="ts-prp-ticker2-select-loaded" class="form-select form-select-sm">
+                            <option value="">Loading tickers...</option>
+                        </select>
+                    </div>
+                    <!-- Ticker 2 Input: Manual Entry -->
+                    <div id="ts-prp-ticker2-input-manual-container" class="mt-2">
+                        <label for="ts-prp-ticker2-input-manual" class="form-label form-label-sm">Enter Symbol:</label>
+                        <input type="text" class="form-control form-control-sm" id="ts-prp-ticker2-input-manual" placeholder="e.g., MSFT">
+                    </div>
                 </div>
                 
                 {# --- Unique selectors for Pair Relative Price: Period, Dates, Interval --- #}
