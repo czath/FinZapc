@@ -7,7 +7,15 @@
     let fhFieldSelect = null; // Store globally
     let fhStartDateInput = null;
     let fhEndDateInput = null;
-    let isDataReadyForFund = false; // NEW: Flag to track data readiness
+    let isFundDataReady = false; // Consolidated flag for data readiness
+
+    // NEW: DOM Elements for Price-Fundamental Comparison (PFC)
+    let pfcTickerSelect = null;
+    let pfcFieldSelect = null;
+    let pfcStartDateInput = null;
+    let pfcEndDateInput = null;
+    let pfcRunButton = null;
+    let pfcStatusLabel = null;
 
     /**
      * Initializes the controls for the Fundamentals History study.
@@ -31,8 +39,8 @@
         console.log(LOG_PREFIX, "Fundamentals History controls UI references set. Fields populated. Tickers pending data.");
 
         // NEW: Check if data is already ready and populate tickers if so
-        if (isDataReadyForFund && fhTickerSelect) {
-            console.log(LOG_PREFIX, "Data was ready. Populating tickers now during control initialization.");
+        if (isFundDataReady && fhTickerSelect) {
+            console.log(LOG_PREFIX, "Data was ready for FH. Populating tickers now during control initialization.");
             populateFundamentalsHistoryTickerSelect();
         } else if (fhTickerSelect) {
             console.log(LOG_PREFIX, "Tickers pending data readiness signal ('AnalyticsTransformComplete').");
@@ -428,20 +436,317 @@
     // NEW: Listener for when main analytics data is ready
     function handleAnalyticsTransformationComplete_Fund() {
         console.log(LOG_PREFIX, "'AnalyticsTransformComplete' event received in Fundamentals module.");
-        isDataReadyForFund = true; // Set flag
+        isFundDataReady = true; // Set flag
 
         if (fhTickerSelect) {
-            console.log(LOG_PREFIX, "Controls were already initialized. Populating tickers now.");
+            console.log(LOG_PREFIX, "FH Controls were initialized or became available. Populating FH tickers.");
             populateFundamentalsHistoryTickerSelect();
+            // Also ensure FH fields are populated/rebuilt if they were waiting for data
+            if (fhFieldSelect && (!$(fhFieldSelect).data('multiselect') || $(fhFieldSelect).find('option').length <=1 ) ){
+                 console.log(LOG_PREFIX, "Populating/rebuilding FH fields as data is now ready.");
+                 populateFieldSelect(); // This is the FH field populator
+            }
         } else {
-            console.warn(LOG_PREFIX, "Controls not yet initialized by the time 'AnalyticsTransformComplete' was caught. Ticker population will occur when controls are initialized.");
+            console.warn(LOG_PREFIX, "FH Ticker Select not available when 'AnalyticsTransformComplete' was caught.");
+        }
+
+        // NEW: Populate PFC fields if its select element is ready
+        if (pfcFieldSelect) {
+            console.log(LOG_PREFIX, "PFC Field Select is available. Populating PFC fields as data is now ready.");
+            populatePfcFieldSelect();
+        } else {
+            console.warn(LOG_PREFIX, "PFC Field Select not available when 'AnalyticsTransformComplete' was caught. Fields will populate upon PFC pane initialization.");
+        }
+    }
+
+    // --- NEW: Functions for Price-Fundamental Comparison Study ---
+    function initializePriceFundamentalComparisonControls() {
+        console.log(LOG_PREFIX, "Initializing Price-Fundamental Comparison (PFC) study controls...");
+
+        pfcTickerSelect = document.getElementById('ts-pfc-ticker-select');
+        pfcFieldSelect = document.getElementById('ts-pfc-field-select');
+        pfcStartDateInput = document.getElementById('ts-pfc-start-date');
+        pfcEndDateInput = document.getElementById('ts-pfc-end-date');
+        pfcRunButton = document.getElementById('ts-pfc-run-study-btn');
+        pfcStatusLabel = document.getElementById('ts-pfc-status');
+
+        if (!pfcTickerSelect) console.error(LOG_PREFIX, "PFC Ticker select (ts-pfc-ticker-select) not found!");
+        if (!pfcFieldSelect) console.error(LOG_PREFIX, "PFC Field select (ts-pfc-field-select) not found!");
+        if (!pfcRunButton) console.error(LOG_PREFIX, "PFC Run button (ts-pfc-run-study-btn) not found!");
+        if (!pfcStatusLabel) console.warn(LOG_PREFIX, "PFC Status label (ts-pfc-status) not found.");
+
+        // Populate fundamental fields (tickers are populated by analytics_timeseries.js)
+        populatePfcFieldSelect();
+
+        if (pfcRunButton) {
+            pfcRunButton.addEventListener('click', handleRunPriceFundamentalComparison);
+        } else {
+            console.error(LOG_PREFIX, "PFC Run button not found, cannot attach event listener.");
+        }
+        console.log(LOG_PREFIX, "PFC controls initialized and field select populated.");
+    }
+
+    function populatePfcFieldSelect() {
+        if (!pfcFieldSelect) {
+            console.error(LOG_PREFIX, "PFC Field select element not found.");
+            return;
+        }
+
+        let allFieldsMetadata = {};
+        let finalAvailableFields = [];
+
+        if (window.AnalyticsMainModule) {
+            if (typeof window.AnalyticsMainModule.getFinalFieldMetadata === 'function') {
+                allFieldsMetadata = window.AnalyticsMainModule.getFinalFieldMetadata() || {};
+            }
+            if (typeof window.AnalyticsMainModule.getFinalAvailableFields === 'function') {
+                finalAvailableFields = window.AnalyticsMainModule.getFinalAvailableFields() || [];
+            }
+        }
+
+        pfcFieldSelect.innerHTML = ''; // Clear existing options
+        let populatedCount = 0;
+
+        finalAvailableFields.forEach(fullFieldIdentifier => {
+            if (fullFieldIdentifier && typeof fullFieldIdentifier === 'string' && fullFieldIdentifier.startsWith('yf_item_')) {
+                const option = document.createElement('option');
+                option.value = fullFieldIdentifier;
+                option.textContent = fullFieldIdentifier.substring('yf_item_'.length);
+                pfcFieldSelect.appendChild(option);
+                populatedCount++;
+            }
+        });
+
+        if (populatedCount === 0) {
+            const noFieldOption = document.createElement('option');
+            noFieldOption.value = "";
+            noFieldOption.textContent = "No fundamental fields available";
+            noFieldOption.disabled = true;
+            pfcFieldSelect.appendChild(noFieldOption);
+        } else {
+             // Initialize Bootstrap Multiselect for PFC fields if available
+            if (typeof $(pfcFieldSelect).multiselect === 'function') {
+                if (!$(pfcFieldSelect).data('multiselect')) {
+                    $(pfcFieldSelect).multiselect({
+                        buttonWidth: '100%',
+                        enableFiltering: true,
+                        enableCaseInsensitiveFiltering: true,
+                        filterPlaceholder: 'Search fields...',
+                        maxHeight: 200,
+                        includeSelectAllOption: true,
+                        nonSelectedText: 'Select Fundamental Field(s)',
+                        numberDisplayed: 1,
+                        nSelectedText: ' fields selected',
+                        allSelectedText: 'All fields selected',
+                    });
+                } else {
+                    $(pfcFieldSelect).multiselect('rebuild');
+                }
+            }
+        }
+        console.log(LOG_PREFIX, `Populated fields for PFC: ${populatedCount}`);
+    }
+
+    async function handleRunPriceFundamentalComparison() {
+        console.log(LOG_PREFIX, "Run Price-Fundamental Comparison clicked.");
+
+        if (!pfcTickerSelect || !pfcFieldSelect || !pfcStartDateInput || !pfcEndDateInput || !pfcRunButton) {
+            alert("Error: Essential configuration elements for PFC study are missing.");
+            console.error(LOG_PREFIX, "Missing PFC UI elements.");
+            return;
+        }
+
+        const selectedTicker = pfcTickerSelect.value;
+        const selectedFundamentalFields = $(pfcFieldSelect).val() || [];
+        let startDate = pfcStartDateInput.value;
+        let endDate = pfcEndDateInput.value;
+
+        if (!selectedTicker) {
+            alert("Please select a ticker.");
+            return;
+        }
+        if (selectedFundamentalFields.length === 0) {
+            alert("Please select at least one fundamental field.");
+            return;
+        }
+
+        // Default date range to 1 year if none provided
+        if (!startDate && !endDate) {
+            const today = new Date();
+            endDate = today.toISOString().split('T')[0];
+            const oneYearAgo = new Date(today.setFullYear(today.getFullYear() - 1));
+            startDate = oneYearAgo.toISOString().split('T')[0];
+            console.log(LOG_PREFIX, `PFC: No dates provided, defaulting to 1 year: ${startDate} to ${endDate}`);
+        } else if (!startDate || !endDate) {
+            alert("Please provide both Start and End dates, or leave both blank for default (1 year).");
+            return;
+        }
+
+        if (new Date(startDate) >= new Date(endDate)) {
+            alert("Start Date must be strictly before End Date.");
+            return;
+        }
+
+        if (pfcStatusLabel) pfcStatusLabel.textContent = 'Fetching data...';
+        if (pfcRunButton) {
+            pfcRunButton.disabled = true;
+            pfcRunButton.querySelector('.spinner-border').style.display = 'inline-block';
+            pfcRunButton.querySelector('.button-text').textContent = 'Loading...';
+        }
+        
+        const loadingIndicator = document.getElementById('timeseries-loading-indicator'); 
+        if (loadingIndicator) loadingIndicator.style.display = 'flex';
+
+        try {
+            // 1. Fetch Price Data
+            const priceApiEndDate = new Date(endDate);
+            priceApiEndDate.setDate(priceApiEndDate.getDate() + 1); // Yahoo API is exclusive for end_date
+            const priceApiParams = `ticker=${encodeURIComponent(selectedTicker)}&interval=1d&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(priceApiEndDate.toISOString().split('T')[0])}`;
+            const priceApiUrl = `/api/v3/timeseries/price_history?${priceApiParams}`;
+            console.log(LOG_PREFIX, "PFC Fetching Price History from:", priceApiUrl);
+            const priceResponse = await fetch(priceApiUrl);
+            if (!priceResponse.ok) {
+                const err = await priceResponse.json().catch(() => ({detail: `Price data fetch failed (${priceResponse.status})`}));
+                throw new Error(err.detail);
+            }
+            const priceDataRaw = await priceResponse.json();
+            console.log(LOG_PREFIX, "PFC Price Data Received:", priceDataRaw.length);
+
+            // 2. Fetch Fundamental Data
+            const fundamentalsRequestPayload = {
+                tickers: [selectedTicker],
+                field_identifiers: selectedFundamentalFields,
+                start_date: startDate,
+                end_date: endDate,
+            };
+            console.log(LOG_PREFIX, "PFC Fetching Fundamentals History with payload:", fundamentalsRequestPayload);
+            const fundamentalsResponse = await fetch('/api/v3/timeseries/fundamentals_history', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': document.getElementById('csrf_token') ? document.getElementById('csrf_token').value : ''
+                },
+                body: JSON.stringify(fundamentalsRequestPayload)
+            });
+            if (!fundamentalsResponse.ok) {
+                const err = await fundamentalsResponse.json().catch(() => ({detail: `Fundamentals data fetch failed (${fundamentalsResponse.status})`}));
+                throw new Error(err.detail);
+            }
+            const fundamentalDataRaw = await fundamentalsResponse.json();
+            console.log(LOG_PREFIX, "PFC Fundamental Data Received:", fundamentalDataRaw);
+
+            // 3. Process and Prepare Datasets
+            const datasets = [];
+            const lineColors = [
+                'rgb(255, 99, 132)', 'rgb(54, 162, 235)', 'rgb(255, 206, 86)', 
+                'rgb(75, 192, 192)', 'rgb(153, 102, 255)', 'rgb(255, 159, 64)'
+            ]; // Price will be the first, fundamentals will follow
+
+            // Price Dataset (Y-Axis 1: Left)
+            if (priceDataRaw && priceDataRaw.length > 0) {
+                const priceChartData = priceDataRaw.map(d => ({
+                    x: new Date(d.Datetime || d.Date).valueOf(),
+                    y: d.Close
+                }));
+                datasets.push({
+                    label: `${selectedTicker} Price (Close)`,
+                    data: priceChartData,
+                    borderColor: 'rgb(0, 123, 255)', // Primary blue for price
+                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                    yAxisID: 'y-axis-price',
+                    type: 'line',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.1
+                });
+            } else {
+                 console.warn(LOG_PREFIX, "PFC: No price data returned.");
+            }
+
+            // Fundamental Datasets (Y-Axis 2: Right)
+            let fundamentalColorIndex = 0;
+            if (fundamentalDataRaw && fundamentalDataRaw[selectedTicker]) {
+                console.log(LOG_PREFIX, "PFC: Available fundamental keys for", selectedTicker, ":", Object.keys(fundamentalDataRaw[selectedTicker]));
+                
+                // Iterate over the keys *returned by the API* for the given ticker
+                for (const returnedKey in fundamentalDataRaw[selectedTicker]) {
+                    // Ensure this key corresponds to a field the user actually selected if strict adherence is needed.
+                    // For now, let's assume the API only returns data for fields included in `selectedFundamentalFields` request.
+                    // If not, we might need to match `returnedKey` back to the `selectedFundamentalFields` list.
+                    // Example: `selectedFundamentalFields.some(selField => selField.includes(returnedKey.replace(/_/g, ' ')))`
+
+                    const seriesData = fundamentalDataRaw[selectedTicker][returnedKey];
+                    const displayFieldName = returnedKey.replace(/_/g, ' '); // Use the returned key for display name
+
+                    if (seriesData && seriesData.length > 0) {
+                        const fundamentalChartData = seriesData.map(d => ({
+                            x: new Date(d.date).valueOf(), 
+                            y: typeof d.value === 'string' ? parseFloat(d.value) : d.value
+                        }));                        
+                        datasets.push({
+                            label: `${displayFieldName} (${selectedTicker})`,
+                            data: fundamentalChartData,
+                            borderColor: lineColors[fundamentalColorIndex % lineColors.length],
+                            backgroundColor: lineColors[fundamentalColorIndex % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.1)'),
+                            yAxisID: 'y-axis-fundamental',
+                            type: 'line',
+                            borderWidth: 1.5,
+                            pointRadius: 2,
+                            stepped: 'before', // Show fundamental value held until next report
+                            tension: 0
+                        });
+                        fundamentalColorIndex++;
+                    } else {
+                        console.warn(LOG_PREFIX, `PFC: No data for fundamental field ${returnedKey}`);
+                    }
+                }
+            }
+
+            if (datasets.length === 0) {
+                window.AnalyticsTimeseriesModule.showPlaceholderWithMessage("No data available to plot for Price-Fundamental Comparison.");
+                return;
+            }
+
+            // 4. Render Chart
+            const chartTitle = `${selectedTicker}: Price vs Fundamentals`;
+            const yAxesConfig = [
+                { id: 'y-axis-price', position: 'left', title: 'Price (USD)' },
+                { id: 'y-axis-fundamental', position: 'right', title: 'Fundamental Value', grid: { drawOnChartArea: false } }
+            ];
+
+            window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart(
+                datasets,
+                chartTitle,
+                null, // yAxisLabel is not needed when yAxesConfig is used
+                {
+                    chartType: 'line', // Overall chart will be line, individual datasets define their type if mixed
+                    isTimeseries: true,
+                    yAxesConfig: yAxesConfig,
+                    rangeDetails: {start: startDate, end: endDate} // For subtitle
+                }
+            );
+             if (pfcStatusLabel) pfcStatusLabel.textContent = `Chart loaded. Ticker: ${selectedTicker}, Range: ${startDate} to ${endDate}.`;
+
+        } catch (error) {
+            console.error(LOG_PREFIX, "Error during Price-Fundamental Comparison:", error);
+            alert(`Error: ${error.message}`);
+            window.AnalyticsTimeseriesModule.showPlaceholderWithMessage(`Error: ${error.message}`);
+            if (pfcStatusLabel) pfcStatusLabel.textContent = `Error: ${error.message}`;
+        } finally {
+            if (loadingIndicator) loadingIndicator.style.display = 'none';
+            if (pfcRunButton) {
+                pfcRunButton.disabled = false;
+                pfcRunButton.querySelector('.spinner-border').style.display = 'none';
+                pfcRunButton.querySelector('.button-text').textContent = 'Run Comparison';
+            }
         }
     }
 
     // --- Expose module functions ---
     window.TimeseriesFundamentalsModule = {
         initializeFundamentalsHistoryStudyControls,
-        handleRunFundamentalsHistory
+        handleRunFundamentalsHistory,
+        initializePriceFundamentalComparisonControls // NEW: Expose PFC init
         // renderFundamentalsHistoryChart // Not typically exposed directly, called by handleRun
     };
 

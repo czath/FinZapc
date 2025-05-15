@@ -12,6 +12,7 @@
                 <option value="price_performance_comparison">Price Performance Comparison</option>
                 <option value="pair_relative_price">Pair Relative Price</option>
                 <option value="fundamentals_history">Fundamentals History</option>
+                <option value="price_fundamental_comparison">Price-Fundamental Comparison</option>
                 <!-- Add other studies here later -->
             </select>
         </div>
@@ -355,6 +356,48 @@
                 </div>
             </div>
             <!-- End Fundamentals History Pane -->
+
+            <!-- NEW Config Pane: Price-Fundamental Comparison -->
+            <div class="study-config-pane p-3 border rounded bg-body-tertiary mt-3" id="config-pane-price_fundamental_comparison" style="display: none;">
+                <h5>Price-Fundamental Comparison</h5>
+                <p class="small text-muted">Compare a stock's price history with selected fundamental metrics over time. Uses dual Y-axes.</p>
+                
+                <div class="mb-3">
+                    <label for="ts-pfc-ticker-select" class="form-label form-label-sm">Ticker:</label>
+                    <select id="ts-pfc-ticker-select" class="form-select form-select-sm">
+                        <option value="" selected disabled>Select Ticker...</option>
+                        <!-- Populated by JS from loaded analytics data -->
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label for="ts-pfc-field-select" class="form-label form-label-sm">Fundamental Fields (Max 3 recommended):</label>
+                    <select id="ts-pfc-field-select" class="form-select form-select-sm" multiple>
+                        <!-- Populated by JS, filtered for yf_item_ -->
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label for="ts-pfc-start-date" class="form-label form-label-sm">Start Date (Optional):</label>
+                    <input type="date" id="ts-pfc-start-date" class="form-control form-control-sm">
+                </div>
+
+                <div class="mb-3">
+                    <label for="ts-pfc-end-date" class="form-label form-label-sm">End Date (Optional):</label>
+                    <input type="date" id="ts-pfc-end-date" class="form-control form-control-sm">
+                    <div class="form-text form-text-sm">Default: 1 year if blank.</div>
+                </div>
+                
+                <div class="mt-4">
+                    <button id="ts-pfc-run-study-btn" class="btn btn-primary btn-sm w-100">
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span>
+                        <span class="button-text">Run Comparison</span>
+                    </button>
+                </div>
+
+                 <div id="ts-pfc-status" class="mt-2 small text-muted"></div> {# Status message area #}
+            </div>
+            <!-- END Config Pane: Price-Fundamental Comparison -->
 
             <!-- Add other study configuration panes here, e.g.,
             <div id="config-pane-another_study" class="study-config-pane" style="display: none;">

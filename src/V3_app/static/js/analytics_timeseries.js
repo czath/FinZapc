@@ -337,6 +337,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         } else {
                             console.warn(LOG_PREFIX, "TimeseriesFundamentalsModule or initializeFundamentalsHistoryStudyControls not found.");
                         }
+                    } else if (selectedStudy === 'price_fundamental_comparison') { // NEW: Price-Fundamental Comparison
+                        if (typeof window.TimeseriesFundamentalsModule !== 'undefined' &&
+                            typeof window.TimeseriesFundamentalsModule.initializePriceFundamentalComparisonControls === 'function') {
+                            window.TimeseriesFundamentalsModule.initializePriceFundamentalComparisonControls();
+                        } else {
+                            console.warn(LOG_PREFIX, "TimeseriesFundamentalsModule or initializePriceFundamentalComparisonControls not found.");
+                        }
                     }
                 }
                 // Always show placeholder if no study implies direct chart rendering
@@ -1263,6 +1270,68 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             console.log(LOG_PREFIX, "populateLoadedTickerSelect - Populated PRP Ticker 2 select.");
         }
+
+        // NEW: Get reference to the PFC ticker select
+        const pfcTickerSelect = document.getElementById('ts-pfc-ticker-select');
+        if (!pfcTickerSelect) console.warn(LOG_PREFIX, "PFC ticker select (ts-pfc-ticker-select) not found at init.");
+
+        // let analyticsOriginalData; // REMOVE REDECLARATION
+        try {
+            analyticsOriginalData = getFinalAnalyticsData();
+        } catch (e) {
+            console.error(LOG_PREFIX, "Error calling getFinalAnalyticsData:", e);
+            analyticsOriginalData = []; // Default to empty on error to prevent further crashes
+        }
+        
+        // Safer logging for the received data package or its length
+        if (analyticsOriginalData && typeof analyticsOriginalData.length === 'number') {
+        console.log(LOG_PREFIX, "populateLoadedTickerSelect - analyticsOriginalData count:", analyticsOriginalData.length);
+        } else {
+            console.log(LOG_PREFIX, "populateLoadedTickerSelect - analyticsOriginalData is not an array or has no length. Data received:", analyticsOriginalData);
+        }
+        
+        // const uniqueTickers = new Set(); // REMOVE REDECLARATION
+        if (Array.isArray(analyticsOriginalData)) {
+            analyticsOriginalData.forEach((item, index) => {
+                if (item && item.ticker) {
+                    uniqueTickers.add(item.ticker);
+                } else {
+                    // console.debug(LOG_PREFIX, `populateLoadedTickerSelect - Item at index ${index} is missing ticker. Item:`, item);
+                }
+            });
+        } else {
+            console.warn(LOG_PREFIX, "populateLoadedTickerSelect - analyticsOriginalData is not an array (or is null/undefined). Cannot extract tickers. Data value:", analyticsOriginalData);
+        }
+
+        // const sortedTickers = Array.from(uniqueTickers).sort(); // REMOVE REDECLARATION
+        if (sortedTickers.length === 0) {
+            console.warn(LOG_PREFIX, "populateLoadedTickerSelect - No unique tickers found after processing analyticsOriginalData. Dropdowns will indicate no data.");
+        }
+
+        // NEW: Populate Price-Fundamental Comparison single select
+        if (pfcTickerSelect) {
+            pfcTickerSelect.innerHTML = ''; // Clear existing options
+            if (sortedTickers.length > 0) {
+                const placeholderOption = document.createElement('option');
+                placeholderOption.value = "";
+                placeholderOption.textContent = "Select a Ticker...";
+                placeholderOption.disabled = true;
+                placeholderOption.selected = true;
+                pfcTickerSelect.appendChild(placeholderOption);
+                sortedTickers.forEach(ticker => {
+                    const option = document.createElement('option');
+                    option.value = ticker;
+                    option.textContent = ticker;
+                    pfcTickerSelect.appendChild(option);
+                });
+            } else {
+                const noTickerOption = document.createElement('option');
+                noTickerOption.value = "";
+                noTickerOption.textContent = "No tickers in loaded data";
+                pfcTickerSelect.appendChild(noTickerOption);
+            }
+            console.log(LOG_PREFIX, "populateLoadedTickerSelect - Populated PFC select with tickers:", sortedTickers);
+        }
     }
 
     async function fetchTickerItemData(tickers, dateRange /*, other_params */) {
@@ -1668,6 +1737,7 @@ document.addEventListener('DOMContentLoaded', function() {
      * @param {boolean} [options.isTimeseries=true] - Whether the x-axis is a time series.
      * @param {Array<number|string>} [options.labelsForTimeAxis] - Array of labels (numeric timestamps or date strings) for x-axis if isTimeseries is true.
      * @param {Object} [options.rangeDetails] - Optional details for subtitle (e.g., {period, start, end}).
+     * @param {Array<Object>} [options.yAxesConfig] - Optional. Configuration for multiple Y-axes. E.g., [{id: 'yLeft', position: 'left', title: 'Price'}, {id: 'yRight', position: 'right', title: 'Fundamental', grid: {drawOnChartArea: false}}]
      */
     function renderGenericTimeseriesChart(datasets, chartTitle, yAxisLabel, chartOptions = {}) {
         console.log(LOG_PREFIX, "renderGenericTimeseriesChart called. Datasets:", datasets.length, "Title:", chartTitle, "Options:", chartOptions);
@@ -1739,8 +1809,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             };
 
+            // NEW: Handle multiple Y-axes configuration
+            if (chartOptions.yAxesConfig && Array.isArray(chartOptions.yAxesConfig) && chartOptions.yAxesConfig.length > 0) {
+                commonChartOptions.scales = {}; // Reset scales object to define all axes including X
+                chartOptions.yAxesConfig.forEach(axisConf => {
+                    commonChartOptions.scales[axisConf.id] = {
+                        type: 'linear', // Assuming linear for now, could be configurable
+                        display: true,
+                        position: axisConf.position,
+                        title: { display: true, text: axisConf.title },
+                        // Optional grid configuration for the specific Y-axis
+                        ...(axisConf.grid && { grid: axisConf.grid }),
+                        // Ensure y-axes don't start at zero unless specified or bar chart on that axis
+                        beginAtZero: axisConf.beginAtZero === true || (axisConf.associatedChartType === 'bar' && axisConf.beginAtZero !== false)
+                    };
+                });
+            } else {
+                // Default single y-axis if no yAxesConfig (current behavior)
+                commonChartOptions.scales.y = {
+                    title: { display: true, text: yAxisLabel || 'Value' },
+                    beginAtZero: finalChartType === 'bar'
+                };
+            }
+
             if (chartOptions.isTimeseries !== false) { // Default to true for timeseries behavior
-                commonChartOptions.scales.x = {
+                commonChartOptions.scales.x = { // Ensure X-axis is always added
                     type: 'time',
                     time: {
                         tooltipFormat: 'MMM d, yyyy' // Basic tooltip format, can be customized further
@@ -1754,7 +1847,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // No need to set commonChartOptions.data.labels if x values are numeric timestamps for time scale
             } else {
                 // For non-timeseries or category-based x-axis
-                commonChartOptions.scales.x = {
+                commonChartOptions.scales.x = { // Ensure X-axis is always added (using 'x' as default ID)
                     type: 'category',
                     labels: chartOptions.labelsForCategoryAxis || [], // Expects labels if not timeseries and using category
                     title: { display: true, text: chartOptions.xAxisLabel || 'Category' },
@@ -1850,7 +1943,9 @@ document.addEventListener('DOMContentLoaded', function() {
     window.AnalyticsTimeseriesModule = {
         // functionsToExpose
         renderGenericTimeseriesChart, // EXPOSE THE NEW FUNCTION
-        showPlaceholderWithMessage // Expose for fundamentals module to use on error/no data
+        showPlaceholderWithMessage, // Expose for fundamentals module to use on error/no data
+        loadDateAdapterLibrary,      // Expose for external modules that might need it for custom charting
+        loadFinancialChartLibrary  // Expose for external modules
     };
 
     // Example for a loading indicator (you would need to implement the UI for this)
