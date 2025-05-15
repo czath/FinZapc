@@ -252,7 +252,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Event Listener Setup (for elements within the Timeseries tab) ---
     function setupEventListeners() {
-        console.log(LOG_PREFIX, "Setting up event listeners...");
+        console.log(LOG_PREFIX, "Setting up event listeners for Timeseries module...");
+        const studySelector = document.getElementById('ts-study-selector');
 
         if (priceHistoryRunButton) {
             priceHistoryRunButton.addEventListener('click', handleRunPriceHistory);
@@ -308,9 +309,40 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error(LOG_PREFIX, "Ticker Source Radio elements or containers not found.");
         }
 
-        const studySelector = document.getElementById('ts-study-selector');
         if (studySelector) {
-            studySelector.addEventListener('change', handleStudySelectionChange);
+            studySelector.addEventListener('change', function(event) {
+                console.log(LOG_PREFIX, "Study selector changed to:", event.target.value);
+                const selectedStudy = event.target.value;
+                document.querySelectorAll('.study-config-pane').forEach(pane => {
+                    pane.style.display = 'none';
+                });
+                const activePane = document.getElementById(`config-pane-${selectedStudy}`);
+                if (activePane) {
+                    activePane.style.display = 'block';
+                    console.log(LOG_PREFIX, "Displayed config pane:", `config-pane-${selectedStudy}`);
+
+                    // Initialize specific study controls if needed
+                    if (selectedStudy === 'price_performance_comparison') {
+                        if (typeof initializePricePerformanceControls === 'function') {
+                            initializePricePerformanceControls();
+                        }
+                    } else if (selectedStudy === 'pair_relative_price') {
+                        if (typeof initializePairRelativePriceControls === 'function') {
+                            initializePairRelativePriceControls();
+                        }
+                    } else if (selectedStudy === 'fundamentals_history') { // ADDED ELSE IF
+                        if (typeof window.TimeseriesFundamentalsModule !== 'undefined' && 
+                            typeof window.TimeseriesFundamentalsModule.initializeFundamentalsHistoryStudyControls === 'function') {
+                            window.TimeseriesFundamentalsModule.initializeFundamentalsHistoryStudyControls();
+                        } else {
+                            console.warn(LOG_PREFIX, "TimeseriesFundamentalsModule or initializeFundamentalsHistoryStudyControls not found.");
+                        }
+                    }
+                }
+                // Always show placeholder if no study implies direct chart rendering
+                // or if the selected study requires setup before plotting.
+                showPlaceholderWithMessage("Configure study and click 'Run' to generate chart.");
+            });
         } else {
             console.warn(LOG_PREFIX, "Study selector (ts-study-selector) not found.");
         }
@@ -428,6 +460,20 @@ document.addEventListener('DOMContentLoaded', function() {
             prpRunButton.addEventListener('click', handleRunPairRelativePrice);
         } else {
             console.warn(LOG_PREFIX, "Run Relative Price button (ts-prp-run-study-btn) not found.");
+        }
+
+        // NEW: Event listener for Fundamentals History run button
+        const runFundamentalsHistoryBtn = document.getElementById('ts-fh-run-study-btn');
+        if (runFundamentalsHistoryBtn) {
+            runFundamentalsHistoryBtn.addEventListener('click', function() {
+                if (typeof window.TimeseriesFundamentalsModule !== 'undefined' && 
+                    typeof window.TimeseriesFundamentalsModule.handleRunFundamentalsHistory === 'function') {
+                    window.TimeseriesFundamentalsModule.handleRunFundamentalsHistory();
+                } else {
+                    console.warn(LOG_PREFIX, "TimeseriesFundamentalsModule or handleRunFundamentalsHistory not found.");
+                    showPlaceholderWithMessage("Error: Fundamentals History study logic is not available.");
+                }
+            });
         }
 
         console.log(LOG_PREFIX, "Event listeners setup complete.");
@@ -1611,6 +1657,172 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // --- NEW: Generic Chart Rendering Function ---
+    /**
+     * Renders a generic timeseries chart based on provided datasets and options.
+     * @param {Array<Object>} datasets - Array of Chart.js dataset objects.
+     * @param {string} chartTitle - The title for the chart.
+     * @param {string} yAxisLabel - Label for the Y-axis.
+     * @param {Object} options - Additional options for chart configuration.
+     * @param {string} options.chartType - 'line' or 'bar'.
+     * @param {boolean} [options.isTimeseries=true] - Whether the x-axis is a time series.
+     * @param {Array<number|string>} [options.labelsForTimeAxis] - Array of labels (numeric timestamps or date strings) for x-axis if isTimeseries is true.
+     * @param {Object} [options.rangeDetails] - Optional details for subtitle (e.g., {period, start, end}).
+     */
+    function renderGenericTimeseriesChart(datasets, chartTitle, yAxisLabel, chartOptions = {}) {
+        console.log(LOG_PREFIX, "renderGenericTimeseriesChart called. Datasets:", datasets.length, "Title:", chartTitle, "Options:", chartOptions);
+
+        const chartCanvas = document.getElementById('ts-chart-canvas'); 
+        const chartPlaceholder = document.getElementById('ts-chart-placeholder');
+
+        if (!chartCanvas || !chartPlaceholder) {
+            console.error(LOG_PREFIX, "Chart canvas (ts-chart-canvas) or placeholder (ts-chart-placeholder) not found!");
+            return;
+        }
+
+        if (timeseriesChartInstance) {
+            timeseriesChartInstance.destroy();
+            timeseriesChartInstance = null;
+        }
+        if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'none'; 
+
+        if (!datasets || datasets.length === 0) {
+            showPlaceholderWithMessage(`No data available to render chart: ${chartTitle}`);
+            return;
+        }
+        
+        const createChartLogic = () => {
+            chartCanvas.style.display = 'block';
+            chartPlaceholder.style.display = 'none';
+            if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'inline-block';
+
+            const ctx = chartCanvas.getContext('2d');
+            const isDarkMode = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+            const indicatorTextColor = isDarkMode ? '#E0E0E0' : '#333333';
+
+            let finalChartType = chartOptions.chartType || 'line'; // Default to line if not specified
+
+            let commonChartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: {
+                    padding: { right: 60 }
+                },
+                plugins: {
+                    lastValueIndicator: { 
+                        appChartType: finalChartType, // Use the actual chart type for plugin logic
+                        textColor: indicatorTextColor,
+                        font: 'bold 11px Arial',         
+                        xPadding: 11, 
+                        pillHPadding: 6, pillVPadding: 3, pillBorderRadius: 4              
+                    },
+                    legend: { 
+                        position: 'top',
+                        display: datasets.length <= 15 // Hide legend if too many datasets
+                    },
+                    tooltip: { mode: 'index', intersect: false },
+                    zoom: {
+                        pan: { enabled: true, mode: 'xy', threshold: 5 },
+                        zoom: {
+                            wheel: { enabled: true },
+                            pinch: { enabled: true },
+                            drag: { enabled: true, backgroundColor: 'rgba(0,123,255,0.2)' },
+                            mode: 'xy'
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        title: { display: true, text: yAxisLabel || 'Value' },
+                        beginAtZero: finalChartType === 'bar'
+                    }
+                }
+            };
+
+            if (chartOptions.isTimeseries !== false) { // Default to true for timeseries behavior
+                commonChartOptions.scales.x = {
+                    type: 'time',
+                    time: {
+                        tooltipFormat: 'MMM d, yyyy' // Basic tooltip format, can be customized further
+                        // unit: 'day' // Auto-detect unit based on data range
+                    },
+                    title: { display: true, text: 'Date' },
+                    ticks: { source: 'auto', maxRotation: 45, minRotation: 0, autoSkip: true, maxTicksLimit: 20 }
+                };
+                // If explicit labels are provided for time axis (e.g. numeric timestamps for x values in datasets)
+                // Chart.js 'time' scale handles this automatically if data points are {x: timestamp, y: value}
+                // No need to set commonChartOptions.data.labels if x values are numeric timestamps for time scale
+            } else {
+                // For non-timeseries or category-based x-axis
+                commonChartOptions.scales.x = {
+                    type: 'category',
+                    labels: chartOptions.labelsForCategoryAxis || [], // Expects labels if not timeseries and using category
+                    title: { display: true, text: chartOptions.xAxisLabel || 'Category' },
+                    ticks: { maxRotation: 45, minRotation: 0, autoSkip: true, maxTicksLimit: 20 }
+                };
+            }
+            
+            let titleRangePart = "";
+            if (chartOptions.rangeDetails) {
+                if (chartOptions.rangeDetails.period && chartOptions.rangeDetails.period !== 'custom') {
+                    titleRangePart = `Period: ${chartOptions.rangeDetails.period.toUpperCase()}`;
+                } else if (chartOptions.rangeDetails.start && chartOptions.rangeDetails.end) {
+                    try {
+                        titleRangePart = `Range: ${new Date(chartOptions.rangeDetails.start).toLocaleDateString()} - ${new Date(chartOptions.rangeDetails.end).toLocaleDateString()}`;
+                    } catch (e) { /* ignore date parsing error for title */ }
+                }
+            }
+            
+            commonChartOptions.plugins.title = {
+                display: true,
+                text: `${chartTitle} ${titleRangePart ? '(' + titleRangePart + ')' : ''}`.trim(),
+                font: { size: 16 }
+            };
+
+            timeseriesChartInstance = new Chart(ctx, {
+                type: finalChartType,
+                data: { 
+                    // If x-axis is 'time', datasets should have {x: timestamp, y: value}
+                    // If x-axis is 'category', datasets are arrays of values, and `labels` should be set at data level
+                    labels: (chartOptions.isTimeseries === false && chartOptions.labelsForCategoryAxis) ? chartOptions.labelsForCategoryAxis : undefined,
+                    datasets: datasets 
+                }, 
+                options: commonChartOptions
+            });
+            console.log(LOG_PREFIX, "Generic chart rendered successfully as", finalChartType);
+        };
+
+        // Check for library dependencies if needed (e.g., financial charts, date adapter)
+        // For now, this generic function assumes Chart.js core and time scale are sufficient.
+        // Date adapter is loaded by renderTimeseriesChart if specific types are used.
+        // Fundamentals history currently uses line/bar which don't strictly need external adapters beyond Chart.js time scale.
+        // createChartLogic(); // OLD direct call
+
+        // NEW: Load date adapter if using a time series axis
+        if (chartOptions.isTimeseries !== false) { // Default to true for timeseries behavior
+            console.log(LOG_PREFIX, "renderGenericTimeseriesChart: Time series chart, ensuring date adapter is loaded.");
+            showLoadingIndicator(true); // Show loading while adapter loads, if not already visible
+            loadDateAdapterLibrary()
+                .then(() => {
+                    console.log(LOG_PREFIX, "renderGenericTimeseriesChart: Date adapter loaded. Proceeding to create chart.");
+                    showLoadingIndicator(false);
+                    createChartLogic();
+                })
+                .catch(error => {
+                    showLoadingIndicator(false);
+                    const errorMsg = `Failed to load date adapter for generic chart: ${error.message}`;
+                    console.error(LOG_PREFIX, errorMsg, error);
+                    alert(errorMsg + " Please check the console for details.");
+                    showPlaceholderWithMessage(errorMsg);
+                    if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'none';
+                });
+        } else {
+            // Not a time series chart, no special date adapter needed beyond what Chart.js might bundle.
+            console.log(LOG_PREFIX, "renderGenericTimeseriesChart: Not a time series chart, creating directly.");
+            createChartLogic();
+        }
+    }
+
     // --- Main Execution Logic ---
     // Example of how a user interaction might trigger the process:
     // async function handleGenerateChart() {
@@ -1635,9 +1847,11 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeTimeseriesModule(); 
 
     // --- Expose functions if needed by other modules (less common for a tab-specific module) ---
-    // window.AnalyticsTimeseriesModule = {
-    //     // functionsToExpose
-    // };
+    window.AnalyticsTimeseriesModule = {
+        // functionsToExpose
+        renderGenericTimeseriesChart, // EXPOSE THE NEW FUNCTION
+        showPlaceholderWithMessage // Expose for fundamentals module to use on error/no data
+    };
 
     // Example for a loading indicator (you would need to implement the UI for this)
     function showLoadingIndicator(show) {

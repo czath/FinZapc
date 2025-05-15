@@ -26,6 +26,13 @@ yahoo_job_lock = asyncio.Lock()
 # --- Logger ---
 logger = logging.getLogger(__name__)
 
+# --- NEW: Pydantic model for Fundamentals History Request ---
+class FundamentalsHistoryRequest(BaseModel):
+    tickers: List[str]
+    field_identifiers: List[str] # e.g., ["yf_item_balance_sheet_annual_Total Assets", "yf_item_income_statement_annual_Total Revenue"]
+    start_date: Optional[str] = None # YYYY-MM-DD
+    end_date: Optional[str] = None   # YYYY-MM-DD
+
 # --- NEW: Allowed values for period and interval ---
 VALID_PERIODS = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
 VALID_INTERVALS = ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"]
@@ -413,5 +420,82 @@ async def get_price_history(
     except Exception as e:
         logger.error(f"Error fetching price history for {ticker}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+# --- NEW: Fundamentals History API Endpoint ---
+@router.post("/api/v3/timeseries/fundamentals_history", summary="Fetch historical data for multiple fundamental fields for multiple tickers")
+async def get_fundamentals_history_data(
+    request: FundamentalsHistoryRequest,
+    yahoo_data_query_service: YahooDataQueryService = Depends(get_yahoo_query_service)
+):
+    """
+    Fetches time series data for specified fundamental fields (via full field_identifiers) 
+    for a list of tickers over a given period.
+    The `field_identifiers` should be the complete internal names like 
+    'yf_item_balance_sheet_annual_Total Assets'.
+    """
+    logger.info(f"Received request for fundamentals history: {request.tickers}, {len(request.field_identifiers)} fields")
+    
+    all_results: Dict[str, Dict[str, List[Dict[str, Any]]]] = {ticker: {} for ticker in request.tickers}
+    
+    # Helper to parse payload_key from field_identifier
+    def get_payload_key(identifier: str) -> Optional[str]:
+        parts = identifier.split('_')
+        if len(parts) > 4 and parts[0] == 'yf' and parts[1] == 'item':
+            return ' '.join(parts[4:]) # e.g., "Total Assets"
+        logger.warning(f"Could not parse payload_key from identifier: {identifier}")
+        return None
+
+    for ticker in request.tickers:
+        for field_id in request.field_identifiers:
+            try:
+                logger.debug(f"Fetching data for ticker: {ticker}, field_id: {field_id}")
+                # get_specific_field_timeseries expects a single ticker and a single field_identifier
+                # It returns Dict[str, List[Dict[str, Any]]] -> {actual_ticker_from_data: [{'date': date, 'value': value}, ...]}
+                # or an empty dict if no data
+                
+                # The get_specific_field_timeseries function expects a list of tickers,
+                # but we are calling it per ticker here to fit the desired output structure per ticker.
+                # Let's call it with a single ticker in a list.
+                timeseries_data_for_field = await yahoo_data_query_service.get_specific_field_timeseries(
+                    field_identifier=field_id,
+                    tickers=[ticker], # Pass single ticker as a list
+                    start_date_str=request.start_date,
+                    end_date_str=request.end_date
+                )
+                
+                payload_key = get_payload_key(field_id)
+                if not payload_key:
+                    logger.warning(f"Skipping field_id {field_id} for ticker {ticker} due to unparsable payload_key.")
+                    continue
+
+                # timeseries_data_for_field will be like: { 'TICKER_SYMBOL': [ {'date': ..., 'value': ...}, ... ] }
+                # or {} if no data for that ticker/field combination.
+                if ticker in timeseries_data_for_field and timeseries_data_for_field[ticker]:
+                    # Ensure the payload_key sub-dictionary exists for the current ticker
+                    if payload_key not in all_results[ticker]:
+                        all_results[ticker][payload_key] = []
+                    all_results[ticker][payload_key].extend(timeseries_data_for_field[ticker])
+                    logger.debug(f"Successfully fetched {len(timeseries_data_for_field[ticker])} points for {ticker} - {payload_key}")
+                else:
+                    # Ensure the payload_key entry exists even if no data, to indicate it was queried
+                    if payload_key not in all_results[ticker]:
+                         all_results[ticker][payload_key] = []
+                    logger.info(f"No data found for ticker: {ticker}, field_id: {field_id} (parsed as {payload_key})")
+
+            except Exception as e:
+                logger.error(f"Error processing field {field_id} for ticker {ticker}: {e}", exc_info=True)
+                # Optionally, you could add error information to the response here for this specific field/ticker
+                payload_key = get_payload_key(field_id)
+                if payload_key and ticker in all_results:
+                     if payload_key not in all_results[ticker]:
+                        all_results[ticker][payload_key] = [] # Represent as no data on error
+                     # You might want to add an error marker: all_results[ticker][payload_key].append({"error": str(e)})
+
+    # Clean up tickers that might have no data for any requested field by removing them if their field dict is empty.
+    # However, the current structure ensures tickers are present, and fields are present (possibly with empty lists).
+    # This is probably fine, as the frontend will see which fields have data.
+
+    logger.info(f"Completed fundamentals history processing. Returning data for {len(all_results)} tickers.")
+    return all_results
 
 # --- END NEW: Timeseries Price History API Endpoint --- 

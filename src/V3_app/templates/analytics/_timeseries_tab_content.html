@@ -11,6 +11,7 @@
                 <option value="price_history" selected>Price History</option>
                 <option value="price_performance_comparison">Price Performance Comparison</option>
                 <option value="pair_relative_price">Pair Relative Price</option>
+                <option value="fundamentals_history">Fundamentals History</option>
                 <!-- Add other studies here later -->
             </select>
         </div>
@@ -302,6 +303,58 @@
                 </div>
             </div>
             <!-- End Pair Relative Price Pane -->
+
+            <!-- NEW: Fundamentals History Configuration Pane -->
+            <div id="config-pane-fundamentals_history" class="study-config-pane" style="display: none;">
+                <h6 class="text-muted mb-3">Fundamentals History Configuration</h6>
+
+                <!-- Ticker Selection -->
+                <div class="mb-3">
+                    <label for="ts-fh-ticker-select" class="form-label form-label-sm">Select Tickers:</label>
+                    <select id="ts-fh-ticker-select" class="form-select form-select-sm" multiple size="5">
+                        <!-- Options will be populated by JS -->
+                        <option value="">Loading tickers...</option>
+                    </select>
+                    <div class="form-text form-text-sm">Hold Ctrl/Cmd to select multiple. Select from data loaded in previous steps.</div>
+                </div>
+
+                <!-- Field Selection -->
+                <div class="mb-3">
+                    <label for="ts-fh-field-select" class="form-label form-label-sm">Select Fields:</label>
+                    <select id="ts-fh-field-select" class="form-select form-select-sm" multiple size="8">
+                        <!-- Options will be populated by JS -->
+                        <option value="">Loading fields...</option>
+                    </select>
+                    <div class="form-text form-text-sm">Select fundamental fields to plot. Item type & coverage are derived from field name.</div>
+                </div>
+                
+                <!-- Start Date -->
+                <div class="mb-2" id="ts-fh-start-date-container">
+                    <label for="ts-fh-start-date" class="form-label form-label-sm">Start Date (Optional):</label>
+                    <input type="date" id="ts-fh-start-date" class="form-control form-control-sm">
+                </div>
+
+                <!-- End Date -->
+                <div class="mb-2" id="ts-fh-end-date-container">
+                    <label for="ts-fh-end-date" class="form-label form-label-sm">End Date (Optional):</label>
+                    <input type="date" id="ts-fh-end-date" class="form-control form-control-sm">
+                </div>
+
+                <!-- Chart Type -->
+                <div class="mb-3">
+                    <label for="ts-fh-chart-type" class="form-label form-label-sm">Chart Type:</label>
+                    <select id="ts-fh-chart-type" class="form-select form-select-sm">
+                        <option value="line" selected>Line Chart</option>
+                        <option value="bar">Bar Chart</option>
+                    </select>
+                </div>
+
+                <!-- Run Study Button -->
+                <div class="mt-4">
+                    <button id="ts-fh-run-study-btn" class="btn btn-warning btn-sm w-100">Plot Fundamentals</button> {# Changed color for distinction #}
+                </div>
+            </div>
+            <!-- End Fundamentals History Pane -->
 
             <!-- Add other study configuration panes here, e.g.,
             <div id="config-pane-another_study" class="study-config-pane" style="display: none;">
