@@ -26,6 +26,7 @@
     let pfrRunButton = null;
     let pfrStatusLabel = null;
     let pfrDisplayModeSelect = null; // NEW: For Display Mode dropdown
+    let pfrTtmToggle = null; // NEW: Declare variable for TTM Toggle
 
     function formatDateToYYYYMMDD(dateObj) {
         const year = dateObj.getFullYear();
@@ -770,12 +771,14 @@
         pfrEndDateInput = document.getElementById('ts-pfr-end-date');
         pfrRunButton = document.getElementById('ts-pfr-run-study-btn');
         pfrStatusLabel = document.getElementById('ts-pfr-status');
-        pfrDisplayModeSelect = document.getElementById('ts-pfr-display-mode-select'); // NEW
+        pfrDisplayModeSelect = document.getElementById('ts-pfr-display-mode-select');
+        pfrTtmToggle = document.getElementById('ts-pfr-ttm-toggle'); // NEW: Get reference to TTM toggle
 
         if (!pfrTickerSelect) console.error(LOG_PREFIX, "PFR Ticker select not found!");
         if (!pfrFieldSelect) console.error(LOG_PREFIX, "PFR Field select not found!");
         if (!pfrRunButton) console.error(LOG_PREFIX, "PFR Run button not found!");
-        if (!pfrDisplayModeSelect) console.warn(LOG_PREFIX, "PFR Display Mode select (ts-pfr-display-mode-select) not found!"); // NEW
+        if (!pfrDisplayModeSelect) console.warn(LOG_PREFIX, "PFR Display Mode select (ts-pfr-display-mode-select) not found!");
+        if (!pfrTtmToggle) console.warn(LOG_PREFIX, "PFR TTM Toggle select (ts-pfr-ttm-toggle) not found!");
 
         // Populate fundamental fields (tickers populated by analytics_timeseries.js)
         if (isFundDataReady && pfrFieldSelect) {
@@ -837,31 +840,43 @@
         console.log(LOG_PREFIX, `Populated fields for PFR: ${populatedCount}`);
     }
 
+    // REFACTORED: handleRunPriceFundamentalRatios to use new TTM architecture
     async function handleRunPriceFundamentalRatios() {
         console.log(LOG_PREFIX, "Run Price-Fundamental Ratios (PFR) clicked.");
 
-        if (!pfrTickerSelect || !pfrFieldSelect || !pfrPeriodSelector || !pfrStartDateInput || !pfrEndDateInput || !pfrRunButton || !pfrDisplayModeSelect) { // Added pfrDisplayModeSelect check
-            alert("Error: Essential PFR UI elements are missing."); return;
+        if (!pfrTickerSelect || !pfrFieldSelect || !pfrPeriodSelector || !pfrStartDateInput || !pfrEndDateInput || !pfrRunButton || !pfrDisplayModeSelect || !pfrTtmToggle) {
+            alert("Error: Essential PFR UI elements are missing. Please refresh.");
+            console.error(LOG_PREFIX, "PFR: Missing one or more UI elements for PFR study.", 
+                {
+                    pfrTickerSelect, pfrFieldSelect, pfrPeriodSelector, 
+                    pfrStartDateInput, pfrEndDateInput, pfrRunButton, 
+                    pfrDisplayModeSelect, pfrTtmToggle
+                }
+            );
+            return;
         }
 
         const selectedTickers = $(pfrTickerSelect).val() || [];
-        const selectedFundamentalFields = $(pfrFieldSelect).val() || [];
+        const selectedOriginalFieldIds = $(pfrFieldSelect).val() || []; // These are the yf_item_... IDs
         const selectedPeriod = pfrPeriodSelector.value;
-        const displayMode = pfrDisplayModeSelect.value; // NEW: Get display mode
-        let startDate = pfrStartDateInput.value;
-        let endDate = pfrEndDateInput.value;
+        const displayMode = pfrDisplayModeSelect.value;
+        const useTtmForAnnuals = pfrTtmToggle.checked;
 
-        console.log(LOG_PREFIX, `PFR: Display mode selected: ${displayMode}`); // Log the display mode
+        console.log(LOG_PREFIX, `PFR: Tickers: ${selectedTickers.join(', ')}, Fields: ${selectedOriginalFieldIds.join(', ')}, Period: ${selectedPeriod}, Display: ${displayMode}, TTM Toggle: ${useTtmForAnnuals}`);
 
         if (selectedTickers.length === 0) { alert("Please select at least one ticker."); return; }
-        if (selectedFundamentalFields.length === 0) { alert("Please select at least one fundamental field."); return; }
+        if (selectedOriginalFieldIds.length === 0) { alert("Please select at least one fundamental field."); return; }
+
+        let baseStartDate = pfrStartDateInput.value;
+        let baseEndDate = pfrEndDateInput.value;
 
         if (selectedPeriod === 'custom') {
-            if (!startDate || !endDate) { alert("For custom range, please select Start and End dates."); return; }
-            if (new Date(startDate) >= new Date(endDate)) { alert("Start Date must be before End Date."); return; }
+            if (!baseStartDate || !baseEndDate) { alert("For custom range, please select Start and End dates."); return; }
+            if (new Date(baseStartDate) >= new Date(baseEndDate)) { alert("Start Date must be before End Date for custom range."); return; }
         } else {
+            // RESTORED: Original date calculation logic
             const today = new Date();
-            endDate = formatDateToYYYYMMDD(today); 
+            baseEndDate = formatDateToYYYYMMDD(today); 
             let sDateObj = new Date(); 
 
             switch (selectedPeriod) {
@@ -875,114 +890,99 @@
                 case '5y': sDateObj.setFullYear(today.getFullYear() - 5); break;
                 case '10y': sDateObj.setFullYear(today.getFullYear() - 10); break;
                 case 'ytd': sDateObj = new Date(today.getFullYear(), 0, 1); break;
-                default: sDateObj.setFullYear(today.getFullYear() - 1); 
+                // 'max' period is handled by leaving baseStartDate and baseEndDate as null or their initial values
+                // which will be caught by preparePfrDataRequests and no specific start/end dates will be sent to the price API.
+                case 'max': 
+                    baseStartDate = null; // Explicitly set to null for max
+                    baseEndDate = null;   // Explicitly set to null for max
+                    break;
+                default: 
+                    console.warn(LOG_PREFIX, `PFR: Unknown period '${selectedPeriod}', defaulting to 1 year.`);
+                    sDateObj.setFullYear(today.getFullYear() - 1); // Default to 1 year
             }
-            startDate = formatDateToYYYYMMDD(sDateObj); 
-
-             if (selectedPeriod === 'max') { 
-                startDate = null; endDate = null;
+            if (selectedPeriod !== 'max') { // Only set baseStartDate if not max
+                 baseStartDate = formatDateToYYYYMMDD(sDateObj);
             }
-            console.log(LOG_PREFIX, `PFR: Period '${selectedPeriod}' selected. Calculated dates: ${startDate} to ${endDate}`);
+            // END RESTORED LOGIC
+            console.log(LOG_PREFIX, `PFR: Period '${selectedPeriod}' selected. Calculated dates: ${baseStartDate} to ${baseEndDate}`);
         }
+        
+        // Determine the lookback start date for fundamental data queries
+        // Go back further (e.g., 2-3 years before the price series start) to ensure enough historical data for TTM or initial value.
+        let fundamentalQueryLookbackStartDate = baseStartDate;
+        if (baseStartDate) {
+            const tempDate = new Date(baseStartDate);
+            tempDate.setFullYear(tempDate.getFullYear() - 3); // Look back 3 years for fundamentals
+            fundamentalQueryLookbackStartDate = formatDateToYYYYMMDD(tempDate);
+        }
+        console.log(LOG_PREFIX, `PFR: Price period ${baseStartDate}-${baseEndDate}. Fundamental query lookback start: ${fundamentalQueryLookbackStartDate}`);
 
-        if (pfrStatusLabel) pfrStatusLabel.textContent = 'Fetching data...';
+
+        if (pfrStatusLabel) pfrStatusLabel.innerHTML = 'Fetching data...'; // Use innerHTML for line breaks
         if (pfrRunButton) { pfrRunButton.disabled = true; pfrRunButton.querySelector('.spinner-border').style.display = 'inline-block'; pfrRunButton.querySelector('.button-text').textContent = 'Loading...'; }
-        const loadingIndicator = document.getElementById('timeseries-loading-indicator'); 
+        const loadingIndicator = document.getElementById('timeseries-loading-indicator');
         if (loadingIndicator) loadingIndicator.style.display = 'flex';
 
         try {
-            const allChartDatasets = [];
-            const priceDataCache = {}; 
-            const fundamentalDataCache = {}; 
+            const { fetchPromises, processingDetails } = await preparePfrDataRequests(
+                selectedTickers,
+                selectedOriginalFieldIds,
+                useTtmForAnnuals,
+                baseStartDate, 
+                baseEndDate,
+                fundamentalQueryLookbackStartDate
+            );
 
-            const dataFetchingPromises = [];
+            const results = await Promise.allSettled(fetchPromises);
+            console.log(LOG_PREFIX, "PFR: All data fetch results from preparePfrDataRequests:", results);
 
-            selectedTickers.forEach(ticker => {
-                if (startDate && endDate) { 
-                    const priceApiEndDate = new Date(endDate);
-                    priceApiEndDate.setDate(priceApiEndDate.getDate() + 1);
-                    const priceApiParams = `ticker=${encodeURIComponent(ticker)}&interval=1d&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(priceApiEndDate.toISOString().split('T')[0])}`;
-                    dataFetchingPromises.push(
-                        fetch(`/api/v3/timeseries/price_history?${priceApiParams}`)
-                            .then(response => {
-                                if (!response.ok) return response.json().then(err => Promise.reject({ ticker, type: 'price', detail: err.detail || `Price fetch failed (${response.status})`}));
-                                return response.json();
-                            })
-                            .then(data => ({ ticker, type: 'price', data }))
-                            .catch(error => ({ ticker, type: 'price', error: error.detail || error.message || 'Unknown price fetch error' }))
-                    );
-                } else if (selectedPeriod === 'max') {
-                    const priceApiParams = `ticker=${encodeURIComponent(ticker)}&interval=1d&period=max`;
-                    dataFetchingPromises.push(
-                        fetch(`/api/v3/timeseries/price_history?${priceApiParams}`)
-                            .then(response => {
-                                if (!response.ok) return response.json().then(err => Promise.reject({ ticker, type: 'price', detail: err.detail || `Price fetch (max) failed (${response.status})`}));
-                                return response.json();
-                            })
-                            .then(data => ({ ticker, type: 'price', data }))
-                            .catch(error => ({ ticker, type: 'price', error: error.detail || error.message || 'Unknown price fetch error' }))
-                    );
-                } 
+            const priceDataCache = {}; // Keyed by ticker
+            const fundamentalDataCache = {}; // Keyed by ticker, then by originalFieldId (NOT the fetched one, but the one user selected)
+            let fetchErrorMessages = [];
 
-                // Determine the start date for the fundamental data query
-                let fundamentalQueryStartDate = startDate;
-                if (startDate) { // If not 'max' period, adjust the start date for fundamentals
-                    const periodStartDateObj = new Date(startDate);
-                    // Go back 2 years to ensure we capture the fundamental report active at the start of the period
-                    periodStartDateObj.setFullYear(periodStartDateObj.getFullYear() - 2);
-                    fundamentalQueryStartDate = formatDateToYYYYMMDD(periodStartDateObj);
-                    console.log(LOG_PREFIX, `PFR: Original period start: ${startDate}, Adjusted fundamental query start: ${fundamentalQueryStartDate}`);
-                }
-
-                const fundamentalsRequestPayload = {
-                    tickers: [ticker], 
-                    field_identifiers: selectedFundamentalFields,
-                    start_date: fundamentalQueryStartDate, // Use the adjusted earlier start date for fundamentals
-                    end_date: endDate,   
-                };
-                dataFetchingPromises.push(
-                    fetch('/api/v3/timeseries/fundamentals_history', {
-                        method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': document.getElementById('csrf_token')?.value || ''},
-                        body: JSON.stringify(fundamentalsRequestPayload)
-                    })
-                    .then(response => {
-                        if (!response.ok) return response.json().then(err => Promise.reject({ ticker, type: 'fundamental', detail: err.detail || `Fundamental fetch failed (${response.status})`}));
-                        return response.json();
-                    })
-                    .then(data => ({ ticker, type: 'fundamental', data })) 
-                    .catch(error => ({ ticker, type: 'fundamental', error: error.detail || error.message || 'Unknown fundamental fetch error' }))
-                );
-            });
-
-            const results = await Promise.allSettled(dataFetchingPromises);
-            console.log(LOG_PREFIX, "PFR: All data fetch results:", results);
-
-            let fetchErrors = [];
             results.forEach(result => {
                 if (result.status === 'fulfilled') {
                     const res = result.value;
                     if (res.error) {
-                        fetchErrors.push(`${res.ticker} (${res.type}): ${res.error}`);
+                        const errorMsg = `${res.ticker} (${res.type}${res.originalFieldId ? ' for ' + res.originalFieldId.substring(res.originalFieldId.lastIndexOf('_') + 1) : ''}): ${res.error}`;
+                        fetchErrorMessages.push(errorMsg);
+                        console.warn(LOG_PREFIX, `PFR: Fetch error for ${res.ticker}, type ${res.type}:`, res.error);
                     } else {
                         if (res.type === 'price') {
-                            priceDataCache[res.ticker] = res.data;
+                            priceDataCache[res.ticker] = res.data.map(d => ({
+                                dateEpoch: new Date(d.Datetime || d.Date).valueOf(),
+                                price: d.Close
+                            })).sort((a,b) => a.dateEpoch - b.dateEpoch); // Ensure sorted by date
                         } else if (res.type === 'fundamental') {
+                            if (!fundamentalDataCache[res.ticker]) {
+                                fundamentalDataCache[res.ticker] = {};
+                            }
+                            // Store fundamental data keyed by the original field ID requested by the user,
+                            // but the actual data is for `res.fieldFetched` (which might be quarterly)
+                            // The payload `res.data` is { ticker: { field_payload_key: [...] } }
+                            // So, fundamentalDataCache[ticker][originalFieldId] will store { field_payload_key_from_api: [...] }
                             if (res.data && res.data[res.ticker]) {
-                                fundamentalDataCache[res.ticker] = res.data[res.ticker];
+                                fundamentalDataCache[res.ticker][res.originalFieldId] = res.data[res.ticker]; 
+                                console.log(LOG_PREFIX, `PFR: Cached fundamental data for ${res.ticker}, original field ${res.originalFieldId} (fetched as ${res.fieldFetched}). Data keys:`, Object.keys(res.data[res.ticker] || {}));
                             } else {
-                                console.warn(LOG_PREFIX, `Fundamental data for ${res.ticker} was not in the expected format or empty.`);
+                                console.warn(LOG_PREFIX, `PFR: Fundamental data for ${res.ticker}, field ${res.originalFieldId} (fetched as ${res.fieldFetched}) was not in expected format or was empty.`);
+                                fundamentalDataCache[res.ticker][res.originalFieldId] = {}; // Ensure an empty object if no data
                             }
                         }
                     }
-                } else { 
-                    fetchErrors.push(`${result.reason.ticker || 'Unknown ticker'} (${result.reason.type || 'Unknown type'}): ${result.reason.detail || result.reason.message || 'Request failed'}`);
+                } else { // Promise rejected
+                    const reason = result.reason;
+                    const errorMsg = `${reason.ticker || 'Unknown ticker'} (${reason.type || 'Unknown type'}${reason.originalFieldId ? ' for ' + reason.originalFieldId.substring(reason.originalFieldId.lastIndexOf('_') + 1) : ''}): ${reason.detail || reason.message || 'Request failed'}`;
+                    fetchErrorMessages.push(errorMsg);
+                    console.error(LOG_PREFIX, `PFR: Promise rejection for ${reason.ticker}, type ${reason.type}:`, reason);
                 }
             });
 
-            if (fetchErrors.length > 0) {
-                alert("Some data could not be fetched for PFR study:\n" + fetchErrors.join("\n"));
+            if (fetchErrorMessages.length > 0) {
+                pfrStatusLabel.innerHTML += '<br><strong class="text-danger">Data Fetch Issues:</strong><br>' + fetchErrorMessages.map(e => `<small>${e}</small>`).join('<br>');
             }
-            
+
+            const allChartSeriesData = [];
             const lineColors = [
                 'rgb(75, 192, 192)', 'rgb(255, 99, 132)', 'rgb(54, 162, 235)',
                 'rgb(255, 206, 86)', 'rgb(153, 102, 255)', 'rgb(255, 159, 64)',
@@ -990,121 +990,161 @@
             ];
             let colorIndex = 0;
 
-            selectedTickers.forEach(ticker => {
-                const tickerPriceData = priceDataCache[ticker];
-                const tickerFundamentalDataGroup = fundamentalDataCache[ticker]; 
+            // Iterate through each selected original field ID first, then by ticker
+            selectedOriginalFieldIds.forEach(originalFieldId => {
+                selectedTickers.forEach(ticker => {
+                    const detailKey = `${originalFieldId}__${ticker}`;
+                    const currentProcessingDetail = processingDetails[detailKey];
 
-                if (!tickerPriceData || tickerPriceData.length === 0) {
-                    console.warn(LOG_PREFIX, `PFR: No price data for ${ticker}, skipping ratio calculation.`);
-                    return; 
-                }
-                if (!tickerFundamentalDataGroup || Object.keys(tickerFundamentalDataGroup).length === 0) {
-                    console.warn(LOG_PREFIX, `PFR: No fundamental data (or empty object) for ${ticker} in cache, skipping ratio calculation.`);
-                    return; 
-                }
+                    if (!currentProcessingDetail) {
+                        console.error(LOG_PREFIX, `PFR: CRITICAL - No processing detail found for key ${detailKey}. This should not happen.`);
+                        pfrStatusLabel.innerHTML += `<br><small class='text-danger'>Internal error processing ${ticker} - ${originalFieldId}.</small>`;
+                        return; // Skip this ticker/field combination
+                    }
 
-                // Iterate directly over the keys returned by the API for the fundamental data
-                for (const actualFundKey in tickerFundamentalDataGroup) {
-                    if (Object.hasOwnProperty.call(tickerFundamentalDataGroup, actualFundKey)) {
-                        const fundSeriesData = tickerFundamentalDataGroup[actualFundKey];
+                    const priceSeriesForTicker = priceDataCache[ticker];
+                    const fundamentalDataPayloadForField = fundamentalDataCache[ticker] ? fundamentalDataCache[ticker][originalFieldId] : null;
 
-                        if (!fundSeriesData || fundSeriesData.length === 0) {
-                            console.warn(LOG_PREFIX, `PFR: No data points for ${ticker} - ${actualFundKey}, skipping ratio for this field.`);
-                            continue; // Skip to the next fundamental field in the API response
+                    if (!priceSeriesForTicker || priceSeriesForTicker.length === 0) {
+                        console.warn(LOG_PREFIX, `PFR: No price data for ${ticker}. Cannot calculate ratio for ${originalFieldId}.`);
+                        pfrStatusLabel.innerHTML += `<br><small>No price data for ${ticker} to calculate P/${originalFieldId.substring(originalFieldId.lastIndexOf('_') + 1)} ratio.</small>`;
+                        return; // Skip to next ticker if no price data for this one
+                    }
+
+                    if (!fundamentalDataPayloadForField) {
+                        console.warn(LOG_PREFIX, `PFR: No fundamental data payload found for ${ticker} - ${originalFieldId} (expected fetch as ${currentProcessingDetail.fieldFetchedForFundamentals}). Skipping ratio.`);
+                        pfrStatusLabel.innerHTML += `<br><small>No fundamental data available for ${ticker} - ${originalFieldId.substring(originalFieldId.lastIndexOf('_') + 1)}.</small>`;
+                        return; // Skip this field for this ticker
+                    }
+                    
+                    const priceSeriesDates = priceSeriesForTicker.map(p => p.dateEpoch);
+
+                    const dailyFundamentalSeries = generateDailyFundamentalSeries(
+                        priceSeriesDates, 
+                        fundamentalDataPayloadForField, // This is the { api_field_key: [...] } object
+                        currentProcessingDetail 
+                    );
+
+                    if (!dailyFundamentalSeries || dailyFundamentalSeries.length === 0) {
+                        console.warn(LOG_PREFIX, `PFR: No daily fundamental series generated for ${ticker} - ${originalFieldId}.`);
+                        pfrStatusLabel.innerHTML += `<br><small>Could not generate fundamental series for ${ticker} - ${originalFieldId.substring(originalFieldId.lastIndexOf('_') + 1)}.</small>`;
+                        return; // Skip this field for this ticker
+                    }
+
+                    const ratioSeries = [];
+                    let ttmActuallyUsedInSeries = false;
+                    let seriesTtmErrorMessages = new Set();
+
+                    for (let i = 0; i < priceSeriesForTicker.length; i++) {
+                        const pricePoint = priceSeriesForTicker[i];
+                        const fundamentalPoint = dailyFundamentalSeries.find(fs => fs.date === pricePoint.dateEpoch);
+
+                        if (!fundamentalPoint) {
+                            // This case should ideally not happen if generateDailyFundamentalSeries covers all priceSeriesDates
+                            console.warn(LOG_PREFIX, `PFR: Mismatch - no fundamental point for price date ${new Date(pricePoint.dateEpoch).toISOString()} for ${ticker} - ${originalFieldId}`);
+                            ratioSeries.push([pricePoint.dateEpoch, null]);
+                            continue;
                         }
 
-                        const sortedFundData = [...fundSeriesData].sort((a, b) => new Date(a.date) - new Date(b.date));
-                        const ratioDataPoints = [];
-                        let currentFundamentalValue = null;
-                        let currentFundamentalDateEpoch = -1;
+                        if (fundamentalPoint.ttmUsed) {
+                            ttmActuallyUsedInSeries = true;
+                            if (fundamentalPoint.ttmError) {
+                                seriesTtmErrorMessages.add(fundamentalPoint.ttmError);
+                            }
+                        }
 
-                        const firstPriceDateEpoch = new Date(tickerPriceData[0].Datetime || tickerPriceData[0].Date).valueOf();
-                        for (let i = sortedFundData.length - 1; i >= 0; i--) {
-                            const fundDateEpoch = new Date(sortedFundData[i].date).valueOf();
-                            if (fundDateEpoch <= firstPriceDateEpoch) {
-                                currentFundamentalValue = typeof sortedFundData[i].value === 'string' ? parseFloat(sortedFundData[i].value) : sortedFundData[i].value;
-                                currentFundamentalDateEpoch = fundDateEpoch;
+                        if (pricePoint.price !== null && fundamentalPoint.value !== null && fundamentalPoint.value !== 0 && !isNaN(fundamentalPoint.value)) {
+                            ratioSeries.push([pricePoint.dateEpoch, pricePoint.price / fundamentalPoint.value]);
+                        } else {
+                            ratioSeries.push([pricePoint.dateEpoch, null]);
+                        }
+                    }
+                    
+                    // Handle displayMode ('raw_value' or 'percent_change')
+                    let finalRatioSeriesData = ratioSeries;
+                    if (displayMode === 'percent_change' && ratioSeries.length > 0) {
+                        let baselineRatio = null;
+                        for (const point of ratioSeries) {
+                            if (point[1] !== null && !isNaN(point[1])) {
+                                baselineRatio = point[1];
                                 break;
                             }
                         }
-
-                        tickerPriceData.forEach(pricePoint => {
-                            const priceDateEpoch = new Date(pricePoint.Datetime || pricePoint.Date).valueOf();
-                            const priceValue = pricePoint.Close;
-                            const priceDateReadable = new Date(priceDateEpoch).toISOString().split('T')[0]; // For logging
-
-                            for (const fundEntry of sortedFundData) {
-                                const fundDateEpoch = new Date(fundEntry.date).valueOf();
-                                if (fundDateEpoch <= priceDateEpoch && fundDateEpoch > currentFundamentalDateEpoch) {
-                                    currentFundamentalValue = typeof fundEntry.value === 'string' ? parseFloat(fundEntry.value) : fundEntry.value;
-                                    currentFundamentalDateEpoch = fundDateEpoch;
-                                } else if (fundDateEpoch > priceDateEpoch) {
-                                    break; 
-                                }
-                            }
-
-                            if (currentFundamentalValue !== null && currentFundamentalValue !== 0 && !isNaN(currentFundamentalValue) && priceValue !== null && !isNaN(priceValue)) {
-                                const ratio = priceValue / currentFundamentalValue;
-                                console.log(LOG_PREFIX, `PFR Calc: ${ticker} - ${actualFundKey} | Date: ${priceDateReadable} | Price: ${priceValue} | Fund Value: ${currentFundamentalValue} (from ${new Date(currentFundamentalDateEpoch).toISOString().split('T')[0]}) | Ratio: ${ratio.toFixed(4)}`);
-                                ratioDataPoints.push({ x: priceDateEpoch, y: ratio });
-                            } else {
-                                console.log(LOG_PREFIX, `PFR Calc SKIP: ${ticker} - ${actualFundKey} | Date: ${priceDateReadable} | Price: ${priceValue} | Fund Value: ${currentFundamentalValue} (from ${currentFundamentalDateEpoch > 0 ? new Date(currentFundamentalDateEpoch).toISOString().split('T')[0] : 'N/A'}) | Reason: Invalid price or fund value for ratio.`);
-                                ratioDataPoints.push({ x: priceDateEpoch, y: null }); 
-                            }
-                        });
-
-                        // NEW: Transform data if displayMode is 'percent_change'
-                        if (displayMode === 'percent_change' && ratioDataPoints.length > 0) {
-                            let baselineRatio = null;
-                            for (const point of ratioDataPoints) {
-                                if (point.y !== null && !isNaN(point.y)) {
-                                    baselineRatio = point.y;
-                                    break;
-                                }
-                            }
-
-                            if (baselineRatio !== null && baselineRatio !== 0) {
-                                for (let i = 0; i < ratioDataPoints.length; i++) {
-                                    if (ratioDataPoints[i].y !== null && !isNaN(ratioDataPoints[i].y)) {
-                                        ratioDataPoints[i].y = ((ratioDataPoints[i].y / baselineRatio) - 1) * 100;
-                                    } else {
-                                        ratioDataPoints[i].y = null; 
-                                    }
-                                }
-                            } else {
-                                for (let i = 0; i < ratioDataPoints.length; i++) {
-                                    ratioDataPoints[i].y = null;
-                                }
-                            }
-                        }
-
-                        if (ratioDataPoints.length > 0) {
-                            const displayFundName = actualFundKey.replace(/_/g, ' '); 
-                            allChartDatasets.push({
-                                label: `${ticker} P/${displayFundName}` + (displayMode === 'percent_change' ? ' (% Chg)' : ''), // Append to label
-                                data: ratioDataPoints,
-                                borderColor: lineColors[colorIndex % lineColors.length],
-                                backgroundColor: lineColors[colorIndex % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.05)'), 
-                                yAxisID: 'y-axis-ratio', 
-                                type: 'line',
-                                borderWidth: 1.5,
-                                pointRadius: 0,
-                                tension: 0.1,
-                                appDataType: displayMode // NEW: Pass data type for tooltip/pill formatting
-                            });
-                            colorIndex++;
+                        if (baselineRatio !== null && baselineRatio !== 0) {
+                            finalRatioSeriesData = ratioSeries.map(point => 
+                                [point[0], (point[1] !== null && !isNaN(point[1])) ? ((point[1] / baselineRatio) - 1) * 100 : null]
+                            );
+                        } else {
+                            finalRatioSeriesData = ratioSeries.map(point => [point[0], null]); // All null if no valid baseline
                         }
                     }
-                }
-            });
 
-            if (allChartDatasets.length === 0) {
-                window.AnalyticsTimeseriesModule.showPlaceholderWithMessage("No ratio data could be calculated or plotted.");
-                 if (pfrStatusLabel) pfrStatusLabel.textContent = "No ratio data generated.";
+                    if (finalRatioSeriesData.length > 0) {
+                        let seriesNameSuffix = "";
+                        if (currentProcessingDetail.isAnnualOriginal) {
+                            if (currentProcessingDetail.needsTtm) { // TTM was requested for this annual field
+                                seriesNameSuffix = ttmActuallyUsedInSeries ? " (TTM)" : " (TTM requested, data unavailable)";
+                                if (seriesTtmErrorMessages.size > 0 && !ttmActuallyUsedInSeries) { // Errors prevented TTM
+                                     seriesNameSuffix = ` (TTM Err: ${Array.from(seriesTtmErrorMessages)[0]})`; // Show first error
+                                } else if (seriesTtmErrorMessages.size > 0 && ttmActuallyUsedInSeries) { // TTM used but with errors
+                                    seriesNameSuffix += ` (some errors: ${Array.from(seriesTtmErrorMessages)[0]})`;
+                                }
+                            } else { // TTM not requested, direct annual
+                                seriesNameSuffix = " (Annual)";
+                            }
+                        } else { // Originally quarterly or other non-annual
+                            seriesNameSuffix = originalFieldId.includes('_quarterly_') ? " (Quarterly)" : ""; // Default to (Quarterly) if applicable
+                        }
+                        
+                        // Extract the core field name (e.g., TotalRevenue from ..._annual_TotalRevenue)
+                        const coreFieldNameMatch = originalFieldId.match(/_([a-zA-Z0-9]+)$/);
+                        const displayableFieldName = coreFieldNameMatch ? coreFieldNameMatch[1] : originalFieldId;
+
+                        const seriesName = `${ticker} P/${displayableFieldName}${seriesNameSuffix}` + (displayMode === 'percent_change' ? ' (% Chg)' : '');
+
+                        // NEW: Debug log before pushing to chart data
+                        console.log(LOG_PREFIX, `PFR: Preparing chart series. Name: '${seriesName}', Ticker: ${ticker}, Field: ${originalFieldId}, Suffix: '${seriesNameSuffix}', DisplayMode: ${displayMode}`);
+                        console.log(LOG_PREFIX, `PFR: Sample data for '${seriesName}':`, finalRatioSeriesData.slice(0, 5));
+                        // END NEW: Debug log
+
+                        // Convert finalRatioSeriesData to {x,y} format
+                        const chartJsData = finalRatioSeriesData.map(point => ({ x: point[0], y: point[1] }));
+
+                        allChartSeriesData.push({
+                            label: seriesName, // MODIFIED: Changed 'name' to 'label'
+                            data: chartJsData, // MODIFIED: Use {x,y} formatted data
+                            type: 'line',
+                            yAxisID: 'y-axis-ratio',
+                            borderColor: lineColors[colorIndex % lineColors.length],
+                            backgroundColor: lineColors[colorIndex % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.05)'),
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            tension: 0.1,
+                            _ttmUsedOverallInSeries: ttmActuallyUsedInSeries,
+                            _ttmErrorsInSeries: Array.from(seriesTtmErrorMessages),
+                            _processingDetail: currentProcessingDetail,
+                            appDataType: displayMode // For tooltip formatting
+                        });
+                        colorIndex++;
+
+                        if (seriesTtmErrorMessages.size > 0) {
+                            pfrStatusLabel.innerHTML += `<br><small class='text-warning'>${seriesName}: TTM issues: ${Array.from(seriesTtmErrorMessages).join(', ')}.</small>`;
+                        }
+
+                    } else {
+                        console.warn(LOG_PREFIX, `PFR: No ratio series data generated for ${ticker} - ${originalFieldId}`);
+                        pfrStatusLabel.innerHTML += `<br><small>Could not calculate ratio for ${ticker} - ${originalFieldId.substring(originalFieldId.lastIndexOf('_') + 1)}.</small>`;
+                    }
+                }); // End loop selectedTickers
+            }); // End loop selectedOriginalFieldIds
+
+
+            if (allChartSeriesData.length === 0) {
+                window.AnalyticsTimeseriesModule.showPlaceholderWithMessage("No ratio data could be calculated or plotted based on current selections and available data.");
+                if (pfrStatusLabel) pfrStatusLabel.innerHTML += "<br>No ratio data generated.";
                 return;
             }
 
-            // Determine Y-axis title and chart title suffix based on display mode
             let yAxisTitle = "Ratio Value";
             let chartTitleSuffix = "";
             if (displayMode === 'percent_change') {
@@ -1112,32 +1152,222 @@
                 chartTitleSuffix = " (% Change)";
             }
 
-            const finalChartTitle = (selectedTickers.length > 1 ? `Price-Fundamental Ratios` : `${selectedTickers[0]} Price-Fundamental Ratios`) + chartTitleSuffix;
-            const yAxesConfig = [{ id: 'y-axis-ratio', position: 'left', title: yAxisTitle }]; 
+            const finalChartTitle = (selectedTickers.length > 1 || selectedOriginalFieldIds.length > 1 ? `Price-Fundamental Ratios` : `${selectedTickers[0]} P/${selectedOriginalFieldIds[0].substring(selectedOriginalFieldIds[0].lastIndexOf('_') + 1)}`) + chartTitleSuffix;
+            const yAxesConfig = [{ id: 'y-axis-ratio', position: 'left', title: yAxisTitle }];
             
-            let overallStartDate = startDate;
-            let overallEndDate = endDate;
+            let overallStartDateForDisplay = baseStartDate;
+            let overallEndDateForDisplay = baseEndDate;
+            // If 'max' period was used, try to get actual dates from the first price series for display
             if (selectedPeriod === 'max' && priceDataCache[selectedTickers[0]] && priceDataCache[selectedTickers[0]].length > 0) {
-                const firstTickerPrices = priceDataCache[selectedTickers[0]];
-                overallStartDate = formatDateToYYYYMMDD(new Date(firstTickerPrices[0].Datetime || firstTickerPrices[0].Date));
-                overallEndDate = formatDateToYYYYMMDD(new Date(firstTickerPrices[firstTickerPrices.length - 1].Datetime || firstTickerPrices[firstTickerPrices.length - 1].Date));
+                const firstPriceDataPoints = priceDataCache[selectedTickers[0]];
+                if (firstPriceDataPoints.length > 0) {
+                    overallStartDateForDisplay = formatDateToYYYYMMDD(new Date(firstPriceDataPoints[0].dateEpoch));
+                    overallEndDateForDisplay = formatDateToYYYYMMDD(new Date(firstPriceDataPoints[firstPriceDataPoints.length - 1].dateEpoch));
+                }
             }
 
-            window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart(allChartDatasets, finalChartTitle, null, 
-                { chartType: 'line', isTimeseries: true, yAxesConfig: yAxesConfig, rangeDetails: {start: overallStartDate, end: overallEndDate} }
+            window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart(allChartSeriesData, finalChartTitle, null,
+                { 
+                    chartType: 'line', 
+                    isTimeseries: true, 
+                    yAxesConfig: yAxesConfig, 
+                    rangeDetails: {start: overallStartDateForDisplay, end: overallEndDateForDisplay}
+                }
             );
-            if (pfrStatusLabel) pfrStatusLabel.textContent = `PFR Chart Loaded. Tickers: ${selectedTickers.join(', ')}. Range: ${overallStartDate || 'N/A'} to ${overallEndDate || 'N/A'}.`;
+            if (pfrStatusLabel) pfrStatusLabel.innerHTML += `<br>PFR Chart Loaded. Range: ${overallStartDateForDisplay || 'N/A'} to ${overallEndDateForDisplay || 'N/A'}.`;
 
         } catch (error) {
-            console.error(LOG_PREFIX, "Error during Price-Fundamental Ratios:", error);
-            alert(`Error: ${error.message}`);
+            console.error(LOG_PREFIX, "Error during Price-Fundamental Ratios execution:", error);
+            alert(`Error in PFR study: ${error.message}`);
             window.AnalyticsTimeseriesModule.showPlaceholderWithMessage(`Error: ${error.message}`);
-            if (pfrStatusLabel) pfrStatusLabel.textContent = `Error: ${error.message}`;
+            if (pfrStatusLabel) pfrStatusLabel.innerHTML += `<br><strong class='text-danger'>Runtime Error: ${error.message}</strong>`;
         } finally {
             if (loadingIndicator) loadingIndicator.style.display = 'none';
             if (pfrRunButton) { pfrRunButton.disabled = false; pfrRunButton.querySelector('.spinner-border').style.display = 'none'; pfrRunButton.querySelector('.button-text').textContent = 'Calculate Ratios'; }
         }
     }
+
+    // ADD BACK: preparePfrDataRequests function here
+    // Function to prepare data requests for Price-Fundamental Ratios (PFR)
+    async function preparePfrDataRequests(selectedTickers, selectedOriginalFieldIds, useTtmForAnnuals, baseStartDate, baseEndDate, fundamentalQueryLookbackStartDate) {
+        console.log(LOG_PREFIX, "PFR.preparePfrDataRequests: Preparing data requests. TTM for annuals:", useTtmForAnnuals, "Base Dates:", baseStartDate, "-", baseEndDate, "Fund. Lookback:", fundamentalQueryLookbackStartDate);
+        const fetchPromises = [];
+        const processingDetails = {}; // Keyed by originalFieldId__ticker (double underscore)
+        
+        const masterFieldListAll = (window.AnalyticsMainModule && typeof window.AnalyticsMainModule.getFinalAvailableFields === 'function') ?
+                                 window.AnalyticsMainModule.getFinalAvailableFields() || [] : [];
+
+        // 1. Price Data Requests for each ticker
+        selectedTickers.forEach(ticker => {
+            let priceApiUrl;
+            if (baseStartDate && baseEndDate) { // Custom or calculated range
+                const priceApiEndDate = new Date(baseEndDate);
+                priceApiEndDate.setDate(priceApiEndDate.getDate() + 1); 
+                const priceApiParams = `ticker=${encodeURIComponent(ticker)}&interval=1d&start_date=${encodeURIComponent(baseStartDate)}&end_date=${encodeURIComponent(priceApiEndDate.toISOString().split('T')[0])}`;
+                priceApiUrl = `/api/v3/timeseries/price_history?${priceApiParams}`;
+            } else { // 'max' period
+                const priceApiParams = `ticker=${encodeURIComponent(ticker)}&interval=1d&period=max`;
+                priceApiUrl = `/api/v3/timeseries/price_history?${priceApiParams}`;
+            }
+            fetchPromises.push(
+                fetch(priceApiUrl)
+                    .then(response => {
+                        if (!response.ok) return response.json().then(err => Promise.reject({ ticker, type: 'price', detail: err.detail || `Price fetch failed (${response.status})`}));
+                        return response.json();
+                    })
+                    .then(data => ({ ticker, type: 'price', data }))
+                    .catch(error => ({ ticker, type: 'price', error: error.detail || error.message || 'Unknown price fetch error' }))
+            );
+
+            // 2. Fundamental Data Requests for each ticker and field
+            selectedOriginalFieldIds.forEach(originalFieldId => {
+                const isAnnualFieldOriginal = originalFieldId.includes('_annual_');
+                const processThisFieldAsTtm = useTtmForAnnuals && isAnnualFieldOriginal;
+                
+                let fieldIdToFetchForFundamentals = originalFieldId;
+                if (processThisFieldAsTtm) {
+                    const quarterlyEquivalent = originalFieldId.replace('_annual_', '_quarterly_');
+                    if (masterFieldListAll.includes(quarterlyEquivalent)) {
+                        fieldIdToFetchForFundamentals = quarterlyEquivalent;
+                        console.log(LOG_PREFIX, `PFR.preparePfrDataRequests: TTM active for ${originalFieldId}. Will fetch QUARTERLY field: ${fieldIdToFetchForFundamentals}`);
+                    } else {
+                        console.warn(LOG_PREFIX, `PFR.preparePfrDataRequests: TTM active for ${originalFieldId}, but its quarterly equivalent '${quarterlyEquivalent}' was NOT FOUND. Will fall back to original. TTM may not be possible.`);
+                    }
+                }
+
+                const detailKey = `${originalFieldId}__${ticker}`;
+                processingDetails[detailKey] = {
+                    ticker: ticker,
+                    originalFieldId: originalFieldId,
+                    isAnnualOriginal: isAnnualFieldOriginal,
+                    needsTtm: processThisFieldAsTtm, 
+                    fieldIdFetchedForFundamentals: fieldIdToFetchForFundamentals,
+                };
+
+                const fundamentalsRequestPayload = {
+                    tickers: [ticker],
+                    field_identifiers: [fieldIdToFetchForFundamentals],
+                    start_date: fundamentalQueryLookbackStartDate,
+                    end_date: baseEndDate,
+                };
+
+                fetchPromises.push(
+                    fetch('/api/v3/timeseries/fundamentals_history', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-Token': document.getElementById('csrf_token')?.value || ''
+                        },
+                        body: JSON.stringify(fundamentalsRequestPayload)
+                    })
+                    .then(response => {
+                        if (!response.ok) return response.json().then(err => Promise.reject({ ticker, originalFieldId, fieldFetched: fieldIdToFetchForFundamentals, type: 'fundamental', detail: err.detail || `Fundamental fetch failed (${response.status})`}));
+                        return response.json();
+                    })
+                    .then(data => ({ ticker, originalFieldId, fieldFetched: fieldIdToFetchForFundamentals, type: 'fundamental', data }))
+                    .catch(error => ({ ticker, originalFieldId, fieldFetched: fieldIdToFetchForFundamentals, type: 'fundamental', error: error.detail || error.message || 'Unknown fundamental fetch error' }))
+                );
+            });
+        });
+        console.log(LOG_PREFIX, "PFR.preparePfrDataRequests: Processing Details map:", processingDetails);
+        return { fetchPromises, processingDetails };
+    }
+    // END ADD BACK
+
+    // NEW: Phase 3.1 - Standalone TTM Calculation Function
+    function calculateRollingTtmSeries(quarterlyPoints, priceSeriesDates) {
+        console.log(LOG_PREFIX, `PFR.calculateRollingTtmSeries: Calculating TTM using ${quarterlyPoints.length} quarterly points for ${priceSeriesDates.length} price dates.`);
+        const ttmResults = [];
+
+        if (!quarterlyPoints || quarterlyPoints.length === 0) {
+            console.warn(LOG_PREFIX, "PFR.calculateRollingTtmSeries: No quarterly points provided. Returning nulls for all price dates.");
+            return priceSeriesDates.map(dateEpoch => ({ date: dateEpoch, value: null, ttmUsed: true, ttmError: "No quarterly data available" }));
+        }
+
+        const sortedQuarterlyPoints = [...quarterlyPoints].sort((a, b) => a.dateEpoch - b.dateEpoch);
+
+        for (const priceDateEpoch of priceSeriesDates) {
+            const relevantQuarters = sortedQuarterlyPoints.filter(q => q.dateEpoch <= priceDateEpoch);
+            if (relevantQuarters.length >= 4) {
+                const lastFourQuarters = relevantQuarters.slice(-4);
+                const ttmValue = lastFourQuarters.reduce((sum, q) => sum + ((q.value !== null && typeof q.value === 'number') ? q.value : 0), 0);
+                ttmResults.push({ date: priceDateEpoch, value: ttmValue, ttmUsed: true, ttmError: null });
+            } else {
+                ttmResults.push({ date: priceDateEpoch, value: null, ttmUsed: true, ttmError: "Insufficient quarterly data for this date" });
+            }
+        }
+        return ttmResults;
+    }
+
+    // NEW: Phase 3.2 (from original plan) - Generate Daily Fundamental Series (handles TTM)
+    function generateDailyFundamentalSeries(priceSeriesDates, rawFundamentalPayloadForField, fieldDetail) {
+        const { ticker, originalFieldId, needsTtm, fieldIdFetchedForFundamentals } = fieldDetail;
+        console.log(LOG_PREFIX, `PFR.generateDailyFundamentalSeries for ${ticker} - ${originalFieldId} (fetched as ${fieldIdFetchedForFundamentals}). Needs TTM: ${needsTtm}. Received payload object keys:`, rawFundamentalPayloadForField ? Object.keys(rawFundamentalPayloadForField) : 'No payload object');
+
+        let fundamentalPoints = [];
+        let actualDataKey = null;
+
+        if (rawFundamentalPayloadForField && typeof rawFundamentalPayloadForField === 'object' && Object.keys(rawFundamentalPayloadForField).length > 0) {
+            // Assuming the API for a single field_identifier returns an object with one key,
+            // which is the actual series name (e.g., "annual Inventory" or "quarterly Total Revenue")
+            actualDataKey = Object.keys(rawFundamentalPayloadForField)[0];
+            if (rawFundamentalPayloadForField[actualDataKey] && Array.isArray(rawFundamentalPayloadForField[actualDataKey])) {
+                fundamentalPoints = rawFundamentalPayloadForField[actualDataKey].map(p => ({
+                    dateEpoch: new Date(p.date).valueOf(),
+                    value: typeof p.value === 'string' ? parseFloat(p.value) : p.value
+                })).sort((a, b) => a.dateEpoch - b.dateEpoch);
+                console.log(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Successfully extracted ${fundamentalPoints.length} points using key '${actualDataKey}' for ${ticker} - ${originalFieldId}`);
+            } else {
+                console.warn(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Key '${actualDataKey}' found, but its value is not an array or is missing in payload for ${ticker} - ${originalFieldId}.`);
+            }
+        } else {
+            console.warn(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Payload object for ${ticker} - ${originalFieldId} is empty, not an object, or missing.`);
+        }
+
+        if (fundamentalPoints.length === 0) {
+            // This log now also covers cases where actualDataKey was found but the array was empty or not an array.
+            console.warn(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: No processable fundamental points extracted for ${ticker} - ${originalFieldId} (expected from API as ${fieldIdFetchedForFundamentals}).`);
+            return priceSeriesDates.map(dateEpoch => ({ date: dateEpoch, value: null, ttmUsed: needsTtm, ttmError: needsTtm ? "No data for TTM field" : "No data for field" }));
+        }
+        
+        if (needsTtm) {
+            console.log(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Using TTM calculation for ${ticker} - ${originalFieldId}`);
+            return calculateRollingTtmSeries(fundamentalPoints, priceSeriesDates); // fundamentalPoints are already the quarterly ones
+        } else {
+            // Standard "last known value" propagation for non-TTM (e.g. direct annual or direct quarterly)
+            console.log(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Propagating last known value for ${ticker} - ${originalFieldId}`);
+            const dailyFundamentalValues = [];
+            let lastKnownValue = null;
+            let lastKnownFundDateEpoch = -1; // Epoch of the last fundamental data point used
+
+            // Find the initial fundamental value for the start of the price series
+            const firstPriceDateEpoch = priceSeriesDates[0];
+            for (let i = fundamentalPoints.length - 1; i >= 0; i--) {
+                if (fundamentalPoints[i].dateEpoch <= firstPriceDateEpoch) {
+                    lastKnownValue = fundamentalPoints[i].value;
+                    lastKnownFundDateEpoch = fundamentalPoints[i].dateEpoch;
+                    break;
+                }
+            }
+            // If no fundamental data point is found on or before the first price date, lastKnownValue will remain null.
+
+            priceSeriesDates.forEach(priceDateEpoch => {
+                // Iterate through fundamental points to find the most recent one for the current priceDateEpoch
+                for (const fundPoint of fundamentalPoints) {
+                    if (fundPoint.dateEpoch <= priceDateEpoch && fundPoint.dateEpoch > lastKnownFundDateEpoch) {
+                        lastKnownValue = fundPoint.value;
+                        lastKnownFundDateEpoch = fundPoint.dateEpoch;
+                    } else if (fundPoint.dateEpoch > priceDateEpoch) {
+                        // Since fundamentalPoints is sorted, we can break early
+                        break;
+                    }
+                }
+                dailyFundamentalValues.push({ date: priceDateEpoch, value: lastKnownValue, ttmUsed: false, ttmError: null });
+            });
+            return dailyFundamentalValues;
+        }
+    }
+    // END NEW: Phase 3.2
 
     // --- Expose module functions ---
     window.TimeseriesFundamentalsModule = {

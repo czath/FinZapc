@@ -405,57 +405,80 @@
                 <h5>Price-Fundamental Ratios</h5>
                 <p class="small text-muted">Calculate and plot ratios of price to selected fundamental metrics over time.</p>
                 
-                <div class="mb-3">
-                    <label for="ts-pfr-ticker-select" class="form-label form-label-sm">Select Tickers (One or More):</label>
-                    <select id="ts-pfr-ticker-select" class="form-select form-select-sm" multiple>
-                        <!-- Populated by JS from loaded analytics data -->
-                    </select>
-                     <div class="form-text form-text-sm">Hold Ctrl/Cmd to select multiple.</div>
+                <!-- Ticker Selector Row -->
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <label for="ts-pfr-ticker-select" class="form-label">Ticker(s):</label>
+                        <select id="ts-pfr-ticker-select" class="form-select form-select-sm" multiple>
+                            <!-- Options populated by JS -->
+                        </select>
+                    </div>
                 </div>
 
-                <div class="mb-3">
-                    <label for="ts-pfr-field-select" class="form-label">Fundamental Fields:</label>
-                    <select id="ts-pfr-field-select" class="form-select form-select-sm" multiple>
-                        <!-- Options will be populated by JS -->
-                    </select>
+                <!-- Fundamental Field Selector Row -->
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <label for="ts-pfr-field-select" class="form-label">Fundamental Field(s) (Price / Field):</label>
+                        <select id="ts-pfr-field-select" class="form-select form-select-sm" multiple>
+                            <!-- Options populated by JS -->
+                        </select>
+                    </div>
                 </div>
 
-                <!-- NEW: Display Mode Selector -->
-                <div class="col-md-3">
-                    <label for="ts-pfr-display-mode-select" class="form-label">Display As:</label>
-                    <select id="ts-pfr-display-mode-select" class="form-select form-select-sm">
-                        <option value="raw" selected>Raw Values</option>
-                        <option value="percent_change">Pct. Change (Baseline)</option>
-                    </select>
-                </div>
-                <div class="col-md-2"> <!-- Was col-md-3, adjusted to make space -->
-                    <label for="ts-pfr-period-selector" class="form-label">Period:</label>
-                    <select id="ts-pfr-period-selector" class="form-select form-select-sm">
-                        <option value="custom">Custom Range</option>
-                        <option value="1d">1 Day</option>
-                        <option value="5d">5 Days</option>
-                        <option value="1mo">1 Month</option>
-                        <option value="3mo">3 Months</option>
-                        <option value="6mo">6 Months</option>
-                        <option value="1y">1 Year</option>
-                        <option value="2y">2 Years</option>
-                        <option value="5y">5 Years</option>
-                        <option value="10y">10 Years</option>
-                        <option value="ytd" selected>Year to Date</option> {# Default YTD #}
-                        <option value="max">Max Available</option>
-                    </select>
+                <!-- Display Mode Selector Row -->
+                <div class="row mb-2">
+                    <div class="col-12">
+                        <label for="ts-pfr-display-mode-select" class="form-label">Display Mode:</label>
+                        <select id="ts-pfr-display-mode-select" class="form-select form-select-sm">
+                            <option value="raw_value" selected>Raw Ratio Value</option>
+                            <option value="percent_change">Percent Change from Start</option>
+                        </select>
+                    </div>
                 </div>
 
-                <!-- Start Date (visible if period is custom) -->
-                <div class="mb-3" id="ts-pfr-start-date-container" style="display: none;">
-                    <label for="ts-pfr-start-date" class="form-label form-label-sm">Start Date:</label>
-                    <input type="date" id="ts-pfr-start-date" class="form-control form-control-sm">
+                <!-- TTM Toggle Row -->
+                <div class="row mb-2">
+                    <div class="col-12">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="ts-pfr-ttm-toggle" checked>
+                            <label class="form-check-label" for="ts-pfr-ttm-toggle">Calculate TTM for annuals when possible</label>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- End Date (visible if period is custom) -->
-                <div class="mb-3" id="ts-pfr-end-date-container" style="display: none;">
-                    <label for="ts-pfr-end-date" class="form-label form-label-sm">End Date:</label>
-                    <input type="date" id="ts-pfr-end-date" class="form-control form-control-sm">
+                <!-- Period Selector and Date Pickers Row -->
+                <div class="row mb-2">
+                    <div class="col-12 mb-2">
+                        <label for="ts-pfr-period-selector" class="form-label">Period:</label>
+                        <select id="ts-pfr-period-selector" class="form-select form-select-sm">
+                            <option value="custom">Custom Range</option>
+                            <option value="1d">1 Day</option>
+                            <option value="5d">5 Days</option>
+                            <option value="1mo">1 Month</option>
+                            <option value="3mo">3 Months</option>
+                            <option value="6mo">6 Months</option>
+                            <option value="1y">1 Year</option>
+                            <option value="2y">2 Years</option>
+                            <option value="5y">5 Years</option>
+                            <option value="10y">10 Years</option>
+                            <option value="ytd" selected>Year to Date</option>
+                            <option value="max">Max Available</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="row mb-2">
+                    <div class="col-12" id="ts-pfr-start-date-container" style="display: none;">
+                        <label for="ts-pfr-start-date" class="form-label form-label-sm">Start Date:</label>
+                        <input type="date" id="ts-pfr-start-date" class="form-control form-control-sm">
+                    </div>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-12" id="ts-pfr-end-date-container" style="display: none;">
+                        <label for="ts-pfr-end-date" class="form-label form-label-sm">End Date:</label>
+                        <input type="date" id="ts-pfr-end-date" class="form-control form-control-sm">
+                    </div>
                 </div>
                 
                 <div class="mt-4">
