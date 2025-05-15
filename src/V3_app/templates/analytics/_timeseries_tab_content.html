@@ -13,6 +13,7 @@
                 <option value="pair_relative_price">Pair Relative Price</option>
                 <option value="fundamentals_history">Fundamentals History</option>
                 <option value="price_fundamental_comparison">Price-Fundamental Comparison</option>
+                <option value="price_fundamental_ratios">Price-Fundamental Ratios</option>
                 <!-- Add other studies here later -->
             </select>
         </div>
@@ -398,6 +399,75 @@
                  <div id="ts-pfc-status" class="mt-2 small text-muted"></div> {# Status message area #}
             </div>
             <!-- END Config Pane: Price-Fundamental Comparison -->
+
+            <!-- NEW Config Pane: Price-Fundamental Ratios -->
+            <div class="study-config-pane p-3 border rounded bg-body-tertiary mt-3" id="config-pane-price_fundamental_ratios" style="display: none;">
+                <h5>Price-Fundamental Ratios</h5>
+                <p class="small text-muted">Calculate and plot ratios of price to selected fundamental metrics over time.</p>
+                
+                <div class="mb-3">
+                    <label for="ts-pfr-ticker-select" class="form-label form-label-sm">Select Tickers (One or More):</label>
+                    <select id="ts-pfr-ticker-select" class="form-select form-select-sm" multiple>
+                        <!-- Populated by JS from loaded analytics data -->
+                    </select>
+                     <div class="form-text form-text-sm">Hold Ctrl/Cmd to select multiple.</div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="ts-pfr-field-select" class="form-label">Fundamental Fields:</label>
+                    <select id="ts-pfr-field-select" class="form-select form-select-sm" multiple>
+                        <!-- Options will be populated by JS -->
+                    </select>
+                </div>
+
+                <!-- NEW: Display Mode Selector -->
+                <div class="col-md-3">
+                    <label for="ts-pfr-display-mode-select" class="form-label">Display As:</label>
+                    <select id="ts-pfr-display-mode-select" class="form-select form-select-sm">
+                        <option value="raw" selected>Raw Values</option>
+                        <option value="percent_change">Pct. Change (Baseline)</option>
+                    </select>
+                </div>
+                <div class="col-md-2"> <!-- Was col-md-3, adjusted to make space -->
+                    <label for="ts-pfr-period-selector" class="form-label">Period:</label>
+                    <select id="ts-pfr-period-selector" class="form-select form-select-sm">
+                        <option value="custom">Custom Range</option>
+                        <option value="1d">1 Day</option>
+                        <option value="5d">5 Days</option>
+                        <option value="1mo">1 Month</option>
+                        <option value="3mo">3 Months</option>
+                        <option value="6mo">6 Months</option>
+                        <option value="1y">1 Year</option>
+                        <option value="2y">2 Years</option>
+                        <option value="5y">5 Years</option>
+                        <option value="10y">10 Years</option>
+                        <option value="ytd" selected>Year to Date</option> {# Default YTD #}
+                        <option value="max">Max Available</option>
+                    </select>
+                </div>
+
+                <!-- Start Date (visible if period is custom) -->
+                <div class="mb-3" id="ts-pfr-start-date-container" style="display: none;">
+                    <label for="ts-pfr-start-date" class="form-label form-label-sm">Start Date:</label>
+                    <input type="date" id="ts-pfr-start-date" class="form-control form-control-sm">
+                </div>
+
+                <!-- End Date (visible if period is custom) -->
+                <div class="mb-3" id="ts-pfr-end-date-container" style="display: none;">
+                    <label for="ts-pfr-end-date" class="form-label form-label-sm">End Date:</label>
+                    <input type="date" id="ts-pfr-end-date" class="form-control form-control-sm">
+                </div>
+                
+                <div class="mt-4">
+                    <button id="ts-pfr-run-study-btn" class="btn btn-info btn-sm w-100">
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span>
+                        <span class="button-text">Calculate Ratios</span>
+                    </button>
+                </div>
+
+                 <div id="ts-pfr-status" class="mt-2 small text-muted"></div> {# Status message area #}
+            </div>
+            <!-- END Config Pane: Price-Fundamental Ratios -->
 
             <!-- Add other study configuration panes here, e.g.,
             <div id="config-pane-another_study" class="study-config-pane" style="display: none;">

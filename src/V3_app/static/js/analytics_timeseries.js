@@ -53,7 +53,36 @@ document.addEventListener('DOMContentLoaded', function() {
                 try { 
                     if (appChartType === 'performance_comparison_line') {
                         valueToFormat = rawLastDataPoint.y;
-                        textToDisplay = typeof valueToFormat === 'number' && isFinite(valueToFormat) ? valueToFormat.toFixed(2) + '%' : '';
+                        textToDisplay = 'N/A';
+
+                        const isPercentChange = chart.data.datasets[i].appDataType === 'percent_change';
+                        const isRawOrDefault = chart.data.datasets[i].appDataType === 'raw' || typeof chart.data.datasets[i].appDataType === 'undefined';
+
+                        if (valueToFormat !== null && typeof valueToFormat !== 'undefined') {
+                            if (typeof valueToFormat === 'number') {
+                                let decimals = 2;
+                                const isRawAndSmall = isRawOrDefault &&
+                                                      Math.abs(valueToFormat) > 0 && 
+                                                      Math.abs(valueToFormat) < 0.01;
+
+                                if (isRawAndSmall) {
+                                     decimals = Math.max(2, -Math.floor(Math.log10(Math.abs(valueToFormat))) + 1); 
+                                }
+                                
+                                textToDisplay = valueToFormat.toFixed(decimals);
+
+                                if (isPercentChange) {
+                                    textToDisplay += '%';
+                                }
+                            } else {
+                                textToDisplay = String(valueToFormat); 
+                                if (isPercentChange) {
+                                    textToDisplay += '%';
+                                }
+                            }
+                        } else {
+                            textToDisplay = 'N/A';
+                        }
                     } else if (appChartType === 'pair_relative_price_line') {
                         valueToFormat = rawLastDataPoint.y;
                         textToDisplay = typeof valueToFormat === 'number' && isFinite(valueToFormat) ? valueToFormat.toFixed(4) : '';
@@ -234,6 +263,16 @@ document.addEventListener('DOMContentLoaded', function() {
     const prpIntervalSelect = document.getElementById('ts-prp-interval');
     const prpRunButton = document.getElementById('ts-prp-run-study-btn');
 
+    // --- NEW: DOM Elements for Price-Fundamental Ratios (PFR) ---
+    const pfrTickerSelect = document.getElementById('ts-pfr-ticker-select');
+    const pfrFieldSelect = document.getElementById('ts-pfr-field-select'); // Will be handled in fund.js
+    const pfrPeriodSelector = document.getElementById('ts-pfr-period-selector');
+    const pfrStartDateInput = document.getElementById('ts-pfr-start-date');
+    const pfrEndDateInput = document.getElementById('ts-pfr-end-date');
+    const pfrStartDateContainer = document.getElementById('ts-pfr-start-date-container');
+    const pfrEndDateContainer = document.getElementById('ts-pfr-end-date-container');
+    const pfrRunButton = document.getElementById('ts-pfr-run-study-btn'); // Will be handled in fund.js
+
     // --- Initialization ---
     function initializeTimeseriesModule() {
         console.log(LOG_PREFIX, "Initializing base UI and event listeners (pre-data)...");
@@ -343,6 +382,13 @@ document.addEventListener('DOMContentLoaded', function() {
                             window.TimeseriesFundamentalsModule.initializePriceFundamentalComparisonControls();
                         } else {
                             console.warn(LOG_PREFIX, "TimeseriesFundamentalsModule or initializePriceFundamentalComparisonControls not found.");
+                        }
+                    } else if (selectedStudy === 'price_fundamental_ratios') { // NEW: Price-Fundamental Ratios
+                        if (typeof window.TimeseriesFundamentalsModule !== 'undefined' &&
+                            typeof window.TimeseriesFundamentalsModule.initializePriceFundamentalRatiosControls === 'function') {
+                            window.TimeseriesFundamentalsModule.initializePriceFundamentalRatiosControls();
+                        } else {
+                            console.warn(LOG_PREFIX, "TimeseriesFundamentalsModule or initializePriceFundamentalRatiosControls not found.");
                         }
                     }
                 }
@@ -481,6 +527,23 @@ document.addEventListener('DOMContentLoaded', function() {
                     showPlaceholderWithMessage("Error: Fundamentals History study logic is not available.");
                 }
             });
+        }
+
+        // --- NEW: Event Listener for Price-Fundamental Ratios (PFR) Period Selector ---
+        if (pfrPeriodSelector) {
+            pfrPeriodSelector.addEventListener('change', function() {
+                const isCustom = this.value === 'custom';
+                if (pfrStartDateContainer) pfrStartDateContainer.style.display = isCustom ? 'block' : 'none';
+                if (pfrEndDateContainer) pfrEndDateContainer.style.display = isCustom ? 'block' : 'none';
+            });
+            // Initial setup for PFR date fields (will also be handled by handleStudySelectionChange)
+            if (pfrStartDateContainer && pfrEndDateContainer) {
+                const initialIsCustomPfrPeriod = pfrPeriodSelector.value === 'custom';
+                pfrStartDateContainer.style.display = initialIsCustomPfrPeriod ? 'block' : 'none';
+                pfrEndDateContainer.style.display = initialIsCustomPfrPeriod ? 'block' : 'none';
+            }
+        } else {
+            console.warn(LOG_PREFIX, "Period selector (ts-pfr-period-selector) for PFR not found.");
         }
 
         console.log(LOG_PREFIX, "Event listeners setup complete.");
@@ -1087,6 +1150,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     prpStartDateContainer.style.display = isCustom ? 'block' : 'none';
                     prpEndDateContainer.style.display = isCustom ? 'block' : 'none';
                 }
+            } else if (selectedStudy === 'price_fundamental_ratios') { // NEW: Handle PFR pane
+                 if (pfrPeriodSelector && pfrStartDateContainer && pfrEndDateContainer) {
+                    const isCustom = pfrPeriodSelector.value === 'custom';
+                    pfrStartDateContainer.style.display = isCustom ? 'block' : 'none';
+                    pfrEndDateContainer.style.display = isCustom ? 'block' : 'none';
+                }
             }
         } else {
             console.warn(LOG_PREFIX, `Config pane for study '${selectedStudy}' (ID: ${selectedPaneId}) not found.`);
@@ -1331,6 +1400,45 @@ document.addEventListener('DOMContentLoaded', function() {
                 pfcTickerSelect.appendChild(noTickerOption);
             }
             console.log(LOG_PREFIX, "populateLoadedTickerSelect - Populated PFC select with tickers:", sortedTickers);
+        }
+
+        // NEW: Populate Price-Fundamental Ratios multi-select for tickers
+        if (pfrTickerSelect) {
+            pfrTickerSelect.innerHTML = ''; // Clear existing options
+            if (sortedTickers.length > 0) {
+                // No placeholder like "Select Ticker..." for multi-select, users just select
+                sortedTickers.forEach(ticker => {
+                    const option = document.createElement('option');
+                    option.value = ticker;
+                    option.textContent = ticker;
+                    pfrTickerSelect.appendChild(option);
+                });
+            } else {
+                const noTickerOption = document.createElement('option');
+                noTickerOption.value = "";
+                noTickerOption.textContent = "No tickers in loaded data";
+                noTickerOption.disabled = true; // Disable if no tickers
+                pfrTickerSelect.appendChild(noTickerOption);
+            }
+            console.log(LOG_PREFIX, "populateLoadedTickerSelect - Populated PFR multi-select with tickers:", sortedTickers);
+             // Initialize Bootstrap Multiselect if available for PFR tickers
+            if (typeof $(pfrTickerSelect).multiselect === 'function') {
+                if (!$(pfrTickerSelect).data('multiselect')) {
+                    $(pfrTickerSelect).multiselect({
+                        buttonWidth: '100%',
+                        enableFiltering: true,
+                        enableCaseInsensitiveFiltering: true,
+                        maxHeight: 200,
+                        includeSelectAllOption: true,
+                        nonSelectedText: 'Select Ticker(s)',
+                        numberDisplayed: 1,
+                        nSelectedText: ' tickers selected',
+                        allSelectedText: 'All tickers selected'
+                    });
+                } else {
+                    $(pfrTickerSelect).multiselect('rebuild'); // Rebuild if already initialized
+                }
+            }
         }
     }
 
@@ -1790,7 +1898,64 @@ document.addEventListener('DOMContentLoaded', function() {
                         position: 'top',
                         display: datasets.length <= 15 // Hide legend if too many datasets
                     },
-                    tooltip: { mode: 'index', intersect: false },
+                    tooltip: {
+                        mode: 'index', 
+                        intersect: false,
+                        callbacks: {
+                            title: function(tooltipItems) {
+                                // Assuming the first item's label is representative for the x-axis value (date)
+                                if (tooltipItems.length > 0) {
+                                    const item = tooltipItems[0];
+                                    // Ensure item.parsed.x exists and is a number (timestamp)
+                                    if (item.parsed && typeof item.parsed.x === 'number') {
+                                        const date = new Date(item.parsed.x);
+                                        // Format date as desired, e.g., "MMM d, yyyy"
+                                        // Using a simple format here, can be expanded with date-fns if needed
+                                        return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+                                    }
+                                    return item.label; // Fallback to default label if x is not a parsable timestamp
+                                }
+                                return '';
+                            },
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed.y !== null) {
+                                    if (Array.isArray(context.raw) && context.raw.length === 2) {
+                                        // For floating bars or similar data where raw is [start, end]
+                                        label += `${context.raw[0]} - ${context.raw[1]}`;
+                                    } else if (typeof context.parsed.y === 'number') {
+                                        let decimals = 2;
+                                        const isPercentChange = context.dataset.appDataType === 'percent_change';
+                                        const isRawOrDefault = context.dataset.appDataType === 'raw' || typeof context.dataset.appDataType === 'undefined';
+
+                                        const isRawAndSmall = isRawOrDefault && 
+                                                              Math.abs(context.parsed.y) > 0 && 
+                                                              Math.abs(context.parsed.y) < 0.01;
+                                        if (isRawAndSmall) {
+                                            // Ensure at least 2 significant figures after decimal for small raw numbers
+                                            decimals = Math.max(2, -Math.floor(Math.log10(Math.abs(context.parsed.y))) + 1); 
+                                        }
+                                        label += context.parsed.y.toFixed(decimals);
+                                        if (isPercentChange) {
+                                            label += '%';
+                                        }
+                                    } else {
+                                        // Fallback for non-numeric y or unexpected type
+                                        label += context.parsed.y; 
+                                        if (context.dataset.appDataType === 'percent_change') {
+                                            label += '%'; // Still attempt to add % if type is percent_change
+                                        }
+                                    }
+                                } else {
+                                    label += 'N/A';
+                                }
+                                return label;
+                            }
+                        }
+                    },
                     zoom: {
                         pan: { enabled: true, mode: 'xy', threshold: 5 },
                         zoom: {
