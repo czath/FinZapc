@@ -1,5 +1,5 @@
 # src/V3_app/yahoo_data_query_srv.py
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Union, Tuple
 import json
 
@@ -365,8 +365,14 @@ class YahooDataQueryService:
                 # Get conversion info for the current ticker_symbol once
                 conversion_info = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache)
                 rate_to_apply = None
+                original_fin_curr_for_log = None
+                target_trade_curr_for_log = None
+
                 if conversion_info:
-                    _, _, rate_to_apply = conversion_info # trade_curr, fin_curr, rate
+                    target_trade_curr_for_log, original_fin_curr_for_log, rate_to_apply = conversion_info
+                    logger.info(f"Conversion info for {ticker_symbol}: Rate {rate_to_apply} from {original_fin_curr_for_log} to {target_trade_curr_for_log} for INCOME_STATEMENT items.")
+                else:
+                    logger.info(f"No currency conversion needed or possible for {ticker_symbol} for INCOME_STATEMENT items.")
 
                 for item in data_items:
                     payload_data = item.get('item_data_payload') # This is already a dict if ORM/repo handles JSON loading
@@ -437,7 +443,7 @@ class YahooDataQueryService:
                         current_ticker_series.append({'date': item_key_date_iso_str, 'value': value})
                         # logger.debug(f"Found key '{payload_key_for_json}' in dict payload for {ticker_symbol} on {item_key_date_iso_str} with value: {value}") # Redundant if conversion log is active
                     else:
-                        logger.debug(f"Key '{payload_key_for_json}' not found in payload for {ticker_symbol} on {item_key_date_iso_str}. Payload keys: {list(payload_data.keys())}")
+                        logger.warning(f"Key '{payload_key_for_json}' not found or value is None in payload for {ticker_symbol} on {item_key_date_iso_str}. Payload keys: {list(payload_data.keys()) if isinstance(payload_data, dict) else 'Payload not a dict'}")
                                 
             except Exception as e:
                 logger.error(f"Error processing data for ticker {ticker_symbol}, field {field_identifier}: {e}", exc_info=True)
@@ -445,6 +451,192 @@ class YahooDataQueryService:
             results_by_ticker[ticker_symbol] = current_ticker_series
             logger.info(f"Collected {len(current_ticker_series)} data points for {ticker_symbol} and field {field_identifier} (parsed as type='{db_item_type}', coverage='{db_item_coverage}', key='{payload_key_for_json}').")
 
+        return results_by_ticker
+
+    async def calculate_synthetic_fundamental_timeseries(
+        self,
+        fundamental_name: str,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        logger.info(f"[QuerySrv.calculate_synthetic_fundamental_timeseries] Request for {fundamental_name}, Tickers: {tickers}, Start: {start_date_str}, End: {end_date_str}")
+        results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+
+        if fundamental_name.upper() != "EPS_TTM":
+            logger.warning(f"Synthetic fundamental '{fundamental_name}' is not supported.")
+            return results_by_ticker
+
+        # Determine user-requested date range (or default to YTD)
+        today = datetime.today()
+        user_end_date_obj: datetime
+        if end_date_str:
+            try:
+                user_end_date_obj = datetime.strptime(end_date_str, "%Y-%m-%d")
+            except ValueError:
+                logger.warning(f"Invalid end_date_str format '{end_date_str}'. Defaulting to today.")
+                user_end_date_obj = today
+        else:
+            user_end_date_obj = today
+        
+        user_start_date_obj: datetime
+        if start_date_str:
+            try:
+                user_start_date_obj = datetime.strptime(start_date_str, "%Y-%m-%d")
+            except ValueError:
+                logger.warning(f"Invalid start_date_str format '{start_date_str}'. Defaulting to start of current year.")
+                user_start_date_obj = today.replace(month=1, day=1)
+        else:
+            user_start_date_obj = today.replace(month=1, day=1)
+
+        user_end_date_str_for_query = user_end_date_obj.strftime("%Y-%m-%d")
+
+        # Determine extended lookback for fetching underlying quarterly data
+        fundamental_query_start_date_obj = user_start_date_obj - timedelta(days=(365 * 1 + 30 * 9)) # Approx 1 year and 9 months
+        fundamental_query_start_date_str = fundamental_query_start_date_obj.strftime("%Y-%m-%d")
+
+        logger.debug(f"User date range for TTM EPS: {user_start_date_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}")
+        logger.debug(f"Fundamental quarterly data query range: {fundamental_query_start_date_str} to {user_end_date_str_for_query}")
+
+        # Target keys directly from observed payload
+        target_net_income_key = "Diluted NI Availto Com Stockholders"
+        target_shares_key = "Diluted Average Shares"
+        
+        ticker_profiles_cache: Dict[str, Dict[str, Any]] = {} # For currency conversion if needed by get_data_items_by_criteria
+
+        for ticker_symbol in tickers:
+            try:
+                logger.debug(f"Processing ticker: {ticker_symbol} for EPS_TTM")
+                
+                # Fetch all quarterly income statements for the extended period
+                # get_data_items_by_criteria will handle currency conversion for the whole payload if item_type is convertible
+                quarterly_income_statements = await self.db_repo.get_data_items_by_criteria(
+                    ticker=ticker_symbol,
+                    item_type="INCOME_STATEMENT", # Direct DB item_type
+                    item_time_coverage="QUARTER",   # Direct DB item_time_coverage
+                    start_date=fundamental_query_start_date_obj, # Pass datetime objects
+                    end_date=user_end_date_obj,                 # Pass datetime objects
+                    order_by_key_date_desc=False # Ascending for processing
+                )
+
+                if not quarterly_income_statements:
+                    logger.warning(f"No quarterly income statements found for {ticker_symbol} in the extended date range. Cannot calculate EPS_TTM.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+                
+                logger.debug(f"Found {len(quarterly_income_statements)} quarterly income statement records for {ticker_symbol}.")
+
+                quarterly_eps_points: List[Dict[str, Any]] = []
+
+                # Get conversion info for the current ticker_symbol once
+                conversion_info = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache)
+                rate_to_apply = None
+                original_fin_curr_for_log = None
+                target_trade_curr_for_log = None
+
+                if conversion_info:
+                    target_trade_curr_for_log, original_fin_curr_for_log, rate_to_apply = conversion_info
+                    logger.info(f"Conversion info for {ticker_symbol}: Rate {rate_to_apply} from {original_fin_curr_for_log} to {target_trade_curr_for_log} for INCOME_STATEMENT items.")
+                else:
+                    logger.info(f"No currency conversion needed or possible for {ticker_symbol} for INCOME_STATEMENT items.")
+
+                for q_statement_item in quarterly_income_statements:
+                    payload = q_statement_item.get('item_data_payload')
+                    key_date_from_db = q_statement_item.get('item_key_date')
+
+                    if not isinstance(payload, dict) or not key_date_from_db:
+                        logger.warning(f"Skipping item for {ticker_symbol} due to missing/invalid payload or key_date. Item ID: {q_statement_item.get('id')}")
+                        continue
+                    
+                    # Apply currency conversion to the payload if needed
+                    current_payload = payload # Start with the original payload
+                    if rate_to_apply and original_fin_curr_for_log and target_trade_curr_for_log:
+                        # _apply_currency_conversion_to_payload expects item_type to decide if conversion is applicable
+                        # and to avoid converting fields like 'shares' based on keywords.
+                        current_payload = await self._apply_currency_conversion_to_payload(
+                            payload, # original payload from DB
+                            rate_to_apply, 
+                            original_fin_curr_for_log, 
+                            target_trade_curr_for_log, 
+                            "INCOME_STATEMENT" # Explicitly pass item_type
+                        )
+                        # logger.debug(f"Payload for {ticker_symbol} on {key_date_from_db} after conversion attempt: {list(current_payload.keys())[:5]}")
+                    
+                    q_date_obj: Optional[datetime] = None
+                    if isinstance(key_date_from_db, str):
+                        try: q_date_obj = datetime.strptime(key_date_from_db, "%Y-%m-%dT%H:%M:%S.%f")
+                        except ValueError: 
+                            try: q_date_obj = datetime.strptime(key_date_from_db, "%Y-%m-%dT%H:%M:%S")
+                            except ValueError: 
+                                try: q_date_obj = datetime.strptime(key_date_from_db, "%Y-%m-%d %H:%M:%S.%f")
+                                except ValueError: 
+                                    try: q_date_obj = datetime.strptime(key_date_from_db, "%Y-%m-%d %H:%M:%S")
+                                    except ValueError: 
+                                        try: q_date_obj = datetime.strptime(key_date_from_db, "%Y-%m-%d") # Date only
+                                        except ValueError: pass # q_date_obj remains None
+                    elif isinstance(key_date_from_db, datetime):
+                        q_date_obj = key_date_from_db
+                    
+                    if not q_date_obj:
+                        logger.warning(f"Could not parse date string '{key_date_from_db}' for item_id={q_statement_item.get('id')}. Skipping EPS calculation for this point.")
+                        continue
+
+                    ni_value = current_payload.get(target_net_income_key) # Use current_payload (potentially converted)
+                    shares_value = current_payload.get(target_shares_key) # Use current_payload (shares fields are not converted by design)
+                    
+                    logger.debug(f"For {ticker_symbol} on {q_date_obj.strftime('%Y-%m-%d')}: NI Avail Com '{target_net_income_key}': {ni_value}, Shares '{target_shares_key}': {shares_value}. From payload (first 5 keys): {list(current_payload.keys())[:5] if isinstance(current_payload, dict) else 'N/A'}")
+
+                    if ni_value is not None and shares_value is not None and shares_value != 0:
+                        try:
+                            q_eps = float(ni_value) / float(shares_value)
+                            quarterly_eps_points.append({'date_obj': q_date_obj, 'q_eps': q_eps})
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Could not calculate quarterly EPS for {ticker_symbol} on {q_date_obj.strftime('%Y-%m-%d')}. NI: {ni_value}, Shares: {shares_value}. Error: {e}")
+                    elif ni_value is None:
+                        logger.debug(f"Net income ('{target_net_income_key}') is None for {ticker_symbol} on {q_date_obj.strftime('%Y-%m-%d')}. Keys: {list(current_payload.keys())}")
+                    elif shares_value is None:
+                        logger.debug(f"Shares ('{target_shares_key}') is None for {ticker_symbol} on {q_date_obj.strftime('%Y-%m-%d')}. Keys: {list(current_payload.keys())}")
+                    elif shares_value == 0:
+                         logger.warning(f"Shares outstanding ('{target_shares_key}') is zero for {ticker_symbol} on {q_date_obj.strftime('%Y-%m-%d')}, cannot calculate quarterly EPS.")
+                
+                if not quarterly_eps_points:
+                    logger.warning(f"No valid quarterly EPS points calculated for {ticker_symbol} after processing {len(quarterly_income_statements)} records.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+                
+                quarterly_eps_points.sort(key=lambda x: x['date_obj'])
+                # logger.debug(f"Sorted quarterly EPS points for {ticker_symbol}: {quarterly_eps_points}")
+
+                ttm_eps_series_for_ticker: List[Dict[str, Any]] = []
+                current_iter_date = user_start_date_obj
+                
+                while current_iter_date <= user_end_date_obj:
+                    relevant_q_eps = [
+                        p for p in quarterly_eps_points if p['date_obj'] <= current_iter_date
+                    ]
+                    
+                    ttm_eps_value: Optional[float] = None
+                    if len(relevant_q_eps) >= 4:
+                        # Take the four most recent quarterly EPS values
+                        last_four_q_eps = sorted(relevant_q_eps, key=lambda x: x['date_obj'], reverse=True)[:4]
+                        if len(last_four_q_eps) == 4 : # Ensure we actually got 4
+                            ttm_eps_value = sum(p['q_eps'] for p in last_four_q_eps)
+                        else: # Should not happen if relevant_q_eps >= 4 and sorting is correct
+                            logger.debug(f"Logic error: Expected 4 Q_EPS for TTM sum, got {len(last_four_q_eps)} for {ticker_symbol} on {current_iter_date.strftime('%Y-%m-%d')}")
+                    
+                    ttm_eps_series_for_ticker.append({
+                        'date': current_iter_date.strftime("%Y-%m-%d"),
+                        'value': ttm_eps_value
+                    })
+                    current_iter_date += timedelta(days=1)
+                
+                results_by_ticker[ticker_symbol] = ttm_eps_series_for_ticker
+                logger.info(f"Successfully calculated {len(ttm_eps_series_for_ticker)} TTM EPS data points for {ticker_symbol}.")
+
+            except Exception as e:
+                logger.error(f"Error calculating synthetic EPS_TTM for {ticker_symbol}: {e}", exc_info=True)
+                results_by_ticker[ticker_symbol] = []
+        
         return results_by_ticker
 
     # You can add more specific wrappers here for other TTM data or single-record items

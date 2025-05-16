@@ -390,6 +390,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         } else {
                             console.warn(LOG_PREFIX, "TimeseriesFundamentalsModule or initializePriceFundamentalRatiosControls not found.");
                         }
+                    } else if (selectedStudy === 'synthetic_fundamentals') { // NEW: Synthetic Fundamentals
+                        if (typeof window.TimeseriesFundamentalsModule !== 'undefined' &&
+                            typeof window.TimeseriesFundamentalsModule.initializeSyntheticFundamentalsControls === 'function') {
+                            window.TimeseriesFundamentalsModule.initializeSyntheticFundamentalsControls();
+                        } else {
+                            console.warn(LOG_PREFIX, "TimeseriesFundamentalsModule or initializeSyntheticFundamentalsControls not found.");
+                        }
                     }
                 }
                 // Always show placeholder if no study implies direct chart rendering
@@ -1156,6 +1163,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     pfrStartDateContainer.style.display = isCustom ? 'block' : 'none';
                     pfrEndDateContainer.style.display = isCustom ? 'block' : 'none';
                 }
+            } else if (selectedStudy === 'synthetic_fundamentals') { // NEW: Handle SF pane date visibility
+                // For Synthetic Fundamentals, date pickers are always visible as they are optional (default to YTD)
+                // No specific period selector that hides/shows them, but ensure they are visible if the pane is active.
+                const sfStartDateContainer = document.getElementById('ts-sf-start-date'); // Assuming the input itself is the container for visibility purposes
+                const sfEndDateContainer = document.getElementById('ts-sf-end-date');
+                // These are direct input elements, not containers like others. Their visibility is part of the pane.
+                // No explicit show/hide needed here beyond the pane itself becoming visible.
             }
         } else {
             console.warn(LOG_PREFIX, `Config pane for study '${selectedStudy}' (ID: ${selectedPaneId}) not found.`);

@@ -14,6 +14,7 @@
                 <option value="fundamentals_history">Fundamentals History</option>
                 <option value="price_fundamental_comparison">Price-Fundamental Comparison</option>
                 <option value="price_fundamental_ratios">Price-Fundamental Ratios</option>
+                <option value="synthetic_fundamentals">Synthetic Fundamentals</option>
                 <!-- Add other studies here later -->
             </select>
         </div>
@@ -491,6 +492,51 @@
                  <div id="ts-pfr-status" class="mt-2 small text-muted"></div> {# Status message area #}
             </div>
             <!-- END Config Pane: Price-Fundamental Ratios -->
+
+            <!-- NEW Config Pane: Synthetic Fundamentals -->
+            <div class="study-config-pane p-3 border rounded bg-body-tertiary mt-3" id="config-pane-synthetic_fundamentals" style="display: none;">
+                <h5>Synthetic Fundamentals</h5>
+                <p class="small text-muted">Calculate and plot custom fundamental metrics and their components.</p>
+                
+                <div class="mb-3">
+                    <label for="ts-sf-ticker-select" class="form-label form-label-sm">Ticker(s):</label>
+                    <select id="ts-sf-ticker-select" class="form-select form-select-sm" multiple size="5">
+                        <!-- Options populated by JS from loaded analytics data -->
+                        <option value="">Loading tickers...</option>
+                    </select>
+                    <div class="form-text form-text-sm">Hold Ctrl/Cmd to select multiple.</div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="ts-sf-ratio-select" class="form-label form-label-sm">Select Metric / Ratio:</label>
+                    <select id="ts-sf-ratio-select" class="form-select form-select-sm">
+                        <option value="EPS_TTM" selected>Diluted EPS (TTM)</option>
+                        <!-- More options will be added here via JS later -->
+                    </select>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="ts-sf-start-date" class="form-label form-label-sm">Start Date (Optional):</label>
+                    <input type="date" id="ts-sf-start-date" class="form-control form-control-sm">
+                    <div class="form-text form-text-sm">Default: Year-to-Date if blank.</div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="ts-sf-end-date" class="form-label form-label-sm">End Date (Optional):</label>
+                    <input type="date" id="ts-sf-end-date" class="form-control form-control-sm">
+                    <div class="form-text form-text-sm">Default: Today if blank.</div>
+                </div>
+                
+                <div class="mt-4">
+                    <button id="ts-sf-run-study-btn" class="btn btn-purple btn-sm w-100"> {# Changed color for distinction #}
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span>
+                        <span class="button-text">Run Calculation</span>
+                    </button>
+                </div>
+
+                 <div id="ts-sf-status" class="mt-2 small text-muted"></div> {# Status message area #}
+            </div>
+            <!-- END Config Pane: Synthetic Fundamentals -->
 
             <!-- Add other study configuration panes here, e.g.,
             <div id="config-pane-another_study" class="study-config-pane" style="display: none;">

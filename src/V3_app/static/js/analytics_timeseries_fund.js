@@ -28,6 +28,14 @@
     let pfrDisplayModeSelect = null; // NEW: For Display Mode dropdown
     let pfrTtmToggle = null; // NEW: Declare variable for TTM Toggle
 
+    // NEW: DOM Elements for Synthetic Fundamentals (SF)
+    let sfTickerSelect = null;
+    let sfRatioSelect = null;
+    let sfStartDateInput = null;
+    let sfEndDateInput = null;
+    let sfRunButton = null;
+    let sfStatusLabel = null;
+
     function formatDateToYYYYMMDD(dateObj) {
         const year = dateObj.getFullYear();
         const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
@@ -1183,7 +1191,11 @@
             if (pfrStatusLabel) pfrStatusLabel.innerHTML += `<br><strong class='text-danger'>Runtime Error: ${error.message}</strong>`;
         } finally {
             if (loadingIndicator) loadingIndicator.style.display = 'none';
-            if (pfrRunButton) { pfrRunButton.disabled = false; pfrRunButton.querySelector('.spinner-border').style.display = 'none'; pfrRunButton.querySelector('.button-text').textContent = 'Calculate Ratios'; }
+            if (pfrRunButton) {
+                pfrRunButton.disabled = false;
+                pfrRunButton.querySelector('.spinner-border').style.display = 'none';
+                pfrRunButton.querySelector('.button-text').textContent = 'Calculate Ratios';
+            }
         }
     }
 
@@ -1369,18 +1381,386 @@
     }
     // END NEW: Phase 3.2
 
+    // --- NEW: Functions for Synthetic Fundamentals Study (SF) ---
+    function initializeSyntheticFundamentalsControls() {
+        console.log(LOG_PREFIX, "Initializing Synthetic Fundamentals (SF) study controls...");
+
+        sfTickerSelect = document.getElementById('ts-sf-ticker-select');
+        sfRatioSelect = document.getElementById('ts-sf-ratio-select');
+        sfStartDateInput = document.getElementById('ts-sf-start-date');
+        sfEndDateInput = document.getElementById('ts-sf-end-date');
+        sfRunButton = document.getElementById('ts-sf-run-study-btn');
+        sfStatusLabel = document.getElementById('ts-sf-status');
+
+        if (!sfTickerSelect) console.error(LOG_PREFIX, "SF Ticker select (ts-sf-ticker-select) not found!");
+        if (!sfRatioSelect) console.error(LOG_PREFIX, "SF Ratio select (ts-sf-ratio-select) not found!");
+        if (!sfRunButton) console.error(LOG_PREFIX, "SF Run button (ts-sf-run-study-btn) not found!");
+        // sfStatusLabel is optional to find
+
+        // Populate tickers (will be handled by 'AnalyticsTransformComplete' event)
+        if (isFundDataReady && sfTickerSelect) {
+            populateSfTickerSelect(); 
+        } else if (sfTickerSelect) {
+            console.log(LOG_PREFIX, "SF Tickers pending data readiness signal ('AnalyticsTransformComplete'). Initializing multiselect placeholder.");
+            if (typeof $(sfTickerSelect).multiselect === 'function' && !$(sfTickerSelect).data('multiselect')) {
+                $(sfTickerSelect).multiselect({
+                    buttonWidth: '100%',
+                    nonSelectedText: 'Tickers loading...',
+                    numberDisplayed: 1,
+                    includeSelectAllOption: true,
+                    enableFiltering: true,
+                    enableCaseInsensitiveFiltering: true,
+                    maxHeight: 200
+                });
+            } else if (typeof $(sfTickerSelect).multiselect === 'function' && $(sfTickerSelect).data('multiselect')) {
+                // If already initialized, ensure placeholder is updated if options are not yet there
+                if ($(sfTickerSelect).find('option').length <= 1 || ($(sfTickerSelect).find('option').length === 1 && $(sfTickerSelect).find('option').first().val() === "")) {
+                    $(sfTickerSelect).multiselect('setOptions', { nonSelectedText: 'Tickers loading...' });
+                    $(sfTickerSelect).multiselect('rebuild');
+                }
+            }
+        }
+        
+        // Populate ratio select (statically for now)
+        if (sfRatioSelect) {
+            sfRatioSelect.innerHTML = ''; // Clear existing
+            const epsOption = document.createElement('option');
+            epsOption.value = "EPS_TTM";
+            epsOption.textContent = "Diluted EPS (TTM)";
+            epsOption.selected = true;
+            sfRatioSelect.appendChild(epsOption);
+        } 
+
+        if (sfRunButton) {
+            sfRunButton.addEventListener('click', handleRunSyntheticFundamentals);
+        }
+        console.log(LOG_PREFIX, "SF controls initialization listeners set up.");
+    }
+
+    function populateSfTickerSelect() {
+        console.log(LOG_PREFIX, "Populating Synthetic Fundamentals ticker select (populateSfTickerSelect)...");
+        if (!sfTickerSelect) {
+            console.error(LOG_PREFIX, "SF Ticker select (ts-sf-ticker-select) not found when trying to populate.");
+            return;
+        }
+
+        let analyticsOriginalData = [];
+        if (window.AnalyticsMainModule && typeof window.AnalyticsMainModule.getFinalDataForAnalysis === 'function') {
+            try {
+                const finalDataPackage = window.AnalyticsMainModule.getFinalDataForAnalysis();
+                if (Array.isArray(finalDataPackage)) {
+                    analyticsOriginalData = finalDataPackage;
+                } else if (finalDataPackage && finalDataPackage.originalData && Array.isArray(finalDataPackage.originalData)) {
+                    analyticsOriginalData = finalDataPackage.originalData;
+                }
+            } catch (e) {
+                console.error(LOG_PREFIX, "Error calling getFinalDataForAnalysis for SF tickers:", e);
+            }
+        }
+
+        const uniqueTickers = new Set();
+        if (Array.isArray(analyticsOriginalData)) {
+            analyticsOriginalData.forEach(item => {
+                if (item && item.ticker) {
+                    uniqueTickers.add(item.ticker);
+                }
+            });
+        }
+        const sortedTickers = Array.from(uniqueTickers).sort();
+        
+        const oldVal = $(sfTickerSelect).val(); // Preserve selection if multiselect
+        sfTickerSelect.innerHTML = ''; // Clear existing
+
+        if (sortedTickers.length > 0) {
+            sortedTickers.forEach(ticker => {
+                const option = document.createElement('option');
+                option.value = ticker;
+                option.textContent = ticker;
+                sfTickerSelect.appendChild(option);
+            });
+        } else {
+            const noTickerOption = document.createElement('option');
+            noTickerOption.value = "";
+            noTickerOption.textContent = "No tickers in loaded data";
+            noTickerOption.disabled = true;
+            sfTickerSelect.appendChild(noTickerOption);
+        }
+        console.log(LOG_PREFIX, `Populated tickers for SF: ${sortedTickers.length}`);
+
+        if (typeof $(sfTickerSelect).multiselect === 'function') {
+            if (!$(sfTickerSelect).data('multiselect')) {
+                 $(sfTickerSelect).multiselect({
+                    buttonWidth: '100%',
+                    enableFiltering: true,
+                    enableCaseInsensitiveFiltering: true,
+                    maxHeight: 200,
+                    includeSelectAllOption: true,
+                    nonSelectedText: sortedTickers.length > 0 ? 'Select Ticker(s)' : 'No tickers loaded',
+                    numberDisplayed: 1,
+                    nSelectedText: ' tickers selected',
+                    allSelectedText: 'All tickers selected',
+                });
+            } else {
+                $(sfTickerSelect).multiselect('setOptions', { nonSelectedText: sortedTickers.length > 0 ? 'Select Ticker(s)' : 'No tickers loaded' });
+                $(sfTickerSelect).multiselect('rebuild');
+                // Try to reapply old selection if it was a multiselect
+                if (Array.isArray(oldVal) && oldVal.length > 0) {
+                    $(sfTickerSelect).multiselect('select', oldVal);
+                }
+            }
+        }
+    }
+
+    async function handleRunSyntheticFundamentals() {
+        console.log(LOG_PREFIX, "Run Synthetic Fundamentals clicked.");
+
+        if (!sfTickerSelect || !sfRatioSelect || !sfRunButton) {
+            alert("Error: Essential UI elements for Synthetic Fundamentals are missing.");
+            console.error(LOG_PREFIX, "Missing SF UI elements.");
+            return;
+        }
+
+        const selectedTickers = $(sfTickerSelect).val() || [];
+        const selectedRatio = sfRatioSelect.value;
+        let startDate = sfStartDateInput ? sfStartDateInput.value : null;
+        let endDate = sfEndDateInput ? sfEndDateInput.value : null;
+
+        if (selectedTickers.length === 0) {
+            alert("Please select at least one ticker."); return;
+        }
+        if (!selectedRatio) {
+            alert("Please select a metric/ratio."); return;
+        }
+
+        if (!startDate && !endDate) {
+            const today = new Date();
+            endDate = formatDateToYYYYMMDD(today); 
+            const ytdStart = new Date(today.getFullYear(), 0, 1);
+            startDate = formatDateToYYYYMMDD(ytdStart); 
+            console.log(LOG_PREFIX, `SF: No dates provided, defaulting to YTD: ${startDate} to ${endDate}`);
+        } else if (startDate && endDate && new Date(startDate) >= new Date(endDate)) {
+            alert("Start Date must be strictly before End Date."); return;
+        } else if ((startDate && !endDate) || (!startDate && endDate)) {
+            alert("Please provide both Start and End dates, or leave both blank for YTD."); return;
+        }
+
+        if (sfStatusLabel) sfStatusLabel.textContent = 'Fetching & calculating data...';
+        let sfRunButtonText, sfRunButtonSpinner;
+        if (sfRunButton) {
+            sfRunButton.disabled = true;
+            sfRunButtonText = sfRunButton.querySelector('.button-text');
+            sfRunButtonSpinner = sfRunButton.querySelector('.spinner-border');
+            if (sfRunButtonText) sfRunButtonText.textContent = 'Loading...';
+            if (sfRunButtonSpinner) sfRunButtonSpinner.style.display = 'inline-block';
+        }
+        const generalLoadingIndicator = document.getElementById('timeseries-loading-indicator'); 
+        if (generalLoadingIndicator) generalLoadingIndicator.style.display = 'flex';
+
+        const requestPayload = {
+            tickers: selectedTickers,
+            start_date: startDate, 
+            end_date: endDate,     
+        };
+        console.log(LOG_PREFIX, "SF Request Payload for", selectedRatio, JSON.stringify(requestPayload, null, 2));
+
+        try {
+            const response = await fetch(`/api/v3/timeseries/synthetic_fundamental/${selectedRatio}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': document.getElementById('csrf_token')?.value || ''
+                },
+                body: JSON.stringify(requestPayload)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ detail: "Unknown error during synthetic fundamental fetch." }));
+                console.error(LOG_PREFIX, "SF API Error:", response.status, errorData);
+                throw new Error(errorData.detail || `HTTP error ${response.status}`);
+            }
+
+            const apiData = await response.json(); 
+            console.log(LOG_PREFIX, "SF API Response Data:", apiData);
+
+            if (Object.keys(apiData).length === 0) {
+                 showPlaceholderWithMessage(`No data returned for Synthetic Fundamental: ${selectedRatio}.`);
+                 if (sfStatusLabel) sfStatusLabel.textContent = `No data for ${selectedRatio}.`;
+                 return;
+            }
+            
+            const datasets = [];
+            const lineColors = [
+                'rgb(75, 192, 192)', 'rgb(255, 99, 132)', 'rgb(54, 162, 235)',
+                'rgb(255, 206, 86)', 'rgb(153, 102, 255)', 'rgb(255, 159, 64)',
+                '#28a745', '#ffc107', '#dc3545', '#17a2b8', '#6f42c1', '#fd7e14'
+            ];
+            let colorIndex = 0;
+
+            selectedTickers.forEach(ticker => {
+                if (apiData[ticker] && apiData[ticker].length > 0) {
+                    const timeseriesForTicker = apiData[ticker];
+                    const dataPoints = timeseriesForTicker.map(point => ({
+                        x: new Date(point.date).valueOf(), 
+                        y: point.value !== null ? (typeof point.value === 'string' ? parseFloat(point.value) : point.value) : null
+                    }));
+
+                    datasets.push({
+                        label: `${ticker} - ${selectedRatio.replace(/_/g, ' ')}`,
+                        data: dataPoints,
+                        borderColor: lineColors[colorIndex % lineColors.length],
+                        backgroundColor: lineColors[colorIndex % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.1)'),
+                        borderWidth: 1.5,
+                        fill: false,
+                        pointRadius: 1,
+                        tension: 0.1,
+                        spanGaps: true 
+                    });
+                    colorIndex++;
+                } else {
+                    console.warn(LOG_PREFIX, `SF: No data or empty series for ticker ${ticker} in API response.`);
+                }
+            });
+
+            if (datasets.length === 0) {
+                showPlaceholderWithMessage(`No chartable data found after processing Synthetic Fundamental: ${selectedRatio}.`);
+                if (sfStatusLabel) sfStatusLabel.textContent = `No chartable data for ${selectedRatio}.`;
+                return;
+            }
+
+            if (typeof window.AnalyticsTimeseriesModule !== 'undefined' && 
+                typeof window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart === 'function') {
+                
+                const chartTitle = `${selectedRatio.replace(/_/g, ' ')} (${selectedTickers.join(', ')})`;
+                const yAxisLabel = selectedRatio.includes("EPS") ? "EPS Value" : "Calculated Value"; 
+
+                window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart(
+                    datasets, 
+                    chartTitle, 
+                    yAxisLabel,
+                    {
+                        chartType: 'line',
+                        isTimeseries: true,
+                        rangeDetails: {start: startDate, end: endDate} 
+                    }
+                );
+                if (sfStatusLabel) sfStatusLabel.textContent = `Chart loaded for ${selectedRatio.replace(/_/g, ' ')}. Range: ${startDate || 'N/A'} to ${endDate || 'N/A'}.`;
+            } else {
+                console.error(LOG_PREFIX, "AnalyticsTimeseriesModule.renderGenericTimeseriesChart not found. Cannot display SF chart.");
+                showPlaceholderWithMessage("Charting function is not available. See console.");
+                if (sfStatusLabel) sfStatusLabel.textContent = "Error: Charting function unavailable.";
+            }
+            
+        } catch (error) {
+            console.error(LOG_PREFIX, "Error fetching or processing synthetic fundamentals:", error);
+            const displayRatioName = selectedRatio.replace(/_/g, ' ');
+            showPlaceholderWithMessage(`Error for ${displayRatioName}: ${error.message}`);
+            if (sfStatusLabel) sfStatusLabel.textContent = `Error: ${error.message}`;
+        } finally {
+            if (generalLoadingIndicator) generalLoadingIndicator.style.display = 'none';
+            if (sfRunButton) {
+                sfRunButton.disabled = false;
+                sfRunButton.querySelector('.spinner-border').style.display = 'none';
+                sfRunButton.querySelector('.button-text').textContent = 'Run Calculation';
+            }
+        }
+    }
+    // --- END: Functions for Synthetic Fundamentals Study (SF) ---
+
     // --- Expose module functions ---
     window.TimeseriesFundamentalsModule = {
         initializeFundamentalsHistoryStudyControls,
         handleRunFundamentalsHistory,
         initializePriceFundamentalComparisonControls,
-        initializePriceFundamentalRatiosControls // NEW: Expose PFR init
+        initializePriceFundamentalRatiosControls, 
+        initializeSyntheticFundamentalsControls // NEW: Expose SF init
     };
 
     console.log(LOG_PREFIX, "Module loaded and exposed.");
 
-    // Add event listener for data readiness
-    console.log(LOG_PREFIX, "Adding event listener for 'AnalyticsTransformComplete' to WINDOW.");
-    window.addEventListener('AnalyticsTransformComplete', handleAnalyticsTransformationComplete_Fund);
+    // Store original event listener if it exists, or a placeholder if not.
+    const originalAnalyticsTransformCompleteListener = window.handleAnalyticsTransformationComplete_Fund || function() { 
+        console.log(LOG_PREFIX, "Original handleAnalyticsTransformationComplete_Fund was not found, using placeholder.");
+    };
+
+    // New extended handler
+    function handleAnalyticsTransformationComplete_Fund_Extended() {
+        console.log(LOG_PREFIX, "'AnalyticsTransformComplete' event received in Fundamentals module (Extended).");
+        isFundDataReady = true; // Set flag
+
+        // Call original logic for FH and PFC (assuming original function handles its own checks)
+        // if (typeof originalAnalyticsTransformCompleteListener === 'function') {
+        //    originalAnalyticsTransformCompleteListener(); // This would double-log and re-set isFundDataReady if not careful
+        // } 
+        // Instead, explicitly call the necessary population functions from the original logic that are safe to re-run
+        if (fhTickerSelect) {
+            console.log(LOG_PREFIX, "(Extended Handler) Populating FH tickers.");
+            populateFundamentalsHistoryTickerSelect();
+            if (fhFieldSelect && (!$(fhFieldSelect).data('multiselect') || $(fhFieldSelect).find('option').length <=1 ) ){
+                 populateFieldSelect(); 
+            }
+        }
+        if (pfcFieldSelect) {
+            console.log(LOG_PREFIX, "(Extended Handler) Populating PFC fields.");
+            populatePfcFieldSelect();
+        }
+        // PFR field population is handled within its own initialize function or when data is ready inside that init. 
+        // We don't need to explicitly call populatePfrFieldSelect() here as it's part of initializePriceFundamentalRatiosControls.
+
+        // NEW: Populate SF tickers if its select element is ready
+        if (sfTickerSelect) {
+            console.log(LOG_PREFIX, "(Extended Handler) Populating SF tickers.");
+            populateSfTickerSelect(); 
+        } else {
+            console.warn(LOG_PREFIX, "(Extended Handler) SF Ticker Select not available when 'AnalyticsTransformComplete' was caught.");
+        }
+    }
+
+    // Ensure the old listener is removed before adding the new one to prevent duplicates.
+    // The original `handleAnalyticsTransformationComplete_Fund` was at the end of the file.
+    // We need to make sure we correctly reference it or replace its functionality cleanly.
+    // For safety, let's assume for now the assignment at the end of the file is the one we need to replace.
+    // This is tricky as the original code sets `window.addEventListener('AnalyticsTransformComplete', handleAnalyticsTransformationComplete_Fund);`
+    // Best to remove any existing listener for this event by this module before adding the new one.
+    
+    // Attempt to remove by function reference if it was globally exposed or use a named function strategy.
+    // Since handleAnalyticsTransformationComplete_Fund is not globally exposed, we replace its definition earlier if we can.
+    // The current structure of the file defines handleAnalyticsTransformationComplete_Fund then later adds it as a listener.
+    // Let's redefine what 'handleAnalyticsTransformationComplete_Fund' does or ensure the new listener is the only one.
+
+    // Remove the old listener if it was added by name 'handleAnalyticsTransformationComplete_Fund' internally.
+    // This is a bit of a guess as the original function is not passed to removeEventListener.
+    // A more robust way would be to ensure `handleAnalyticsTransformationComplete_Fund` itself calls the new logic, or is replaced.
+    // For now, we assume the last `addEventListener` in the file using the name `handleAnalyticsTransformationComplete_Fund` is the target.
+    // Since it's an IIFE, direct removal by named function might be tricky if it wasn't stored.
+
+    // The provided file has this at the end: 
+    // window.addEventListener('AnalyticsTransformComplete', handleAnalyticsTransformationComplete_Fund);
+    // We need to ensure our new extended handler is used instead.
+    // Simplest: rename the original `handleAnalyticsTransformationComplete_Fund` and call it from the new one, then attach the new one.
+    // Or, replace the addEventListener call at the end of the file.
+    // Given the tools, it's easier to modify the addEventListener line itself, or add a remove and then add.
+    
+    // The previous edit tried to remove and re-add. Let's stick to that logic but ensure the original function's definition
+    // is either replaced or the new extended function is correctly added.
+    // The variable `handleAnalyticsTransformationComplete_Fund` is defined locally within the IIFE.
+
+    // Replace the line: window.addEventListener('AnalyticsTransformComplete', handleAnalyticsTransformationComplete_Fund);
+    // with: window.addEventListener('AnalyticsTransformComplete', handleAnalyticsTransformationComplete_Fund_Extended);
+    // This will be done in a separate edit to the end of the file.
+
+    console.log(LOG_PREFIX, "Adding new event listener for 'AnalyticsTransformComplete' to WINDOW (Extended).");
+    // Remove any old listener first, if it was the original one from this IIFE.
+    // This is a bit tricky because the original listener function is defined within this IIFE and not globally accessible for removal by reference easily from outside.
+    // However, since we are modifying this IIFE, we can ensure only one listener is added.
+    // The key is that `handleAnalyticsTransformationComplete_Fund` which was previously added is now effectively superseded by `handleAnalyticsTransformationComplete_Fund_Extended`.
+    // If the old `window.addEventListener('AnalyticsTransformComplete', handleAnalyticsTransformationComplete_Fund);` line is removed or commented out, and replaced with the new one, it will work.
+    // The previous diff showed `handleAnalyticsTransformationComplete_Fund` was defined and then later `window.addEventListener('AnalyticsTransformComplete', handleAnalyticsTransformationComplete_Fund);` was the line.
+    // We will replace that specific line.
+
+    // If an old listener under the exact name `handleAnalyticsTransformationComplete_Fund` was attached by this IIFE,
+    // it should be replaced by the new one. The logic above tries to make the new function the one that gets called.
+    // The most direct way is to ensure the `addEventListener` call at the very end of this file uses the new function.
+    window.removeEventListener('AnalyticsTransformComplete', handleAnalyticsTransformationComplete_Fund); // Attempt to remove old one by its presumed name
+    window.addEventListener('AnalyticsTransformComplete', handleAnalyticsTransformationComplete_Fund_Extended);
 
 })(); 

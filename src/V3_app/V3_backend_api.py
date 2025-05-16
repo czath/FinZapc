@@ -503,3 +503,40 @@ async def get_fundamentals_history_data(
     return all_results
 
 # --- END NEW: Timeseries Price History API Endpoint --- 
+
+class SyntheticFundamentalRequest(BaseModel):
+    tickers: List[str]
+    start_date: Optional[str] = None # YYYY-MM-DD
+    end_date: Optional[str] = None   # YYYY-MM-DD
+
+@router.post("/api/v3/timeseries/synthetic_fundamental/{fundamental_name}", 
+            summary="Calculate and fetch timeseries for a synthetic fundamental metric",
+            response_model=Dict[str, List[Dict[str, Any]]],
+            tags=["Timeseries Data", "Fundamentals"])
+async def get_synthetic_fundamental_timeseries(
+    fundamental_name: str,
+    request_payload: SyntheticFundamentalRequest,
+    query_service: YahooDataQueryService = Depends(get_yahoo_query_service)
+):
+    """
+    Calculates and retrieves a timeseries for a specified synthetic fundamental metric.
+
+    - **fundamental_name**: The name of the synthetic fundamental to calculate (e.g., "EPS_TTM").
+    - **tickers**: A list of ticker symbols.
+    - **start_date**: Optional start date for the timeseries (YYYY-MM-DD). Defaults to YTD if not provided.
+    - **end_date**: Optional end date for the timeseries (YYYY-MM-DD). Defaults to today if not provided.
+    """
+    try:
+        result = await query_service.calculate_synthetic_fundamental_timeseries(
+            fundamental_name=fundamental_name,
+            tickers=request_payload.tickers,
+            start_date_str=request_payload.start_date,
+            end_date_str=request_payload.end_date
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error in get_synthetic_fundamental_timeseries endpoint for {fundamental_name}: {e}", exc_info=True)
+        # Consider returning a more specific HTTP error, e.g., 500 or 400 if input is bad.
+        # For now, letting FastAPI handle the generic 500 for unhandled exceptions from the service.
+        # If the service returns empty for unsupported, that will be handled by client or be an empty dict.
+        raise HTTPException(status_code=500, detail=f"An error occurred while calculating synthetic fundamental {fundamental_name}: {str(e)}") 
