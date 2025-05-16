@@ -451,7 +451,9 @@ class AnalyticsDataProcessor:
             # "fields": sorted(list(field_metadata_dict.keys())) # If frontend still needs a simple list of names
         }
 
-        return {"originalData": original_data, "metaData": final_meta_data, "message": message}
+        # Return a tuple (data, metadata) as expected by the calling endpoint
+        logger.info(f"ADP returning {len(original_data)} records and metadata for {data_source_selection}. Message: {message}")
+        return original_data, final_meta_data
 
 # Example usage (for testing, would not be here in production)
 async def example_progress_reporter(status_update: Dict[str, Any]):

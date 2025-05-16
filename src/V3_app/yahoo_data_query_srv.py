@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Optional, Union, Tuple
 import json
 
 from .yahoo_repository import YahooDataRepository
+from .currency_utils import get_current_exchange_rate
 # from .yahoo_models import YahooTickerMasterModel # For type hinting if returning raw models
 
 import logging
@@ -39,13 +40,103 @@ class YahooDataQueryService:
     def __init__(self, db_repo: YahooDataRepository):
         self.db_repo = db_repo
 
+    async def _get_conversion_info_for_ticker(
+        self, 
+        ticker_symbol: str, 
+        ticker_profiles_cache: Dict[str, Dict[str, Any]]
+    ) -> Optional[Tuple[str, str, float]]:
+        """
+        Retrieves currency information and exchange rate if conversion is needed.
+        Returns (trade_currency, financial_currency, rate_to_convert_to_trade_currency)
+        or None if no conversion is needed/possible.
+        Uses/populates ticker_profiles_cache to avoid redundant DB calls for master data.
+        """
+        profile = ticker_profiles_cache.get(ticker_symbol)
+        if not profile:
+            profile = await self.db_repo.get_ticker_master_by_ticker(ticker_symbol)
+            if profile:
+                ticker_profiles_cache[ticker_symbol] = profile
+            else:
+                logger.warning(f"[QuerySrv._get_conversion_info] Profile not found for {ticker_symbol}. Cannot determine currencies.")
+                return None
+
+        trade_currency = profile.get("trade_currency")
+        financial_currency = profile.get("financial_currency")
+
+        if not trade_currency or not financial_currency:
+            logger.warning(f"[QuerySrv._get_conversion_info] Missing trade or financial currency for {ticker_symbol}. Trade: {trade_currency}, Financial: {financial_currency}")
+            return None
+
+        if trade_currency.upper() == financial_currency.upper():
+            logger.debug(f"[QuerySrv._get_conversion_info] {ticker_symbol}: Trade ({trade_currency}) and Financial ({financial_currency}) currencies are the same. No conversion needed.")
+            return None # No conversion needed
+
+        # Currencies differ, fetch exchange rate
+        # Rate to multiply by financial_currency_value to get trade_currency_value
+        exchange_rate = await get_current_exchange_rate(financial_currency, trade_currency)
+
+        if exchange_rate is None:
+            logger.error(f"[QuerySrv._get_conversion_info] {ticker_symbol}: Failed to get exchange rate from {financial_currency} to {trade_currency}.")
+            return None # Conversion needed but rate not available
+        
+        logger.info(f"[QuerySrv._get_conversion_info] {ticker_symbol}: Conversion needed. From {financial_currency} to {trade_currency}. Rate: {exchange_rate}")
+        return trade_currency, financial_currency, exchange_rate
+
+    async def _apply_currency_conversion_to_payload(
+        self, 
+        data_payload: Dict[str, Any], 
+        exchange_rate: float,
+        original_financial_currency: str, # For logging/metadata
+        target_trade_currency: str,       # For logging/metadata
+        item_type: str                    # NEW: To determine if conversion is applicable
+    ) -> Dict[str, Any]:
+        """
+        Converts numeric values in the data_payload using the exchange_rate,
+        subject to item_type and keyword ("shares") exceptions.
+        """
+        if not isinstance(data_payload, dict):
+            logger.warning("[QuerySrv._apply_conversion] Payload is not a dict, cannot convert.")
+            return data_payload
+
+        CONVERTIBLE_ITEM_TYPES = {"BALANCE_SHEET", "INCOME_STATEMENT", "CASH_FLOW_STATEMENT"}
+        # logger.debug(f"[QuerySrv._apply_conversion] Received item_type: {item_type.upper()} for payload: {list(data_payload.keys())[:5]}...")
+
+        if item_type.upper() not in CONVERTIBLE_ITEM_TYPES:
+            logger.debug(f"[QuerySrv._apply_conversion] Item type '{item_type.upper()}' does not require currency conversion. Skipping payload.")
+            return data_payload
+
+        converted_payload = {}
+        converted_fields_count = 0
+        for key, value in data_payload.items():
+            if "shares" in key.lower(): # Check for 'shares' keyword (case-insensitive)
+                converted_payload[key] = value # Do not convert if 'shares' is in the key
+                # logger.debug(f"[QuerySrv._apply_conversion] Skipping conversion for key '{key}' due to 'shares' keyword.")
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                converted_value = value * exchange_rate
+                converted_payload[key] = converted_value
+                # logger.debug(f"[QuerySrv._apply_conversion] Converted '{key}': {value} ({original_financial_currency}) -> {converted_value} ({target_trade_currency})")
+                converted_fields_count +=1
+            else:
+                converted_payload[key] = value # Keep non-numeric, non-convertible, or boolean values as is
+        
+        if converted_fields_count > 0:
+            logger.info(f"[QuerySrv._apply_conversion] Applied conversion to {converted_fields_count} numeric fields in payload for item_type '{item_type.upper()}'. From {original_financial_currency} to {target_trade_currency} using rate {exchange_rate}.")
+        elif item_type.upper() in CONVERTIBLE_ITEM_TYPES: # Log if it was a convertible type but nothing changed (e.g. all shares or no numerics)
+            logger.info(f"[QuerySrv._apply_conversion] No fields were converted for item_type '{item_type.upper()}' (e.g., all fields contained 'shares', were non-numeric, or payload was empty).")
+
+        return converted_payload
+
     async def get_ticker_profile(self, ticker_symbol: str) -> Optional[Dict[str, Any]]:
         # ... existing code ...
-        return await self.db_repo.get_yahoo_ticker_master_by_ticker(ticker_symbol)
+        # As per instructions, ticker_master fields are NOT converted.
+        # This method primarily serves to provide currency info if needed by callers,
+        # or for direct display where original values are expected.
+        return await self.db_repo.get_ticker_master_by_ticker(ticker_symbol)
 
     async def get_multiple_ticker_profiles(self, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         # ... existing code ...
-        return await self.db_repo.get_filtered_yahoo_ticker_profiles(filters)
+        # As per instructions, ticker_master fields are NOT converted.
+        return await self.db_repo.get_ticker_masters_by_criteria(filters) # Corrected method name
 
     async def get_data_items(
         self, 
@@ -59,7 +150,7 @@ class YahooDataQueryService:
         limit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         # ... existing code ...
-        return await self.db_repo.get_data_items_by_criteria(
+        data_items_list = await self.db_repo.get_data_items_by_criteria(
             ticker=ticker,
             item_type=item_type,
             item_time_coverage=item_time_coverage,
@@ -69,6 +160,31 @@ class YahooDataQueryService:
             order_by_key_date_desc=order_by_key_date_desc,
             limit=limit
         )
+
+        if not data_items_list:
+            return []
+
+        # Attempt to get conversion info for the ticker
+        # For this method, ticker_profiles_cache can be an empty dict as it's single-ticker context
+        conversion_info = await self._get_conversion_info_for_ticker(ticker, {})
+
+        if conversion_info:
+            trade_curr, fin_curr, rate = conversion_info
+            processed_items = []
+            for item in data_items_list:
+                payload = item.get('item_data_payload')
+                if isinstance(payload, dict):
+                    # Create a copy to avoid modifying the original item dict directly if it's cached elsewhere
+                    item_copy = item.copy()
+                    item_copy['item_data_payload'] = await self._apply_currency_conversion_to_payload(
+                        payload, rate, fin_curr, trade_curr, item_type
+                    )
+                    processed_items.append(item_copy)
+                else:
+                    processed_items.append(item) # Append as is if payload not a dict
+            return processed_items
+        
+        return data_items_list # Return original if no conversion needed/possible
 
     async def get_latest_data_item_payload(
         self, 
@@ -90,16 +206,27 @@ class YahooDataQueryService:
         )
         if items:
             payload = items[0].get('item_data_payload')
-            if isinstance(payload, str): # Assuming payload from DB is JSON string
+            # Payload should already be a dict due to get_data_items_by_criteria parsing JSON string
+            # However, the conversion logic needs to be applied here too.
+
+            conversion_info = await self._get_conversion_info_for_ticker(ticker, {})
+            if conversion_info and isinstance(payload, dict):
+                trade_curr, fin_curr, rate = conversion_info
+                payload = await self._apply_currency_conversion_to_payload(
+                    payload, rate, fin_curr, trade_curr, db_item_type
+                )
+            
+            # Original JSON parsing logic (might be redundant if repo ensures dict, but safe)
+            if isinstance(payload, str): 
                 try:
                     return json.loads(payload)
                 except json.JSONDecodeError:
-                    logger.error(f"Failed to decode JSON payload for {ticker}, {db_item_type}, {item_time_coverage}")
+                    logger.error(f"Failed to decode JSON payload for {ticker}, {db_item_type}, {item_time_coverage} AFTER potential conversion attempt")
                     return None
-            elif isinstance(payload, dict): # If already a dict (e.g., if ORM handles it)
+            elif isinstance(payload, dict): 
                 return payload
             else:
-                logger.warning(f"Payload for {ticker}, {db_item_type}, {item_time_coverage} is not a string or dict. Type: {type(payload)}")
+                logger.warning(f"Payload for {ticker}, {db_item_type}, {item_time_coverage} is not a string or dict after potential conversion. Type: {type(payload)}")
                 return None
         return None
 
@@ -116,6 +243,18 @@ class YahooDataQueryService:
     async def get_latest_forecast_summary(self, ticker: str) -> Optional[Dict[str, Any]]:
         return await self.get_latest_data_item_payload(ticker, "FORECAST_SUMMARY", "CUMULATIVE")
 
+    async def get_ticker_currencies(self, ticker_symbol: str) -> Optional[Dict[str, Optional[str]]]:
+        """Retrieves trade_currency and financial_currency for a given ticker."""
+        logger.debug(f"Fetching currencies for ticker: {ticker_symbol}")
+        profile = await self.db_repo.get_ticker_master_by_ticker(ticker_symbol)
+        if profile:
+            return {
+                "trade_currency": profile.get("trade_currency"),
+                "financial_currency": profile.get("financial_currency")
+            }
+        logger.warning(f"No profile found for ticker {ticker_symbol} when fetching currencies.")
+        return None
+
     async def get_specific_field_timeseries(
         self,
         field_identifier: str, # e.g., "yf_item_balance_sheet_annual_Total Assets"
@@ -126,6 +265,9 @@ class YahooDataQueryService:
         
         results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
         tickers_list = [tickers] if isinstance(tickers, str) else tickers
+
+        # Cache for ticker master profiles to avoid re-fetching for currency info within this request
+        ticker_profiles_cache: Dict[str, Dict[str, Any]] = {}
 
         # --- Start of New Parsing Logic ---
         db_item_type: Optional[str] = None
@@ -220,6 +362,11 @@ class YahooDataQueryService:
                 if tickers_list.index(ticker_symbol) == 0 : # Log only for the first ticker in list
                     logger.debug(f"Raw data_items for {ticker_symbol}, {field_identifier}: {str(data_items)[:1000]}...")
 
+                # Get conversion info for the current ticker_symbol once
+                conversion_info = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache)
+                rate_to_apply = None
+                if conversion_info:
+                    _, _, rate_to_apply = conversion_info # trade_curr, fin_curr, rate
 
                 for item in data_items:
                     payload_data = item.get('item_data_payload') # This is already a dict if ORM/repo handles JSON loading
@@ -274,9 +421,21 @@ class YahooDataQueryService:
                     
                     # Now payload_data should be a dictionary
                     value = payload_data.get(payload_key_for_json) # Use parsed payload_key_for_json
+                    
                     if value is not None:
+                        # Apply conversion if needed and possible, and if the value is numeric
+                        if rate_to_apply is not None and isinstance(value, (int, float)) and not isinstance(value, bool):
+                            # Check item_type and 'shares' keyword before converting
+                            CONVERTIBLE_ITEM_TYPES = {"BALANCE_SHEET", "INCOME_STATEMENT", "CASH_FLOW_STATEMENT"}
+                            if db_item_type.upper() in CONVERTIBLE_ITEM_TYPES and "shares" not in payload_key_for_json.lower():
+                                original_value = value
+                                value = value * rate_to_apply
+                                logger.debug(f"[QuerySrv.get_specific_field_timeseries] Converted value for {ticker_symbol}, field '{payload_key_for_json}', date {item_key_date_iso_str}: {original_value} -> {value} using rate {rate_to_apply}")
+                            # else: // Value not converted due to item_type or 'shares' keyword
+                                # logger.debug(f"[QuerySrv.get_specific_field_timeseries] SKIPPED conversion for {ticker_symbol}, field '{payload_key_for_json}', date {item_key_date_iso_str}: item_type={db_item_type}, rate={rate_to_apply}")
+                        
                         current_ticker_series.append({'date': item_key_date_iso_str, 'value': value})
-                        logger.debug(f"Found key '{payload_key_for_json}' in dict payload for {ticker_symbol} on {item_key_date_iso_str} with value: {value}")
+                        # logger.debug(f"Found key '{payload_key_for_json}' in dict payload for {ticker_symbol} on {item_key_date_iso_str} with value: {value}") # Redundant if conversion log is active
                     else:
                         logger.debug(f"Key '{payload_key_for_json}' not found in payload for {ticker_symbol} on {item_key_date_iso_str}. Payload keys: {list(payload_data.keys())}")
                                 

@@ -31,6 +31,7 @@ class YahooTickerMasterModel(Base):
     sector = Column(String(collation='NOCASE'), nullable=True)
     trade_currency = Column(String(collation='NOCASE'), nullable=True)
     asset_type = Column(String(collation='NOCASE'), nullable=True) 
+    financial_currency = Column(String(collation='NOCASE'), nullable=True)
 
     # Market Fields (as defined in V3_database.py originally)
     average_volume = Column(Float, nullable=True) 

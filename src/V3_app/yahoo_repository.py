@@ -749,6 +749,7 @@ class YahooDataRepository:
             YahooTickerMasterModel.industry,
             YahooTickerMasterModel.sector,
             YahooTickerMasterModel.trade_currency,
+            YahooTickerMasterModel.financial_currency,
             # Key Market Data
             YahooTickerMasterModel.current_price,
             YahooTickerMasterModel.market_cap,

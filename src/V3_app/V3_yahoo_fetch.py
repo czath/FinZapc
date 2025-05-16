@@ -827,6 +827,7 @@ async def fetch_and_process_yahoo_info(ticker_symbol: str) -> Optional[Dict[str,
             'sector': ('sectorKey', str),
             'trade_currency': ('currency', str),
             'asset_type': ('quoteType', lambda x: str(x).upper() if x else None), # Use quoteType, convert to upper string
+            'financial_currency': ('financialCurrency', str), # NEW FIELD
 
             # Market
             'average_volume': ('averageVolume', to_float),

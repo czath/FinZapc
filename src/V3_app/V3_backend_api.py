@@ -254,19 +254,8 @@ async def get_analytics_yahoo_combined_data(
 async def get_processed_analytics_data(
     data_source_selection: str, # Query param: "finviz_only", "yahoo_only", "both"
     request: Request, # To be used by dependency injection for repository
-    # Inject SQLiteRepository for ADP
-    # Option 1: Directly use the new provider
     sqlite_repo: SQLiteRepository = Depends(get_sqlite_repository) 
-    # Option 2: If YahooDataRepository is a SQLiteRepository, could use get_yahoo_repository
-    # and cast, but explicit SQLiteRepository is cleaner if ADP only needs that.
 ):
-    """
-    Orchestrates data loading and processing via AnalyticsDataProcessor.
-    - **data_source_selection**: Specifies the data to load:
-        - "finviz_only": Loads only Finviz data.
-        - "yahoo_only": Loads only Yahoo data.
-        - "both": Loads both Finviz and Yahoo data, then merges them.
-    """
     logger.info(f"Received request for /api/v3/analytics/processed_data with selection: {data_source_selection}")
 
     valid_selections = ["finviz_only", "yahoo_only", "both"]
@@ -276,36 +265,51 @@ async def get_processed_analytics_data(
             detail=f"Invalid data_source_selection. Must be one of {valid_selections}"
         )
 
-    adp = None
+    processor = None  # Initialize processor to None for the finally block
     try:
-        # Instantiate AnalyticsDataProcessor with the SQLiteRepository
-        adp = AnalyticsDataProcessor(db_repository=sqlite_repo)
-        
-        # Define a simple async progress callback if needed for logging ADP's internal steps
-        # This is optional for now, ADP has its own logging.
-        # async def _progress_logger(update: Dict[str, Any]):
-        #     logger.debug(f"ADP Progress: {update}")
+        # Initialize the AnalyticsDataProcessor with the repository
+        processor = AnalyticsDataProcessor(db_repository=sqlite_repo) 
 
-        processed_result = await adp.process_data_for_analytics(
-            data_source_selection=data_source_selection
-            # progress_callback=_progress_logger # Can add if detailed progress needed here
-        )
+        # For debugging:
+        raw_result = await processor.process_data_for_analytics(data_source_selection)
+        logger.info(f"Raw result from ADP: type={type(raw_result)}, value={str(raw_result)[:1000]}") # Log type and part of value, increased length
+        if isinstance(raw_result, tuple) or isinstance(raw_result, list):
+            logger.info(f"Length of raw_result: {len(raw_result)}")
+        else:
+            logger.warning(f"Raw result from ADP is not a tuple or list, it's a {type(raw_result)}")
+
+        data, metadata = raw_result # Unpack after logging
         
-        logger.info(f"Successfully processed data for selection '{data_source_selection}'. Returning {len(processed_result.get('originalData', []))} records.")
-        return processed_result
+        logger.info(f"Successfully processed data for selection '{data_source_selection}'. Returning {len(data)} records.")
+        return {"originalData": data, "metaData": metadata}
 
     except HTTPException as http_exc: # Re-raise HTTPExceptions directly
+        logger.warning(f"HTTPException during analytics processing for '{data_source_selection}': {http_exc.detail}")
         raise http_exc
     except Exception as e:
         logger.error(f"Error in get_processed_analytics_data endpoint for selection '{data_source_selection}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error processing analytics data: {str(e)}")
     finally:
-        if adp and hasattr(adp, 'close_http_client'):
+        if processor and hasattr(processor, 'close_http_client'):
             try:
-                await adp.close_http_client()
-                logger.info("ADP HTTP client closed successfully.")
+                await processor.close_http_client()
+                logger.info("ADP HTTP client closed successfully after analytics processing.")
             except Exception as e_close:
-                logger.error(f"Error closing ADP HTTP client: {e_close}", exc_info=True) 
+                logger.error(f"Error closing ADP HTTP client: {e_close}", exc_info=True)
+
+@router.get("/api/yahoo/ticker_currencies/{ticker_symbol}", 
+            summary="Get trade and financial currencies for a ticker",
+            response_model=Optional[Dict[str, Optional[str]]],
+            tags=["Yahoo Finance Data"])
+async def get_ticker_currencies_endpoint(
+    ticker_symbol: str,
+    query_service: YahooDataQueryService = Depends(get_yahoo_query_service)
+):
+    """Endpoint to retrieve trade and financial currencies for a given stock ticker."""
+    currencies = await query_service.get_ticker_currencies(ticker_symbol)
+    if currencies is None:
+        raise HTTPException(status_code=404, detail=f"Ticker {ticker_symbol} not found or currencies not available.")
+    return currencies
 
 # --- NEW: Timeseries Price History API Endpoint ---
 @router.get(
