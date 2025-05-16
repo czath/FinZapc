@@ -1427,8 +1427,18 @@
             const epsOption = document.createElement('option');
             epsOption.value = "EPS_TTM";
             epsOption.textContent = "Diluted EPS (TTM)";
-            epsOption.selected = true;
             sfRatioSelect.appendChild(epsOption);
+
+            const peOption = document.createElement('option'); // NEW for P/E
+            peOption.value = "PE_TTM";
+            peOption.textContent = "P/E (TTM)";
+            sfRatioSelect.appendChild(peOption);
+            
+            // Select the first one by default if needed, or let HTML decide initial selected
+            // For example, to ensure EPS_TTM is default if nothing pre-selected by HTML:
+            if (!sfRatioSelect.value) {
+                 epsOption.selected = true;
+            }
         } 
 
         if (sfRunButton) {
@@ -1630,8 +1640,14 @@
             if (typeof window.AnalyticsTimeseriesModule !== 'undefined' && 
                 typeof window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart === 'function') {
                 
-                const chartTitle = `${selectedRatio.replace(/_/g, ' ')} (${selectedTickers.join(', ')})`;
-                const yAxisLabel = selectedRatio.includes("EPS") ? "EPS Value" : "Calculated Value"; 
+                let chartTitle = `${selectedRatio.replace(/_/g, ' ')} (${selectedTickers.join(', ')})`;
+                let yAxisLabel = "Calculated Value"; 
+
+                if (selectedRatio === "EPS_TTM") {
+                    yAxisLabel = "EPS Value (TTM)";
+                } else if (selectedRatio === "PE_TTM") {
+                    yAxisLabel = "P/E Ratio (TTM)";
+                }
 
                 window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart(
                     datasets, 

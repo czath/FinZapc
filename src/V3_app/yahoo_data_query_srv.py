@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Union, Tuple
 import json
+import httpx
 
 from .yahoo_repository import YahooDataRepository
 from .currency_utils import get_current_exchange_rate
@@ -463,181 +464,321 @@ class YahooDataQueryService:
         logger.info(f"[QuerySrv.calculate_synthetic_fundamental_timeseries] Request for {fundamental_name}, Tickers: {tickers}, Start: {start_date_str}, End: {end_date_str}")
         results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
 
-        if fundamental_name.upper() != "EPS_TTM":
+        if fundamental_name.upper() == "EPS_TTM":
+            return await self._calculate_eps_ttm_for_tickers(
+                tickers,
+                start_date_str,
+                end_date_str,
+                {}
+            )
+        elif fundamental_name.upper() == "PE_TTM":
+            logger.info(f"P/E TTM calculation requested for {tickers} from {start_date_str} to {end_date_str}")
+            
+            eps_data_by_ticker = await self._calculate_eps_ttm_for_tickers(
+                tickers,
+                start_date_str,
+                end_date_str,
+                {}
+            )
+
+            pe_results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+
+            # Determine the base URL for the internal price history API
+            # This is a simplification. In a real app, this would come from config or service discovery.
+            # Assuming the service runs on http://localhost:8000 or similar.
+            # For now, let's make it a placeholder that would need to be configured.
+            # THIS IS A CRITICAL PART THAT NEEDS A REAL URL FOR THE PRICE API WHEN DEPLOYED
+            # For local testing, if the main app runs on 8000, this might be http://127.0.0.1:8000
+            # It's generally better if services can access data stores directly rather than calling other API endpoints
+            # of the same application, but following the "replicate PFC/PFR" instruction which uses an API call.
+            price_api_base_url = "http://127.0.0.1:8000" # Placeholder: Needs to be the actual app's URL
+
+            async with httpx.AsyncClient(timeout=30.0) as client: # Increased timeout
+                for ticker_symbol in tickers:
+                    try:
+                        logger.debug(f"PE_TTM: Processing {ticker_symbol}")
+                        eps_series = eps_data_by_ticker.get(ticker_symbol, [])
+                        if not eps_series:
+                            logger.warning(f"PE_TTM: No EPS data for {ticker_symbol}, cannot calculate P/E.")
+                            pe_results_by_ticker[ticker_symbol] = []
+                            continue
+
+                        # Convert EPS series to a dict for quick lookup
+                        eps_map = {item['date']: item['value'] for item in eps_series if item['value'] is not None}
+
+                        # Fetch price data
+                        price_start_date_str = start_date_str
+                        # Yahoo finance API end_date is exclusive, so add 1 day for price fetch
+                        price_end_date_obj = datetime.strptime(end_date_str, "%Y-%m-%d") + timedelta(days=1)
+                        price_end_date_str = price_end_date_obj.strftime("%Y-%m-%d")
+                        
+                        price_api_url = f"{price_api_base_url}/api/v3/timeseries/price_history"
+                        params = {
+                            "ticker": ticker_symbol,
+                            "interval": "1d",
+                            "start_date": price_start_date_str,
+                            "end_date": price_end_date_str
+                        }
+                        logger.debug(f"PE_TTM: Fetching price data for {ticker_symbol} from {price_api_url} with params {params}")
+                        
+                        response = await client.get(price_api_url, params=params)
+                        response.raise_for_status() # Raise an exception for HTTP errors 4xx/5xx
+                        price_data_raw = response.json() # List of {'Date', 'Close', ...} or {'Datetime', ...}
+
+                        if not price_data_raw:
+                            logger.warning(f"PE_TTM: No price data returned for {ticker_symbol} from {price_start_date_str} to {price_end_date_str}.")
+                            pe_results_by_ticker[ticker_symbol] = []
+                            continue
+                        
+                        logger.debug(f"PE_TTM: Received {len(price_data_raw)} price points for {ticker_symbol}.")
+
+                        current_pe_series: List[Dict[str, Any]] = []
+                        for price_point in price_data_raw:
+                            # Adjusting for potential date key variations from price API
+                            price_date_str_key = 'Date' if 'Date' in price_point else 'Datetime'
+                            if price_date_str_key not in price_point:
+                                logger.warning(f"PE_TTM: Price point for {ticker_symbol} missing 'Date' or 'Datetime' key. Point: {price_point}")
+                                continue
+                            
+                            price_date_str = price_point[price_date_str_key].split("T")[0] # Ensure YYYY-MM-DD format
+                            price_value = price_point.get('Close')
+
+                            if price_value is None:
+                                current_pe_series.append({'date': price_date_str, 'value': None})
+                                continue
+
+                            eps_value_for_date = eps_map.get(price_date_str)
+
+                            if eps_value_for_date is not None and eps_value_for_date > 0: # P/E typically not shown for zero/negative EPS
+                                pe_value = float(price_value) / float(eps_value_for_date)
+                                current_pe_series.append({'date': price_date_str, 'value': pe_value})
+                            else:
+                                current_pe_series.append({'date': price_date_str, 'value': None})
+                        
+                        pe_results_by_ticker[ticker_symbol] = current_pe_series
+                        logger.info(f"PE_TTM: Calculated {len(current_pe_series)} P/E points for {ticker_symbol}.")
+
+                    except httpx.HTTPStatusError as e:
+                        logger.error(f"PE_TTM: HTTP error fetching price for {ticker_symbol}: {e.response.status_code} - {e.response.text}", exc_info=False)
+                        pe_results_by_ticker[ticker_symbol] = []
+                    except httpx.RequestError as e:
+                        logger.error(f"PE_TTM: Request error fetching price for {ticker_symbol}: {e}", exc_info=False)
+                        pe_results_by_ticker[ticker_symbol] = []
+                    except Exception as e:
+                        logger.error(f"PE_TTM: Error processing P/E for {ticker_symbol}: {e}", exc_info=True)
+                        pe_results_by_ticker[ticker_symbol] = []
+            return pe_results_by_ticker
+        else:
             logger.warning(f"Synthetic fundamental '{fundamental_name}' is not supported.")
             return results_by_ticker
 
-        # Determine user-requested date range (or default to YTD)
-        today = datetime.today()
-        user_end_date_obj: datetime
-        if end_date_str:
-            try:
-                user_end_date_obj = datetime.strptime(end_date_str, "%Y-%m-%d")
-            except ValueError:
-                logger.warning(f"Invalid end_date_str format '{end_date_str}'. Defaulting to today.")
-                user_end_date_obj = today
-        else:
-            user_end_date_obj = today
+    async def _calculate_eps_ttm_for_tickers(
+        self, 
+        tickers: List[str], 
+        start_date_str: Optional[str], 
+        end_date_str: Optional[str],
+        ticker_profiles_cache: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
         
-        user_start_date_obj: datetime
+        user_start_date_obj: Optional[datetime] = None
+        user_end_date_obj: Optional[datetime] = None
         if start_date_str:
-            try:
-                user_start_date_obj = datetime.strptime(start_date_str, "%Y-%m-%d")
-            except ValueError:
-                logger.warning(f"Invalid start_date_str format '{start_date_str}'. Defaulting to start of current year.")
-                user_start_date_obj = today.replace(month=1, day=1)
-        else:
-            user_start_date_obj = today.replace(month=1, day=1)
+            try: user_start_date_obj = datetime.strptime(start_date_str, "%Y-%m-%d")
+            except ValueError: 
+                logger.warning(f"EPS_TTM: Invalid start_date_str '{start_date_str}'. Defaulting to YTD.")
+                user_start_date_obj = datetime.today().replace(month=1, day=1)
+        else: user_start_date_obj = datetime.today().replace(month=1, day=1)
 
-        user_end_date_str_for_query = user_end_date_obj.strftime("%Y-%m-%d")
+        if end_date_str:
+            try: user_end_date_obj = datetime.strptime(end_date_str, "%Y-%m-%d")
+            except ValueError: 
+                logger.warning(f"EPS_TTM: Invalid end_date_str '{end_date_str}'. Defaulting to today.")
+                user_end_date_obj = datetime.today()
+        else: user_end_date_obj = datetime.today()
+        
+        logger.debug(f"EPS_TTM: User date range for calculation: {user_start_date_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}")
 
-        # Determine extended lookback for fetching underlying quarterly data
-        fundamental_query_start_date_obj = user_start_date_obj - timedelta(days=(365 * 1 + 30 * 9)) # Approx 1 year and 9 months
-        fundamental_query_start_date_str = fundamental_query_start_date_obj.strftime("%Y-%m-%d")
-
-        logger.debug(f"User date range for TTM EPS: {user_start_date_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}")
-        logger.debug(f"Fundamental quarterly data query range: {fundamental_query_start_date_str} to {user_end_date_str_for_query}")
-
-        # Target keys directly from observed payload
         target_net_income_key = "Diluted NI Availto Com Stockholders"
         target_shares_key = "Diluted Average Shares"
-        
-        ticker_profiles_cache: Dict[str, Dict[str, Any]] = {} # For currency conversion if needed by get_data_items_by_criteria
 
         for ticker_symbol in tickers:
             try:
-                logger.debug(f"Processing ticker: {ticker_symbol} for EPS_TTM")
+                logger.info(f"EPS_TTM: Processing ticker: {ticker_symbol}")
+                ttm_eps_series_for_ticker: List[Dict[str, Any]] = []
+                calculation_mode = "Quarterly TTM" # Default mode
+
+                # 1. Attempt to fetch QUARTERLY income statements
+                quarterly_lookback_start_obj = user_start_date_obj - timedelta(days=(365 * 1 + 30 * 9))
+                logger.debug(f"EPS_TTM: Querying QUARTERLY income statements for {ticker_symbol} from {quarterly_lookback_start_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}")
                 
-                # Fetch all quarterly income statements for the extended period
-                # get_data_items_by_criteria will handle currency conversion for the whole payload if item_type is convertible
                 quarterly_income_statements = await self.db_repo.get_data_items_by_criteria(
                     ticker=ticker_symbol,
-                    item_type="INCOME_STATEMENT", # Direct DB item_type
-                    item_time_coverage="QUARTER",   # Direct DB item_time_coverage
-                    start_date=fundamental_query_start_date_obj, # Pass datetime objects
-                    end_date=user_end_date_obj,                 # Pass datetime objects
-                    order_by_key_date_desc=False # Ascending for processing
+                    item_type="INCOME_STATEMENT",
+                    item_time_coverage="QUARTER",
+                    start_date=quarterly_lookback_start_obj,
+                    end_date=user_end_date_obj,
+                    order_by_key_date_desc=False
                 )
 
-                if not quarterly_income_statements:
-                    logger.warning(f"No quarterly income statements found for {ticker_symbol} in the extended date range. Cannot calculate EPS_TTM.")
-                    results_by_ticker[ticker_symbol] = []
-                    continue
-                
-                logger.debug(f"Found {len(quarterly_income_statements)} quarterly income statement records for {ticker_symbol}.")
-
                 quarterly_eps_points: List[Dict[str, Any]] = []
+                if quarterly_income_statements:
+                    logger.info(f"EPS_TTM: Found {len(quarterly_income_statements)} QUARTERLY statements for {ticker_symbol}.")
+                    conversion_info = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache)
+                    rate_to_apply, original_fin_curr, target_trade_curr = (conversion_info[2], conversion_info[1], conversion_info[0]) if conversion_info else (None, None, None)
 
-                # Get conversion info for the current ticker_symbol once
-                conversion_info = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache)
-                rate_to_apply = None
-                original_fin_curr_for_log = None
-                target_trade_curr_for_log = None
+                    for q_item in quarterly_income_statements:
+                        payload = q_item.get('item_data_payload')
+                        key_date_from_db = q_item.get('item_key_date')
+                        if not isinstance(payload, dict) or not key_date_from_db: continue
 
-                if conversion_info:
-                    target_trade_curr_for_log, original_fin_curr_for_log, rate_to_apply = conversion_info
-                    logger.info(f"Conversion info for {ticker_symbol}: Rate {rate_to_apply} from {original_fin_curr_for_log} to {target_trade_curr_for_log} for INCOME_STATEMENT items.")
+                        current_payload = payload
+                        if rate_to_apply:
+                            current_payload = await self._apply_currency_conversion_to_payload(payload, rate_to_apply, original_fin_curr, target_trade_curr, "INCOME_STATEMENT")
+                        
+                        q_date_obj = self._parse_date_flex(key_date_from_db)
+                        if not q_date_obj: continue
+
+                        ni_value = current_payload.get(target_net_income_key)
+                        shares_value = current_payload.get(target_shares_key)
+                        if ni_value is not None and shares_value is not None and shares_value != 0:
+                            try: quarterly_eps_points.append({'date_obj': q_date_obj, 'q_eps': float(ni_value) / float(shares_value)})
+                            except (ValueError, TypeError): pass # Logged implicitly by lack of points later
+                    
+                    if quarterly_eps_points:
+                        quarterly_eps_points.sort(key=lambda x: x['date_obj'])
+                        # Check if we have enough quarterly data to proceed with TTM calculation for the *start* of the user period
+                        relevant_for_start = [p for p in quarterly_eps_points if p['date_obj'] <= user_start_date_obj]
+                        if len(relevant_for_start) >= 4:
+                            logger.info(f"EPS_TTM: Sufficient quarterly data for {ticker_symbol}. Proceeding with TTM calculation.")
+                            current_iter_date = user_start_date_obj
+                            while current_iter_date <= user_end_date_obj:
+                                relevant_q_eps = [p for p in quarterly_eps_points if p['date_obj'] <= current_iter_date]
+                                ttm_eps_value: Optional[float] = None
+                                if len(relevant_q_eps) >= 4:
+                                    last_four_q_eps = sorted(relevant_q_eps, key=lambda x: x['date_obj'], reverse=True)[:4]
+                                    if len(last_four_q_eps) == 4: ttm_eps_value = sum(p['q_eps'] for p in last_four_q_eps)
+                                ttm_eps_series_for_ticker.append({'date': current_iter_date.strftime("%Y-%m-%d"), 'value': ttm_eps_value})
+                                current_iter_date += timedelta(days=1)
+                        else:
+                            logger.warning(f"EPS_TTM: Insufficient distinct quarterly EPS points ({len(relevant_for_start)} found before start date) for {ticker_symbol} to reliably calculate TTM. Will attempt fallback to annual data.")
+                            quarterly_eps_points = [] # Clear to trigger fallback
+                    else:
+                        logger.warning(f"EPS_TTM: No valid quarterly EPS points derived for {ticker_symbol} from {len(quarterly_income_statements)} statements. Attempting fallback to annual.")
                 else:
-                    logger.info(f"No currency conversion needed or possible for {ticker_symbol} for INCOME_STATEMENT items.")
+                    logger.info(f"EPS_TTM: No QUARTERLY income statements found for {ticker_symbol}. Attempting fallback to annual data.")
 
-                for q_statement_item in quarterly_income_statements:
-                    payload = q_statement_item.get('item_data_payload')
-                    key_date_from_db = q_statement_item.get('item_key_date')
+                # 2. Fallback to ANNUAL (FYEAR) data if quarterly TTM calculation was not performed
+                if not ttm_eps_series_for_ticker: # This condition means quarterly TTM was not successful or skipped
+                    calculation_mode = "Annual Fallback"
+                    logger.info(f"EPS_TTM ({calculation_mode}): Attempting to use ANNUAL income statements for {ticker_symbol}.")
+                    annual_lookback_start_obj = user_start_date_obj - timedelta(days=(365 * 2 + 30 * 3)) # Approx 2 years 3 months for annual reports
+                    logger.debug(f"EPS_TTM ({calculation_mode}): Querying ANNUAL income statements for {ticker_symbol} from {annual_lookback_start_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}")
 
-                    if not isinstance(payload, dict) or not key_date_from_db:
-                        logger.warning(f"Skipping item for {ticker_symbol} due to missing/invalid payload or key_date. Item ID: {q_statement_item.get('id')}")
+                    annual_income_statements = await self.db_repo.get_data_items_by_criteria(
+                        ticker=ticker_symbol,
+                        item_type="INCOME_STATEMENT",
+                        item_time_coverage="FYEAR",
+                        start_date=annual_lookback_start_obj,
+                        end_date=user_end_date_obj,
+                        order_by_key_date_desc=False
+                    )
+
+                    if not annual_income_statements:
+                        logger.warning(f"EPS_TTM ({calculation_mode}): No ANNUAL income statements found for {ticker_symbol}. No EPS data will be available.")
+                        results_by_ticker[ticker_symbol] = [] # Explicitly empty
+                        continue # Next ticker
+                    
+                    logger.info(f"EPS_TTM ({calculation_mode}): Found {len(annual_income_statements)} ANNUAL statements for {ticker_symbol}.")
+                    annual_eps_points: List[Dict[str, Any]] = []
+                    conversion_info_annual = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache)
+                    rate_annual, orig_curr_annual, target_curr_annual = (conversion_info_annual[2], conversion_info_annual[1], conversion_info_annual[0]) if conversion_info_annual else (None, None, None)
+
+                    for an_item in annual_income_statements:
+                        payload = an_item.get('item_data_payload')
+                        key_date_from_db = an_item.get('item_key_date')
+                        if not isinstance(payload, dict) or not key_date_from_db: continue
+
+                        current_payload = payload
+                        if rate_annual:
+                            current_payload = await self._apply_currency_conversion_to_payload(payload, rate_annual, orig_curr_annual, target_curr_annual, "INCOME_STATEMENT")
+                        
+                        fy_date_obj = self._parse_date_flex(key_date_from_db)
+                        if not fy_date_obj: continue
+
+                        ni_value = current_payload.get(target_net_income_key)
+                        shares_value = current_payload.get(target_shares_key)
+                        if ni_value is not None and shares_value is not None and shares_value != 0:
+                            try: annual_eps_points.append({'date_obj': fy_date_obj, 'annual_eps': float(ni_value) / float(shares_value)})
+                            except (ValueError, TypeError): pass
+                    
+                    if not annual_eps_points:
+                        logger.warning(f"EPS_TTM ({calculation_mode}): No valid annual EPS points derived for {ticker_symbol}. No EPS data.")
+                        results_by_ticker[ticker_symbol] = []
                         continue
-                    
-                    # Apply currency conversion to the payload if needed
-                    current_payload = payload # Start with the original payload
-                    if rate_to_apply and original_fin_curr_for_log and target_trade_curr_for_log:
-                        # _apply_currency_conversion_to_payload expects item_type to decide if conversion is applicable
-                        # and to avoid converting fields like 'shares' based on keywords.
-                        current_payload = await self._apply_currency_conversion_to_payload(
-                            payload, # original payload from DB
-                            rate_to_apply, 
-                            original_fin_curr_for_log, 
-                            target_trade_curr_for_log, 
-                            "INCOME_STATEMENT" # Explicitly pass item_type
-                        )
-                        # logger.debug(f"Payload for {ticker_symbol} on {key_date_from_db} after conversion attempt: {list(current_payload.keys())[:5]}")
-                    
-                    q_date_obj: Optional[datetime] = None
-                    if isinstance(key_date_from_db, str):
-                        try: q_date_obj = datetime.strptime(key_date_from_db, "%Y-%m-%dT%H:%M:%S.%f")
-                        except ValueError: 
-                            try: q_date_obj = datetime.strptime(key_date_from_db, "%Y-%m-%dT%H:%M:%S")
-                            except ValueError: 
-                                try: q_date_obj = datetime.strptime(key_date_from_db, "%Y-%m-%d %H:%M:%S.%f")
-                                except ValueError: 
-                                    try: q_date_obj = datetime.strptime(key_date_from_db, "%Y-%m-%d %H:%M:%S")
-                                    except ValueError: 
-                                        try: q_date_obj = datetime.strptime(key_date_from_db, "%Y-%m-%d") # Date only
-                                        except ValueError: pass # q_date_obj remains None
-                    elif isinstance(key_date_from_db, datetime):
-                        q_date_obj = key_date_from_db
-                    
-                    if not q_date_obj:
-                        logger.warning(f"Could not parse date string '{key_date_from_db}' for item_id={q_statement_item.get('id')}. Skipping EPS calculation for this point.")
-                        continue
 
-                    ni_value = current_payload.get(target_net_income_key) # Use current_payload (potentially converted)
-                    shares_value = current_payload.get(target_shares_key) # Use current_payload (shares fields are not converted by design)
+                    annual_eps_points.sort(key=lambda x: x['date_obj'])
                     
-                    logger.debug(f"For {ticker_symbol} on {q_date_obj.strftime('%Y-%m-%d')}: NI Avail Com '{target_net_income_key}': {ni_value}, Shares '{target_shares_key}': {shares_value}. From payload (first 5 keys): {list(current_payload.keys())[:5] if isinstance(current_payload, dict) else 'N/A'}")
+                    # Generate daily series using last known annual EPS
+                    current_iter_date = user_start_date_obj
+                    last_known_annual_eps: Optional[float] = None
+                    processed_annual_eps_series: List[Dict[str, Any]] = [] # Temp list for this mode
 
-                    if ni_value is not None and shares_value is not None and shares_value != 0:
-                        try:
-                            q_eps = float(ni_value) / float(shares_value)
-                            quarterly_eps_points.append({'date_obj': q_date_obj, 'q_eps': q_eps})
-                        except (ValueError, TypeError) as e:
-                            logger.warning(f"Could not calculate quarterly EPS for {ticker_symbol} on {q_date_obj.strftime('%Y-%m-%d')}. NI: {ni_value}, Shares: {shares_value}. Error: {e}")
-                    elif ni_value is None:
-                        logger.debug(f"Net income ('{target_net_income_key}') is None for {ticker_symbol} on {q_date_obj.strftime('%Y-%m-%d')}. Keys: {list(current_payload.keys())}")
-                    elif shares_value is None:
-                        logger.debug(f"Shares ('{target_shares_key}') is None for {ticker_symbol} on {q_date_obj.strftime('%Y-%m-%d')}. Keys: {list(current_payload.keys())}")
-                    elif shares_value == 0:
-                         logger.warning(f"Shares outstanding ('{target_shares_key}') is zero for {ticker_symbol} on {q_date_obj.strftime('%Y-%m-%d')}, cannot calculate quarterly EPS.")
-                
-                if not quarterly_eps_points:
-                    logger.warning(f"No valid quarterly EPS points calculated for {ticker_symbol} after processing {len(quarterly_income_statements)} records.")
+                    # Find initial EPS for the start of the period
+                    initial_eps_found = False
+                    for point in reversed(annual_eps_points):
+                        if point['date_obj'] <= current_iter_date:
+                            last_known_annual_eps = point['annual_eps']
+                            initial_eps_found = True
+                            break
+                    if not initial_eps_found and annual_eps_points: # If no point before start, use earliest point if it's after start and user range is short
+                         if annual_eps_points[0]['date_obj'] > current_iter_date and (user_end_date_obj - user_start_date_obj).days < 400 : # Heuristic: only for short ranges
+                             pass # last_known_annual_eps remains None, it will be picked up in the loop
+                    
+                    while current_iter_date <= user_end_date_obj:
+                        # Update last_known_annual_eps if a new annual report is effective for this date
+                        for point in annual_eps_points:
+                            if point['date_obj'] <= current_iter_date:
+                                last_known_annual_eps = point['annual_eps'] # Will take the latest one due to sorted points
+                            elif point['date_obj'] > current_iter_date:
+                                break # Optimization: points are sorted by date
+                        
+                        processed_annual_eps_series.append({
+                            'date': current_iter_date.strftime("%Y-%m-%d"), 
+                            'value': last_known_annual_eps
+                        })
+                        current_iter_date += timedelta(days=1)
+                    ttm_eps_series_for_ticker = processed_annual_eps_series # Assign to the main series variable
+
+                # Final assignment to results_by_ticker
+                if ttm_eps_series_for_ticker:
+                    results_by_ticker[ticker_symbol] = ttm_eps_series_for_ticker
+                    logger.info(f"EPS_TTM ({calculation_mode}): Generated {len(ttm_eps_series_for_ticker)} EPS points for {ticker_symbol}.")
+                else:
+                    # This case should ideally be caught earlier (e.g., no annual data found)
+                    logger.warning(f"EPS_TTM: No EPS series (Quarterly or Annual Fallback) could be generated for {ticker_symbol}.")
                     results_by_ticker[ticker_symbol] = []
-                    continue
-                
-                quarterly_eps_points.sort(key=lambda x: x['date_obj'])
-                # logger.debug(f"Sorted quarterly EPS points for {ticker_symbol}: {quarterly_eps_points}")
-
-                ttm_eps_series_for_ticker: List[Dict[str, Any]] = []
-                current_iter_date = user_start_date_obj
-                
-                while current_iter_date <= user_end_date_obj:
-                    relevant_q_eps = [
-                        p for p in quarterly_eps_points if p['date_obj'] <= current_iter_date
-                    ]
-                    
-                    ttm_eps_value: Optional[float] = None
-                    if len(relevant_q_eps) >= 4:
-                        # Take the four most recent quarterly EPS values
-                        last_four_q_eps = sorted(relevant_q_eps, key=lambda x: x['date_obj'], reverse=True)[:4]
-                        if len(last_four_q_eps) == 4 : # Ensure we actually got 4
-                            ttm_eps_value = sum(p['q_eps'] for p in last_four_q_eps)
-                        else: # Should not happen if relevant_q_eps >= 4 and sorting is correct
-                            logger.debug(f"Logic error: Expected 4 Q_EPS for TTM sum, got {len(last_four_q_eps)} for {ticker_symbol} on {current_iter_date.strftime('%Y-%m-%d')}")
-                    
-                    ttm_eps_series_for_ticker.append({
-                        'date': current_iter_date.strftime("%Y-%m-%d"),
-                        'value': ttm_eps_value
-                    })
-                    current_iter_date += timedelta(days=1)
-                
-                results_by_ticker[ticker_symbol] = ttm_eps_series_for_ticker
-                logger.info(f"Successfully calculated {len(ttm_eps_series_for_ticker)} TTM EPS data points for {ticker_symbol}.")
 
             except Exception as e:
-                logger.error(f"Error calculating synthetic EPS_TTM for {ticker_symbol}: {e}", exc_info=True)
+                logger.error(f"EPS_TTM: Critical error for {ticker_symbol}: {e}", exc_info=True)
                 results_by_ticker[ticker_symbol] = []
-        
         return results_by_ticker
+
+    def _parse_date_flex(self, date_input: Union[str, datetime]) -> Optional[datetime]:
+        """Helper to parse date string from various common DB formats or handle datetime object."""
+        if isinstance(date_input, datetime):
+            return date_input
+        if isinstance(date_input, str):
+            formats_to_try = [
+                "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", 
+                "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d"
+            ]
+            for fmt in formats_to_try:
+                try: return datetime.strptime(date_input, fmt)
+                except ValueError: continue
+            logger.warning(f"_parse_date_flex: Could not parse date string '{date_input}' with known formats.")
+        return None
 
     # You can add more specific wrappers here for other TTM data or single-record items
     # For example:
