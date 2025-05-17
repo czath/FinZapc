@@ -625,18 +625,60 @@
 
         try {
             // 1. Fetch Price Data
-            const priceApiEndDate = new Date(endDate);
-            priceApiEndDate.setDate(priceApiEndDate.getDate() + 1); // Yahoo API is exclusive for end_date
-            const priceApiParams = `ticker=${encodeURIComponent(selectedTicker)}&interval=1d&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(priceApiEndDate.toISOString().split('T')[0])}`;
-            const priceApiUrl = `/api/v3/timeseries/price_history?${priceApiParams}`;
-            console.log(LOG_PREFIX, "PFC Fetching Price History from:", priceApiUrl);
-            const priceResponse = await fetch(priceApiUrl);
-            if (!priceResponse.ok) {
-                const err = await priceResponse.json().catch(() => ({detail: `Price data fetch failed (${priceResponse.status})`}));
-                throw new Error(err.detail);
+            // MODIFICATION START: Integrate AnalyticsPriceCache for price data
+            let priceDataRaw = null;
+            const intervalForPrice = '1d'; // PFC seems to always use 1d for price
+
+            // Determine parameters for cache lookup and API request for price data
+            // For PFC, startDate and endDate are always defined (defaulted to 1 year if not user-provided)
+            const cacheLookupPeriod = 'custom'; // Always treat as custom due to defined startDate/endDate
+            const cacheLookupStartDate = startDate;
+            const cacheLookupEndDate = endDate;
+
+            // API query parameters for price
+            const priceApiEndDateObj = new Date(endDate);
+            priceApiEndDateObj.setDate(priceApiEndDateObj.getDate() + 1); // API end_date is exclusive for /price_history
+            const priceApiQueryEndDate = priceApiEndDateObj.toISOString().split('T')[0];
+            const priceApiQueryStartDate = startDate;
+
+
+            if (window.AnalyticsPriceCache) {
+                console.log(LOG_PREFIX, `[PFC] Attempting to fetch ${selectedTicker} ${intervalForPrice} (Period: '${cacheLookupPeriod}', Start: '${cacheLookupStartDate}', End: '${cacheLookupEndDate}') from cache.`);
+                priceDataRaw = window.AnalyticsPriceCache.getPriceData(selectedTicker, intervalForPrice, cacheLookupPeriod, cacheLookupStartDate, cacheLookupEndDate);
+                if (priceDataRaw) {
+                    console.log(LOG_PREFIX, `[PFC] Cache HIT for ${selectedTicker} ${intervalForPrice}. Data points: ${priceDataRaw.length}`);
+                } else {
+                    console.log(LOG_PREFIX, `[PFC] Cache MISS for ${selectedTicker} ${intervalForPrice}. Will fetch from API.`);
+                }
+            } else {
+                console.warn(LOG_PREFIX, "[PFC] AnalyticsPriceCache module not found. Fetching directly from API.");
             }
-            const priceDataRaw = await priceResponse.json();
-            console.log(LOG_PREFIX, "PFC Price Data Received:", priceDataRaw.length);
+
+            if (!priceDataRaw) { // If cache miss or cache module not available
+                const priceApiParams = `ticker=${encodeURIComponent(selectedTicker)}&interval=${encodeURIComponent(intervalForPrice)}&start_date=${encodeURIComponent(priceApiQueryStartDate)}&end_date=${encodeURIComponent(priceApiQueryEndDate)}`;
+                const priceApiUrl = `/api/v3/timeseries/price_history?${priceApiParams}`;
+                console.log(LOG_PREFIX, "[PFC] Fetching Price History from API:", priceApiUrl);
+                
+                const priceResponse = await fetch(priceApiUrl);
+                if (!priceResponse.ok) {
+                    const err = await priceResponse.json().catch(() => ({detail: `Price data fetch failed (${priceResponse.status})`}));
+                    throw new Error(`Price data for ${selectedTicker}: ${err.detail || 'Fetch error'}`);
+                }
+                const fetchedPriceData = await priceResponse.json();
+                console.log(LOG_PREFIX, `[PFC] API Price Data Received for ${selectedTicker}:`, fetchedPriceData ? fetchedPriceData.length : 0);
+
+                if (fetchedPriceData && fetchedPriceData.length > 0) {
+                    priceDataRaw = fetchedPriceData;
+                    if (window.AnalyticsPriceCache) {
+                        console.log(LOG_PREFIX, `[PFC] Storing ${selectedTicker} ${intervalForPrice} (Period: '${cacheLookupPeriod}', Start: '${cacheLookupStartDate}', End: '${cacheLookupEndDate}') in cache. Points: ${priceDataRaw.length}`);
+                        window.AnalyticsPriceCache.storePriceData(selectedTicker, intervalForPrice, priceDataRaw, cacheLookupPeriod, cacheLookupStartDate, cacheLookupEndDate);
+                    }
+                } else {
+                    // No price data from API, throw error or handle as needed
+                    throw new Error(`No price data returned from API for ${selectedTicker}.`);
+                }
+            }
+            // MODIFICATION END: Integrate AnalyticsPriceCache for price data
 
             // 2. Fetch Fundamental Data
             const fundamentalsRequestPayload = {
@@ -1211,25 +1253,66 @@
 
         // 1. Price Data Requests for each ticker
         selectedTickers.forEach(ticker => {
-            let priceApiUrl;
-            if (baseStartDate && baseEndDate) { // Custom or calculated range
-                const priceApiEndDate = new Date(baseEndDate);
-                priceApiEndDate.setDate(priceApiEndDate.getDate() + 1); 
-                const priceApiParams = `ticker=${encodeURIComponent(ticker)}&interval=1d&start_date=${encodeURIComponent(baseStartDate)}&end_date=${encodeURIComponent(priceApiEndDate.toISOString().split('T')[0])}`;
-                priceApiUrl = `/api/v3/timeseries/price_history?${priceApiParams}`;
-            } else { // 'max' period
-                const priceApiParams = `ticker=${encodeURIComponent(ticker)}&interval=1d&period=max`;
-                priceApiUrl = `/api/v3/timeseries/price_history?${priceApiParams}`;
+            // MODIFICATION START: Integrate AnalyticsPriceCache for price data within PFR
+            const intervalForPrice = '1d'; // PFR uses 1d interval for price data
+            let pricePromise;
+
+            // Determine parameters for cache lookup and API request for price data
+            // baseStartDate and baseEndDate are from the main PFR handler (user's selection or calculated from period)
+            const cacheLookupPeriod = (baseStartDate && baseEndDate) ? 'custom' : (pfrPeriodSelector ? pfrPeriodSelector.value : 'max'); // If no base dates, use selected period (e.g. 'ytd', 'max')
+            const cacheLookupStartDate = (baseStartDate && baseEndDate) ? baseStartDate : null;
+            const cacheLookupEndDate = (baseStartDate && baseEndDate) ? baseEndDate : null;
+
+            let cachedPriceData = null;
+            if (window.AnalyticsPriceCache) {
+                console.log(LOG_PREFIX, `[PFR] Attempting to fetch ${ticker} ${intervalForPrice} (Period: '${cacheLookupPeriod}', Start: '${cacheLookupStartDate}', End: '${cacheLookupEndDate}') from cache.`);
+                cachedPriceData = window.AnalyticsPriceCache.getPriceData(ticker, intervalForPrice, cacheLookupPeriod, cacheLookupStartDate, cacheLookupEndDate);
             }
-            fetchPromises.push(
-                fetch(priceApiUrl)
+
+            if (cachedPriceData) {
+                console.log(LOG_PREFIX, `[PFR] Cache HIT for ${ticker} ${intervalForPrice}. Data points: ${cachedPriceData.length}`);
+                pricePromise = Promise.resolve({ ticker, type: 'price', data: cachedPriceData });
+            } else {
+                console.log(LOG_PREFIX, `[PFR] Cache MISS for ${ticker} ${intervalForPrice}. Will fetch from API.`);
+                let priceApiUrl;
+                const params = new URLSearchParams();
+                params.append('ticker', encodeURIComponent(ticker));
+                params.append('interval', intervalForPrice);
+
+                if (baseStartDate && baseEndDate) { // Custom or calculated range from specific period
+                    const priceApiEndDateObj = new Date(baseEndDate);
+                    priceApiEndDateObj.setDate(priceApiEndDateObj.getDate() + 1); // API end_date is exclusive
+                    params.append('start_date', encodeURIComponent(baseStartDate));
+                    params.append('end_date', encodeURIComponent(priceApiEndDateObj.toISOString().split('T')[0]));
+                } else { // 'max' period or other predefined periods where baseStart/EndDate might be null
+                    params.append('period', cacheLookupPeriod); // Use cacheLookupPeriod (e.g., 'max', 'ytd')
+                }
+                priceApiUrl = `/api/v3/timeseries/price_history?${params.toString()}`;
+                console.log(LOG_PREFIX, `[PFR] Fetching Price for ${ticker} from API: ${priceApiUrl}`);
+
+                pricePromise = fetch(priceApiUrl)
                     .then(response => {
                         if (!response.ok) return response.json().then(err => Promise.reject({ ticker, type: 'price', detail: err.detail || `Price fetch failed (${response.status})`}));
                         return response.json();
                     })
-                    .then(data => ({ ticker, type: 'price', data }))
-                    .catch(error => ({ ticker, type: 'price', error: error.detail || error.message || 'Unknown price fetch error' }))
-            );
+                    .then(apiData => {
+                        console.log(LOG_PREFIX, `[PFR] API Price Data Received for ${ticker}:`, apiData ? apiData.length : 0);
+                        if (apiData && apiData.length > 0) {
+                            if (window.AnalyticsPriceCache) {
+                                console.log(LOG_PREFIX, `[PFR] Storing ${ticker} ${intervalForPrice} (Period: '${cacheLookupPeriod}', Start: '${cacheLookupStartDate}', End: '${cacheLookupEndDate}') in cache. Points: ${apiData.length}`);
+                                window.AnalyticsPriceCache.storePriceData(ticker, intervalForPrice, apiData, cacheLookupPeriod, cacheLookupStartDate, cacheLookupEndDate);
+                            }
+                            return { ticker, type: 'price', data: apiData };
+                        }
+                        return { ticker, type: 'price', error: "No price data returned or empty dataset from API." };
+                    })
+                    .catch(error => {
+                        console.error(LOG_PREFIX, `[PFR] Error in price fetch promise for ${ticker}:`, error);
+                        return { ticker, type: 'price', error: error.detail || error.message || 'Unknown price fetch error' };
+                    });
+            }
+            fetchPromises.push(pricePromise);
+            // MODIFICATION END: Integrate AnalyticsPriceCache for price data within PFR
 
             // 2. Fundamental Data Requests for each ticker and field
             selectedOriginalFieldIds.forEach(originalFieldId => {
