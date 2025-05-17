@@ -1506,19 +1506,42 @@
         
         // Populate ratio select (statically for now)
         if (sfRatioSelect) {
-            sfRatioSelect.innerHTML = ''; // Clear existing
+            sfRatioSelect.innerHTML = ''; // Clear existing options first
+
+            const componentIcon = "🧱"; // Brick
+            const ratioIcon = "📊";     // Bar Chart
+
             const epsOption = document.createElement('option');
             epsOption.value = "EPS_TTM";
-            epsOption.textContent = "Diluted EPS (TTM)";
+            epsOption.textContent = `${componentIcon} Diluted EPS (TTM)`;
+            // epsOption.style.color = "green"; // REMOVED
             sfRatioSelect.appendChild(epsOption);
 
-            const peOption = document.createElement('option'); // NEW for P/E
+            const peOption = document.createElement('option');
             peOption.value = "PE_TTM";
-            peOption.textContent = "P/E (TTM)";
+            peOption.textContent = `${ratioIcon} P/E (TTM)`;
+            // peOption.style.color = "blue"; // REMOVED
             sfRatioSelect.appendChild(peOption);
             
+            const cashPerShareOption = document.createElement('option');
+            cashPerShareOption.value = "CASH_PER_SHARE";
+            cashPerShareOption.textContent = `${componentIcon} Cash/Share`;
+            // cashPerShareOption.style.color = "green"; // REMOVED
+            sfRatioSelect.appendChild(cashPerShareOption);
+
+            const cashPlusStInvPerShareOption = document.createElement('option');
+            cashPlusStInvPerShareOption.value = "CASH_PLUS_ST_INV_PER_SHARE";
+            cashPlusStInvPerShareOption.textContent = `${componentIcon} Cash+ST Inv/Share`;
+            // cashPlusStInvPerShareOption.style.color = "green"; // REMOVED
+            sfRatioSelect.appendChild(cashPlusStInvPerShareOption);
+            
+            const priceToCashPlusStInvOption = document.createElement('option');
+            priceToCashPlusStInvOption.value = "PRICE_TO_CASH_PLUS_ST_INV";
+            priceToCashPlusStInvOption.textContent = `${ratioIcon} Price/Cash+ST Inv`;
+            // priceToCashPlusStInvOption.style.color = "blue"; // REMOVED
+            sfRatioSelect.appendChild(priceToCashPlusStInvOption);
+
             // Select the first one by default if needed, or let HTML decide initial selected
-            // For example, to ensure EPS_TTM is default if nothing pre-selected by HTML:
             if (!sfRatioSelect.value) {
                  epsOption.selected = true;
             }
@@ -1731,6 +1754,22 @@
                 } else if (selectedRatio === "PE_TTM") {
                     yAxisLabel = "P/E Ratio (TTM)";
                 }
+                // --- NEW: Add yAxisLabel for Cash/Share (TTM) ---
+                else if (selectedRatio === "CASH_PER_SHARE") {
+                    yAxisLabel = "Cash/Share";
+                }
+                // --- END: Add yAxisLabel for Cash/Share (TTM) ---
+
+                // --- NEW: Add yAxisLabel for Cash+ST Inv/Share ---
+                else if (selectedRatio === "CASH_PLUS_ST_INV_PER_SHARE") {
+                    yAxisLabel = "Cash+ST Inv/Share";
+                }
+                // --- END: Add yAxisLabel for Cash+ST Inv/Share ---
+                // --- NEW: Add yAxisLabel for Price/Cash+ST Inv ---
+                else if (selectedRatio === "PRICE_TO_CASH_PLUS_ST_INV") {
+                    yAxisLabel = "Price/Cash+ST Inv Ratio";
+                }
+                // --- END: Add yAxisLabel for Price/Cash+ST Inv ---
 
                 window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart(
                     datasets, 

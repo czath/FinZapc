@@ -377,7 +377,7 @@ class YahooDataQueryService:
 
                 for item in data_items:
                     payload_data = item.get('item_data_payload') # This is already a dict if ORM/repo handles JSON loading
-                    item_key_date_from_db = item.get('item_key_date') 
+                    item_key_date_from_db = item.get('item_key_date')
 
                     if not payload_data or not item_key_date_from_db:
                         logger.warning(f"Skipping item for {ticker_symbol} due to missing payload or key_date: item_id={item.get('id')}")
@@ -427,7 +427,71 @@ class YahooDataQueryService:
                             continue
                     
                     # Now payload_data should be a dictionary
-                    value = payload_data.get(payload_key_for_json) # Use parsed payload_key_for_json
+                    value = payload_data.get(payload_key_for_json)
+                    
+                    # --- NEW: Attempt to match key with spaces if direct match fails ---
+                    if value is None:
+                        # Construct a key with spaces, e.g., "CashAndCashEquivalents" -> "Cash And Cash Equivalents"
+                        # This is a common pattern for yfinance field names.
+                        payload_key_with_spaces = ""
+                        for i, char in enumerate(payload_key_for_json):
+                            if char.isupper() and i > 0: # Add space before uppercase letters, except the first char
+                                # Also handle sequences of uppercase letters like "PPE" -> "PPE" not "P P E"
+                                if not (payload_key_for_json[i-1].isupper() and ( (i+1 < len(payload_key_for_json) and payload_key_for_json[i+1].islower()) or payload_key_for_json[i-1].islower() ) ):
+                                     # More refined check for space insertion
+                                    if not (payload_key_for_json[i-1].isupper() and (i + 1 < len(payload_key_for_json) and payload_key_for_json[i+1].islower())):
+                                        # Avoid double spaces if previous char was already a space maker for an acronym end
+                                        if not (payload_key_for_json[i-1].isupper() and i > 1 and payload_key_for_json[i-2].islower()): # e.g. NetIncome -> Net Income, not Net Income
+                                            # General case: lowercase followed by uppercase
+                                            if payload_key_for_json[i-1].islower():
+                                                payload_key_with_spaces += " "
+                                            # Acronym ends, e.g. TotalRevenue -> Total Revenue, CurrentAssets -> Current Assets
+                                            # Handle cases like 'NetPPE' -> 'Net PPE' - if prev is upper and current is upper but next is lower
+                                            elif payload_key_for_json[i-1].isupper() and \
+                                                (i + 1 < len(payload_key_for_json) and payload_key_for_json[i+1].islower()) and \
+                                                not (i > 1 and payload_key_for_json[i-2].islower()): # Avoid A BC -> A B C
+                                                pass # No space if it's part of an acronym like PPE that should remain together until the end.
+                                            # Case for start of new word after an acronym like 'NetWorkingCapital'
+                                            elif i > 0 and payload_key_for_json[i-1].isupper() and \
+                                                 not(i + 1 < len(payload_key_for_json) and payload_key_for_json[i+1].islower()) and \
+                                                 not(i > 1 and payload_key_for_json[i-2].isupper()): # Avoid splitting in middle of acronym
+                                                 # This condition is tricky, aiming for "ABCWord" -> "ABC Word"
+                                                 # Check if previous was an acronym by looking at char before previous
+                                                 if i > 1 and payload_key_for_json[i-2].islower(): # e.g. YFIN -> YFIN
+                                                      payload_key_with_spaces += " "
+
+
+                            payload_key_with_spaces += char
+                        
+                        # A simpler heuristic for now, as the above is getting complex:
+                        # Just try common yfinance patterns: split by uppercase, then try title case.
+                        # Example: "CashAndCashEquivalents"
+                        # 1. "Cash And Cash Equivalents" (add space before capital)
+                        # 2. "Cash and Cash Equivalents" (title case variant, though less common for exact match)
+
+                        # Heuristic 1: Add space before uppercase letters (camel case to spaced title case)
+                        spaced_key = ""
+                        for i, char in enumerate(payload_key_for_json):
+                            if char.isupper() and i > 0 and payload_key_for_json[i-1].islower():
+                                spaced_key += " "
+                            spaced_key += char
+                        
+                        if spaced_key != payload_key_for_json: # Check if a transformation actually happened
+                            logger.debug(f"[QuerySrv.get_specific_field_timeseries] Direct key '{payload_key_for_json}' not found. Trying with spaces: '{spaced_key}'")
+                            value = payload_data.get(spaced_key)
+                            if value is not None:
+                                logger.info(f"[QuerySrv.get_specific_field_timeseries] Found value using spaced key '{spaced_key}' for original '{payload_key_for_json}'.")
+                                payload_key_for_json = spaced_key # Update to the key that worked
+                            else:
+                                # Heuristic 2: Try title case if spaced_key didn't work (e.g. some yfinance keys might be "Net income" vs "NetIncome")
+                                # This is less likely for Balance Sheet items which tend to be TitleCaseWithSpaces
+                                title_cased_key = payload_key_for_json.title() # Converts "NetIncome" to "Netincome" - unlikely match.
+                                                                              # "CashAndCashEquivalents" -> "Cashandcashequivalents" - also unlikely.
+                                # A better title case might be to space it first, then title() each word, but yfinance is usually consistent.
+                                # Let's stick to the spaced_key as the primary alternative for now.
+                                # If `spaced_key` also failed, value remains None.
+                                pass
+                    # --- END: Attempt to match key with spaces ---
                     
                     if value is not None:
                         # Apply conversion if needed and possible, and if the value is numeric
@@ -568,9 +632,39 @@ class YahooDataQueryService:
                         logger.error(f"PE_TTM: Error processing P/E for {ticker_symbol}: {e}", exc_info=True)
                         pe_results_by_ticker[ticker_symbol] = []
             return pe_results_by_ticker
+        elif fundamental_name.upper() == "CASH_PER_SHARE_TTM":
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_cash_per_share_ttm_for_tickers.")
+            # Currency conversion for cash and shares components is handled within _calculate_cash_per_share_ttm_for_tickers
+            # by its calls to get_specific_field_timeseries.
+            results_by_ticker = await self._calculate_cash_per_share_ttm_for_tickers(
+                tickers, start_date_str, end_date_str, {}
+            )
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
+        elif fundamental_name.upper() == "CASH_PER_SHARE":
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_cash_per_share_for_tickers.")
+            results_by_ticker = await self._calculate_cash_per_share_for_tickers(
+                tickers, start_date_str, end_date_str, {}
+            )
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
+        elif fundamental_name.upper() == "CASH_PLUS_ST_INV_PER_SHARE":
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_cash_plus_st_inv_per_share_for_tickers.")
+            results_by_ticker = await self._calculate_cash_plus_st_inv_per_share_for_tickers(
+                tickers, start_date_str, end_date_str, {}
+            )
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
+        elif fundamental_name.upper() == "PRICE_TO_CASH_PLUS_ST_INV":
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_price_to_cash_plus_st_inv_for_tickers.")
+            results_by_ticker = await self._calculate_price_to_cash_plus_st_inv_for_tickers(
+                tickers, start_date_str, end_date_str, {} # Passing empty cache
+            )
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
         else:
-            logger.warning(f"Synthetic fundamental '{fundamental_name}' is not supported.")
-            return results_by_ticker
+            logger.warning(f"Unsupported synthetic fundamental requested: {fundamental_name}")
+            for ticker in tickers:
+                results_by_ticker[ticker] = []
+        
+        # Ensure all requested tickers have an entry in the results, even if empty
+        return results_by_ticker
 
     async def _calculate_eps_ttm_for_tickers(
         self, 
@@ -764,10 +858,465 @@ class YahooDataQueryService:
                 results_by_ticker[ticker_symbol] = []
         return results_by_ticker
 
+    # --- MODIFIED: Cash/Share Calculation (Removed TTM) ---
+    async def _calculate_cash_per_share_for_tickers(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str],
+        end_date_str: Optional[str],
+        ticker_profiles_cache: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+        logger.info(f"CASH_PER_SHARE: Starting calculation for tickers: {tickers}, start: {start_date_str}, end: {end_date_str}")
+
+        user_start_date_obj = self._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=365*5) # Default 5 years
+        user_end_date_obj = self._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+
+        # For point-in-time Cash/Share, fundamental query can align more closely with user dates,
+        # but we still need a bit of lookback for shares data alignment.
+        fundamental_query_start_date_obj = user_start_date_obj - timedelta(days=180) # Approx 6 months buffer for shares alignment
+        fundamental_query_start_date_str = fundamental_query_start_date_obj.strftime('%Y-%m-%d')
+        fundamental_query_end_date_str = user_end_date_obj.strftime('%Y-%m-%d')
+
+        cash_field_id = "yf_item_balance_sheet_quarterly_CashAndCashEquivalents"
+        primary_shares_field_id = "yf_item_income_statement_quarterly_DilutedAverageShares" # Or consider a direct shares outstanding from BS if more appropriate for point-in-time
+        fallback_shares_field_id = "yf_item_balance_sheet_quarterly_ShareIssued"
+
+        for ticker_symbol in tickers:
+            try:
+                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Fetching cash data ({cash_field_id}) between {fundamental_query_start_date_str} and {fundamental_query_end_date_str}")
+                cash_data_raw = await self.get_specific_field_timeseries(
+                    field_identifier=cash_field_id,
+                    tickers=[ticker_symbol],
+                    start_date_str=fundamental_query_start_date_str,
+                    end_date_str=fundamental_query_end_date_str
+                )
+                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Raw cash data: {cash_data_raw.get(ticker_symbol)}")
+                
+                quarterly_cash_points: List[Dict[str, Any]] = []
+                if cash_data_raw.get(ticker_symbol):
+                    for item in cash_data_raw[ticker_symbol]:
+                        date_obj = self._parse_date_flex(item.get('date'))
+                        value = item.get('value')
+                        if date_obj and value is not None:
+                            try: quarterly_cash_points.append({'date_obj': date_obj, 'value': float(value)})
+                            except (ValueError, TypeError): pass
+                    quarterly_cash_points.sort(key=lambda x: x['date_obj'])
+                    logger.info(f"CASH_PER_SHARE [{ticker_symbol}]: Parsed {len(quarterly_cash_points)} quarterly cash points.")
+                    logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Parsed cash points: {quarterly_cash_points[:5]}...")
+                else:
+                    logger.warning(f"CASH_PER_SHARE [{ticker_symbol}]: No quarterly cash data found using {cash_field_id}. Skipping.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+
+                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Fetching primary shares data ({primary_shares_field_id})")
+                shares_data_primary_raw = await self.get_specific_field_timeseries(
+                    field_identifier=primary_shares_field_id,
+                    tickers=[ticker_symbol],
+                    start_date_str=fundamental_query_start_date_str,
+                    end_date_str=fundamental_query_end_date_str
+                )
+                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Raw primary shares data: {shares_data_primary_raw.get(ticker_symbol)}")
+                quarterly_shares_points: List[Dict[str, Any]] = []
+                if shares_data_primary_raw.get(ticker_symbol):
+                    for item in shares_data_primary_raw[ticker_symbol]:
+                        date_obj = self._parse_date_flex(item.get('date'))
+                        value = item.get('value')
+                        if date_obj and value is not None and float(value) != 0:
+                            try: quarterly_shares_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'primary'})
+                            except (ValueError, TypeError): pass
+                    logger.info(f"CASH_PER_SHARE [{ticker_symbol}]: Parsed {len(quarterly_shares_points)} primary quarterly shares points.")
+                    logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Parsed primary shares points: {quarterly_shares_points[:5]}...")
+                # else: # Note: Removed the skip here, allow fallback to try even if primary fails completely
+                #    logger.warning(f"CASH_PER_SHARE [{ticker_symbol}]: No primary shares data found using {primary_shares_field_id}. Will attempt fallback.")
+
+
+                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Fetching fallback shares data ({fallback_shares_field_id})")
+                shares_data_fallback_raw = await self.get_specific_field_timeseries(
+                    field_identifier=fallback_shares_field_id,
+                    tickers=[ticker_symbol],
+                    start_date_str=fundamental_query_start_date_str,
+                    end_date_str=fundamental_query_end_date_str
+                )
+                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Raw fallback shares data: {shares_data_fallback_raw.get(ticker_symbol)}")
+                fallback_shares_added_count = 0
+                if shares_data_fallback_raw.get(ticker_symbol):
+                    for item in shares_data_fallback_raw[ticker_symbol]:
+                        date_obj = self._parse_date_flex(item.get('date'))
+                        value = item.get('value')
+                        if date_obj and value is not None and float(value) != 0:
+                            is_duplicate_date = any(sp['date_obj'] == date_obj for sp in quarterly_shares_points)
+                            if not is_duplicate_date:
+                                try: 
+                                    quarterly_shares_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'fallback'})
+                                    fallback_shares_added_count +=1
+                                except (ValueError, TypeError): pass
+                    logger.info(f"CASH_PER_SHARE [{ticker_symbol}]: Added {fallback_shares_added_count} fallback quarterly shares points.")
+                
+                quarterly_shares_points.sort(key=lambda x: x['date_obj'])
+                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Combined and sorted shares points ({len(quarterly_shares_points)} total): {quarterly_shares_points[:5]}...")
+                
+                if not quarterly_cash_points:
+                    logger.warning(f"CASH_PER_SHARE [{ticker_symbol}]: No valid quarterly cash points derived after parsing. No Cash/Share data.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+                if not quarterly_shares_points:
+                    logger.warning(f"CASH_PER_SHARE [{ticker_symbol}]: No valid quarterly shares points (primary or fallback) after parsing. No Cash/Share data.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+
+                # 4. Calculate point-in-time Cash/Share
+                # For each quarterly cash point, find the latest shares figure and calculate.
+                point_in_time_cash_per_share_series: List[Dict[str, Any]] = []
+                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Starting point-in-time Cash/Share calculation.")
+
+                for cash_point in quarterly_cash_points:
+                    current_cash_date = cash_point['date_obj']
+                    current_cash_value = cash_point['value']
+
+                    latest_shares_value = None
+                    latest_shares_date = None
+                    for sp in reversed(quarterly_shares_points): # Iterate backwards (latest first)
+                        if sp['date_obj'] <= current_cash_date:
+                            latest_shares_value = sp['value']
+                            latest_shares_date = sp['date_obj']
+                            logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: For cash date {current_cash_date.strftime('%Y-%m-%d')} (value: {current_cash_value}), using shares {latest_shares_value} from {latest_shares_date.strftime('%Y-%m-%d')} (source: {sp['source']})")
+                            break
+                    
+                    if latest_shares_value is not None and latest_shares_value != 0:
+                        cash_per_share_value = current_cash_value / latest_shares_value
+                        logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Calculated C/S at {current_cash_date.strftime('%Y-%m-%d')}: {current_cash_value} / {latest_shares_value} = {cash_per_share_value}")
+                        point_in_time_cash_per_share_series.append({
+                            'date_obj': current_cash_date, 
+                            'value': cash_per_share_value
+                        })
+                    else:
+                        logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: No valid shares figure or shares were zero for cash date {current_cash_date.strftime('%Y-%m-%d')}. Shares value: {latest_shares_value}")
+
+                if not point_in_time_cash_per_share_series:
+                    logger.warning(f"CASH_PER_SHARE [{ticker_symbol}]: No point-in-time Cash/Share points could be calculated.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+                
+                # point_in_time_cash_per_share_series is already sorted by date due to iterating quarterly_cash_points
+
+                # 5. Generate daily series for the user-requested period by propagating the last known Cash/Share
+                daily_series: List[Dict[str, Any]] = []
+                current_iter_date = user_start_date_obj
+                last_known_val = None
+
+                # Find initial value for start of user period
+                for point in reversed(point_in_time_cash_per_share_series):
+                    if point['date_obj'] <= current_iter_date:
+                        last_known_val = point['value']
+                        logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Initial last_known_val for daily series (at or before {current_iter_date.strftime('%Y-%m-%d')}): {last_known_val} from {point['date_obj'].strftime('%Y-%m-%d')}")
+                        break
+                
+                if last_known_val is None and point_in_time_cash_per_share_series: 
+                    if point_in_time_cash_per_share_series[0]['date_obj'] <= user_end_date_obj: 
+                       logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: No C/S data at or before user start date {user_start_date_obj.strftime('%Y-%m-%d')}. Daily series will start from first available point: {point_in_time_cash_per_share_series[0]['date_obj'].strftime('%Y-%m-%d') if point_in_time_cash_per_share_series else 'N/A'}")
+                       pass
+
+                point_idx = 0
+                while current_iter_date <= user_end_date_obj:
+                    while point_idx < len(point_in_time_cash_per_share_series) and point_in_time_cash_per_share_series[point_idx]['date_obj'] <= current_iter_date:
+                        last_known_val = point_in_time_cash_per_share_series[point_idx]['value']
+                        point_idx += 1
+                    
+                    if last_known_val is not None:
+                        if point_in_time_cash_per_share_series and current_iter_date >= point_in_time_cash_per_share_series[0]['date_obj']:
+                            daily_series.append({'date': current_iter_date.strftime('%Y-%m-%d'), 'value': last_known_val})
+
+                    current_iter_date += timedelta(days=1)
+                
+                results_by_ticker[ticker_symbol] = daily_series
+                logger.info(f"CASH_PER_SHARE [{ticker_symbol}]: Successfully generated {len(daily_series)} daily Cash/Share data points.")
+
+            except Exception as e:
+                logger.error(f"CASH_PER_SHARE [{ticker_symbol}]: Unhandled error during processing: {e}", exc_info=True)
+                results_by_ticker[ticker_symbol] = []
+            
+        return results_by_ticker
+    # --- END: Cash/Share Calculation ---
+
+    # --- NEW: Cash + Short Term Investments / Share Calculation ---
+    async def _calculate_cash_plus_st_inv_per_share_for_tickers(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str],
+        end_date_str: Optional[str],
+        ticker_profiles_cache: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+        logger.info(f"CASH_PLUS_ST_INV_PER_SHARE: Starting calculation for tickers: {tickers}, start: {start_date_str}, end: {end_date_str}")
+
+        user_start_date_obj = self._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=365*5) # Default 5 years
+        user_end_date_obj = self._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+
+        fundamental_query_start_date_obj = user_start_date_obj - timedelta(days=180) # Approx 6 months buffer for shares alignment
+        fundamental_query_start_date_str = fundamental_query_start_date_obj.strftime('%Y-%m-%d')
+        fundamental_query_end_date_str = user_end_date_obj.strftime('%Y-%m-%d')
+
+        # Key difference: Use the field for Cash + Cash Equivalents + Short Term Investments
+        cash_field_id = "yf_item_balance_sheet_quarterly_CashCashEquivalentsAndShortTermInvestments"
+        primary_shares_field_id = "yf_item_income_statement_quarterly_DilutedAverageShares"
+        fallback_shares_field_id = "yf_item_balance_sheet_quarterly_ShareIssued"
+
+        for ticker_symbol in tickers:
+            try:
+                logger.debug(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Fetching cash+ST data ({cash_field_id}) between {fundamental_query_start_date_str} and {fundamental_query_end_date_str}")
+                cash_data_raw = await self.get_specific_field_timeseries(
+                    field_identifier=cash_field_id,
+                    tickers=[ticker_symbol],
+                    start_date_str=fundamental_query_start_date_str,
+                    end_date_str=fundamental_query_end_date_str
+                )
+                logger.debug(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Raw cash+ST data: {cash_data_raw.get(ticker_symbol)}")
+                
+                quarterly_cash_points: List[Dict[str, Any]] = []
+                if cash_data_raw.get(ticker_symbol):
+                    for item in cash_data_raw[ticker_symbol]:
+                        date_obj = self._parse_date_flex(item.get('date'))
+                        value = item.get('value')
+                        if date_obj and value is not None:
+                            try: quarterly_cash_points.append({'date_obj': date_obj, 'value': float(value)})
+                            except (ValueError, TypeError): pass
+                    quarterly_cash_points.sort(key=lambda x: x['date_obj'])
+                    logger.info(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Parsed {len(quarterly_cash_points)} quarterly cash+ST points.")
+                else:
+                    logger.warning(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: No quarterly cash+ST data found using {cash_field_id}. Skipping.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+
+                # Shares fetching logic (identical to Cash/Share)
+                logger.debug(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Fetching primary shares data ({primary_shares_field_id})")
+                shares_data_primary_raw = await self.get_specific_field_timeseries(
+                    field_identifier=primary_shares_field_id,
+                    tickers=[ticker_symbol],
+                    start_date_str=fundamental_query_start_date_str,
+                    end_date_str=fundamental_query_end_date_str
+                )
+                logger.debug(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Raw primary shares data: {shares_data_primary_raw.get(ticker_symbol)}")
+                quarterly_shares_points: List[Dict[str, Any]] = []
+                if shares_data_primary_raw.get(ticker_symbol):
+                    for item in shares_data_primary_raw[ticker_symbol]:
+                        date_obj = self._parse_date_flex(item.get('date'))
+                        value = item.get('value')
+                        if date_obj and value is not None and float(value) != 0:
+                            try: quarterly_shares_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'primary'})
+                            except (ValueError, TypeError): pass
+                    logger.info(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Parsed {len(quarterly_shares_points)} primary quarterly shares points.")
+
+                logger.debug(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Fetching fallback shares data ({fallback_shares_field_id})")
+                shares_data_fallback_raw = await self.get_specific_field_timeseries(
+                    field_identifier=fallback_shares_field_id,
+                    tickers=[ticker_symbol],
+                    start_date_str=fundamental_query_start_date_str,
+                    end_date_str=fundamental_query_end_date_str
+                )
+                logger.debug(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Raw fallback shares data: {shares_data_fallback_raw.get(ticker_symbol)}")
+                fallback_shares_added_count = 0
+                if shares_data_fallback_raw.get(ticker_symbol):
+                    for item in shares_data_fallback_raw[ticker_symbol]:
+                        date_obj = self._parse_date_flex(item.get('date'))
+                        value = item.get('value')
+                        if date_obj and value is not None and float(value) != 0:
+                            is_duplicate_date = any(sp['date_obj'] == date_obj for sp in quarterly_shares_points)
+                            if not is_duplicate_date:
+                                try: 
+                                    quarterly_shares_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'fallback'})
+                                    fallback_shares_added_count +=1
+                                except (ValueError, TypeError): pass
+                    logger.info(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Added {fallback_shares_added_count} fallback quarterly shares points.")
+                
+                quarterly_shares_points.sort(key=lambda x: x['date_obj'])
+                
+                if not quarterly_cash_points:
+                    logger.warning(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: No valid quarterly cash+ST points. No data.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+                if not quarterly_shares_points:
+                    logger.warning(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: No valid quarterly shares points. No data.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+
+                # Point-in-time calculation (identical to Cash/Share)
+                point_in_time_series: List[Dict[str, Any]] = []
+                for cash_point in quarterly_cash_points:
+                    current_cash_date = cash_point['date_obj']
+                    current_cash_value = cash_point['value']
+                    latest_shares_value = None
+                    for sp in reversed(quarterly_shares_points):
+                        if sp['date_obj'] <= current_cash_date:
+                            latest_shares_value = sp['value']
+                            break
+                    if latest_shares_value is not None and latest_shares_value != 0:
+                        calculated_value = current_cash_value / latest_shares_value
+                        point_in_time_series.append({'date_obj': current_cash_date, 'value': calculated_value})
+
+                if not point_in_time_series:
+                    logger.warning(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: No point-in-time values calculated.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+                
+                # Daily series propagation (identical to Cash/Share)
+                daily_series: List[Dict[str, Any]] = []
+                current_iter_date = user_start_date_obj
+                last_known_val = None
+                for point in reversed(point_in_time_series):
+                    if point['date_obj'] <= current_iter_date:
+                        last_known_val = point['value']
+                        break
+                if last_known_val is None and point_in_time_series: 
+                    if point_in_time_series[0]['date_obj'] <= user_end_date_obj: 
+                       pass
+
+                point_idx = 0
+                while current_iter_date <= user_end_date_obj:
+                    while point_idx < len(point_in_time_series) and point_in_time_series[point_idx]['date_obj'] <= current_iter_date:
+                        last_known_val = point_in_time_series[point_idx]['value']
+                        point_idx += 1
+                    if last_known_val is not None:
+                         if point_in_time_series and current_iter_date >= point_in_time_series[0]['date_obj']:
+                            daily_series.append({'date': current_iter_date.strftime('%Y-%m-%d'), 'value': last_known_val})
+                    current_iter_date += timedelta(days=1)
+                
+                results_by_ticker[ticker_symbol] = daily_series
+                logger.info(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Generated {len(daily_series)} daily data points.")
+
+            except Exception as e:
+                logger.error(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Unhandled error: {e}", exc_info=True)
+                results_by_ticker[ticker_symbol] = []
+            
+        return results_by_ticker
+    # --- END: Cash + Short Term Investments / Share Calculation ---
+
+    # --- NEW: Price / (Cash + ST Investments / Share) Calculation ---
+    async def _calculate_price_to_cash_plus_st_inv_for_tickers(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str],
+        end_date_str: Optional[str],
+        ticker_profiles_cache: Dict[str, Dict[str, Any]] # Keep for consistency, though not directly used by this top-level ratio func
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        logger.info(f"PRICE_TO_CASH_PLUS_ST_INV: Calculation requested for {tickers} from {start_date_str} to {end_date_str}")
+
+        # 1. Get "Cash + ST Investments / Share" data
+        cash_st_inv_per_share_data_by_ticker = await self._calculate_cash_plus_st_inv_per_share_for_tickers(
+            tickers,
+            start_date_str,
+            end_date_str,
+            ticker_profiles_cache # Pass cache along
+        )
+
+        price_to_cash_results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+        price_api_base_url = "http://127.0.0.1:8000" # Placeholder: Needs to be the actual app's URL
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for ticker_symbol in tickers:
+                try:
+                    logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV: Processing {ticker_symbol}")
+                    cash_st_inv_series = cash_st_inv_per_share_data_by_ticker.get(ticker_symbol, [])
+                    
+                    if not cash_st_inv_series:
+                        logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV: No 'Cash+ST Inv/Share' data for {ticker_symbol}, cannot calculate Price/Cash+ST Inv.")
+                        price_to_cash_results_by_ticker[ticker_symbol] = []
+                        continue
+
+                    # Convert Cash+ST Inv/Share series to a dict for quick lookup by date
+                    cash_st_inv_map = {item['date']: item['value'] for item in cash_st_inv_series if item['value'] is not None}
+
+                    # 2. Fetch price data
+                    # Ensure start_date_str and end_date_str are valid for the price API
+                    # The price API requires start_date and end_date.
+                    # _calculate_cash_plus_st_inv_per_share_for_tickers has defaults if these are None.
+                    # We should ensure we use the same effective dates for price fetching.
+                    
+                    # Use the provided start_date_str and end_date_str directly.
+                    # If they were None for the cash_per_share call, they will be None here too,
+                    # and the price API might have its own defaults or error out.
+                    # It's better if calculate_synthetic_fundamental_timeseries enforces date provision for such ratios.
+                    # For now, assume start_date_str and end_date_str are provided as per P/E TTM logic.
+                    
+                    query_start_date = start_date_str
+                    query_end_date = end_date_str
+                    
+                    if not query_start_date or not query_end_date:
+                        # Fallback to a default range if not provided, e.g., last 1 year.
+                        # This should ideally be handled by the calling layer or have consistent defaults.
+                        default_end_obj = datetime.now()
+                        default_start_obj = default_end_obj - timedelta(days=365)
+                        query_start_date = default_start_obj.strftime("%Y-%m-%d")
+                        query_end_date = default_end_obj.strftime("%Y-%m-%d")
+                        logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV [{ticker_symbol}]: start_date or end_date not provided. Defaulting to 1 year: {query_start_date} to {query_end_date}")
+
+                    # Yahoo finance API end_date for price history is exclusive, so add 1 day for price fetch
+                    price_api_end_date_obj = datetime.strptime(query_end_date, "%Y-%m-%d") + timedelta(days=1)
+                    price_api_end_date_str = price_api_end_date_obj.strftime("%Y-%m-%d")
+                    
+                    price_api_url = f"{price_api_base_url}/api/v3/timeseries/price_history"
+                    params = {
+                        "ticker": ticker_symbol,
+                        "interval": "1d",
+                        "start_date": query_start_date,
+                        "end_date": price_api_end_date_str
+                    }
+                    logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV: Fetching price data for {ticker_symbol} from {price_api_url} with params {params}")
+                    
+                    response = await client.get(price_api_url, params=params)
+                    response.raise_for_status()
+                    price_data_raw = response.json()
+
+                    if not price_data_raw:
+                        logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV: No price data returned for {ticker_symbol} from {query_start_date} to {query_end_date}.")
+                        price_to_cash_results_by_ticker[ticker_symbol] = []
+                        continue
+                    
+                    logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV: Received {len(price_data_raw)} price points for {ticker_symbol}.")
+
+                    current_ratio_series: List[Dict[str, Any]] = []
+                    for price_point in price_data_raw:
+                        price_date_str_key = 'Date' if 'Date' in price_point else 'Datetime'
+                        if price_date_str_key not in price_point:
+                            logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV: Price point for {ticker_symbol} missing 'Date' or 'Datetime' key. Point: {price_point}")
+                            continue
+                        
+                        price_date_str = price_point[price_date_str_key].split("T")[0] # YYYY-MM-DD
+                        price_value = price_point.get('Close')
+
+                        if price_value is None:
+                            current_ratio_series.append({'date': price_date_str, 'value': None})
+                            continue
+
+                        cash_st_inv_value_for_date = cash_st_inv_map.get(price_date_str)
+
+                        if cash_st_inv_value_for_date is not None and cash_st_inv_value_for_date > 0: # Denominator must be positive
+                            ratio_value = float(price_value) / float(cash_st_inv_value_for_date)
+                            current_ratio_series.append({'date': price_date_str, 'value': ratio_value})
+                        else:
+                            # Log if cash_st_inv_value_for_date is missing for a price date, or if it's zero/negative
+                            # logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV [{ticker_symbol}] on {price_date_str}: Cash+ST Inv/Share value is {cash_st_inv_value_for_date}. Ratio set to None.")
+                            current_ratio_series.append({'date': price_date_str, 'value': None})
+                    
+                    price_to_cash_results_by_ticker[ticker_symbol] = current_ratio_series
+                    logger.info(f"PRICE_TO_CASH_PLUS_ST_INV: Calculated {len(current_ratio_series)} Price/Cash+ST Inv points for {ticker_symbol}.")
+
+                except httpx.HTTPStatusError as e:
+                    logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: HTTP error fetching price for {ticker_symbol}: {e.response.status_code} - {e.response.text}", exc_info=False)
+                    price_to_cash_results_by_ticker[ticker_symbol] = []
+                except httpx.RequestError as e:
+                    logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: Request error fetching price for {ticker_symbol}: {e}", exc_info=False)
+                    price_to_cash_results_by_ticker[ticker_symbol] = []
+                except Exception as e:
+                    logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: Error processing Price/Cash+ST Inv for {ticker_symbol}: {e}", exc_info=True)
+                    price_to_cash_results_by_ticker[ticker_symbol] = []
+        return price_to_cash_results_by_ticker
+    # --- END: Price / (Cash + ST Investments / Share) Calculation ---
+
     def _parse_date_flex(self, date_input: Union[str, datetime]) -> Optional[datetime]:
         """Helper to parse date string from various common DB formats or handle datetime object."""
         if isinstance(date_input, datetime):
-            return date_input
+            return date_input.replace(tzinfo=None) if date_input.tzinfo else date_input
         if isinstance(date_input, str):
             formats_to_try = [
                 "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", 
