@@ -1199,14 +1199,29 @@
                     let rateToEur = 1.0;
                     let rateFound = true;
                     if (currency === 'USD') {
-                        rateToEur = exchangeRates['USD'];
+                        // rateToEur = exchangeRates['USD']; // OLD WAY
+                        rateToEur = exchangeRates['EUR.USD']; // NEW WAY
                         if (typeof rateToEur !== 'number') rateFound = false;
                     } else if (currency === 'GBP') {
-                        rateToEur = exchangeRates['GBP']; 
+                        // rateToEur = exchangeRates['GBP']; // OLD WAY
+                        rateToEur = exchangeRates['EUR.GBP']; // NEW WAY
+                        if (typeof rateToEur !== 'number') rateFound = false;
+                    } else if (currency === 'CHF') { // Example: Add other currencies as needed
+                        rateToEur = exchangeRates['EUR.CHF']; // NEW WAY
                         if (typeof rateToEur !== 'number') rateFound = false;
                     } else if (currency !== 'EUR') {
-                        console.warn(`MaxPos Calc [${ticker}]: Unknown currency ${currency}. Assuming 1:1 EUR rate.`);
+                        // Attempt to dynamically build the key for other currencies
+                        const dynamicRateKey = `EUR.${currency}`;
+                        rateToEur = exchangeRates[dynamicRateKey];
+                        if (typeof rateToEur === 'number') {
+                            console.debug(`MaxPos Calc [${ticker}]: Used dynamic rate key ${dynamicRateKey} for ${currency}. Rate: ${rateToEur}`);
+                        } else {
+                            rateFound = false; // If dynamic key also not found or not a number
+                            console.warn(`MaxPos Calc [${ticker}]: Unknown currency ${currency} OR rate for ${dynamicRateKey} not found/invalid. Assuming 1:1 EUR rate. Rates:`, exchangeRates);
+                            // rateToEur remains 1.0 as default
+                        }
                     }
+                    // The existing 'if (!rateFound)' block will handle the warning if a rate isn't successfully retrieved.
                     if (!rateFound) {
                          console.warn(`MaxPos Calc [${ticker}]: FAILED - Exchange rate for ${currency} not found/invalid. Rates:`, exchangeRates);
                     } else {
@@ -1402,7 +1417,7 @@
 
         // --- WebSocket Connection for Auto-Refresh ---
         const wsProtocolTracker = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrlTracker = `${wsProtocolTracker}//${window.location.host}/ws/status`;
+        const wsUrlTracker = `${wsProtocolTracker}//${window.location.host}/ws/ibkr_status`; // UPDATED
         let socketTracker;
         let reconnectIntervalTracker = 1000; // Start with 1 second
         const maxReconnectIntervalTracker = 30000; // Cap at 30 seconds

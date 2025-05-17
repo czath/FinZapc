@@ -1467,16 +1467,21 @@ def create_app():
                         
                         # --- Re-calculate Value (EUR) --- 
                         raw_value_eur = 0.0
-                        usd_rate = exchange_rates.get('USD', 1.0) 
-                        gbp_rate = exchange_rates.get('GBP', 1.0) 
-                        if pos_currency == 'USD':
-                            raw_value_eur = mkt_value * usd_rate
-                        elif pos_currency == 'GBP':
-                            raw_value_eur = mkt_value * gbp_rate
-                        elif pos_currency == 'EUR':
+                        
+                        # Determine the correct key for the exchange rate lookup, e.g., "EUR.USD"
+                        # pos_currency is 'USD', 'GBP', etc.
+                        
+                        if pos_currency == 'EUR':
                             raw_value_eur = mkt_value
                         else:
-                            raw_value_eur = mkt_value # Assume 1:1 if rate unknown
+                            rate_key = f"EUR.{pos_currency}"
+                            exchange_rate_for_pos = exchange_rates.get(rate_key)
+                            
+                            if exchange_rate_for_pos is not None:
+                                raw_value_eur = mkt_value * exchange_rate_for_pos
+                            else:
+                                raw_value_eur = mkt_value # Fallback to 1:1 if specific EUR.XXX key not found
+                                logger.warning(f"[UI Read Root] Exchange rate for {rate_key} not found in {exchange_rates.keys()}. Using 1:1 for mkt_value {mkt_value} {pos_currency}.")
                         # --- End Value (EUR) --- 
                         
                         # --- Get Beta for calculation ---
@@ -1627,6 +1632,8 @@ def create_app():
                     del update_data['currency']
                 # <<< END FIX >>>
 
+                update_data['upd_mode'] = "user" # Set upd_mode to user
+
                 updated = await repository.update_account(account_id, update_data) # Assumes update_account exists
                 
                 if updated:
@@ -1645,6 +1652,40 @@ def create_app():
             except Exception as e:
                 logger.error(f"Error updating account {account_id}: {e}", exc_info=True)
                 raise HTTPException(status_code=500, detail=f"Error updating account: {str(e)}")
+
+        @app.post("/api/accounts/add", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
+        async def api_add_account(request: Request, payload: AccountPayload):
+            """API endpoint to add a new account."""
+            repository: SQLiteRepository = request.app.state.repository
+            account_id = payload.account_id
+            logger.info(f"Received API request to add account: {account_id}")
+
+            try:
+                # Check if account already exists (optional, save_account handles upsert but good for specific error)
+                existing_account = await repository.get_account_by_id(account_id)
+                if existing_account:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Account '{account_id}' already exists.")
+
+                account_data = payload.dict()
+                if 'currency' in account_data: # Keep the previous fix
+                    logger.debug(f"Removing 'currency' key from account_data for account {account_id} before saving.")
+                    del account_data['currency']
+                
+                account_data['upd_mode'] = "user" # Set upd_mode to user
+
+                saved_account = await repository.save_account(account_data)
+                
+                if saved_account:
+                    logger.info(f"Successfully added account {account_id}")
+                    return {"message": f"Account {account_id} added successfully.", "account": saved_account}
+                else:
+                    logger.error(f"Failed to save account {account_id} to database.")
+                    raise HTTPException(status_code=500, detail="Error saving account to database.")
+            except HTTPException as http_exc:
+                raise http_exc
+            except Exception as e:
+                logger.error(f"Error adding account {account_id}: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Error adding account: {str(e)}")
 
         @app.get("/api/positions")
         async def get_positions() -> Dict[str, List[Dict[str, Any]]]:
@@ -2152,16 +2193,21 @@ def create_app():
 
                     # Calculate Value (EUR) - needed for % NAV
                     raw_value_eur = 0.0
-                    usd_rate = exchange_rates_data.get('USD', 1.0)
-                    gbp_rate = exchange_rates_data.get('GBP', 1.0)
-                    if pos_currency == 'USD':
-                        raw_value_eur = mkt_value * usd_rate
-                    elif pos_currency == 'GBP':
-                        raw_value_eur = mkt_value * gbp_rate
-                    elif pos_currency == 'EUR':
+                    # usd_rate = exchange_rates_data.get('USD', 1.0) # OLD - REMOVE THIS LINE
+                    # gbp_rate = exchange_rates_data.get('GBP', 1.0) # OLD - REMOVE THIS LINE
+                    
+                    if pos_currency == 'EUR':
                         raw_value_eur = mkt_value
                     else:
-                        raw_value_eur = mkt_value # Assume 1:1 if rate unknown
+                        rate_key = f"EUR.{pos_currency}" # NEW: Construct the correct key
+                        exchange_rate_for_pos = exchange_rates_data.get(rate_key) # NEW: Use the key
+                        
+                        if exchange_rate_for_pos is not None:
+                            raw_value_eur = mkt_value * exchange_rate_for_pos
+                        else:
+                            raw_value_eur = mkt_value # Fallback to 1:1 if specific EUR.XXX key not found
+                            logger.warning(f"[Tracker] Exchange rate for {rate_key} not found in {exchange_rates_data.keys()}. Using 1:1 for mkt_value {mkt_value} {pos_currency}.")
+                    # --- End Value (EUR) calculation logic ---
 
                     # Apply formatting for fields needed by the popover
                     formatted_pos['value_percentage'] = f"{(raw_value_eur / raw_net_liq * 100):.2f}%" if raw_net_liq != 0 else "0.00%"

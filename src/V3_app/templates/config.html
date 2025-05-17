@@ -247,8 +247,14 @@
                                     <tr>
                                         <td>{{ currency }}</td>
                                         <td>
-                                            {# Always display as formatted text, remove input fields #}
-                                            {{ "%.4f"|format(rate) }}
+                                            {# Display 1/rate to show EUR per foreign unit, as DB stores foreign per EUR for EUR.XXX pairs #}
+                                            {% if rate is number and rate != 0 %}
+                                                {{ "%.4f"|format(1 / rate) }}
+                                            {% elif rate == 0 %}
+                                                N/A (rate is 0)
+                                            {% else %}
+                                                {{ rate }} {# Display as is if not a number (e.g., if it was an error string) #}
+                                            {% endif %}
                                         </td>
                                     </tr>
                                     {% endfor %}

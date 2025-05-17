@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log("WebSocket Handler Initializing...");
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws/status`;
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws/ibkr_status`;
     let socket;
     let reconnectInterval = 1000; // Start with 1 second
     const maxReconnectInterval = 30000; // Cap at 30 seconds

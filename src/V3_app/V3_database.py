@@ -216,7 +216,8 @@ metadata = MetaData()
 exchange_rates = Table(
     'exchange_rates', metadata,
     Column('currency', String, primary_key=True),
-    Column('rate', Float, nullable=False)
+    Column('rate', Float, nullable=False),
+    Column('conid', String, nullable=True) # ADDED conid column
 )
 
 class SQLiteRepository:
