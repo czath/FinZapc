@@ -76,9 +76,60 @@
             if (!existingEntry && requestedPeriod !== 'max') return;
         }
 
-        let newRangeStartEpoch = standardizedNewData.length > 0 ? standardizedNewData[0].dateEpoch : (requestedStartDateStr ? dateStringToUtcEpoch(requestedStartDateStr) : -Infinity) ;
-        let newRangeEndEpoch = standardizedNewData.length > 0 ? standardizedNewData[standardizedNewData.length - 1].dateEpoch : (requestedEndDateStr ? dateStringToUtcEpoch(requestedEndDateStr) : Infinity);
+        let newRangeStartEpoch, newRangeEndEpoch;
         let newPeriodType = requestedPeriod === 'max' ? 'max' : 'specific';
+
+        if (requestedPeriod === 'custom' && requestedStartDateStr && requestedEndDateStr) {
+            // For 'custom' periods, use the exact requested dates for the cache entry's range metadata
+            newRangeStartEpoch = dateStringToUtcEpoch(requestedStartDateStr);
+            newRangeEndEpoch = dateStringToUtcEpoch(requestedEndDateStr);
+            newPeriodType = 'specific'; // Ensure it's specific
+        } else if (requestedPeriod && requestedPeriod !== 'custom' && requestedPeriod !== 'max') { // Handles 'ytd', '1mo', etc.
+            // For predefined periods, use the calculated range for that period as the cache metadata
+            const calculatedRange = calculateDateRangeFromPeriod(requestedPeriod);
+            newRangeStartEpoch = calculatedRange.startEpoch;
+            newRangeEndEpoch = calculatedRange.endEpoch;
+            newPeriodType = 'specific'; // These are specific period requests
+
+            // Optional: Log if API data is unexpectedly outside the calculated period range
+            if (standardizedNewData.length > 0) {
+                const actualDataStart = standardizedNewData[0].dateEpoch;
+                const actualDataEnd = standardizedNewData[standardizedNewData.length - 1].dateEpoch;
+                // Check if actual data START is AFTER calculated period start OR actual data END is BEFORE calculated period end
+                // This indicates the API provided less data than the period implies.
+                // Or if actual data START is BEFORE calculated start AND actual data END is AFTER calculated end
+                // This indicates API provided more data.
+                // For caching purposes, we trust our calculated period for metadata.
+                if (actualDataStart > newRangeStartEpoch || actualDataEnd < newRangeEndEpoch) {
+                    // This log can be quite verbose if APIs often return slightly different ranges.
+                    // console.warn(LOG_PREFIX, `For period '${requestedPeriod}', API data range (${epochToDateString(actualDataStart)}-${epochToDateString(actualDataEnd)}) does not perfectly match calculated period range (${epochToDateString(newRangeStartEpoch)}-${epochToDateString(newRangeEndEpoch)}). Cache metadata uses calculated range.`);
+                }
+            }
+        } else if (standardizedNewData.length > 0) { 
+            // This branch now primarily handles 'max' requests if data exists,
+            // or if requestedPeriod was undefined/null but data was still fetched (less likely for current call patterns).
+            newRangeStartEpoch = standardizedNewData[0].dateEpoch;
+            newRangeEndEpoch = standardizedNewData[standardizedNewData.length - 1].dateEpoch;
+            // newPeriodType is already correctly 'max' if requestedPeriod was 'max', or 'specific' by default.
+        } else { 
+            // Fallback if no data points AND not a 'custom' or predefined period that sets its own dates.
+            // This usually means it was a 'max' request that returned no data, or an invalid request.
+            newRangeStartEpoch = (requestedPeriod === 'max') ? -Infinity : (requestedStartDateStr ? dateStringToUtcEpoch(requestedStartDateStr) : -Infinity);
+            newRangeEndEpoch = (requestedPeriod === 'max') ? Infinity : (requestedEndDateStr ? dateStringToUtcEpoch(requestedEndDateStr) : Infinity);
+            if (requestedPeriod !== 'max' && (!requestedStartDateStr || !requestedEndDateStr)) {
+                 newPeriodType = 'specific'; // Fallback for empty data on specific but incomplete requests
+            }
+        }
+        
+        // Ensure newRangeStartEpoch and newRangeEndEpoch are valid numbers, especially after dateStringToUtcEpoch
+        if (typeof newRangeStartEpoch !== 'number' || isNaN(newRangeStartEpoch)) {
+            newRangeStartEpoch = -Infinity; // Fallback for safety
+            console.warn(LOG_PREFIX, `Invalid start epoch calculated for ${cacheKey}, defaulting to -Infinity. Original params:`, {requestedPeriod, requestedStartDateStr});
+        }
+        if (typeof newRangeEndEpoch !== 'number' || isNaN(newRangeEndEpoch)) {
+            newRangeEndEpoch = Infinity; // Fallback for safety
+             console.warn(LOG_PREFIX, `Invalid end epoch calculated for ${cacheKey}, defaulting to Infinity. Original params:`, {requestedPeriod, requestedEndDateStr});
+        }
 
         // Store the parameters that led to this fetch for better 'max' handling later
         const originalRequestParams = { requestedPeriod, requestedStartDateStr, requestedEndDateStr };
@@ -132,7 +183,8 @@
         const { data: cachedData, fetchedRange } = cachedEntry;
         let targetStartEpoch, targetEndEpoch;
 
-        if (requestedPeriod && requestedPeriod !== 'custom' && requestedPeriod !== 'max') {
+        // Determine the target date range for the current request
+        if (requestedPeriod && requestedPeriod !== 'custom' && requestedPeriod !== 'max') { // e.g., 'ytd', '1mo', '2y'
             const range = calculateDateRangeFromPeriod(requestedPeriod);
             targetStartEpoch = range.startEpoch;
             targetEndEpoch = range.endEpoch;
@@ -140,41 +192,51 @@
             targetStartEpoch = dateStringToUtcEpoch(requestedStartDateStr);
             targetEndEpoch = dateStringToUtcEpoch(requestedEndDateStr);
         } else if (requestedPeriod === 'max') {
-            // For a 'max' request, if the cache has *any* data and its type is 'max', return it.
-            // If its type is 'specific' but it covers a very large range, one might also consider it a hit.
-            // For simplicity now: if 'max' is requested and cache has 'max' type, it's a hit.
-            // Otherwise, it's a miss for 'max' if the cached data isn't marked as 'max' period type.
-            // This encourages re-fetching with 'period=max' if a more complete dataset is desired by the user.
             if (fetchedRange.periodType === 'max') {
                 console.log(LOG_PREFIX, `Cache hit for ${cacheKey} (requested 'max', cached 'max'). Returning all ${cachedData.length} points.`);
-                return [...cachedData]; // Return a copy
+                return [...cachedData];
             } else {
                 console.log(LOG_PREFIX, `Cache partial miss for ${cacheKey} (requested 'max', but cached is 'specific' range: ${epochToDateString(fetchedRange.startEpoch)} to ${epochToDateString(fetchedRange.endEpoch)}). Fetching fresh 'max'.`);
-                return null; // Treat as miss to encourage a true 'max' fetch
+                return null; // Miss: Encourage a true 'max' fetch if current cache isn't 'max' type
             }
         } else {
             console.warn(LOG_PREFIX, `Invalid parameters for getPriceData for ${cacheKey}:`, {requestedPeriod, requestedStartDateStr, requestedEndDateStr});
-            return null; // Not enough info or invalid combo
+            return null;
         }
 
+        // Ensure targetStartEpoch and targetEndEpoch are valid numbers after calculation/parsing
         if (typeof targetStartEpoch !== 'number' || typeof targetEndEpoch !== 'number' || isNaN(targetStartEpoch) || isNaN(targetEndEpoch)) {
-             console.warn(LOG_PREFIX, `Could not determine valid target date range for ${cacheKey} from request.`, {targetStartEpoch, targetEndEpoch});
+             console.warn(LOG_PREFIX, `Could not determine valid target date range for ${cacheKey} from request.`, {targetStartEpoch, targetEndEpoch, requestedPeriod, requestedStartDateStr, requestedEndDateStr});
             return null;
         }
         
-        // Check for full containment for specific date ranges
-        if (fetchedRange.startEpoch <= targetStartEpoch && fetchedRange.endEpoch >= targetEndEpoch) {
+        // Now, check for containment based on the determined targetStartEpoch and targetEndEpoch
+        let isRangeCovered = false;
+        if (fetchedRange.periodType === 'max') {
+            // If cache is 'max', it covers any request that starts on/after its beginning and starts before/on its end.
+            // The filter will then correctly clip to the actual targetEndEpoch.
+            isRangeCovered = fetchedRange.startEpoch <= targetStartEpoch && targetStartEpoch <= fetchedRange.endEpoch;
+            if (isRangeCovered) {
+                console.log(LOG_PREFIX, `Cache check for ${cacheKey}: Cached 'max' period (${epochToDateString(fetchedRange.startEpoch)}-${epochToDateString(fetchedRange.endEpoch)}) covers requested start ${epochToDateString(targetStartEpoch)}.`);
+            } else {
+                 console.log(LOG_PREFIX, `Cache check for ${cacheKey}: Cached 'max' period (${epochToDateString(fetchedRange.startEpoch)}-${epochToDateString(fetchedRange.endEpoch)}) does NOT cover requested start ${epochToDateString(targetStartEpoch)}.`);
+            }
+        } else { // fetchedRange.periodType is 'specific'
+            isRangeCovered = fetchedRange.startEpoch <= targetStartEpoch && fetchedRange.endEpoch >= targetEndEpoch;
+        }
+
+        if (isRangeCovered) {
             const resultData = cachedData.filter(p => p.dateEpoch >= targetStartEpoch && p.dateEpoch <= targetEndEpoch);
             if (resultData.length > 0) {
-                console.log(LOG_PREFIX, `Cache hit for ${cacheKey}. Requested specific range: ${epochToDateString(targetStartEpoch)}-${epochToDateString(targetEndEpoch)}. Cached range: ${epochToDateString(fetchedRange.startEpoch)}-${epochToDateString(fetchedRange.endEpoch)}. Returning ${resultData.length} points.`);
-                return [...resultData]; // Return a copy
+                console.log(LOG_PREFIX, `Cache hit for ${cacheKey}. Requested range: ${epochToDateString(targetStartEpoch)}-${epochToDateString(targetEndEpoch)}. Cached type: ${fetchedRange.periodType}. Returning ${resultData.length} points.`);
+                return [...resultData];
             } else {
-                 console.log(LOG_PREFIX, `Cache hit for ${cacheKey} (range covered), but no data points for specific sub-range ${epochToDateString(targetStartEpoch)}-${epochToDateString(targetEndEpoch)}.`);
-                return []; // Covered, but no data in this exact slice
+                 console.log(LOG_PREFIX, `Cache hit for ${cacheKey} (range covered by ${fetchedRange.periodType}), but no data points for specific sub-range ${epochToDateString(targetStartEpoch)}-${epochToDateString(targetEndEpoch)}.`);
+                return []; 
             }
         }
         
-        console.log(LOG_PREFIX, `Cache miss for ${cacheKey}. Requested specific range ${epochToDateString(targetStartEpoch)}-${epochToDateString(targetEndEpoch)} not fully within cached range ${epochToDateString(fetchedRange.startEpoch)}-${epochToDateString(fetchedRange.endEpoch)}.`);
+        console.log(LOG_PREFIX, `Cache miss for ${cacheKey}. Requested range ${epochToDateString(targetStartEpoch)}-${epochToDateString(targetEndEpoch)} not fully within cached range ${epochToDateString(fetchedRange.startEpoch)}-${epochToDateString(fetchedRange.endEpoch)} (Type: ${fetchedRange.periodType}).`);
         return null;
     }
 

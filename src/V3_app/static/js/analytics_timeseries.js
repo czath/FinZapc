@@ -633,120 +633,130 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Event Handlers ---
     // --- NEW: Handler for Price History Study ---
     async function handleRunPriceHistory() {
-        console.log(LOG_PREFIX, "handleRunPriceHistory called.");
-        if (!priceHistoryIntervalSelect || !priceHistoryPeriodSelector || !priceHistoryTickerSourceRadios || !tsPhChartTypeSelect) {
-            console.error(LOG_PREFIX, "Essential UI elements for Price History not found!");
-            alert("Error: Essential UI components for Price History are missing.");
+        console.log(LOG_PREFIX, "Run Price History clicked.");
+        if (!priceHistoryRunButton || !priceHistoryIntervalSelect || !priceHistoryPeriodSelector || !priceHistoryTickerSourceRadios) {
+            alert("Essential Price History UI elements are missing. Please refresh the page.");
+            console.error(LOG_PREFIX, "Missing Price History UI elements.");
             return;
         }
 
-        let userStartDateStr = null; // MODIFIED: Declare here for wider scope
-        let userEndDateStr = null; // MODIFIED: Declare here for wider scope
-        let rangeDetails; // NEW: To hold range info for renderTimeseriesChart
+        showLoadingIndicator(true);
+        if (priceHistoryRunButton) priceHistoryRunButton.disabled = true;
 
-        const tickerSourceChecked = document.querySelector('input[name="tsPhTickerSource"]:checked');
-        if (!tickerSourceChecked) {
-            console.error(LOG_PREFIX, "No ticker source selected.");
-            alert("Please select a ticker source (Loaded or Manual).");
-            return;
-        }
-        const tickerSource = tickerSourceChecked.value;
         let ticker = '';
+        const selectedSource = Array.from(priceHistoryTickerSourceRadios).find(radio => radio.checked).value;
 
-        if (tickerSource === 'loaded') {
-            if (!priceHistoryLoadedTickerSelect || priceHistoryLoadedTickerSelect.value === "") {
-                alert("Please select a ticker from the loaded list."); 
-                return;
+        if (selectedSource === 'loaded') {
+            if (priceHistoryLoadedTickerSelect) {
+                ticker = priceHistoryLoadedTickerSelect.value;
             }
-            ticker = priceHistoryLoadedTickerSelect.value;
-        } else { // manual
-            if (!priceHistoryTickerInput) {
-                alert("Ticker manual input field not found."); return;
-            }
-            ticker = priceHistoryTickerInput.value.trim().toUpperCase();
             if (!ticker) {
-                alert("Please enter a ticker symbol manually.");
+                alert("Please select a ticker from the loaded list.");
+                showLoadingIndicator(false);
+                if (priceHistoryRunButton) priceHistoryRunButton.disabled = false;
                 return;
             }
+        } else { // manual
+            if (priceHistoryTickerInput) {
+                ticker = priceHistoryTickerInput.value.trim().toUpperCase();
+            }
+            if (!ticker) {
+                alert("Please enter a ticker symbol.");
+                showLoadingIndicator(false);
+                if (priceHistoryRunButton) priceHistoryRunButton.disabled = false;
+                return;
+            }
+        }
+
+        const interval = priceHistoryIntervalSelect.value;
+        const period = priceHistoryPeriodSelector.value;
+        let startDate = priceHistoryStartDateInput.value;
+        let endDate = priceHistoryEndDateInput.value;
+        const chartType = tsPhChartTypeSelect ? tsPhChartTypeSelect.value : 'line'; // Default to line if not found
+
+        console.log(LOG_PREFIX, `Price History Params: Ticker=${ticker}, Interval=${interval}, Period=${period}, Start=${startDate}, End=${endDate}, ChartType=${chartType}`);
+
+
+        if (period === 'custom') {
+            if (!startDate || !endDate) {
+                alert("For custom range, please select both Start and End dates.");
+                showLoadingIndicator(false);
+                if (priceHistoryRunButton) priceHistoryRunButton.disabled = false;
+                return;
+            }
+            if (new Date(startDate) >= new Date(endDate)) {
+                alert("Start Date must be before End Date for custom range.");
+                showLoadingIndicator(false);
+                if (priceHistoryRunButton) priceHistoryRunButton.disabled = false;
+                return;
+            }
+        } else {
+            // For non-custom periods, start/end dates are derived or ignored by API if period is 'max'
+            // No specific client-side validation needed here for start/end if period is not 'custom'
         }
         
-        const interval = priceHistoryIntervalSelect.value;
-        const selectedPeriod = priceHistoryPeriodSelector.value;
-        const chartType = tsPhChartTypeSelect.value;
-
-        if (!interval) {
-            alert("Please select an interval.");
-            return;
-        }
-
-        let queryParams = `ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}`; // MODIFIED: Initialize queryParams here
-
-        if (selectedPeriod === 'custom') {
-            if (!priceHistoryStartDateInput || !priceHistoryEndDateInput) {
-                console.error(LOG_PREFIX, "Price History Start/End Date inputs not found!");
-                alert("Error: Date input components are missing for custom range.");
-                return;
-            }
-            userStartDateStr = priceHistoryStartDateInput.value;
-            userEndDateStr = priceHistoryEndDateInput.value;
-
-            if (!userStartDateStr || !userEndDateStr) {
-                alert("Please select a start and end date for custom range.");
-                return;
-            }
-
-            const startDateObj = new Date(userStartDateStr);
-            const endDateObj = new Date(userEndDateStr);
-
-            // MODIFIED: Allow start date to be the same as end date for single-day queries.
-            if (startDateObj > endDateObj) {
-                alert("Start date must be before or the same as end date.");
-                return;
-            }
-
-            // Adjust end date for API to make it inclusive
-            const apiEndDateObj = new Date(endDateObj);
-            apiEndDateObj.setDate(apiEndDateObj.getDate() + 1);
-            const apiEndDateStr = apiEndDateObj.toISOString().split('T')[0];
-
-            queryParams += `&start_date=${encodeURIComponent(userStartDateStr)}&end_date=${encodeURIComponent(apiEndDateStr)}`;
-            rangeDetails = { start: userStartDateStr, end: userEndDateStr }; // NEW: Populate for custom range
-        } else {
-            queryParams += `&period=${encodeURIComponent(selectedPeriod)}`;
-            rangeDetails = { period: selectedPeriod }; // NEW: Populate for predefined period
-        }
-
-        const apiUrl = `/api/v3/timeseries/price_history?${queryParams}`;
-        console.log(LOG_PREFIX, `Fetching Price History from: ${apiUrl}`);
-        showLoadingIndicator(true);
-
-        try {
-            const response = await fetch(apiUrl);
-            // No need to await showLoadingIndicator(false) here, it's synchronous UI update
-
-            if (!response.ok) {
-                showLoadingIndicator(false); // Hide on error before alert
-                const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-                console.error(LOG_PREFIX, "Error fetching price history:", response.status, errorData);
-                alert(`Error fetching price history: ${errorData.detail || response.statusText}`);
-                return;
-            }
-
-            const data = await response.json();
-            showLoadingIndicator(false); // Hide on success after getting data
-            console.log(LOG_PREFIX, "Price History Data Received:", data);
-
-            if (data && data.length > 0) {
-                renderTimeseriesChart(data, ticker, interval, rangeDetails, chartType); // MODIFIED: Use rangeDetails
+        // MODIFICATION START: Try to get data from cache first
+        let apiData = null;
+        if (window.AnalyticsPriceCache) {
+            console.log(LOG_PREFIX, `Attempting to fetch ${ticker} ${interval} for period '${period}' (${startDate}-${endDate}) from cache.`);
+            apiData = window.AnalyticsPriceCache.getPriceData(ticker, interval, period, startDate, endDate);
+            if (apiData) {
+                console.log(LOG_PREFIX, `Cache HIT for ${ticker} ${interval}. Data points: ${apiData.length}`);
             } else {
-                renderTimeseriesChart([], ticker, interval, rangeDetails, chartType); // MODIFIED: Use rangeDetails
+                console.log(LOG_PREFIX, `Cache MISS for ${ticker} ${interval}. Will fetch from API.`);
             }
-
-        } catch (error) {
-            showLoadingIndicator(false);
-            console.error(LOG_PREFIX, "Network or other error fetching price history:", error);
-            alert(`Failed to fetch price history: ${error.message}`);
+        } else {
+            console.warn(LOG_PREFIX, "AnalyticsPriceCache module not found. Fetching directly from API.");
         }
+
+        if (apiData) { // If cache hit
+            renderTimeseriesChart(apiData, ticker, interval, { period, start: startDate, end: endDate }, chartType);
+            showLoadingIndicator(false);
+            if (priceHistoryRunButton) priceHistoryRunButton.disabled = false;
+        } else { // Cache miss or cache module not available, fetch from API
+            let apiUrl = '/api/v3/timeseries/price_history';
+            const params = new URLSearchParams();
+            params.append('ticker', ticker);
+            params.append('interval', interval);
+
+            if (period === 'custom' && startDate && endDate) {
+                params.append('start_date', startDate);
+                params.append('end_date', endDate);
+            } else if (period !== 'custom') {
+                params.append('period', period);
+                // For non-custom periods, API infers start/end. Do not send empty date strings.
+            }
+            apiUrl += `?${params.toString()}`;
+            console.log(LOG_PREFIX, "Fetching Price History from API:", apiUrl);
+
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ detail: "Unknown error during price history fetch." }));
+                    console.error(LOG_PREFIX, "API Error:", response.status, errorData);
+                    throw new Error(errorData.detail || `HTTP error ${response.status}`);
+                }
+                apiData = await response.json();
+                console.log(LOG_PREFIX, "API Response Data:", apiData ? apiData.length : 0, "points");
+
+                if (apiData && apiData.length > 0) {
+                    // MODIFICATION: Store fetched data in cache
+                    if (window.AnalyticsPriceCache) {
+                        console.log(LOG_PREFIX, `Storing ${ticker} ${interval} (Period: '${period}', Start: '${startDate}', End: '${endDate}') in cache. Points: ${apiData.length}`);
+                        window.AnalyticsPriceCache.storePriceData(ticker, interval, apiData, period, startDate, endDate);
+                    }
+                    renderTimeseriesChart(apiData, ticker, interval, { period, start: startDate, end: endDate }, chartType);
+                } else {
+                    showPlaceholderWithMessage("No price data returned for the selected criteria.");
+                }
+            } catch (error) {
+                console.error(LOG_PREFIX, "Error fetching price history:", error);
+                showPlaceholderWithMessage(`Error: ${error.message}`);
+            } finally {
+                showLoadingIndicator(false);
+                if (priceHistoryRunButton) priceHistoryRunButton.disabled = false;
+            }
+        } // END Cache miss logic
     }
 
     // --- NEW: Handler for Price Performance Comparison Study ---
@@ -758,7 +768,6 @@ document.addEventListener('DOMContentLoaded', function() {
             loadedTickers = Array.from(ppcLoadedTickerSelect.selectedOptions).map(option => option.value.trim().toUpperCase()).filter(t => t);
         } else {
             console.warn(LOG_PREFIX, "PPC Loaded ticker select not found.");
-            // alert("PPC Loaded ticker select not found."); // Optional: alert user or just proceed
         }
 
         let manualTickers = [];
@@ -771,7 +780,6 @@ document.addEventListener('DOMContentLoaded', function() {
             console.warn(LOG_PREFIX, "PPC Manual ticker textarea not found.");
         }
 
-        // Combine and deduplicate tickers
         const combinedTickers = [...new Set([...loadedTickers, ...manualTickers])];
 
         if (combinedTickers.length === 0) {
@@ -779,7 +787,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const selectedTickers = combinedTickers; // Use the combined and deduplicated list
+        const selectedTickers = combinedTickers;
         console.log(LOG_PREFIX, "Combined and deduplicated tickers for PPC:", selectedTickers);
 
         const interval = ppcIntervalSelect ? ppcIntervalSelect.value : null;
@@ -789,9 +797,13 @@ document.addEventListener('DOMContentLoaded', function() {
             alert("Interval or Period selector not found or value missing for PPC study."); return;
         }
 
-        let userStartDateStr = null;
-        let userEndDateStr = null;
-        let queryDateParams = {}; // Use this to build API params for dates/period
+        let userStartDateStr = null; // User's direct input for custom start
+        let userEndDateStr = null;   // User's direct input for custom end
+        
+        // Parameters for API query construction
+        let apiQueryStartDate = null;
+        let apiQueryEndDate = null;
+        let apiQueryPeriod = null;
 
         if (selectedPeriod === 'custom') {
             if (!ppcStartDateInput || !ppcEndDateInput) {
@@ -799,90 +811,131 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             userStartDateStr = ppcStartDateInput.value;
             userEndDateStr = ppcEndDateInput.value;
+
             if (!userStartDateStr || !userEndDateStr) {
                 alert("Please select a start and end date for PPC custom range."); return;
             }
-            const startDateObj = new Date(userStartDateStr);
-            const endDateObj = new Date(userEndDateStr);
-            if (startDateObj > endDateObj) {
-                alert("Start date must be before or the same as end date."); return;
+            if (new Date(userStartDateStr) >= new Date(userEndDateStr)) {
+                alert("Start date must be before end date for custom range."); return;
             }
-            const apiEndDateObj = new Date(endDateObj);
-            apiEndDateObj.setDate(apiEndDateObj.getDate() + 1);
             
-            // For API call
-            queryDateParams.start_date = userStartDateStr;
-            queryDateParams.end_date = apiEndDateObj.toISOString().split('T')[0];
+            apiQueryStartDate = userStartDateStr;
+            // API expects end_date to be inclusive, or rather, data up to the start of that day.
+            // If user selects 2023-12-31, they want data for that day.
+            // The existing logic adds 1 day for API, which is fine for API.
+            // For cache parameters, we'll use userStartDateStr and userEndDateStr directly.
+            const apiEndDateObj = new Date(userEndDateStr); // Use user's end date
+            apiEndDateObj.setDate(apiEndDateObj.getDate() + 1); // Add 1 day for API query to include user's end date
+            apiQueryEndDate = apiEndDateObj.toISOString().split('T')[0];
+
         } else {
-            // For API call
-            queryDateParams.period = selectedPeriod;
-            // userStartDateStr and userEndDateStr remain null for title purposes if period is not custom
+            apiQueryPeriod = selectedPeriod;
+            // userStartDateStr and userEndDateStr remain null if not 'custom'
         }
 
         console.log(LOG_PREFIX, "PPC Run with Tickers:", selectedTickers, 
                         "Interval:", interval, 
-                        "API Date Params:", queryDateParams, 
-                        "User Dates (for title if custom):", {start: userStartDateStr, end: userEndDateStr });
+                        "Selected Period:", selectedPeriod,
+                        "User Custom Dates:", {start: userStartDateStr, end: userEndDateStr},
+                        "API Query Dates/Period:", {start: apiQueryStartDate, end: apiQueryEndDate, period: apiQueryPeriod });
         
-        // alert(`Comparison study run triggered for tickers: ${selectedTickers.join(', ')}. Data fetching & normalization next.`);
         showLoadingIndicator(true);
+        if (ppcRunButton) ppcRunButton.disabled = true;
         showPlaceholderWithMessage('Fetching and processing data for comparison...');
 
-        const fetchPromises = selectedTickers.map(ticker => {
-            let apiParams = `ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}`;
-            if (queryDateParams.period) {
-                apiParams += `&period=${encodeURIComponent(queryDateParams.period)}`;
-            } else if (queryDateParams.start_date && queryDateParams.end_date) {
-                apiParams += `&start_date=${encodeURIComponent(queryDateParams.start_date)}&end_date=${encodeURIComponent(queryDateParams.end_date)}`;
+        const dataFetchPromises = selectedTickers.map(async (ticker) => {
+            let cachedData = null;
+            // Determine parameters for cache lookup and storage
+            const cacheLookupPeriod = selectedPeriod; // This is 'custom' or 'ytd', '1mo' etc.
+            const cacheLookupStartDate = userStartDateStr; // This is the user's specified start for 'custom'
+            const cacheLookupEndDate = userEndDateStr;   // This is the user's specified end for 'custom'
+
+            if (window.AnalyticsPriceCache) {
+                console.log(LOG_PREFIX, `[PPC] Attempting to fetch ${ticker} ${interval} (Period: '${cacheLookupPeriod}', Start: '${cacheLookupStartDate}', End: '${cacheLookupEndDate}') from cache.`);
+                cachedData = window.AnalyticsPriceCache.getPriceData(ticker, interval, cacheLookupPeriod, cacheLookupStartDate, cacheLookupEndDate);
+                if (cachedData) {
+                    console.log(LOG_PREFIX, `[PPC] Cache HIT for ${ticker} ${interval}. Data points: ${cachedData.length}`);
+                    return { ticker, data: cachedData };
+                } else {
+                    console.log(LOG_PREFIX, `[PPC] Cache MISS for ${ticker} ${interval}. Will fetch from API.`);
+                }
+            } else {
+                console.warn(LOG_PREFIX, "[PPC] AnalyticsPriceCache module not found. Fetching directly from API.");
             }
-            const apiUrl = `/api/v3/timeseries/price_history?${apiParams}`;
-            console.log(LOG_PREFIX, `Fetching for PPC: ${apiUrl}`);
-            return fetch(apiUrl)
-                .then(response => {
-                    if (!response.ok) {
-                        return response.json().catch(() => ({})).then(errData => {
-                            throw new Error(`HTTP error ${response.status} for ${ticker}: ${errData.detail || response.statusText}`);
-                        });
+
+            // Cache miss or module not found, proceed to fetch from API
+            const params = new URLSearchParams();
+            params.append('ticker', ticker);
+            params.append('interval', interval);
+
+            if (apiQueryPeriod) { // For non-custom periods like 'ytd', '1mo'
+                params.append('period', apiQueryPeriod);
+            } else if (apiQueryStartDate && apiQueryEndDate) { // For 'custom' period
+                params.append('start_date', apiQueryStartDate);
+                params.append('end_date', apiQueryEndDate);
+            }
+            
+            const apiUrl = `/api/v3/timeseries/price_history?${params.toString()}`;
+            console.log(LOG_PREFIX, `[PPC] Fetching for ${ticker} from API: ${apiUrl}`);
+
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(`HTTP error ${response.status} for ${ticker}: ${errorData.detail || response.statusText}`);
+                }
+                const apiData = await response.json();
+                console.log(LOG_PREFIX, `[PPC] API Response for ${ticker}: ${apiData ? apiData.length : 0} points`);
+
+                if (apiData && apiData.length > 0) {
+                    if (window.AnalyticsPriceCache) {
+                        console.log(LOG_PREFIX, `[PPC] Storing ${ticker} ${interval} (Period: '${cacheLookupPeriod}', Start: '${cacheLookupStartDate}', End: '${cacheLookupEndDate}') in cache. Points: ${apiData.length}`);
+                        // Use cacheLookupPeriod, cacheLookupStartDate, cacheLookupEndDate for storing
+                        window.AnalyticsPriceCache.storePriceData(ticker, interval, apiData, cacheLookupPeriod, cacheLookupStartDate, cacheLookupEndDate);
                     }
-                    return response.json();
-                })
-                .then(data => ({ ticker, data })) // Tag data with its ticker
-                .catch(error => ({ ticker, error: error.message || "Failed to fetch" })); // Tag error with ticker
+                    return { ticker, data: apiData };
+                } else {
+                    // Return error structure if no data, to be consistent with fetch failure
+                    return { ticker, error: "No data returned or empty dataset from API." };
+                }
+            } catch (error) {
+                console.error(LOG_PREFIX, `[PPC] Error fetching data for ${ticker}:`, error);
+                return { ticker, error: error.message || "Failed to fetch due to network or other error" };
+            }
         });
 
-        Promise.allSettled(fetchPromises)
+        Promise.allSettled(dataFetchPromises)
             .then(results => {
                 showLoadingIndicator(false);
+                if (ppcRunButton) ppcRunButton.disabled = false;
                 const successfullyFetchedData = [];
                 const errors = [];
 
                 results.forEach(result => {
                     if (result.status === 'fulfilled') {
-                        if (result.value.error) { // Our custom error tagging
+                        if (result.value.error) { 
                             errors.push(`${result.value.ticker}: ${result.value.error}`);
                         } else if (result.value.data && result.value.data.length > 0) {
                             successfullyFetchedData.push(result.value);
-                        } else {
-                            errors.push(`${result.value.ticker}: No data returned or empty dataset.`);
+                        } else { 
+                            errors.push(`${result.value.ticker}: No data after fetch (unexpected state).`);
                         }
-                    } else { // status === 'rejected' (network error, etc.)
-                        // For Promise.allSettled, error usually in result.reason
-                        // but our structure above puts it in result.value.error if HTTP error was caught by .catch()
-                        // This part might need adjustment based on exact error structure if fetch itself fails fundamentally.
-                        errors.push(`A ticker: Request failed - ${result.reason?.message || 'Unknown fetch error'}`); 
+                    } else { 
+                        errors.push(`A ticker (unknown): Request promise rejected - ${result.reason?.message || 'Unknown critical error'}`); 
                     }
                 });
 
                 if (errors.length > 0) {
-                    alert("Errors occurred during data fetching for comparison:\n" + errors.join("\n"));
+                    // Consider a more user-friendly way to display multiple errors if this becomes common
+                    alert("Errors occurred during data fetching for comparison (some tickers might be missing):\n" + errors.join("\n"));
                 }
 
                 if (successfullyFetchedData.length === 0) {
-                    showPlaceholderWithMessage("No data successfully fetched for any selected tickers for comparison.");
+                    showPlaceholderWithMessage("No data successfully obtained for any selected tickers for comparison.");
                     return;
                 }
 
-                // Normalize data
+                // Normalize data (this part remains the same)
                 const normalizedSeries = successfullyFetchedData.map(tickerDataObj => {
                     const { ticker, data } = tickerDataObj;
                     // Find the first valid data point to get the base price
@@ -941,10 +994,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 // For now, let's assume renderTimeseriesChart can handle this new data structure if we pass a special chartType
                 renderTimeseriesChart(normalizedSeries, `Comparison: ${normalizedSeries.map(s=>s.ticker).join(', ')}`, interval, titleRange, 'performance_comparison_line');
 
-            }).catch(overallError => {
+            }).catch(overallError => { // Catch for Promise.allSettled itself, though unlikely with individual catches
                 showLoadingIndicator(false);
-                console.error(LOG_PREFIX, "Generic error in Promise.allSettled for PPC:", overallError);
-                showPlaceholderWithMessage("An unexpected error occurred while processing comparison data.");
+                if (ppcRunButton) ppcRunButton.disabled = false;
+                console.error(LOG_PREFIX, "Critical error in Promise.allSettled for PPC:", overallError);
+                showPlaceholderWithMessage("An unexpected critical error occurred while processing comparison data.");
             });
     }
 
@@ -1000,10 +1054,14 @@ document.addEventListener('DOMContentLoaded', function() {
             alert("Interval or Period selector not found or value missing for PRP study."); return;
         }
 
-        let userStartDateStr = null;
-        let userEndDateStr = null;
-        let queryDateParams = {}; 
-        let rangeDetails; // For chart title
+        let userStartDateStr = null; // User's direct input for custom start
+        let userEndDateStr = null;   // User's direct input for custom end
+        
+        // Parameters for API query construction (and cache lookup)
+        let apiQueryStartDate = null;
+        let apiQueryEndDate = null;
+        let apiQueryPeriod = null;
+        let rangeDetails; // For chart title and cache parameters
 
         if (selectedPeriod === 'custom') {
             if (!prpStartDateInput || !prpEndDateInput) {
@@ -1016,50 +1074,101 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             const startDateObj = new Date(userStartDateStr);
             const endDateObj = new Date(userEndDateStr);
-            if (startDateObj > endDateObj) {
-                alert("Start date must be before or the same as end date."); return;
+            if (startDateObj >= endDateObj) { // Corrected: Should be >= for empty or invalid range
+                alert("Start date must be strictly before end date."); return;
             }
-            const apiEndDateObj = new Date(endDateObj);
-            apiEndDateObj.setDate(apiEndDateObj.getDate() + 1);
             
-            queryDateParams.start_date = userStartDateStr;
-            queryDateParams.end_date = apiEndDateObj.toISOString().split('T')[0];
-            rangeDetails = { start: userStartDateStr, end: userEndDateStr };
+            apiQueryStartDate = userStartDateStr;
+            // API expects end_date to be inclusive for the day.
+            // If user selects 2023-12-31, they want data up to and including that day.
+            // The API /price_history endpoint interprets end_date as exclusive if it's just a date (data up to start of that day).
+            // So, to include the user's selected end_date, we typically add 1 day for the API query.
+            // However, for cache consistency and user expectation, we'll use userStartDateStr and userEndDateStr directly for cache.
+            const apiEndDateObjForQuery = new Date(userEndDateStr);
+            apiEndDateObjForQuery.setDate(apiEndDateObjForQuery.getDate() + 1); // Add 1 day for API query to include the user's end date
+            apiQueryEndDate = apiEndDateObjForQuery.toISOString().split('T')[0];
+
+            rangeDetails = { start: userStartDateStr, end: userEndDateStr }; // Use user-provided dates for cache and title
+            // apiQueryPeriod remains null for custom
         } else {
-            queryDateParams.period = selectedPeriod;
-            rangeDetails = { period: selectedPeriod };
+            apiQueryPeriod = selectedPeriod; // e.g., 'ytd', '1mo'
+            // userStartDateStr and userEndDateStr remain null for non-custom
+            rangeDetails = { period: selectedPeriod }; // Use period for cache and title
+            // apiQueryStartDate and apiQueryEndDate remain null
         }
 
-        console.log(LOG_PREFIX, `PRP Run for ${ticker1}/${ticker2}, Interval: ${interval}, API Dates:`, queryDateParams);
+        console.log(LOG_PREFIX, `PRP Run for ${ticker1}/${ticker2}, Interval: ${interval}, Selected Period: ${selectedPeriod}, User Dates: ${userStartDateStr}-${userEndDateStr}, API Query: period=${apiQueryPeriod}, start=${apiQueryStartDate}, end=${apiQueryEndDate}`);
         showLoadingIndicator(true);
+        if (prpRunButton) prpRunButton.disabled = true;
         showPlaceholderWithMessage(`Fetching data for ${ticker1} and ${ticker2}...`);
 
         const tickersToFetch = [ticker1, ticker2];
-        const fetchPromises = tickersToFetch.map(ticker => {
-            let apiParams = `ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}`;
-            if (queryDateParams.period) {
-                apiParams += `&period=${encodeURIComponent(queryDateParams.period)}`;
-            } else if (queryDateParams.start_date && queryDateParams.end_date) {
-                apiParams += `&start_date=${encodeURIComponent(queryDateParams.start_date)}&end_date=${encodeURIComponent(queryDateParams.end_date)}`;
+        
+        // Use cacheLookupPeriod, cacheLookupStartDate, cacheLookupEndDate for cache operations.
+        // These will be 'selectedPeriod' (e.g. 'ytd') OR userStartDateStr/userEndDateStr for 'custom'.
+        const cacheLookupPeriod = selectedPeriod;
+        const cacheLookupStartDate = userStartDateStr; // Null if not 'custom'
+        const cacheLookupEndDate = userEndDateStr;     // Null if not 'custom'
+
+        const dataFetchPromises = tickersToFetch.map(async (ticker) => {
+            let cachedData = null;
+            if (window.AnalyticsPriceCache) {
+                console.log(LOG_PREFIX, `[PRP] Attempting to fetch ${ticker} ${interval} (Period: '${cacheLookupPeriod}', Start: '${cacheLookupStartDate}', End: '${cacheLookupEndDate}') from cache.`);
+                cachedData = window.AnalyticsPriceCache.getPriceData(ticker, interval, cacheLookupPeriod, cacheLookupStartDate, cacheLookupEndDate);
+                if (cachedData) {
+                    console.log(LOG_PREFIX, `[PRP] Cache HIT for ${ticker} ${interval}. Data points: ${cachedData.length}`);
+                    return { ticker, data: cachedData };
+                } else {
+                    console.log(LOG_PREFIX, `[PRP] Cache MISS for ${ticker} ${interval}. Will fetch from API.`);
+                }
+            } else {
+                console.warn(LOG_PREFIX, "[PRP] AnalyticsPriceCache module not found. Fetching directly from API.");
             }
-            const apiUrl = `/api/v3/timeseries/price_history?${apiParams}`;
-            console.log(LOG_PREFIX, `Fetching for PRP (${ticker}): ${apiUrl}`);
-            return fetch(apiUrl)
-                .then(response => {
-                    if (!response.ok) {
-                        return response.json().catch(() => ({})).then(errData => {
-                            throw new Error(`HTTP error ${response.status} for ${ticker}: ${errData.detail || response.statusText}`);
-                        });
+
+            // Cache miss or module not found, proceed to fetch from API
+            const params = new URLSearchParams();
+            params.append('ticker', ticker);
+            params.append('interval', interval);
+
+            if (apiQueryPeriod) { // For non-custom periods like 'ytd', '1mo'
+                params.append('period', apiQueryPeriod);
+            } else if (apiQueryStartDate && apiQueryEndDate) { // For 'custom' period
+                params.append('start_date', apiQueryStartDate);
+                params.append('end_date', apiQueryEndDate); // Use the API-adjusted end date
+            }
+            
+            const apiUrl = `/api/v3/timeseries/price_history?${params.toString()}`;
+            console.log(LOG_PREFIX, `[PRP] Fetching for ${ticker} from API: ${apiUrl}`);
+
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(`HTTP error ${response.status} for ${ticker}: ${errorData.detail || response.statusText}`);
+                }
+                const apiData = await response.json();
+                console.log(LOG_PREFIX, `[PRP] API Response for ${ticker}: ${apiData ? apiData.length : 0} points`);
+
+                if (apiData && apiData.length > 0) {
+                    if (window.AnalyticsPriceCache) {
+                        console.log(LOG_PREFIX, `[PRP] Storing ${ticker} ${interval} (Period: '${cacheLookupPeriod}', Start: '${cacheLookupStartDate}', End: '${cacheLookupEndDate}') in cache. Points: ${apiData.length}`);
+                        window.AnalyticsPriceCache.storePriceData(ticker, interval, apiData, cacheLookupPeriod, cacheLookupStartDate, cacheLookupEndDate);
                     }
-                    return response.json();
-                })
-                .then(data => ({ ticker, data }))
-                .catch(error => ({ ticker, error: error.message || "Failed to fetch" }));
+                    return { ticker, data: apiData };
+                } else {
+                    return { ticker, error: "No data returned or empty dataset from API." };
+                }
+            } catch (error) {
+                console.error(LOG_PREFIX, `[PRP] Error fetching data for ${ticker}:`, error);
+                return { ticker, error: error.message || "Failed to fetch due to network or other error" };
+            }
         });
 
-        Promise.allSettled(fetchPromises)
+
+        Promise.allSettled(dataFetchPromises)
             .then(results => {
                 showLoadingIndicator(false);
+                if (prpRunButton) prpRunButton.disabled = false;
                 const fetchedDataMap = new Map();
                 const errors = [];
 
@@ -1070,10 +1179,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         } else if (result.value.data && result.value.data.length > 0) {
                             fetchedDataMap.set(result.value.ticker, result.value.data);
                         } else {
-                            errors.push(`${result.value.ticker}: No data returned or empty dataset.`);
+                            errors.push(`${result.value.ticker}: No data returned or empty dataset (after fetch/cache).`);
                         }
-                    } else {
-                        errors.push(`A ticker (${result.reason?.config?.params?.ticker || 'unknown'}) request failed: ${result.reason?.message || 'Unknown fetch error'}`);
+                    } else { // status === 'rejected'
+                        // This path should ideally not be hit if individual fetches handle their errors and return a structured error object.
+                        // But as a fallback:
+                        errors.push(`A ticker request failed unexpectedly: ${result.reason?.message || 'Unknown critical fetch error'}`);
                     }
                 });
 
@@ -1114,12 +1225,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
 
                 console.log(LOG_PREFIX, "Calculated relative price ratios:", alignedRatios.length);
+                // Pass the originally determined rangeDetails (based on user input 'custom' or selectedPeriod) to the chart title
                 renderTimeseriesChart(alignedRatios, `${ticker1}/${ticker2}`, interval, rangeDetails, 'pair_relative_price_line');
 
-            }).catch(overallError => {
+            }).catch(overallError => { // Catch for Promise.allSettled itself, though unlikely with robust individual catches
                 showLoadingIndicator(false);
-                console.error(LOG_PREFIX, "Generic error in Promise.allSettled for PRP:", overallError);
-                showPlaceholderWithMessage("An unexpected error occurred while processing relative price data.");
+                if (prpRunButton) prpRunButton.disabled = false;
+                console.error(LOG_PREFIX, "Critical error in Promise.allSettled for PRP:", overallError);
+                showPlaceholderWithMessage("An unexpected critical error occurred while processing relative price data.");
             });
     }
 
