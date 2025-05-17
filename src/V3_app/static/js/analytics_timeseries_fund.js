@@ -1727,7 +1727,7 @@
                         backgroundColor: lineColors[colorIndex % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.1)'),
                         borderWidth: 1.5,
                         fill: false,
-                        pointRadius: 1,
+                        pointRadius: 0, // Set to 0 to hide points
                         tension: 0.1,
                         spanGaps: true 
                     });
