@@ -3,10 +3,14 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Union, Tuple
 import json
 import httpx
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import pandas as pd  # Add pandas import
 
 from .yahoo_repository import YahooDataRepository
 from .currency_utils import get_current_exchange_rate
-# from .yahoo_models import YahooTickerMasterModel # For type hinting if returning raw models
+from .price_cache import price_cache  # Add this import at the top with other imports
+import yfinance as yf  # Add this import at the top
 
 import logging
 logger = logging.getLogger(__name__)
@@ -39,7 +43,9 @@ OUTPUT_KEY_TO_DB_MAPPING = {
 
 class YahooDataQueryService:
     def __init__(self, db_repo: YahooDataRepository):
+        """Initialize the service with a repository instance."""
         self.db_repo = db_repo
+        logger.info("YahooDataQueryService initialized")
 
     async def _get_conversion_info_for_ticker(
         self, 
@@ -547,117 +553,129 @@ class YahooDataQueryService:
 
             pe_results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
 
-            # Determine the base URL for the internal price history API
-            # This is a simplification. In a real app, this would come from config or service discovery.
-            # Assuming the service runs on http://localhost:8000 or similar.
-            # For now, let's make it a placeholder that would need to be configured.
-            # THIS IS A CRITICAL PART THAT NEEDS A REAL URL FOR THE PRICE API WHEN DEPLOYED
-            # For local testing, if the main app runs on 8000, this might be http://127.0.0.1:8000
-            # It's generally better if services can access data stores directly rather than calling other API endpoints
-            # of the same application, but following the "replicate PFC/PFR" instruction which uses an API call.
-            price_api_base_url = "http://127.0.0.1:8000" # Placeholder: Needs to be the actual app's URL
+            for ticker_symbol in tickers:
+                try:
+                    logger.debug(f"PE_TTM: Processing {ticker_symbol}")
+                    eps_series = eps_data_by_ticker.get(ticker_symbol, [])
+                    if not eps_series:
+                        logger.warning(f"PE_TTM: No EPS data for {ticker_symbol}, cannot calculate P/E.")
+                        pe_results_by_ticker[ticker_symbol] = []
+                        continue
 
-            async with httpx.AsyncClient(timeout=30.0) as client: # Increased timeout
-                for ticker_symbol in tickers:
-                    try:
-                        logger.debug(f"PE_TTM: Processing {ticker_symbol}")
-                        eps_series = eps_data_by_ticker.get(ticker_symbol, [])
-                        if not eps_series:
-                            logger.warning(f"PE_TTM: No EPS data for {ticker_symbol}, cannot calculate P/E.")
-                            pe_results_by_ticker[ticker_symbol] = []
+                    # Convert EPS series to a dict for quick lookup
+                    eps_map = {item['date']: item['value'] for item in eps_series if item['value'] is not None}
+
+                    # Fetch price data using the service directly
+                    price_data = await self.get_price_history(
+                        ticker=ticker_symbol,
+                        interval="1d",
+                        start_date=start_date_str,
+                        end_date=end_date_str
+                    )
+
+                    if not price_data:
+                        logger.warning(f"PE_TTM: No price data returned for {ticker_symbol} from {start_date_str} to {end_date_str}.")
+                        pe_results_by_ticker[ticker_symbol] = []
+                        continue
+                    
+                    logger.debug(f"PE_TTM: Received {len(price_data)} price points for {ticker_symbol}.")
+
+                    current_pe_series: List[Dict[str, Any]] = []
+                    for price_point in price_data:
+                        price_date_str = price_point['Date'].split("T")[0]  # Ensure YYYY-MM-DD format
+                        price_value = price_point.get('Close')
+
+                        if price_value is None:
+                            current_pe_series.append({'date': price_date_str, 'value': None})
                             continue
 
-                        # Convert EPS series to a dict for quick lookup
-                        eps_map = {item['date']: item['value'] for item in eps_series if item['value'] is not None}
+                        eps_value_for_date = eps_map.get(price_date_str)
 
-                        # Fetch price data
-                        price_start_date_str = start_date_str
-                        # Yahoo finance API end_date is exclusive, so add 1 day for price fetch
-                        price_end_date_obj = datetime.strptime(end_date_str, "%Y-%m-%d") + timedelta(days=1)
-                        price_end_date_str = price_end_date_obj.strftime("%Y-%m-%d")
-                        
-                        price_api_url = f"{price_api_base_url}/api/v3/timeseries/price_history"
-                        params = {
-                            "ticker": ticker_symbol,
-                            "interval": "1d",
-                            "start_date": price_start_date_str,
-                            "end_date": price_end_date_str
-                        }
-                        logger.debug(f"PE_TTM: Fetching price data for {ticker_symbol} from {price_api_url} with params {params}")
-                        
-                        response = await client.get(price_api_url, params=params)
-                        response.raise_for_status() # Raise an exception for HTTP errors 4xx/5xx
-                        price_data_raw = response.json() # List of {'Date', 'Close', ...} or {'Datetime', ...}
+                        if eps_value_for_date is not None and eps_value_for_date > 0:  # P/E typically not shown for zero/negative EPS
+                            pe_value = float(price_value) / float(eps_value_for_date)
+                            current_pe_series.append({'date': price_date_str, 'value': pe_value})
+                        else:
+                            current_pe_series.append({'date': price_date_str, 'value': None})
+                    
+                    pe_results_by_ticker[ticker_symbol] = current_pe_series
+                    logger.info(f"PE_TTM: Calculated {len(current_pe_series)} P/E points for {ticker_symbol}.")
 
-                        if not price_data_raw:
-                            logger.warning(f"PE_TTM: No price data returned for {ticker_symbol} from {price_start_date_str} to {price_end_date_str}.")
-                            pe_results_by_ticker[ticker_symbol] = []
-                            continue
-                        
-                        logger.debug(f"PE_TTM: Received {len(price_data_raw)} price points for {ticker_symbol}.")
-
-                        current_pe_series: List[Dict[str, Any]] = []
-                        for price_point in price_data_raw:
-                            # Adjusting for potential date key variations from price API
-                            price_date_str_key = 'Date' if 'Date' in price_point else 'Datetime'
-                            if price_date_str_key not in price_point:
-                                logger.warning(f"PE_TTM: Price point for {ticker_symbol} missing 'Date' or 'Datetime' key. Point: {price_point}")
-                                continue
-                            
-                            price_date_str = price_point[price_date_str_key].split("T")[0] # Ensure YYYY-MM-DD format
-                            price_value = price_point.get('Close')
-
-                            if price_value is None:
-                                current_pe_series.append({'date': price_date_str, 'value': None})
-                                continue
-
-                            eps_value_for_date = eps_map.get(price_date_str)
-
-                            if eps_value_for_date is not None and eps_value_for_date > 0: # P/E typically not shown for zero/negative EPS
-                                pe_value = float(price_value) / float(eps_value_for_date)
-                                current_pe_series.append({'date': price_date_str, 'value': pe_value})
-                            else:
-                                current_pe_series.append({'date': price_date_str, 'value': None})
-                        
-                        pe_results_by_ticker[ticker_symbol] = current_pe_series
-                        logger.info(f"PE_TTM: Calculated {len(current_pe_series)} P/E points for {ticker_symbol}.")
-
-                    except httpx.HTTPStatusError as e:
-                        logger.error(f"PE_TTM: HTTP error fetching price for {ticker_symbol}: {e.response.status_code} - {e.response.text}", exc_info=False)
-                        pe_results_by_ticker[ticker_symbol] = []
-                    except httpx.RequestError as e:
-                        logger.error(f"PE_TTM: Request error fetching price for {ticker_symbol}: {e}", exc_info=False)
-                        pe_results_by_ticker[ticker_symbol] = []
-                    except Exception as e:
-                        logger.error(f"PE_TTM: Error processing P/E for {ticker_symbol}: {e}", exc_info=True)
-                        pe_results_by_ticker[ticker_symbol] = []
+                except Exception as e:
+                    logger.error(f"PE_TTM: Error processing P/E for {ticker_symbol}: {e}", exc_info=True)
+                    pe_results_by_ticker[ticker_symbol] = []
             return pe_results_by_ticker
         elif fundamental_name.upper() == "CASH_PER_SHARE_TTM":
             logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_cash_per_share_ttm_for_tickers.")
-            # Currency conversion for cash and shares components is handled within _calculate_cash_per_share_ttm_for_tickers
-            # by its calls to get_specific_field_timeseries.
             results_by_ticker = await self._calculate_cash_per_share_ttm_for_tickers(
                 tickers, start_date_str, end_date_str, {}
             )
             logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
-        elif fundamental_name.upper() == "CASH_PER_SHARE":
-            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_cash_per_share_for_tickers.")
-            results_by_ticker = await self._calculate_cash_per_share_for_tickers(
-                tickers, start_date_str, end_date_str, {}
-            )
-            logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
-        elif fundamental_name.upper() == "CASH_PLUS_ST_INV_PER_SHARE":
-            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_cash_plus_st_inv_per_share_for_tickers.")
-            results_by_ticker = await self._calculate_cash_plus_st_inv_per_share_for_tickers(
-                tickers, start_date_str, end_date_str, {}
-            )
-            logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
+            return results_by_ticker
         elif fundamental_name.upper() == "PRICE_TO_CASH_PLUS_ST_INV":
-            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_price_to_cash_plus_st_inv_for_tickers.")
-            results_by_ticker = await self._calculate_price_to_cash_plus_st_inv_for_tickers(
-                tickers, start_date_str, end_date_str, {} # Passing empty cache
+            logger.info(f"PRICE_TO_CASH_PLUS_ST_INV: Calculation requested for {tickers} from {start_date_str} to {end_date_str}")
+
+            # 1. Get "Cash + ST Investments / Share" data
+            cash_st_inv_per_share_data_by_ticker = await self._calculate_cash_plus_st_inv_per_share_for_tickers(
+                tickers,
+                start_date_str,
+                end_date_str,
+                {}  # Pass empty cache as it's not used
             )
-            logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
+
+            price_to_cash_results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+
+            for ticker_symbol in tickers:
+                try:
+                    logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV: Processing {ticker_symbol}")
+                    cash_st_inv_series = cash_st_inv_per_share_data_by_ticker.get(ticker_symbol, [])
+                    
+                    if not cash_st_inv_series:
+                        logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV: No 'Cash+ST Inv/Share' data for {ticker_symbol}, cannot calculate Price/Cash+ST Inv.")
+                        price_to_cash_results_by_ticker[ticker_symbol] = []
+                        continue
+
+                    # Convert Cash+ST Inv/Share series to a dict for quick lookup by date
+                    cash_st_inv_map = {item['date']: item['value'] for item in cash_st_inv_series if item['value'] is not None}
+
+                    # Fetch price data using the service directly
+                    price_data = await self.get_price_history(
+                        ticker=ticker_symbol,
+                        interval="1d",
+                        start_date=start_date_str,
+                        end_date=end_date_str
+                    )
+
+                    if not price_data:
+                        logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV: No price data returned for {ticker_symbol} from {start_date_str} to {end_date_str}.")
+                        price_to_cash_results_by_ticker[ticker_symbol] = []
+                        continue
+                    
+                    logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV: Received {len(price_data)} price points for {ticker_symbol}.")
+
+                    current_ratio_series: List[Dict[str, Any]] = []
+                    for price_point in price_data:
+                        price_date_str = price_point['Date'].split("T")[0]  # YYYY-MM-DD
+                        price_value = price_point.get('Close')
+
+                        if price_value is None:
+                            current_ratio_series.append({'date': price_date_str, 'value': None})
+                            continue
+
+                        cash_st_inv_value_for_date = cash_st_inv_map.get(price_date_str)
+
+                        if cash_st_inv_value_for_date is not None and cash_st_inv_value_for_date > 0:  # Denominator must be positive
+                            ratio_value = float(price_value) / float(cash_st_inv_value_for_date)
+                            current_ratio_series.append({'date': price_date_str, 'value': ratio_value})
+                        else:
+                            current_ratio_series.append({'date': price_date_str, 'value': None})
+                    
+                    price_to_cash_results_by_ticker[ticker_symbol] = current_ratio_series
+                    logger.info(f"PRICE_TO_CASH_PLUS_ST_INV: Calculated {len(current_ratio_series)} Price/Cash+ST Inv points for {ticker_symbol}.")
+
+                except Exception as e:
+                    logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: Error processing Price/Cash+ST Inv for {ticker_symbol}: {e}", exc_info=True)
+                    price_to_cash_results_by_ticker[ticker_symbol] = []
+            return price_to_cash_results_by_ticker
         else:
             logger.warning(f"Unsupported synthetic fundamental requested: {fundamental_name}")
             for ticker in tickers:
@@ -1328,6 +1346,150 @@ class YahooDataQueryService:
                 except ValueError: continue
             logger.warning(f"_parse_date_flex: Could not parse date string '{date_input}' with known formats.")
         return None
+
+    async def get_price_history(
+        self,
+        ticker: str,
+        interval: str = '1d',
+        period: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get price history data for a ticker, with caching support.
+        
+        Args:
+            ticker: The ticker symbol
+            interval: The price interval (e.g. '1d')
+            period: Optional period type (e.g. '1y', 'max', 'custom')
+            start_date: Optional start date for custom period
+            end_date: Optional end date for custom period
+            
+        Returns:
+            List of price data points
+        """
+        # Log the request parameters
+        logger.info(f"Price history request for {ticker}: interval={interval}, period={period}, start_date={start_date}, end_date={end_date}")
+        
+        # Determine the period type for caching
+        cache_period = period
+        if not period and (start_date and end_date):
+            cache_period = 'custom'
+        elif not period:
+            cache_period = 'max'  # Default to max if no period specified
+        
+        logger.debug(f"Using cache period: {cache_period} for {ticker}")
+
+        # Try to get from cache first
+        cached_data = price_cache.get_price_data(
+            ticker=ticker,
+            interval=interval,
+            period=cache_period,
+            start_date=start_date if cache_period == 'custom' else None,
+            end_date=end_date if cache_period == 'custom' else None
+        )
+
+        if cached_data is not None:
+            logger.info(f"PriceCache HIT for {ticker} {interval} {cache_period} - returning {len(cached_data)} data points")
+            return cached_data
+
+        logger.info(f"PriceCache MISS for {ticker} {interval} {cache_period} - fetching from API...")
+
+        # If not in cache, fetch from API
+        try:
+            # Fetch fresh data from yfinance
+            api_data = await self._fetch_price_from_api(ticker, interval, period, start_date, end_date)
+            
+            if api_data:
+                # Store in cache before returning
+                price_cache.store_price_data(
+                    ticker=ticker,
+                    interval=interval,
+                    data=api_data,
+                    period=cache_period,
+                    start_date=start_date if cache_period == 'custom' else None,
+                    end_date=end_date if cache_period == 'custom' else None
+                )
+                logger.info(f"PriceCache stored {len(api_data)} data points for {ticker} {interval} {cache_period}")
+                return api_data
+            
+            logger.warning(f"No price data returned from API for {ticker}")
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching price data for {ticker}: {str(e)}", exc_info=True)
+            raise
+
+    async def _fetch_price_from_api(
+        self,
+        ticker: str,
+        interval: str = '1d',
+        period: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Internal method to fetch price data from yfinance API.
+        
+        Args:
+            ticker: The ticker symbol
+            interval: The price interval (e.g. '1d')
+            period: Optional period type (e.g. '1y', 'max')
+            start_date: Optional start date for custom period
+            end_date: Optional end date for custom period
+            
+        Returns:
+            List of price data points with date and OHLCV data
+        """
+        try:
+            # Create yfinance Ticker object
+            yf_ticker = yf.Ticker(ticker)
+            
+            # Convert dates to datetime objects if provided
+            start_dt = None
+            end_dt = None
+            if start_date:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            if end_date:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            
+            # Use ThreadPoolExecutor to run yfinance's synchronous code
+            with ThreadPoolExecutor() as executor:
+                if period:
+                    # Use period-based fetch
+                    df = await asyncio.get_event_loop().run_in_executor(
+                        executor,
+                        lambda: yf_ticker.history(period=period, interval=interval)
+                    )
+                else:
+                    # Use date range-based fetch
+                    df = await asyncio.get_event_loop().run_in_executor(
+                        executor,
+                        lambda: yf_ticker.history(start=start_dt, end=end_dt, interval=interval)
+                    )
+            
+            if df.empty:
+                logger.warning(f"No price data returned from yfinance for {ticker}")
+                return []
+            
+            # Convert DataFrame to list of dicts
+            price_data = []
+            for index, row in df.iterrows():
+                price_point = {
+                    'Date': index.strftime('%Y-%m-%d'),
+                    'Open': float(row['Open']) if pd.notnull(row['Open']) else None,
+                    'High': float(row['High']) if pd.notnull(row['High']) else None,
+                    'Low': float(row['Low']) if pd.notnull(row['Low']) else None,
+                    'Close': float(row['Close']) if pd.notnull(row['Close']) else None,
+                    'Volume': int(row['Volume']) if pd.notnull(row['Volume']) else None
+                }
+                price_data.append(price_point)
+            
+            logger.info(f"Successfully fetched {len(price_data)} price points for {ticker}")
+            return price_data
+            
+        except Exception as e:
+            logger.error(f"Error fetching price data from yfinance for {ticker}: {str(e)}", exc_info=True)
+            raise
 
     # You can add more specific wrappers here for other TTM data or single-record items
     # For example:
