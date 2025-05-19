@@ -1528,6 +1528,18 @@
             earningsYieldOption.value = "EARNINGS_YIELD_TTM";
             earningsYieldOption.textContent = `${ratioIcon} Earnings Yield (TTM)`;
             sfRatioSelect.appendChild(earningsYieldOption);
+
+            // Add Operating CF/Share (TTM) option
+            const operatingCfPerShareOption = document.createElement('option');
+            operatingCfPerShareOption.value = "OPERATING_CF_PER_SHARE_TTM";
+            operatingCfPerShareOption.textContent = `${componentIcon} Operating CF/Share (TTM)`;
+            sfRatioSelect.appendChild(operatingCfPerShareOption);
+
+            // Add FCF/Share TTM option
+            const fcfPerShareOption = document.createElement('option');
+            fcfPerShareOption.value = "FCF_PER_SHARE_TTM";
+            fcfPerShareOption.textContent = `${componentIcon} FCF/Share (TTM)`;
+            sfRatioSelect.appendChild(fcfPerShareOption);
             
             const cashPerShareOption = document.createElement('option');
             cashPerShareOption.value = "CASH_PER_SHARE";
@@ -1773,6 +1785,10 @@
                     yAxisLabel = "P/E Ratio (TTM)";
                 } else if (selectedRatio === "EARNINGS_YIELD_TTM") {
                     yAxisLabel = "Earnings Yield % (TTM)";
+                } else if (selectedRatio === "OPERATING_CF_PER_SHARE_TTM") {
+                    yAxisLabel = "Operating CF/Share (TTM)";
+                } else if (selectedRatio === "FCF_PER_SHARE_TTM") {
+                    yAxisLabel = "FCF/Share (TTM)";
                 }
                 // --- NEW: Add yAxisLabel for Cash/Share (TTM) ---
                 else if (selectedRatio === "CASH_PER_SHARE") {
@@ -1796,6 +1812,11 @@
                 }
                 else if (selectedRatio === "PRICE_TO_BOOK_VALUE") {
                     yAxisLabel = "Price/Book Value Ratio";
+                }
+                // END NEW
+                // NEW: Add yAxisLabel for FCF/Share TTM
+                else if (selectedRatio === "FCF_PER_SHARE_TTM") {
+                    yAxisLabel = "FCF/Share (TTM)";
                 }
                 // END NEW
 
