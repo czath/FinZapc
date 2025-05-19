@@ -1522,6 +1522,12 @@
             peOption.textContent = `${ratioIcon} P/E (TTM)`;
             // peOption.style.color = "blue"; // REMOVED
             sfRatioSelect.appendChild(peOption);
+
+            // Add Earnings Yield option
+            const earningsYieldOption = document.createElement('option');
+            earningsYieldOption.value = "EARNINGS_YIELD_TTM";
+            earningsYieldOption.textContent = `${ratioIcon} Earnings Yield (TTM)`;
+            sfRatioSelect.appendChild(earningsYieldOption);
             
             const cashPerShareOption = document.createElement('option');
             cashPerShareOption.value = "CASH_PER_SHARE";
@@ -1765,6 +1771,8 @@
                     yAxisLabel = "EPS Value (TTM)";
                 } else if (selectedRatio === "PE_TTM") {
                     yAxisLabel = "P/E Ratio (TTM)";
+                } else if (selectedRatio === "EARNINGS_YIELD_TTM") {
+                    yAxisLabel = "Earnings Yield % (TTM)";
                 }
                 // --- NEW: Add yAxisLabel for Cash/Share (TTM) ---
                 else if (selectedRatio === "CASH_PER_SHARE") {

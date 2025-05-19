@@ -604,7 +604,53 @@ class YahooDataQueryService:
                     logger.error(f"PE_TTM: Error processing P/E for {ticker_symbol}: {e}", exc_info=True)
                     pe_results_by_ticker[ticker_symbol] = []
             return pe_results_by_ticker
-        elif fundamental_name.upper() == "CASH_PER_SHARE": # MODIFIED: Was "CASH_PER_SHARE_TTM"
+
+        elif fundamental_name.upper() == "EARNINGS_YIELD_TTM":
+            logger.info(f"Earnings Yield TTM calculation requested for {tickers} from {start_date_str} to {end_date_str}")
+            
+            # Reuse P/E calculation and invert the values
+            pe_data_by_ticker = await self.calculate_synthetic_fundamental_timeseries(
+                "PE_TTM",
+                tickers,
+                start_date_str,
+                end_date_str
+            )
+
+            earnings_yield_results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+
+            for ticker_symbol in tickers:
+                try:
+                    pe_series = pe_data_by_ticker.get(ticker_symbol, [])
+                    if not pe_series:
+                        logger.warning(f"EARNINGS_YIELD_TTM: No P/E data for {ticker_symbol}, cannot calculate Earnings Yield.")
+                        earnings_yield_results_by_ticker[ticker_symbol] = []
+                        continue
+
+                    # Invert P/E values to get Earnings Yield (1/PE)
+                    earnings_yield_series = []
+                    for pe_point in pe_series:
+                        if pe_point['value'] is not None and pe_point['value'] > 0:  # Avoid division by zero
+                            earnings_yield = (1.0 / float(pe_point['value'])) * 100.0  # Convert to percentage
+                            earnings_yield_series.append({
+                                'date': pe_point['date'],
+                                'value': earnings_yield
+                            })
+                        else:
+                            earnings_yield_series.append({
+                                'date': pe_point['date'],
+                                'value': None
+                            })
+                    
+                    earnings_yield_results_by_ticker[ticker_symbol] = earnings_yield_series
+                    logger.info(f"EARNINGS_YIELD_TTM: Calculated {len(earnings_yield_series)} Earnings Yield points for {ticker_symbol}.")
+
+                except Exception as e:
+                    logger.error(f"EARNINGS_YIELD_TTM: Error processing Earnings Yield for {ticker_symbol}: {e}", exc_info=True)
+                    earnings_yield_results_by_ticker[ticker_symbol] = []
+            
+            return earnings_yield_results_by_ticker
+
+        elif fundamental_name.upper() == "CASH_PER_SHARE":
             logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_cash_per_share_for_tickers.") # MODIFIED: Method name
             results_by_ticker = await self._calculate_cash_per_share_for_tickers( # MODIFIED: Method name
                 tickers, start_date_str, end_date_str, {}
