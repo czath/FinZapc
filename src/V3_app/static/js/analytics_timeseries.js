@@ -2,6 +2,72 @@ document.addEventListener('DOMContentLoaded', function() {
     const LOG_PREFIX = "TimeseriesModule:";
     console.log(LOG_PREFIX, "DOMContentLoaded event fired.");
 
+    // --- NEW: Define and Register Chart.js Crosshair Plugin ---
+    const customCrosshairPlugin = {
+        id: 'customCrosshair',
+        afterEvent: function(chart, eventArgs) {
+            const {chartArea} = chart;
+            const {event} = eventArgs;
+
+            if (event.type === 'mousemove') {
+                if (chartArea && event.x >= chartArea.left && event.x <= chartArea.right &&
+                    event.y >= chartArea.top && event.y <= chartArea.bottom) {
+                    chart.crosshair = { x: event.x, y: event.y }; 
+                    chart.draw(); 
+                } else {
+                     if (chart.crosshair) { 
+                        delete chart.crosshair;
+                        chart.draw();
+                     }
+                }
+            } else if (event.type === 'mouseout') { 
+                 if (chart.crosshair) {
+                    delete chart.crosshair;
+                    chart.draw();
+                 }
+            }
+        },
+        beforeDatasetsDraw: function(chart, args, pluginOptions) {
+            const {ctx, chartArea} = chart;
+            if (chart.crosshair && chart.crosshair.x && chartArea) {
+                ctx.save();
+                ctx.beginPath();
+                // Vertical line
+                ctx.moveTo(chart.crosshair.x, chartArea.top);
+                ctx.lineTo(chart.crosshair.x, chartArea.bottom);
+                
+                // Horizontal line
+                if (chart.crosshair.y) {
+                    ctx.moveTo(chartArea.left, chart.crosshair.y);
+                    ctx.lineTo(chartArea.right, chart.crosshair.y);
+                }
+
+                ctx.lineWidth = pluginOptions.width || 1;
+                ctx.strokeStyle = pluginOptions.color || 'rgba(100, 100, 100, 0.5)'; 
+                ctx.stroke();
+                ctx.restore();
+            }
+        },
+        defaults: {
+            width: 1,
+            color: 'rgba(128, 128, 128, 0.5)' // Default grey color
+        }
+    };
+    if (typeof Chart !== 'undefined') {
+        Chart.register(customCrosshairPlugin);
+    } else {
+        console.warn(LOG_PREFIX, "Chart object not defined when trying to register customCrosshairPlugin. Will attempt on DOMContentLoaded for Chart variable.");
+        document.addEventListener('DOMContentLoaded', () => { // Ensure Chart is available
+            if (typeof Chart !== 'undefined') {
+                Chart.register(customCrosshairPlugin);
+                console.log(LOG_PREFIX, "customCrosshairPlugin registered on DOMContentLoaded.");
+            } else {
+                console.error(LOG_PREFIX, "Chart object still not defined on DOMContentLoaded. customCrosshairPlugin will not work.");
+            }
+        });
+    }
+    // --- END NEW ---
+
     // --- Custom Chart.js Plugin for Last Value Indicator ---
     const lastValueIndicatorPlugin = {
         id: 'lastValueIndicator',
@@ -1653,6 +1719,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 },
                 plugins: {
+                    customCrosshair: { // NEW: Add customCrosshair plugin configuration
+                        // Options for the crosshair can be set here, e.g.:
+                        // color: 'rgba(0, 0, 0, 0.6)',
+                        // width: 1
+                        // Defaults will be used if not specified
+                    }, // END NEW
                     lastValueIndicator: { 
                         appChartType: chartType,
                         textColor: indicatorTextColor, 
@@ -2014,6 +2086,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     padding: { right: 60 }
                 },
                 plugins: {
+                    customCrosshair: { // NEW: Add customCrosshair plugin configuration
+                        // Options for the crosshair can be set here, e.g.:
+                        // color: 'rgba(0, 0, 0, 0.6)',
+                        // width: 1
+                        // Defaults will be used if not specified
+                    }, // END NEW
                     lastValueIndicator: { 
                         appChartType: finalChartType, // Use the actual chart type for plugin logic
                         textColor: indicatorTextColor,

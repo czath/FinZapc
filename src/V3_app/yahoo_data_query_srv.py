@@ -995,201 +995,198 @@ class YahooDataQueryService:
 
             results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
 
+            # Prepare date strings for internal calls that might expect them
+            # These are used for _get_quarterly_shares_series and _get_annual_shares_series
+            fcf_query_start_date_str = user_start_date_obj.strftime('%Y-%m-%d')
+            fcf_query_end_date_str = user_end_date_obj.strftime('%Y-%m-%d')
+
+
             for ticker_symbol in tickers:
                 final_fcf_per_share_series_for_ticker: List[Dict[str, Any]] = []
                 try:
                     logger.info(f"FCF_PER_SHARE_TTM: Processing ticker: {ticker_symbol}")
 
                     # 1. Data Fetching and Preparation (Quarterly)
-                    quarterly_lookback_start_obj = user_start_date_obj - timedelta(days=(365 * 1 + 30 * 9)) # Approx 1 year 9 months before user start
-                    logger.debug(f"FCF_PER_SHARE_TTM: Querying QUARTERLY cash flow statements for {ticker_symbol} from {quarterly_lookback_start_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}")
+                    quarterly_lookback_start_obj = user_start_date_obj - timedelta(days=(365 * 1 + 30 * 9)) 
+                    quarterly_lookback_start_str = quarterly_lookback_start_obj.strftime('%Y-%m-%d')
+                    
+                    logger.debug(f"FCF_PER_SHARE_TTM: Querying QUARTERLY cash flow statements for {ticker_symbol} from {quarterly_lookback_start_str} to {fcf_query_end_date_str}")
                     
                     quarterly_cash_flow_statements = await self.db_repo.get_data_items_by_criteria(
                         ticker=ticker_symbol,
                         item_type="CASH_FLOW_STATEMENT",
                         item_time_coverage="QUARTER",
-                        start_date=quarterly_lookback_start_obj,
-                        end_date=user_end_date_obj,
-                        order_by_key_date_desc=False # Fetch ascending for easier processing
+                        start_date=quarterly_lookback_start_obj, 
+                        end_date=user_end_date_obj, 
+                        order_by_key_date_desc=False 
                     )
                     quarterly_fcf_points: List[Dict[str, Any]] = []
                     
-                    # Get shares data using the helper for quarterly calculations
                     quarterly_shares_data_from_helper: List[Dict[str, Any]] = []
                     if quarterly_cash_flow_statements:
-                        min_q_date = min(self._parse_date_flex(qcf.get('item_key_date')) for qcf in quarterly_cash_flow_statements if self._parse_date_flex(qcf.get('item_key_date'))) if quarterly_cash_flow_statements else quarterly_lookback_start_obj
-                        max_q_date = max(self._parse_date_flex(qcf.get('item_key_date')) for qcf in quarterly_cash_flow_statements if self._parse_date_flex(qcf.get('item_key_date'))) if quarterly_cash_flow_statements else user_end_date_obj
+                        min_q_date_for_shares = min(self._parse_date_flex(qcf.get('item_key_date')) for qcf in quarterly_cash_flow_statements if self._parse_date_flex(qcf.get('item_key_date'))) if quarterly_cash_flow_statements else quarterly_lookback_start_obj
+                        max_q_date_for_shares = max(self._parse_date_flex(qcf.get('item_key_date')) for qcf in quarterly_cash_flow_statements if self._parse_date_flex(qcf.get('item_key_date'))) if quarterly_cash_flow_statements else user_end_date_obj
                         
-                        if min_q_date and max_q_date:
-                            logger.debug(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Fetching quarterly shares series via helper from {min_q_date.strftime('%Y-%m-%d')} to {max_q_date.strftime('%Y-%m-%d')}")
+                        if min_q_date_for_shares and max_q_date_for_shares:
+                            logger.debug(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Fetching quarterly shares series via helper from {min_q_date_for_shares.strftime('%Y-%m-%d')} to {max_q_date_for_shares.strftime('%Y-%m-%d')}")
                             quarterly_shares_data_from_helper = await self._get_quarterly_shares_series(
                                 ticker_symbol,
-                                min_q_date.strftime('%Y-%m-%d'),
-                                max_q_date.strftime('%Y-%m-%d')
+                                min_q_date_for_shares.strftime('%Y-%m-%d'),
+                                max_q_date_for_shares.strftime('%Y-%m-%d')
                             )
-                            logger.debug(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Helper returned {len(quarterly_shares_data_from_helper)} shares points.")
-
                     if quarterly_cash_flow_statements:
-                        logger.info(f"FCF_PER_SHARE_TTM: Found {len(quarterly_cash_flow_statements)} QUARTERLY statements for {ticker_symbol}.")
                         conversion_info = await self._get_conversion_info_for_ticker(ticker_symbol, {})
                         rate_to_apply, original_fin_curr, target_trade_curr = (conversion_info[2], conversion_info[1], conversion_info[0]) if conversion_info else (None, None, None)
-
                         for q_item in quarterly_cash_flow_statements:
                             payload = q_item.get('item_data_payload')
                             key_date_from_db = q_item.get('item_key_date')
                             if not isinstance(payload, dict) or not key_date_from_db: continue
-
                             current_payload = payload
-                            if rate_to_apply:
-                                current_payload = await self._apply_currency_conversion_to_payload(payload, rate_to_apply, original_fin_curr, target_trade_curr, "CASH_FLOW_STATEMENT")
-                            
+                            if rate_to_apply: current_payload = await self._apply_currency_conversion_to_payload(payload, rate_to_apply, original_fin_curr, target_trade_curr, "CASH_FLOW_STATEMENT")
                             q_date_obj = self._parse_date_flex(key_date_from_db)
                             if not q_date_obj: continue
-
-                            # Use Free Cash Flow directly from the database
                             fcf_value = current_payload.get("Free Cash Flow")
-                            
-                            # Get shares_value from the helper series
                             shares_value_for_q_fcf = None
                             if quarterly_shares_data_from_helper:
                                 for shares_point in reversed(quarterly_shares_data_from_helper):
                                     if shares_point['date_obj'] <= q_date_obj:
-                                        shares_value_for_q_fcf = shares_point['value']
-                                        break 
-                            else:
-                                logger.warning(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: No quarterly shares data from helper available for FCF date {q_date_obj.strftime('%Y-%m-%d')}")
-
+                                        shares_value_for_q_fcf = shares_point['value']; break
                             if fcf_value is not None and shares_value_for_q_fcf is not None and shares_value_for_q_fcf != 0:
-                                try: 
-                                    quarterly_fcf_points.append({
-                                        'date_obj': q_date_obj, 
-                                        'q_fcf_per_share': float(fcf_value) / float(shares_value_for_q_fcf)
-                                    })
-                                except (ValueError, TypeError) as e:
-                                    logger.warning(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Could not calculate quarterly FCF/Share for date {q_date_obj.strftime('%Y-%m-%d')}. FCF: {fcf_value}, Shares: {shares_value_for_q_fcf}. Error: {e}")
-
-                        if quarterly_fcf_points:
-                            quarterly_fcf_points.sort(key=lambda x: x['date_obj'])
-                            logger.debug(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Prepared {len(quarterly_fcf_points)} quarterly FCF/Share points.")
-                    else:
-                        logger.info(f"FCF_PER_SHARE_TTM: No QUARTERLY cash flow statements found for {ticker_symbol} in lookback period.")
+                                try: quarterly_fcf_points.append({'date_obj': q_date_obj, 'q_fcf_per_share': float(fcf_value) / float(shares_value_for_q_fcf)})
+                                except (ValueError, TypeError): logger.warning(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Error calculating quarterly FCF/Share for {q_date_obj}. FCF: {fcf_value}, Shares: {shares_value_for_q_fcf}.")
+                        if quarterly_fcf_points: quarterly_fcf_points.sort(key=lambda x: x['date_obj'])
 
                     # 2. Data Fetching and Preparation (Annual)
-                    annual_lookback_start_obj = user_start_date_obj - timedelta(days=(365 * 2 + 30 * 3)) # Approx 2 years 3 months before user start
+                    annual_lookback_start_obj = user_start_date_obj - timedelta(days=(365 * 2 + 30 * 3)) 
                     annual_lookback_start_str = annual_lookback_start_obj.strftime('%Y-%m-%d')
-                    # Ensure user_end_date_str for annual queries is derived from user_end_date_obj to handle None cases
-                    user_end_date_str_for_annual = user_end_date_obj.strftime('%Y-%m-%d')
-
-                    logger.debug(f"FCF_PER_SHARE_TTM: Querying ANNUAL cash flow statements for {ticker_symbol} from {annual_lookback_start_str} to {user_end_date_str_for_annual}")
+                    annual_query_end_date_str = user_end_date_obj.strftime('%Y-%m-%d')
+ 
                     annual_cash_flow_statements = await self.db_repo.get_data_items_by_criteria(
-                        ticker=ticker_symbol,
-                        item_type="CASH_FLOW_STATEMENT",
-                        item_time_coverage="FYEAR",
-                        start_date=annual_lookback_start_obj,
-                        end_date=user_end_date_obj,
-                        order_by_key_date_desc=False # Fetch ascending
+                        ticker=ticker_symbol, item_type="CASH_FLOW_STATEMENT", item_time_coverage="FYEAR",
+                        start_date=annual_lookback_start_obj, end_date=user_end_date_obj, order_by_key_date_desc=False 
                     )
-
-                    # NEW: Fetch annual shares using the helper
-                    logger.debug(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Fetching annual shares using helper from {annual_lookback_start_str} to {user_end_date_str_for_annual}")
                     annual_shares_data_from_helper = await self._get_annual_shares_series(
-                        ticker_symbol,
-                        annual_lookback_start_str,
-                        user_end_date_str_for_annual
+                        ticker_symbol, annual_lookback_start_str, annual_query_end_date_str
                     )
-
                     annual_fcf_points: List[Dict[str, Any]] = []
                     if annual_cash_flow_statements:
-                        logger.info(f"FCF_PER_SHARE_TTM: Found {len(annual_cash_flow_statements)} ANNUAL statements for {ticker_symbol}.")
                         conversion_info_annual = await self._get_conversion_info_for_ticker(ticker_symbol, {})
                         rate_annual, orig_curr_annual, target_curr_annual = (conversion_info_annual[2], conversion_info_annual[1], conversion_info_annual[0]) if conversion_info_annual else (None, None, None)
-
                         for an_item in annual_cash_flow_statements:
-                            payload = an_item.get('item_data_payload')
-                            key_date_from_db = an_item.get('item_key_date')
+                            payload = an_item.get('item_data_payload'); key_date_from_db = an_item.get('item_key_date')
                             if not isinstance(payload, dict) or not key_date_from_db: continue
-                            
                             current_payload = payload
-                            if rate_annual: # Apply conversion to CF value
-                                current_payload = await self._apply_currency_conversion_to_payload(payload, rate_annual, orig_curr_annual, target_curr_annual, "CASH_FLOW_STATEMENT")
-                            
+                            if rate_annual: current_payload = await self._apply_currency_conversion_to_payload(payload, rate_annual, orig_curr_annual, target_curr_annual, "CASH_FLOW_STATEMENT")
                             fy_date_obj = self._parse_date_flex(key_date_from_db)
                             if not fy_date_obj: continue
-
-                            # Use Free Cash Flow directly from the database
                             fcf_value = current_payload.get("Free Cash Flow")
-                            
-                            # MODIFIED: Get shares_value for this annual FCF date from the helper series
                             shares_value_for_annual_fcf = None
                             if annual_shares_data_from_helper:
                                 for shares_point in reversed(annual_shares_data_from_helper):
                                     if shares_point['date_obj'] <= fy_date_obj:
-                                        shares_value_for_annual_fcf = shares_point['value']
-                                        break
-                            
+                                        shares_value_for_annual_fcf = shares_point['value']; break
                             if fcf_value is not None and shares_value_for_annual_fcf is not None and shares_value_for_annual_fcf != 0:
-                                try: 
-                                    annual_fcf_points.append({
-                                        'date_obj': fy_date_obj, 
-                                        'annual_fcf_per_share': float(fcf_value) / float(shares_value_for_annual_fcf)
-                                    })
-                                except (ValueError, TypeError) as e:
-                                    logger.warning(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Could not calculate annual FCF/Share for date {fy_date_obj.strftime('%Y-%m-%d')}. FCF: {fcf_value}, Shares: {shares_value_for_annual_fcf}. Error: {e}")
-                        if annual_fcf_points:
-                            annual_fcf_points.sort(key=lambda x: x['date_obj'])
-                            logger.debug(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Prepared {len(annual_fcf_points)} annual FCF/Share points.")
-                    else:
-                        logger.info(f"FCF_PER_SHARE_TTM: No ANNUAL cash flow statements found for {ticker_symbol} in lookback period.")
+                                try: annual_fcf_points.append({'date_obj': fy_date_obj, 'annual_fcf_per_share': float(fcf_value) / float(shares_value_for_annual_fcf)})
+                                except (ValueError, TypeError): logger.warning(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Error calculating annual FCF/Share for {fy_date_obj}. FCF: {fcf_value}, Shares: {shares_value_for_annual_fcf}.")
+                        if annual_fcf_points: annual_fcf_points.sort(key=lambda x: x['date_obj'])
 
                     # 3. Main Daily Loop for Calculation
                     current_iter_date = user_start_date_obj
-                    points_by_q_ttm = 0
-                    points_by_annual = 0
-                    points_with_no_data = 0
-
                     while current_iter_date <= user_end_date_obj:
                         ttm_value_for_date: Optional[float] = None
-                        calc_method_for_date = "None"
-
-                        # Attempt Quarterly TTM for current_iter_date
-                        if quarterly_fcf_points: # Only attempt if there are any quarterly points at all
+                        if quarterly_fcf_points: 
                             relevant_q_fcf = [p for p in quarterly_fcf_points if p['date_obj'] <= current_iter_date]
                             if len(relevant_q_fcf) >= 4:
                                 last_four_q = sorted(relevant_q_fcf, key=lambda x: x['date_obj'], reverse=True)[:4]
-                                # Ensure these four quarters are distinct enough (e.g., span roughly a year)
-                                if len(last_four_q) == 4 and (last_four_q[0]['date_obj'] - last_four_q[3]['date_obj']).days > 270: # Approx 9 months span for 4 quarters
+                                if len(last_four_q) == 4 and (last_four_q[0]['date_obj'] - last_four_q[3]['date_obj']).days > 270: 
                                     ttm_value_for_date = sum(p['q_fcf_per_share'] for p in last_four_q)
-                                    calc_method_for_date = "Quarterly TTM"
-                        
                         if ttm_value_for_date is not None:
                             final_fcf_per_share_series_for_ticker.append({'date': current_iter_date.strftime("%Y-%m-%d"), 'value': ttm_value_for_date})
-                            points_by_q_ttm += 1
                         else:
-                            # Fallback to Annual FCF/Share for this specific current_iter_date
                             last_known_annual_val: Optional[float] = None
-                            if annual_fcf_points: # Only attempt if there are any annual points
-                                for point in reversed(annual_fcf_points): # Iterate from most recent annual
+                            if annual_fcf_points: 
+                                for point in reversed(annual_fcf_points): 
                                     if point['date_obj'] <= current_iter_date:
-                                        last_known_annual_val = point['annual_fcf_per_share']
-                                        break # Found the latest applicable annual figure
-                            
+                                        last_known_annual_val = point['annual_fcf_per_share']; break
                             final_fcf_per_share_series_for_ticker.append({'date': current_iter_date.strftime("%Y-%m-%d"), 'value': last_known_annual_val})
-                            if last_known_annual_val is not None:
-                                points_by_annual += 1
-                                calc_method_for_date = "Annual Fallback"
-                            else:
-                                points_with_no_data += 1
-                        
                         current_iter_date += timedelta(days=1)
-                    
                     results_by_ticker[ticker_symbol] = final_fcf_per_share_series_for_ticker
-                    logger.info(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Generated {len(final_fcf_per_share_series_for_ticker)} total FCF/Share points. Method stats - Quarterly TTM: {points_by_q_ttm}, Annual Fallback: {points_by_annual}, No Data: {points_with_no_data}")
-
                 except Exception as e:
                     logger.error(f"FCF_PER_SHARE_TTM: Critical error for {ticker_symbol}: {e}", exc_info=True)
-                    results_by_ticker[ticker_symbol] = [] # Ensure ticker entry exists even on error
-            
+                    results_by_ticker[ticker_symbol] = []
             return results_by_ticker
+        
+        elif fundamental_name.upper() == "P_OPER_CF_TTM":
+            logger.info(f"P/Operating CF TTM calculation requested for {tickers} from {start_date_str} to {end_date_str}")
+            oper_cf_per_share_data = await self.calculate_synthetic_fundamental_timeseries(
+                "OPERATING_CF_PER_SHARE_TTM", tickers, start_date_str, end_date_str
+            )
+            ratio_results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+            for ticker_symbol in tickers:
+                try:
+                    denominator_series = oper_cf_per_share_data.get(ticker_symbol, [])
+                    if not denominator_series:
+                        logger.warning(f"P_OPER_CF_TTM: No Operating CF/Share TTM data for {ticker_symbol}.")
+                        ratio_results_by_ticker[ticker_symbol] = []
+                        continue
+                    denominator_map = {item['date']: item['value'] for item in denominator_series if item['value'] is not None}
+                    price_data = await self.get_price_history(
+                        ticker=ticker_symbol, interval="1d", start_date=start_date_str, end_date=end_date_str
+                    )
+                    if not price_data:
+                        logger.warning(f"P_OPER_CF_TTM: No price data for {ticker_symbol}.")
+                        ratio_results_by_ticker[ticker_symbol] = []
+                        continue
+                    current_ratio_series: List[Dict[str, Any]] = []
+                    for price_point in price_data:
+                        price_date_str = price_point['Date'].split("T")[0]
+                        price_value = price_point.get('Close')
+                        denom_value = denominator_map.get(price_date_str)
+                        if price_value is not None and denom_value is not None and denom_value > 0: # Denom > 0
+                            current_ratio_series.append({'date': price_date_str, 'value': float(price_value) / float(denom_value)})
+                        else:
+                            current_ratio_series.append({'date': price_date_str, 'value': None})
+                    ratio_results_by_ticker[ticker_symbol] = current_ratio_series
+                except Exception as e:
+                    logger.error(f"P_OPER_CF_TTM: Error for {ticker_symbol}: {e}", exc_info=True)
+                    ratio_results_by_ticker[ticker_symbol] = []
+            return ratio_results_by_ticker
+
+        elif fundamental_name.upper() == "P_FCF_TTM":
+            logger.info(f"P/FCF TTM calculation requested for {tickers} from {start_date_str} to {end_date_str}")
+            fcf_per_share_data = await self.calculate_synthetic_fundamental_timeseries(
+                "FCF_PER_SHARE_TTM", tickers, start_date_str, end_date_str
+            )
+            ratio_results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+            for ticker_symbol in tickers:
+                try:
+                    denominator_series = fcf_per_share_data.get(ticker_symbol, [])
+                    if not denominator_series:
+                        logger.warning(f"P_FCF_TTM: No FCF/Share TTM data for {ticker_symbol}.")
+                        ratio_results_by_ticker[ticker_symbol] = []
+                        continue
+                    denominator_map = {item['date']: item['value'] for item in denominator_series if item['value'] is not None}
+                    price_data = await self.get_price_history(
+                        ticker=ticker_symbol, interval="1d", start_date=start_date_str, end_date=end_date_str
+                    )
+                    if not price_data:
+                        logger.warning(f"P_FCF_TTM: No price data for {ticker_symbol}.")
+                        ratio_results_by_ticker[ticker_symbol] = []
+                        continue
+                    current_ratio_series: List[Dict[str, Any]] = []
+                    for price_point in price_data:
+                        price_date_str = price_point['Date'].split("T")[0]
+                        price_value = price_point.get('Close')
+                        denom_value = denominator_map.get(price_date_str)
+                        if price_value is not None and denom_value is not None and denom_value != 0: # Denom != 0
+                            current_ratio_series.append({'date': price_date_str, 'value': float(price_value) / float(denom_value)})
+                        else:
+                            current_ratio_series.append({'date': price_date_str, 'value': None})
+                    ratio_results_by_ticker[ticker_symbol] = current_ratio_series
+                except Exception as e:
+                    logger.error(f"P_FCF_TTM: Error for {ticker_symbol}: {e}", exc_info=True)
+                    ratio_results_by_ticker[ticker_symbol] = []
+            return ratio_results_by_ticker
 
         else:
             logger.warning(f"calculate_synthetic_fundamental_timeseries: Unsupported fundamental_name '{fundamental_name}'")

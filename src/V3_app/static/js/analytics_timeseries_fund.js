@@ -1,6 +1,71 @@
 (function() {
     "use strict";
 
+    // NEW: Define and Register Chart.js Crosshair Plugin
+    const customCrosshairPlugin = {
+        id: 'customCrosshair',
+        afterEvent: function(chart, eventArgs) {
+            const {ctx, chartArea, scales} = chart;
+            const {event} = eventArgs;
+
+            if (event.type === 'mousemove') {
+                if (chartArea && event.x >= chartArea.left && event.x <= chartArea.right &&
+                    event.y >= chartArea.top && event.y <= chartArea.bottom) {
+                    chart.crosshair = { x: event.x, y: event.y }; 
+                    chart.draw(); 
+                } else {
+                     if (chart.crosshair) { 
+                        delete chart.crosshair;
+                        chart.draw();
+                     }
+                }
+            } else if (event.type === 'mouseout') { 
+                 if (chart.crosshair) {
+                    delete chart.crosshair;
+                    chart.draw();
+                 }
+            }
+        },
+        beforeDatasetsDraw: function(chart, args, pluginOptions) { // pluginOptions is the options block for this plugin
+            const {ctx, chartArea, scales} = chart;
+            if (chart.crosshair && chart.crosshair.x && chartArea) { // MODIFIED: Check for y as well for horizontal
+                ctx.save();
+                ctx.beginPath();
+                // Vertical line
+                ctx.moveTo(chart.crosshair.x, chartArea.top);
+                ctx.lineTo(chart.crosshair.x, chartArea.bottom);
+                
+                // NEW: Horizontal line
+                if (chart.crosshair.y) {
+                    ctx.moveTo(chartArea.left, chart.crosshair.y);
+                    ctx.lineTo(chartArea.right, chart.crosshair.y);
+                }
+                // END NEW
+
+                ctx.lineWidth = pluginOptions.width || 1;
+                ctx.strokeStyle = pluginOptions.color || 'rgba(100, 100, 100, 0.5)'; 
+                ctx.stroke();
+                ctx.restore();
+            }
+        },
+        defaults: { // Default options for the plugin if not specified in chart config
+            width: 1,
+            color: 'rgba(128, 128, 128, 0.5)' // Default grey color
+        }
+    };
+    // Assuming Chart object is globally available or will be when analytics_timeseries.js loads
+    // This registration should ideally happen after Chart.js library is loaded but before charts are created.
+    if (typeof Chart !== 'undefined') {
+        Chart.register(customCrosshairPlugin);
+    } else {
+        console.warn("[TimeseriesFundamentalsModule] Chart object not defined when trying to register customCrosshairPlugin. Plugin might not work if Chart.js loads later or is not global.");
+        // As a fallback, attempt to register when DOM is ready, though Chart might still not be defined.
+        // document.addEventListener('DOMContentLoaded', () => {
+        //     if (typeof Chart !== 'undefined') Chart.register(customCrosshairPlugin);
+        // });
+    }
+    // END NEW
+
     const LOG_PREFIX = "[TimeseriesFundamentalsModule]";
     let timeseriesChartInstance = null; // To hold the Chart.js instance for this module
     let fhTickerSelect = null; // Store globally within this IIFE
@@ -426,9 +491,20 @@
                 {
                     chartType: chartType, // 'line' or 'bar'
                     isTimeseries: true, // Indicate that x-axis is time
-                    // labelsForTimeAxis: chartLabels // This might be redundant if data is {x,y}
-                                                      // but leaving it for now doesn't hurt, Chart.js time scale
-                                                      // primarily uses the x-values from the data points.
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    hover: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        customCrosshair: {
+                            color: 'rgba(100, 100, 100, 0.7)', // Example: darker grey for this chart
+                            width: 1
+                        }
+                    }
                 }
             );
         } else {
@@ -790,7 +866,21 @@
                     chartType: 'line', // Overall chart will be line, individual datasets define their type if mixed
                     isTimeseries: true,
                     yAxesConfig: yAxesConfig,
-                    rangeDetails: {start: startDate, end: endDate} // For subtitle
+                    rangeDetails: {start: startDate, end: endDate}, // For subtitle
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    hover: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        customCrosshair: {
+                            color: 'rgba(120, 120, 120, 0.6)', 
+                            width: 1
+                        }
+                    }
                 }
             );
              if (pfcStatusLabel) pfcStatusLabel.textContent = `Chart loaded. Ticker: ${selectedTicker}, Range: ${startDate} to ${endDate}.`;
@@ -1221,7 +1311,21 @@
                     chartType: 'line', 
                     isTimeseries: true, 
                     yAxesConfig: yAxesConfig, 
-                    rangeDetails: {start: overallStartDateForDisplay, end: overallEndDateForDisplay}
+                    rangeDetails: {start: overallStartDateForDisplay, end: overallEndDateForDisplay},
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    hover: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        customCrosshair: {
+                            color: 'rgba(120, 120, 120, 0.6)', 
+                            width: 1
+                        }
+                    } 
                 }
             );
             if (pfrStatusLabel) pfrStatusLabel.innerHTML += `<br>PFR Chart Loaded. Range: ${overallStartDateForDisplay || 'N/A'} to ${overallEndDateForDisplay || 'N/A'}.`;
@@ -1571,6 +1675,20 @@
             sfRatioSelect.appendChild(priceToBookValueOption);
             // END NEW
 
+            // NEW: Add FCF/Share TTM option - This was re-added after book value, let's ensure correct order or consolidate
+            // The fcfPerShareOption is already added above. The duplicate from original template might be here.
+            // We will add the new P/Op CF and P/FCF TTM options after FCF/Share (TTM)
+
+            const pOperCfTtmOption = document.createElement('option');
+            pOperCfTtmOption.value = "P_OPER_CF_TTM";
+            pOperCfTtmOption.textContent = `${ratioIcon} P/Op CF (TTM)`;
+            sfRatioSelect.appendChild(pOperCfTtmOption);
+
+            const pFcfTtmOption = document.createElement('option');
+            pFcfTtmOption.value = "P_FCF_TTM";
+            pFcfTtmOption.textContent = `${ratioIcon} P/FCF (TTM)`;
+            sfRatioSelect.appendChild(pFcfTtmOption);
+
             // Select the first one by default if needed, or let HTML decide initial selected
             if (!sfRatioSelect.value) {
                  epsOption.selected = true;
@@ -1819,6 +1937,14 @@
                     yAxisLabel = "FCF/Share (TTM)";
                 }
                 // END NEW
+                // NEW: Add yAxisLabels for P/Op CF TTM and P/FCF TTM
+                else if (selectedRatio === "P_OPER_CF_TTM") {
+                    yAxisLabel = "Price/Operating CF (TTM)";
+                }
+                else if (selectedRatio === "P_FCF_TTM") {
+                    yAxisLabel = "Price/FCF (TTM)";
+                }
+                // END NEW
 
                 window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart(
                     datasets, 
@@ -1827,7 +1953,21 @@
                     {
                         chartType: 'line',
                         isTimeseries: true,
-                        rangeDetails: {start: startDate, end: endDate} 
+                        rangeDetails: {start: startDate, end: endDate},
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        hover: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        plugins: {
+                            customCrosshair: {
+                                color: 'rgba(120, 120, 120, 0.6)', 
+                                width: 1
+                            }
+                        } 
                     }
                 );
                 if (sfStatusLabel) sfStatusLabel.textContent = `Chart loaded for ${selectedRatio.replace(/_/g, ' ')}. Range: ${startDate || 'N/A'} to ${endDate || 'N/A'}.`;
