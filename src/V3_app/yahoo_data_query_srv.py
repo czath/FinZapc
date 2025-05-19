@@ -1381,7 +1381,7 @@ class YahooDataQueryService:
                         else:
                             points_with_no_data +=1
                             # logger.debug(f"EPS_TTM [{ticker_symbol}] Date {current_iter_date.strftime('%Y-%m-%d')}: No TTM and no Annual Fallback data available.")
-                    
+                        
                     # Optional: Log calc_method_for_date if needed for very detailed debugging
                     # logger.debug(f"EPS_TTM [{ticker_symbol}] Date {current_iter_date.strftime('%Y-%m-%d')}: Method='{calc_method_for_date}', Value={final_eps_series_for_ticker[-1]['value']}")
                     current_iter_date += timedelta(days=1)
@@ -2331,3 +2331,71 @@ class YahooDataQueryService:
         logger.info(f"ANNUAL_SHARES_HELPER [{ticker_symbol}]: Prepared {len(annual_shares_points)} annual shares points.")
         return annual_shares_points
     # --- END: _get_annual_shares_series helper ---
+
+    # --- NEW: Generic TTM Calculation Helper ---
+    def _calculate_ttm_value_generic(
+        self,
+        current_eval_date: datetime,
+        quarterly_points: List[Dict[str, Any]], # Expects {'date_obj': datetime, 'value_key': float}
+        annual_points: List[Dict[str, Any]],   # Expects {'date_obj': datetime, 'value_key': float}
+        value_key: str  # The key in the dicts that holds the numerical value (e.g., 'q_eps', 'annual_cf_per_share')
+    ) -> Optional[float]:
+        """
+        Calculates a Trailing Twelve Months (TTM) value for a given metric.
+
+        It first attempts to sum the values from the four most recent distinct quarterly reports
+        preceding or on the current_eval_date. The quarterly reports must span a reasonable period
+        (e.g., > 270 days between the newest and oldest of the four).
+
+        If a TTM value cannot be derived from quarterly data, it falls back to the most recent
+        annual data point on or before the current_eval_date.
+
+        Args:
+            current_eval_date: The date for which to calculate the TTM value.
+            quarterly_points: A list of dictionaries, each containing at least 'date_obj' (datetime)
+                              and the specified 'value_key' (float) for quarterly data.
+                              Must be sorted chronologically ascending by 'date_obj'.
+            annual_points: A list of dictionaries, similar to quarterly_points, for annual data.
+                           Must be sorted chronologically ascending by 'date_obj'.
+            value_key: The key within the dictionaries in quarterly_points and annual_points
+                       that contains the numeric value of the metric.
+
+        Returns:
+            The calculated TTM value as a float, or None if it cannot be determined.
+        """
+        ttm_value_from_quarters: Optional[float] = None
+
+        if quarterly_points:
+            relevant_q_points = [p for p in quarterly_points if p['date_obj'] <= current_eval_date and p.get(value_key) is not None]
+            if len(relevant_q_points) >= 4:
+                # Sort descending by date to easily pick the last four
+                last_four_q = sorted(relevant_q_points, key=lambda x: x['date_obj'], reverse=True)[:4]
+                # Ensure these four quarters are distinct enough (e.g., span roughly a year)
+                # and that all selected points actually have the value_key
+                if len(last_four_q) == 4 and (last_four_q[0]['date_obj'] - last_four_q[3]['date_obj']).days > 270:
+                    try:
+                        ttm_value_from_quarters = sum(float(p[value_key]) for p in last_four_q)
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"_calculate_ttm_value_generic: Error summing quarterly values for key '{value_key}'. Points: {last_four_q}. Error: {e}")
+                        ttm_value_from_quarters = None # Ensure it's None on error
+
+        if ttm_value_from_quarters is not None:
+            # logger.debug(f"_calculate_ttm_value_generic: Using TTM from quarters for {current_eval_date.strftime('%Y-%m-%d')}, value: {ttm_value_from_quarters}")
+            return ttm_value_from_quarters
+        else:
+            # Fallback to Annual data
+            last_known_annual_val: Optional[float] = None
+            if annual_points:
+                relevant_annual_points = [p for p in annual_points if p['date_obj'] <= current_eval_date and p.get(value_key) is not None]
+                if relevant_annual_points:
+                    # Get the most recent annual point
+                    most_recent_annual_point = max(relevant_annual_points, key=lambda x: x['date_obj'])
+                    try:
+                        last_known_annual_val = float(most_recent_annual_point[value_key])
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"_calculate_ttm_value_generic: Error converting annual value for key '{value_key}'. Point: {most_recent_annual_point}. Error: {e}")
+                        last_known_annual_val = None
+            
+            # logger.debug(f"_calculate_ttm_value_generic: Using Annual Fallback for {current_eval_date.strftime('%Y-%m-%d')}, value: {last_known_annual_val}")
+            return last_known_annual_val
+    # --- END: Generic TTM Calculation Helper ---

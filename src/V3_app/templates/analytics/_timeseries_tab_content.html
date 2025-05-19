@@ -508,25 +508,19 @@
                 </div>
 
                 <div class="mb-3">
-                    <label for="ts-sf-ratio-select" class="form-label form-label-sm">Select Metric / Ratio:</label>
+                    <label for="ts-sf-ratio-select" class="form-label form-label-sm">Select Ratio:</label>
                     <select id="ts-sf-ratio-select" class="form-select form-select-sm">
-                        <option value="EPS_TTM" selected>Diluted EPS (TTM)</option>
-                        <option value="PE_TTM">P/E (TTM)</option>
-                        <!-- More ratios can be added here -->
-                        <option value="CASH_PER_SHARE">Cash/Share</option>
-                        <option value="CASH_PLUS_ST_INV_PER_SHARE">Cash+ST Inv/Share</option>
-                        <option value="PRICE_TO_CASH_PLUS_ST_INV">Price/Cash+ST Inv</option>
-                        {# NEW: Book Value per Share options #}
-                        <option value="BOOK_VALUE_PER_SHARE">Book Value/Share</option>
-                        <option value="PRICE_TO_BOOK_VALUE">Price/Book Value</option>
-                        {# END NEW #}
-                        {# NEW: FCF/Share TTM option #}
+                        <option value="EPS_TTM" selected>EPS (TTM)</option>
+                        <option value="P_E_TTM">P/E (TTM)</option>
+                        <option value="DIVIDEND_YIELD_TTM">Dividend Yield (TTM)</option>
+                        <option value="OPERATING_CF_PER_SHARE_TTM">Operating CF/Share (TTM)</option>
                         <option value="FCF_PER_SHARE_TTM">FCF/Share (TTM)</option>
-                        {# END NEW #}
-                        {# NEW: P/Oper CF and P/FCF TTM options #}
+                        <option value="PRICE_TO_BOOK_VALUE">Price/Book Value</option>
                         <option value="P_OPER_CF_TTM">P/Op CF (TTM)</option>
                         <option value="P_FCF_TTM">P/FCF (TTM)</option>
-                        {# END NEW #}
+                        <!-- NEW: FCF Margin (TTM) option -->
+                        <option value="FCF_MARGIN_TTM">FCF Margin (TTM)</option>
+                        <!-- END NEW -->
                     </select>
                 </div>
                 

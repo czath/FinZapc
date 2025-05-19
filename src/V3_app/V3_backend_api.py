@@ -16,6 +16,8 @@ from .V3_yahoo_fetch import mass_load_yahoo_data_from_file, YahooDataRepository,
 from .dependencies import get_db # Assuming you have a get_db dependency provider
 from .yahoo_data_query_srv import YahooDataQueryService
 from .analytics_data_processor import AnalyticsDataProcessor # <-- IMPORT AnalyticsDataProcessor
+# NEW: Import YahooDataQueryAdvService
+from .yahoo_data_query_adv import YahooDataQueryAdvService
 
 router = APIRouter()
 
@@ -467,12 +469,29 @@ async def get_synthetic_fundamental_timeseries(
     - **end_date**: Optional end date for the timeseries (YYYY-MM-DD). Defaults to today if not provided.
     """
     try:
-        result = await query_service.calculate_synthetic_fundamental_timeseries(
-            fundamental_name=fundamental_name,
-            tickers=request_payload.tickers,
-            start_date_str=request_payload.start_date,
-            end_date_str=request_payload.end_date
-        )
+        # NEW: Logic to use YahooDataQueryAdvService for specific fundamentals
+        if fundamental_name.upper() == "FCF_MARGIN_TTM":
+            logger.info(f"Routing FCF_MARGIN_TTM to YahooDataQueryAdvService for tickers: {request_payload.tickers}")
+            # Assuming db_repo is accessible or can be passed if AdvService needs it directly.
+            # For now, AdvService constructor takes db_repo and base_query_srv.
+            # The base_query_srv already has db_repo.
+            adv_query_service = YahooDataQueryAdvService(
+                db_repo=query_service.db_repo, # Pass the db_repo from the base service
+                base_query_srv=query_service   # Pass the base service instance
+            )
+            result = await adv_query_service.calculate_fcf_margin_ttm(
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
+        # END NEW
+        else:
+            result = await query_service.calculate_synthetic_fundamental_timeseries(
+                fundamental_name=fundamental_name,
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
         return result
     except Exception as e:
         logger.error(f"Error in get_synthetic_fundamental_timeseries endpoint for {fundamental_name}: {e}", exc_info=True)

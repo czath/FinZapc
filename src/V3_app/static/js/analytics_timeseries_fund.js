@@ -1689,6 +1689,13 @@
             pFcfTtmOption.textContent = `${ratioIcon} P/FCF (TTM)`;
             sfRatioSelect.appendChild(pFcfTtmOption);
 
+            // NEW: Add FCF Margin (TTM) option
+            const fcfMarginTtmOption = document.createElement('option');
+            fcfMarginTtmOption.value = "FCF_MARGIN_TTM";
+            fcfMarginTtmOption.textContent = `${ratioIcon} FCF Margin (TTM)`; // Assuming it's a ratio for icon
+            sfRatioSelect.appendChild(fcfMarginTtmOption);
+            // END NEW
+
             // Select the first one by default if needed, or let HTML decide initial selected
             if (!sfRatioSelect.value) {
                  epsOption.selected = true;
@@ -1868,6 +1875,21 @@
                         y: point.value !== null ? (typeof point.value === 'string' ? parseFloat(point.value) : point.value) : null
                     }));
 
+                    // NEW: Log dataPoints for debugging
+                    if (selectedRatio === "FCF_MARGIN_TTM") {
+                        console.log(LOG_PREFIX, `[SF Debug] Ticker: ${ticker}, Ratio: ${selectedRatio}, Processed dataPoints:`, JSON.parse(JSON.stringify(dataPoints.slice(0, 20)))); // Log first 20 points
+                        // Check for all null values
+                        const allNull = dataPoints.every(p => p.y === null);
+                        if (allNull) {
+                            console.warn(LOG_PREFIX, `[SF Debug] All y-values are null for ${ticker} - ${selectedRatio}`);
+                        }
+                        const hasNaN = dataPoints.some(p => isNaN(p.y) && p.y !==null);
+                        if (hasNaN) {
+                            console.warn(LOG_PREFIX, `[SF Debug] Some y-values are NaN for ${ticker} - ${selectedRatio}`);
+                        }
+                    }
+                    // END NEW
+
                     datasets.push({
                         label: `${ticker} - ${selectedRatio.replace(/_/g, ' ')}`,
                         data: dataPoints,
@@ -1897,54 +1919,62 @@
                 let chartTitle = `${selectedRatio.replace(/_/g, ' ')} (${selectedTickers.join(', ')})`;
                 let yAxisLabel = "Calculated Value"; 
 
-                if (selectedRatio === "EPS_TTM") {
-                    yAxisLabel = "EPS Value (TTM)";
-                } else if (selectedRatio === "PE_TTM") {
-                    yAxisLabel = "P/E Ratio (TTM)";
-                } else if (selectedRatio === "EARNINGS_YIELD_TTM") {
-                    yAxisLabel = "Earnings Yield % (TTM)";
-                } else if (selectedRatio === "OPERATING_CF_PER_SHARE_TTM") {
-                    yAxisLabel = "Operating CF/Share (TTM)";
-                } else if (selectedRatio === "FCF_PER_SHARE_TTM") {
-                    yAxisLabel = "FCF/Share (TTM)";
+                // NEW: Check advanced module first for UI details
+                let advDetails = null;
+                if (window.TimeseriesFundamentalsAdvModule && typeof window.TimeseriesFundamentalsAdvModule.getSyntheticStudyUIDetails === 'function') {
+                    advDetails = window.TimeseriesFundamentalsAdvModule.getSyntheticStudyUIDetails(selectedRatio);
                 }
-                // --- NEW: Add yAxisLabel for Cash/Share (TTM) ---
-                else if (selectedRatio === "CASH_PER_SHARE") {
-                    yAxisLabel = "Cash/Share";
-                }
-                // --- END: Add yAxisLabel for Cash/Share (TTM) ---
 
-                // --- NEW: Add yAxisLabel for Cash+ST Inv/Share ---
-                else if (selectedRatio === "CASH_PLUS_ST_INV_PER_SHARE") {
-                    yAxisLabel = "Cash+ST Inv/Share";
+                if (advDetails && advDetails.yAxisLabel) {
+                    yAxisLabel = advDetails.yAxisLabel;
+                } else {
+                    // Fallback to existing logic if not found in advanced module
+                    if (selectedRatio === "EPS_TTM") {
+                        yAxisLabel = "EPS Value (TTM)";
+                    } else if (selectedRatio === "PE_TTM") {
+                        yAxisLabel = "P/E Ratio (TTM)";
+                    } else if (selectedRatio === "EARNINGS_YIELD_TTM") {
+                        yAxisLabel = "Earnings Yield % (TTM)";
+                    } else if (selectedRatio === "OPERATING_CF_PER_SHARE_TTM") {
+                        yAxisLabel = "Operating CF/Share (TTM)";
+                    } else if (selectedRatio === "FCF_PER_SHARE_TTM") {
+                        yAxisLabel = "FCF/Share (TTM)";
+                    }
+                    // --- NEW: Add yAxisLabel for Cash/Share (TTM) ---
+                    else if (selectedRatio === "CASH_PER_SHARE") {
+                        yAxisLabel = "Cash/Share";
+                    }
+                    // --- END: Add yAxisLabel for Cash/Share (TTM) ---
+
+                    // --- NEW: Add yAxisLabel for Cash+ST Inv/Share ---
+                    else if (selectedRatio === "CASH_PLUS_ST_INV_PER_SHARE") {
+                        yAxisLabel = "Cash+ST Inv/Share";
+                    }
+                    // --- END: Add yAxisLabel for Cash+ST Inv/Share ---
+                    // --- NEW: Add yAxisLabel for Price/Cash+ST Inv ---
+                    else if (selectedRatio === "PRICE_TO_CASH_PLUS_ST_INV") {
+                        yAxisLabel = "Price/Cash+ST Inv Ratio";
+                    }
+                    // --- END: Add yAxisLabel for Price/Cash+ST Inv ---
+                    // NEW: Add yAxisLabels for Book Value per Share and Price/Book Value
+                    else if (selectedRatio === "BOOK_VALUE_PER_SHARE") {
+                        yAxisLabel = "Book Value/Share";
+                    }
+                    else if (selectedRatio === "PRICE_TO_BOOK_VALUE") {
+                        yAxisLabel = "Price/Book Value Ratio";
+                    }
+                    // END NEW
+                    // NEW: Add yAxisLabels for P/Op CF TTM and P/FCF TTM
+                    else if (selectedRatio === "P_OPER_CF_TTM") {
+                        yAxisLabel = "Price/Operating CF (TTM)";
+                    }
+                    else if (selectedRatio === "P_FCF_TTM") {
+                        yAxisLabel = "Price/FCF (TTM)";
+                    }
+                    // Note: FCF_MARGIN_TTM will be handled by advDetails if analytics_ts_fund_adv.js is loaded correctly
+                    // END NEW
                 }
-                // --- END: Add yAxisLabel for Cash+ST Inv/Share ---
-                // --- NEW: Add yAxisLabel for Price/Cash+ST Inv ---
-                else if (selectedRatio === "PRICE_TO_CASH_PLUS_ST_INV") {
-                    yAxisLabel = "Price/Cash+ST Inv Ratio";
-                }
-                // --- END: Add yAxisLabel for Price/Cash+ST Inv ---
-                // NEW: Add yAxisLabels for Book Value per Share and Price/Book Value
-                else if (selectedRatio === "BOOK_VALUE_PER_SHARE") {
-                    yAxisLabel = "Book Value/Share";
-                }
-                else if (selectedRatio === "PRICE_TO_BOOK_VALUE") {
-                    yAxisLabel = "Price/Book Value Ratio";
-                }
-                // END NEW
-                // NEW: Add yAxisLabel for FCF/Share TTM
-                else if (selectedRatio === "FCF_PER_SHARE_TTM") {
-                    yAxisLabel = "FCF/Share (TTM)";
-                }
-                // END NEW
-                // NEW: Add yAxisLabels for P/Op CF TTM and P/FCF TTM
-                else if (selectedRatio === "P_OPER_CF_TTM") {
-                    yAxisLabel = "Price/Operating CF (TTM)";
-                }
-                else if (selectedRatio === "P_FCF_TTM") {
-                    yAxisLabel = "Price/FCF (TTM)";
-                }
-                // END NEW
+                // END NEW logic block
 
                 window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart(
                     datasets, 
