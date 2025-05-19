@@ -604,9 +604,16 @@ class YahooDataQueryService:
                     logger.error(f"PE_TTM: Error processing P/E for {ticker_symbol}: {e}", exc_info=True)
                     pe_results_by_ticker[ticker_symbol] = []
             return pe_results_by_ticker
-        elif fundamental_name.upper() == "CASH_PER_SHARE_TTM":
-            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_cash_per_share_ttm_for_tickers.")
-            results_by_ticker = await self._calculate_cash_per_share_ttm_for_tickers(
+        elif fundamental_name.upper() == "CASH_PER_SHARE": # MODIFIED: Was "CASH_PER_SHARE_TTM"
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_cash_per_share_for_tickers.") # MODIFIED: Method name
+            results_by_ticker = await self._calculate_cash_per_share_for_tickers( # MODIFIED: Method name
+                tickers, start_date_str, end_date_str, {}
+            )
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
+            return results_by_ticker
+        elif fundamental_name.upper() == "CASH_PLUS_ST_INV_PER_SHARE": # NEW: Added this block
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_cash_plus_st_inv_per_share_for_tickers.")
+            results_by_ticker = await self._calculate_cash_plus_st_inv_per_share_for_tickers(
                 tickers, start_date_str, end_date_str, {}
             )
             logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
@@ -654,7 +661,12 @@ class YahooDataQueryService:
 
                     current_ratio_series: List[Dict[str, Any]] = []
                     for price_point in price_data:
-                        price_date_str = price_point['Date'].split("T")[0]  # YYYY-MM-DD
+                        price_date_str_key = 'Date' if 'Date' in price_point else 'Datetime'
+                        if price_date_str_key not in price_point:
+                            logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV: Price point for {ticker_symbol} missing 'Date' or 'Datetime' key. Point: {price_point}")
+                            continue
+                        
+                        price_date_str = price_point[price_date_str_key].split("T")[0] # YYYY-MM-DD
                         price_value = price_point.get('Close')
 
                         if price_value is None:
@@ -663,26 +675,27 @@ class YahooDataQueryService:
 
                         cash_st_inv_value_for_date = cash_st_inv_map.get(price_date_str)
 
-                        if cash_st_inv_value_for_date is not None and cash_st_inv_value_for_date > 0:  # Denominator must be positive
+                        if cash_st_inv_value_for_date is not None and cash_st_inv_value_for_date > 0: # Denominator must be positive
                             ratio_value = float(price_value) / float(cash_st_inv_value_for_date)
                             current_ratio_series.append({'date': price_date_str, 'value': ratio_value})
                         else:
+                            # Log if cash_st_inv_value_for_date is missing for a price date, or if it's zero/negative
+                            # logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV [{ticker_symbol}] on {price_date_str}: Cash+ST Inv/Share value is {cash_st_inv_value_for_date}. Ratio set to None.")
                             current_ratio_series.append({'date': price_date_str, 'value': None})
                     
                     price_to_cash_results_by_ticker[ticker_symbol] = current_ratio_series
                     logger.info(f"PRICE_TO_CASH_PLUS_ST_INV: Calculated {len(current_ratio_series)} Price/Cash+ST Inv points for {ticker_symbol}.")
 
+                except httpx.HTTPStatusError as e:
+                    logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: HTTP error fetching price for {ticker_symbol}: {e.response.status_code} - {e.response.text}", exc_info=False)
+                    price_to_cash_results_by_ticker[ticker_symbol] = []
+                except httpx.RequestError as e:
+                    logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: Request error fetching price for {ticker_symbol}: {e}", exc_info=False)
+                    price_to_cash_results_by_ticker[ticker_symbol] = []
                 except Exception as e:
                     logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: Error processing Price/Cash+ST Inv for {ticker_symbol}: {e}", exc_info=True)
                     price_to_cash_results_by_ticker[ticker_symbol] = []
-            return price_to_cash_results_by_ticker
-        else:
-            logger.warning(f"Unsupported synthetic fundamental requested: {fundamental_name}")
-            for ticker in tickers:
-                results_by_ticker[ticker] = []
-        
-        # Ensure all requested tickers have an entry in the results, even if empty
-        return results_by_ticker
+        return price_to_cash_results_by_ticker
 
     async def _calculate_eps_ttm_for_tickers(
         self, 
@@ -877,6 +890,82 @@ class YahooDataQueryService:
         return results_by_ticker
 
     # --- MODIFIED: Cash/Share Calculation (Removed TTM) ---
+
+    async def _get_quarterly_shares_series(
+        self, 
+        ticker_symbol: str, 
+        fundamental_query_start_date_str: str, 
+        fundamental_query_end_date_str: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetches, processes, and combines quarterly shares data from primary and fallback sources.
+        Returns a chronologically sorted list of shares data points.
+        """
+        logger.debug(f"SHARES_HELPER [{ticker_symbol}]: Fetching shares between {fundamental_query_start_date_str} and {fundamental_query_end_date_str}")
+        
+        primary_shares_field_id = "yf_item_income_statement_quarterly_DilutedAverageShares"
+        fallback_shares_field_id = "yf_item_balance_sheet_quarterly_ShareIssued"
+        
+        quarterly_shares_points: List[Dict[str, Any]] = []
+
+        # 1. Fetch and Process Primary Shares Data
+        logger.debug(f"SHARES_HELPER [{ticker_symbol}]: Fetching primary shares data ({primary_shares_field_id})")
+        shares_data_primary_raw = await self.get_specific_field_timeseries(
+            field_identifier=primary_shares_field_id,
+            tickers=[ticker_symbol],
+            start_date_str=fundamental_query_start_date_str,
+            end_date_str=fundamental_query_end_date_str
+        )
+        logger.debug(f"SHARES_HELPER [{ticker_symbol}]: Raw primary shares data: {shares_data_primary_raw.get(ticker_symbol)}")
+        
+        if shares_data_primary_raw.get(ticker_symbol):
+            for item in shares_data_primary_raw[ticker_symbol]:
+                date_obj = self._parse_date_flex(item.get('date'))
+                value = item.get('value')
+                if date_obj and value is not None:
+                    try:
+                        float_value = float(value)
+                        if float_value != 0:
+                            quarterly_shares_points.append({'date_obj': date_obj, 'value': float_value, 'source': 'primary'})
+                    except (ValueError, TypeError):
+                        logger.warning(f"SHARES_HELPER [{ticker_symbol}]: Could not parse primary shares value '{value}' for date '{item.get('date')}'")
+            logger.info(f"SHARES_HELPER [{ticker_symbol}]: Parsed {len(quarterly_shares_points)} primary quarterly shares points.")
+            logger.debug(f"SHARES_HELPER [{ticker_symbol}]: Parsed primary shares points: {quarterly_shares_points[:5]}...")
+
+        # 2. Fetch and Process Fallback Shares Data
+        logger.debug(f"SHARES_HELPER [{ticker_symbol}]: Fetching fallback shares data ({fallback_shares_field_id})")
+        shares_data_fallback_raw = await self.get_specific_field_timeseries(
+            field_identifier=fallback_shares_field_id,
+            tickers=[ticker_symbol],
+            start_date_str=fundamental_query_start_date_str,
+            end_date_str=fundamental_query_end_date_str
+        )
+        logger.debug(f"SHARES_HELPER [{ticker_symbol}]: Raw fallback shares data: {shares_data_fallback_raw.get(ticker_symbol)}")
+        
+        fallback_shares_added_count = 0
+        if shares_data_fallback_raw.get(ticker_symbol):
+            for item in shares_data_fallback_raw[ticker_symbol]:
+                date_obj = self._parse_date_flex(item.get('date'))
+                value = item.get('value')
+                if date_obj and value is not None:
+                    # Check if a point with the same date already exists from the primary source
+                    is_duplicate_date = any(sp['date_obj'] == date_obj for sp in quarterly_shares_points)
+                    if not is_duplicate_date:
+                        try:
+                            float_value = float(value)
+                            if float_value != 0:
+                                quarterly_shares_points.append({'date_obj': date_obj, 'value': float_value, 'source': 'fallback'})
+                                fallback_shares_added_count +=1
+                        except (ValueError, TypeError):
+                            logger.warning(f"SHARES_HELPER [{ticker_symbol}]: Could not parse fallback shares value '{value}' for date '{item.get('date')}'")
+            logger.info(f"SHARES_HELPER [{ticker_symbol}]: Added {fallback_shares_added_count} fallback quarterly shares points.")
+        
+        # 3. Sort Data
+        quarterly_shares_points.sort(key=lambda x: x['date_obj'])
+        logger.debug(f"SHARES_HELPER [{ticker_symbol}]: Combined and sorted shares points ({len(quarterly_shares_points)} total): {quarterly_shares_points[:5]}...")
+        
+        return quarterly_shares_points
+
     async def _calculate_cash_per_share_for_tickers(
         self,
         tickers: List[str],
