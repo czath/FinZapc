@@ -618,6 +618,20 @@ class YahooDataQueryService:
             )
             logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
             return results_by_ticker
+        elif fundamental_name.upper() == "BOOK_VALUE_PER_SHARE": # NEW: For Book Value per Share
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_book_value_per_share_for_tickers.")
+            results_by_ticker = await self._calculate_book_value_per_share_for_tickers(
+                tickers, start_date_str, end_date_str, {}
+            )
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
+            return results_by_ticker
+        elif fundamental_name.upper() == "PRICE_TO_BOOK_VALUE": # NEW: For Price/Book Value Ratio
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling _calculate_price_to_book_value_for_tickers.")
+            results_by_ticker = await self._calculate_price_to_book_value_for_tickers(
+                tickers, start_date_str, end_date_str, {}
+            )
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
+            return results_by_ticker
         elif fundamental_name.upper() == "PRICE_TO_CASH_PLUS_ST_INV":
             logger.info(f"PRICE_TO_CASH_PLUS_ST_INV: Calculation requested for {tickers} from {start_date_str} to {end_date_str}")
 
@@ -711,16 +725,16 @@ class YahooDataQueryService:
         if start_date_str:
             try: user_start_date_obj = datetime.strptime(start_date_str, "%Y-%m-%d")
             except ValueError: 
-                logger.warning(f"EPS_TTM: Invalid start_date_str '{start_date_str}'. Defaulting to YTD.")
-                user_start_date_obj = datetime.today().replace(month=1, day=1)
-        else: user_start_date_obj = datetime.today().replace(month=1, day=1)
+                logger.warning(f"EPS_TTM: Invalid start_date_str '{start_date_str}'. Defaulting to YTD start.")
+                user_start_date_obj = datetime.today().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        else: user_start_date_obj = datetime.today().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
         if end_date_str:
             try: user_end_date_obj = datetime.strptime(end_date_str, "%Y-%m-%d")
             except ValueError: 
                 logger.warning(f"EPS_TTM: Invalid end_date_str '{end_date_str}'. Defaulting to today.")
-                user_end_date_obj = datetime.today()
-        else: user_end_date_obj = datetime.today()
+                user_end_date_obj = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+        else: user_end_date_obj = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
         
         logger.debug(f"EPS_TTM: User date range for calculation: {user_start_date_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}")
 
@@ -728,13 +742,12 @@ class YahooDataQueryService:
         target_shares_key = "Diluted Average Shares"
 
         for ticker_symbol in tickers:
+            final_eps_series_for_ticker: List[Dict[str, Any]] = []
             try:
                 logger.info(f"EPS_TTM: Processing ticker: {ticker_symbol}")
-                ttm_eps_series_for_ticker: List[Dict[str, Any]] = []
-                calculation_mode = "Quarterly TTM" # Default mode
 
-                # 1. Attempt to fetch QUARTERLY income statements
-                quarterly_lookback_start_obj = user_start_date_obj - timedelta(days=(365 * 1 + 30 * 9))
+                # 1. Data Fetching and Preparation (Quarterly)
+                quarterly_lookback_start_obj = user_start_date_obj - timedelta(days=(365 * 1 + 30 * 9)) # Approx 1 year 9 months before user start
                 logger.debug(f"EPS_TTM: Querying QUARTERLY income statements for {ticker_symbol} from {quarterly_lookback_start_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}")
                 
                 quarterly_income_statements = await self.db_repo.get_data_items_by_criteria(
@@ -743,10 +756,26 @@ class YahooDataQueryService:
                     item_time_coverage="QUARTER",
                     start_date=quarterly_lookback_start_obj,
                     end_date=user_end_date_obj,
-                    order_by_key_date_desc=False
+                    order_by_key_date_desc=False # Fetch ascending for easier processing
                 )
-
                 quarterly_eps_points: List[Dict[str, Any]] = []
+                
+                # NEW: Fetch shares data using the helper for quarterly calculations
+                quarterly_shares_data_from_helper: List[Dict[str, Any]] = []
+                if quarterly_income_statements: # Only fetch shares if we have income statements to process
+                    # Determine the date range for fetching shares, covering all quarterly income statement dates
+                    min_q_date = min(self._parse_date_flex(qis.get('item_key_date')) for qis in quarterly_income_statements if self._parse_date_flex(qis.get('item_key_date'))) if quarterly_income_statements else quarterly_lookback_start_obj
+                    max_q_date = max(self._parse_date_flex(qis.get('item_key_date')) for qis in quarterly_income_statements if self._parse_date_flex(qis.get('item_key_date'))) if quarterly_income_statements else user_end_date_obj
+                    
+                    if min_q_date and max_q_date:
+                        logger.debug(f"EPS_TTM [{ticker_symbol}]: Fetching quarterly shares series via helper from {min_q_date.strftime('%Y-%m-%d')} to {max_q_date.strftime('%Y-%m-%d')}")
+                        quarterly_shares_data_from_helper = await self._get_quarterly_shares_series(
+                            ticker_symbol,
+                            min_q_date.strftime('%Y-%m-%d'),
+                            max_q_date.strftime('%Y-%m-%d')
+                        )
+                        logger.debug(f"EPS_TTM [{ticker_symbol}]: Helper returned {len(quarterly_shares_data_from_helper)} shares points.")
+
                 if quarterly_income_statements:
                     logger.info(f"EPS_TTM: Found {len(quarterly_income_statements)} QUARTERLY statements for {ticker_symbol}.")
                     conversion_info = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache)
@@ -765,65 +794,53 @@ class YahooDataQueryService:
                         if not q_date_obj: continue
 
                         ni_value = current_payload.get(target_net_income_key)
-                        shares_value = current_payload.get(target_shares_key)
-                        if ni_value is not None and shares_value is not None and shares_value != 0:
-                            try: quarterly_eps_points.append({'date_obj': q_date_obj, 'q_eps': float(ni_value) / float(shares_value)})
-                            except (ValueError, TypeError): pass # Logged implicitly by lack of points later
-                    
-                    if quarterly_eps_points:
-                        quarterly_eps_points.sort(key=lambda x: x['date_obj'])
-                        # Check if we have enough quarterly data to proceed with TTM calculation for the *start* of the user period
-                        relevant_for_start = [p for p in quarterly_eps_points if p['date_obj'] <= user_start_date_obj]
-                        if len(relevant_for_start) >= 4:
-                            logger.info(f"EPS_TTM: Sufficient quarterly data for {ticker_symbol}. Proceeding with TTM calculation.")
-                            current_iter_date = user_start_date_obj
-                            while current_iter_date <= user_end_date_obj:
-                                relevant_q_eps = [p for p in quarterly_eps_points if p['date_obj'] <= current_iter_date]
-                                ttm_eps_value: Optional[float] = None
-                                if len(relevant_q_eps) >= 4:
-                                    last_four_q_eps = sorted(relevant_q_eps, key=lambda x: x['date_obj'], reverse=True)[:4]
-                                    if len(last_four_q_eps) == 4: ttm_eps_value = sum(p['q_eps'] for p in last_four_q_eps)
-                                ttm_eps_series_for_ticker.append({'date': current_iter_date.strftime("%Y-%m-%d"), 'value': ttm_eps_value})
-                                current_iter_date += timedelta(days=1)
+                        
+                        # MODIFIED: Get shares_value from the helper series
+                        shares_value_for_q_eps = None
+                        if quarterly_shares_data_from_helper:
+                            for shares_point in reversed(quarterly_shares_data_from_helper):
+                                if shares_point['date_obj'] <= q_date_obj:
+                                    shares_value_for_q_eps = shares_point['value']
+                                    # logger.debug(f"EPS_TTM [{ticker_symbol}]: For NI date {q_date_obj.strftime('%Y-%m-%d')}, found shares {shares_value_for_q_eps} from helper series dated {shares_point['date_obj'].strftime('%Y-%m-%d')}")
+                                    break 
                         else:
-                            logger.warning(f"EPS_TTM: Insufficient distinct quarterly EPS points ({len(relevant_for_start)} found before start date) for {ticker_symbol} to reliably calculate TTM. Will attempt fallback to annual data.")
-                            quarterly_eps_points = [] # Clear to trigger fallback
-                    else:
-                        logger.warning(f"EPS_TTM: No valid quarterly EPS points derived for {ticker_symbol} from {len(quarterly_income_statements)} statements. Attempting fallback to annual.")
+                            logger.warning(f"EPS_TTM [{ticker_symbol}]: No quarterly shares data from helper available for NI date {q_date_obj.strftime('%Y-%m-%d')}")
+
+                        if ni_value is not None and shares_value_for_q_eps is not None and shares_value_for_q_eps != 0:
+                            try: quarterly_eps_points.append({'date_obj': q_date_obj, 'q_eps': float(ni_value) / float(shares_value_for_q_eps)})
+                            except (ValueError, TypeError) as e:
+                                logger.warning(f"EPS_TTM [{ticker_symbol}]: Could not calculate quarterly EPS for date {q_date_obj.strftime('%Y-%m-%d')}. NI: {ni_value}, Shares: {shares_value_for_q_eps}. Error: {e}")
+                        # else: logger.debug(f"EPS_TTM [{ticker_symbol}]: Skipping q_eps for {q_date_obj.strftime('%Y-%m-%d')} due to missing NI ({ni_value is None}) or Shares ({shares_value_for_q_eps is None or shares_value_for_q_eps == 0}).")
+
+                    if quarterly_eps_points:
+                        quarterly_eps_points.sort(key=lambda x: x['date_obj']) # Ensure sorted by date
+                        logger.debug(f"EPS_TTM [{ticker_symbol}]: Prepared {len(quarterly_eps_points)} quarterly EPS points.")
                 else:
-                    logger.info(f"EPS_TTM: No QUARTERLY income statements found for {ticker_symbol}. Attempting fallback to annual data.")
+                    logger.info(f"EPS_TTM: No QUARTERLY income statements found for {ticker_symbol} in lookback period.")
 
-                # 2. Fallback to ANNUAL (FYEAR) data if quarterly TTM calculation was not performed
-                if not ttm_eps_series_for_ticker: # This condition means quarterly TTM was not successful or skipped
-                    calculation_mode = "Annual Fallback"
-                    logger.info(f"EPS_TTM ({calculation_mode}): Attempting to use ANNUAL income statements for {ticker_symbol}.")
-                    annual_lookback_start_obj = user_start_date_obj - timedelta(days=(365 * 2 + 30 * 3)) # Approx 2 years 3 months for annual reports
-                    logger.debug(f"EPS_TTM ({calculation_mode}): Querying ANNUAL income statements for {ticker_symbol} from {annual_lookback_start_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}")
-
-                    annual_income_statements = await self.db_repo.get_data_items_by_criteria(
-                        ticker=ticker_symbol,
-                        item_type="INCOME_STATEMENT",
-                        item_time_coverage="FYEAR",
-                        start_date=annual_lookback_start_obj,
-                        end_date=user_end_date_obj,
-                        order_by_key_date_desc=False
-                    )
-
-                    if not annual_income_statements:
-                        logger.warning(f"EPS_TTM ({calculation_mode}): No ANNUAL income statements found for {ticker_symbol}. No EPS data will be available.")
-                        results_by_ticker[ticker_symbol] = [] # Explicitly empty
-                        continue # Next ticker
-                    
-                    logger.info(f"EPS_TTM ({calculation_mode}): Found {len(annual_income_statements)} ANNUAL statements for {ticker_symbol}.")
-                    annual_eps_points: List[Dict[str, Any]] = []
-                    conversion_info_annual = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache)
+                # 2. Data Fetching and Preparation (Annual)
+                annual_lookback_start_obj = user_start_date_obj - timedelta(days=(365 * 2 + 30 * 3)) # Approx 2 years 3 months before user start
+                logger.debug(f"EPS_TTM: Querying ANNUAL income statements for {ticker_symbol} from {annual_lookback_start_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}")
+                annual_income_statements = await self.db_repo.get_data_items_by_criteria(
+                    ticker=ticker_symbol,
+                    item_type="INCOME_STATEMENT",
+                    item_time_coverage="FYEAR",
+                    start_date=annual_lookback_start_obj,
+                    end_date=user_end_date_obj,
+                    order_by_key_date_desc=False # Fetch ascending
+                )
+                annual_eps_points: List[Dict[str, Any]] = []
+                if annual_income_statements:
+                    logger.info(f"EPS_TTM: Found {len(annual_income_statements)} ANNUAL statements for {ticker_symbol}.")
+                    # Currency conversion info likely same as quarterly, but can re-fetch if strictness needed or cache is per-call context
+                    conversion_info_annual = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache) # Assuming cache is populated or re-used
                     rate_annual, orig_curr_annual, target_curr_annual = (conversion_info_annual[2], conversion_info_annual[1], conversion_info_annual[0]) if conversion_info_annual else (None, None, None)
 
                     for an_item in annual_income_statements:
                         payload = an_item.get('item_data_payload')
                         key_date_from_db = an_item.get('item_key_date')
                         if not isinstance(payload, dict) or not key_date_from_db: continue
-
+                        
                         current_payload = payload
                         if rate_annual:
                             current_payload = await self._apply_currency_conversion_to_payload(payload, rate_annual, orig_curr_annual, target_curr_annual, "INCOME_STATEMENT")
@@ -835,58 +852,65 @@ class YahooDataQueryService:
                         shares_value = current_payload.get(target_shares_key)
                         if ni_value is not None and shares_value is not None and shares_value != 0:
                             try: annual_eps_points.append({'date_obj': fy_date_obj, 'annual_eps': float(ni_value) / float(shares_value)})
-                            except (ValueError, TypeError): pass
-                    
-                    if not annual_eps_points:
-                        logger.warning(f"EPS_TTM ({calculation_mode}): No valid annual EPS points derived for {ticker_symbol}. No EPS data.")
-                        results_by_ticker[ticker_symbol] = []
-                        continue
-
-                    annual_eps_points.sort(key=lambda x: x['date_obj'])
-                    
-                    # Generate daily series using last known annual EPS
-                    current_iter_date = user_start_date_obj
-                    last_known_annual_eps: Optional[float] = None
-                    processed_annual_eps_series: List[Dict[str, Any]] = [] # Temp list for this mode
-
-                    # Find initial EPS for the start of the period
-                    initial_eps_found = False
-                    for point in reversed(annual_eps_points):
-                        if point['date_obj'] <= current_iter_date:
-                            last_known_annual_eps = point['annual_eps']
-                            initial_eps_found = True
-                            break
-                    if not initial_eps_found and annual_eps_points: # If no point before start, use earliest point if it's after start and user range is short
-                         if annual_eps_points[0]['date_obj'] > current_iter_date and (user_end_date_obj - user_start_date_obj).days < 400 : # Heuristic: only for short ranges
-                             pass # last_known_annual_eps remains None, it will be picked up in the loop
-                    
-                    while current_iter_date <= user_end_date_obj:
-                        # Update last_known_annual_eps if a new annual report is effective for this date
-                        for point in annual_eps_points:
-                            if point['date_obj'] <= current_iter_date:
-                                last_known_annual_eps = point['annual_eps'] # Will take the latest one due to sorted points
-                            elif point['date_obj'] > current_iter_date:
-                                break # Optimization: points are sorted by date
-                        
-                        processed_annual_eps_series.append({
-                            'date': current_iter_date.strftime("%Y-%m-%d"), 
-                            'value': last_known_annual_eps
-                        })
-                        current_iter_date += timedelta(days=1)
-                    ttm_eps_series_for_ticker = processed_annual_eps_series # Assign to the main series variable
-
-                # Final assignment to results_by_ticker
-                if ttm_eps_series_for_ticker:
-                    results_by_ticker[ticker_symbol] = ttm_eps_series_for_ticker
-                    logger.info(f"EPS_TTM ({calculation_mode}): Generated {len(ttm_eps_series_for_ticker)} EPS points for {ticker_symbol}.")
+                            except (ValueError, TypeError) as e:
+                                logger.warning(f"EPS_TTM [{ticker_symbol}]: Could not calculate annual EPS for date {fy_date_obj.strftime('%Y-%m-%d')}. NI: {ni_value}, Shares: {shares_value}. Error: {e}")
+                    if annual_eps_points:
+                        annual_eps_points.sort(key=lambda x: x['date_obj']) # Ensure sorted
+                        logger.debug(f"EPS_TTM [{ticker_symbol}]: Prepared {len(annual_eps_points)} annual EPS points.")
                 else:
-                    # This case should ideally be caught earlier (e.g., no annual data found)
-                    logger.warning(f"EPS_TTM: No EPS series (Quarterly or Annual Fallback) could be generated for {ticker_symbol}.")
-                    results_by_ticker[ticker_symbol] = []
+                    logger.info(f"EPS_TTM: No ANNUAL income statements found for {ticker_symbol} in lookback period.")
+
+                # 3. Main Daily Loop for Calculation
+                current_iter_date = user_start_date_obj
+                points_by_q_ttm = 0
+                points_by_annual = 0
+                points_with_no_data = 0
+
+                while current_iter_date <= user_end_date_obj:
+                    ttm_value_for_date: Optional[float] = None
+                    calc_method_for_date = "None"
+
+                    # Attempt Quarterly TTM for current_iter_date
+                    if quarterly_eps_points: # Only attempt if there are any quarterly points at all
+                        relevant_q_eps = [p for p in quarterly_eps_points if p['date_obj'] <= current_iter_date]
+                        if len(relevant_q_eps) >= 4:
+                            last_four_q = sorted(relevant_q_eps, key=lambda x: x['date_obj'], reverse=True)[:4]
+                            # Ensure these four quarters are distinct enough (e.g., span roughly a year)
+                            # This check helps avoid summing up 4 very close reports if data is misreported or unusual
+                            if len(last_four_q) == 4 and (last_four_q[0]['date_obj'] - last_four_q[3]['date_obj']).days > 270: # Approx 9 months span for 4 quarters
+                                ttm_value_for_date = sum(p['q_eps'] for p in last_four_q)
+                                calc_method_for_date = "Quarterly TTM"
+                    
+                    if ttm_value_for_date is not None:
+                        final_eps_series_for_ticker.append({'date': current_iter_date.strftime("%Y-%m-%d"), 'value': ttm_value_for_date})
+                        points_by_q_ttm += 1
+                    else:
+                        # Fallback to Annual EPS for this specific current_iter_date
+                        last_known_annual_val: Optional[float] = None
+                        if annual_eps_points: # Only attempt if there are any annual points
+                            for point in reversed(annual_eps_points): # Iterate from most recent annual
+                                if point['date_obj'] <= current_iter_date:
+                                    last_known_annual_val = point['annual_eps']
+                                    break # Found the latest applicable annual figure
+                        
+                        final_eps_series_for_ticker.append({'date': current_iter_date.strftime("%Y-%m-%d"), 'value': last_known_annual_val})
+                        if last_known_annual_val is not None:
+                            points_by_annual += 1
+                            calc_method_for_date = "Annual Fallback"
+                        else:
+                            points_with_no_data +=1
+                            # logger.debug(f"EPS_TTM [{ticker_symbol}] Date {current_iter_date.strftime('%Y-%m-%d')}: No TTM and no Annual Fallback data available.")
+                    
+                    # Optional: Log calc_method_for_date if needed for very detailed debugging
+                    # logger.debug(f"EPS_TTM [{ticker_symbol}] Date {current_iter_date.strftime('%Y-%m-%d')}: Method='{calc_method_for_date}', Value={final_eps_series_for_ticker[-1]['value']}")
+                    current_iter_date += timedelta(days=1)
+                
+                results_by_ticker[ticker_symbol] = final_eps_series_for_ticker
+                logger.info(f"EPS_TTM [{ticker_symbol}]: Generated {len(final_eps_series_for_ticker)} total EPS points. Method stats - Quarterly TTM: {points_by_q_ttm}, Annual Fallback: {points_by_annual}, No Data: {points_with_no_data}")
 
             except Exception as e:
                 logger.error(f"EPS_TTM: Critical error for {ticker_symbol}: {e}", exc_info=True)
-                results_by_ticker[ticker_symbol] = []
+                results_by_ticker[ticker_symbol] = [] # Ensure ticker entry exists even on error
         return results_by_ticker
 
     # --- MODIFIED: Cash/Share Calculation (Removed TTM) ---
@@ -986,8 +1010,7 @@ class YahooDataQueryService:
         fundamental_query_end_date_str = user_end_date_obj.strftime('%Y-%m-%d')
 
         cash_field_id = "yf_item_balance_sheet_quarterly_CashAndCashEquivalents"
-        primary_shares_field_id = "yf_item_income_statement_quarterly_DilutedAverageShares" # Or consider a direct shares outstanding from BS if more appropriate for point-in-time
-        fallback_shares_field_id = "yf_item_balance_sheet_quarterly_ShareIssued"
+        # REMOVED: primary_shares_field_id and fallback_shares_field_id definitions here
 
         for ticker_symbol in tickers:
             try:
@@ -1016,59 +1039,21 @@ class YahooDataQueryService:
                     results_by_ticker[ticker_symbol] = []
                     continue
 
-                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Fetching primary shares data ({primary_shares_field_id})")
-                shares_data_primary_raw = await self.get_specific_field_timeseries(
-                    field_identifier=primary_shares_field_id,
-                    tickers=[ticker_symbol],
-                    start_date_str=fundamental_query_start_date_str,
-                    end_date_str=fundamental_query_end_date_str
+                # NEW: Call the helper function to get shares data
+                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Calling _get_quarterly_shares_series helper.")
+                quarterly_shares_points = await self._get_quarterly_shares_series(
+                    ticker_symbol,
+                    fundamental_query_start_date_str,
+                    fundamental_query_end_date_str
                 )
-                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Raw primary shares data: {shares_data_primary_raw.get(ticker_symbol)}")
-                quarterly_shares_points: List[Dict[str, Any]] = []
-                if shares_data_primary_raw.get(ticker_symbol):
-                    for item in shares_data_primary_raw[ticker_symbol]:
-                        date_obj = self._parse_date_flex(item.get('date'))
-                        value = item.get('value')
-                        if date_obj and value is not None and float(value) != 0:
-                            try: quarterly_shares_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'primary'})
-                            except (ValueError, TypeError): pass
-                    logger.info(f"CASH_PER_SHARE [{ticker_symbol}]: Parsed {len(quarterly_shares_points)} primary quarterly shares points.")
-                    logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Parsed primary shares points: {quarterly_shares_points[:5]}...")
-                # else: # Note: Removed the skip here, allow fallback to try even if primary fails completely
-                #    logger.warning(f"CASH_PER_SHARE [{ticker_symbol}]: No primary shares data found using {primary_shares_field_id}. Will attempt fallback.")
-
-
-                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Fetching fallback shares data ({fallback_shares_field_id})")
-                shares_data_fallback_raw = await self.get_specific_field_timeseries(
-                    field_identifier=fallback_shares_field_id,
-                    tickers=[ticker_symbol],
-                    start_date_str=fundamental_query_start_date_str,
-                    end_date_str=fundamental_query_end_date_str
-                )
-                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Raw fallback shares data: {shares_data_fallback_raw.get(ticker_symbol)}")
-                fallback_shares_added_count = 0
-                if shares_data_fallback_raw.get(ticker_symbol):
-                    for item in shares_data_fallback_raw[ticker_symbol]:
-                        date_obj = self._parse_date_flex(item.get('date'))
-                        value = item.get('value')
-                        if date_obj and value is not None and float(value) != 0:
-                            is_duplicate_date = any(sp['date_obj'] == date_obj for sp in quarterly_shares_points)
-                            if not is_duplicate_date:
-                                try: 
-                                    quarterly_shares_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'fallback'})
-                                    fallback_shares_added_count +=1
-                                except (ValueError, TypeError): pass
-                    logger.info(f"CASH_PER_SHARE [{ticker_symbol}]: Added {fallback_shares_added_count} fallback quarterly shares points.")
-                
-                quarterly_shares_points.sort(key=lambda x: x['date_obj'])
-                logger.debug(f"CASH_PER_SHARE [{ticker_symbol}]: Combined and sorted shares points ({len(quarterly_shares_points)} total): {quarterly_shares_points[:5]}...")
+                # REMOVED: Old shares fetching and processing logic that was here
                 
                 if not quarterly_cash_points:
                     logger.warning(f"CASH_PER_SHARE [{ticker_symbol}]: No valid quarterly cash points derived after parsing. No Cash/Share data.")
                     results_by_ticker[ticker_symbol] = []
                     continue
-                if not quarterly_shares_points:
-                    logger.warning(f"CASH_PER_SHARE [{ticker_symbol}]: No valid quarterly shares points (primary or fallback) after parsing. No Cash/Share data.")
+                if not quarterly_shares_points: # Check if helper returned any shares data
+                    logger.warning(f"CASH_PER_SHARE [{ticker_symbol}]: No valid quarterly shares points from helper. No Cash/Share data.")
                     results_by_ticker[ticker_symbol] = []
                     continue
 
@@ -1166,8 +1151,7 @@ class YahooDataQueryService:
 
         # Key difference: Use the field for Cash + Cash Equivalents + Short Term Investments
         cash_field_id = "yf_item_balance_sheet_quarterly_CashCashEquivalentsAndShortTermInvestments"
-        primary_shares_field_id = "yf_item_income_statement_quarterly_DilutedAverageShares"
-        fallback_shares_field_id = "yf_item_balance_sheet_quarterly_ShareIssued"
+        # REMOVED: primary_shares_field_id and fallback_shares_field_id definitions here
 
         for ticker_symbol in tickers:
             try:
@@ -1196,54 +1180,21 @@ class YahooDataQueryService:
                     continue
 
                 # Shares fetching logic (identical to Cash/Share)
-                logger.debug(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Fetching primary shares data ({primary_shares_field_id})")
-                shares_data_primary_raw = await self.get_specific_field_timeseries(
-                    field_identifier=primary_shares_field_id,
-                    tickers=[ticker_symbol],
-                    start_date_str=fundamental_query_start_date_str,
-                    end_date_str=fundamental_query_end_date_str
+                # NEW: Call the helper function to get shares data
+                logger.debug(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Calling _get_quarterly_shares_series helper.")
+                quarterly_shares_points = await self._get_quarterly_shares_series(
+                    ticker_symbol,
+                    fundamental_query_start_date_str,
+                    fundamental_query_end_date_str
                 )
-                logger.debug(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Raw primary shares data: {shares_data_primary_raw.get(ticker_symbol)}")
-                quarterly_shares_points: List[Dict[str, Any]] = []
-                if shares_data_primary_raw.get(ticker_symbol):
-                    for item in shares_data_primary_raw[ticker_symbol]:
-                        date_obj = self._parse_date_flex(item.get('date'))
-                        value = item.get('value')
-                        if date_obj and value is not None and float(value) != 0:
-                            try: quarterly_shares_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'primary'})
-                            except (ValueError, TypeError): pass
-                    logger.info(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Parsed {len(quarterly_shares_points)} primary quarterly shares points.")
-
-                logger.debug(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Fetching fallback shares data ({fallback_shares_field_id})")
-                shares_data_fallback_raw = await self.get_specific_field_timeseries(
-                    field_identifier=fallback_shares_field_id,
-                    tickers=[ticker_symbol],
-                    start_date_str=fundamental_query_start_date_str,
-                    end_date_str=fundamental_query_end_date_str
-                )
-                logger.debug(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Raw fallback shares data: {shares_data_fallback_raw.get(ticker_symbol)}")
-                fallback_shares_added_count = 0
-                if shares_data_fallback_raw.get(ticker_symbol):
-                    for item in shares_data_fallback_raw[ticker_symbol]:
-                        date_obj = self._parse_date_flex(item.get('date'))
-                        value = item.get('value')
-                        if date_obj and value is not None and float(value) != 0:
-                            is_duplicate_date = any(sp['date_obj'] == date_obj for sp in quarterly_shares_points)
-                            if not is_duplicate_date:
-                                try: 
-                                    quarterly_shares_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'fallback'})
-                                    fallback_shares_added_count +=1
-                                except (ValueError, TypeError): pass
-                    logger.info(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: Added {fallback_shares_added_count} fallback quarterly shares points.")
-                
-                quarterly_shares_points.sort(key=lambda x: x['date_obj'])
+                # REMOVED: Old shares fetching and processing logic that was here
                 
                 if not quarterly_cash_points:
                     logger.warning(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: No valid quarterly cash+ST points. No data.")
                     results_by_ticker[ticker_symbol] = []
                     continue
-                if not quarterly_shares_points:
-                    logger.warning(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: No valid quarterly shares points. No data.")
+                if not quarterly_shares_points: # Check if helper returned any shares data
+                    logger.warning(f"CASH_PLUS_ST_INV_PER_SHARE [{ticker_symbol}]: No valid quarterly shares points from helper. No data.")
                     results_by_ticker[ticker_symbol] = []
                     continue
 
@@ -1297,6 +1248,251 @@ class YahooDataQueryService:
             
         return results_by_ticker
     # --- END: Cash + Short Term Investments / Share Calculation ---
+
+    # --- NEW: Book Value per Share Calculation ---
+    async def _calculate_book_value_per_share_for_tickers(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str],
+        end_date_str: Optional[str],
+        ticker_profiles_cache: Dict[str, Dict[str, Any]] # Retained for consistency, though may not be directly used if helper handles currency
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+        logger.info(f"BOOK_VALUE_PER_SHARE: Starting calculation for tickers: {tickers}, start: {start_date_str}, end: {end_date_str}")
+
+        user_start_date_obj = self._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=365*5) # Default 5 years
+        user_end_date_obj = self._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+
+        fundamental_query_start_date_obj = user_start_date_obj - timedelta(days=180) # Approx 6 months buffer
+        fundamental_query_start_date_str = fundamental_query_start_date_obj.strftime('%Y-%m-%d')
+        fundamental_query_end_date_str = user_end_date_obj.strftime('%Y-%m-%d')
+
+        cse_quarterly_field_id = "yf_item_balance_sheet_quarterly_CommonStockEquity"
+        cse_annual_field_id = "yf_item_balance_sheet_annual_CommonStockEquity"
+
+        for ticker_symbol in tickers:
+            try:
+                # 1. Fetch Common Stock Equity (CSE) Data
+                # Fetch Quarterly CSE
+                logger.debug(f"BOOK_VALUE_PER_SHARE [{ticker_symbol}]: Fetching Q CSE ({cse_quarterly_field_id})")
+                cse_q_raw = await self.get_specific_field_timeseries(
+                    field_identifier=cse_quarterly_field_id,
+                    tickers=[ticker_symbol],
+                    start_date_str=fundamental_query_start_date_str,
+                    end_date_str=fundamental_query_end_date_str
+                )
+                quarterly_cse_points: List[Dict[str, Any]] = []
+                if cse_q_raw.get(ticker_symbol):
+                    for item in cse_q_raw[ticker_symbol]:
+                        date_obj = self._parse_date_flex(item.get('date'))
+                        value = item.get('value')
+                        if date_obj and value is not None:
+                            try: quarterly_cse_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'quarterly'})
+                            except (ValueError, TypeError): pass
+                logger.info(f"BOOK_VALUE_PER_SHARE [{ticker_symbol}]: Parsed {len(quarterly_cse_points)} quarterly CSE points.")
+
+                # Fetch Annual CSE
+                logger.debug(f"BOOK_VALUE_PER_SHARE [{ticker_symbol}]: Fetching A CSE ({cse_annual_field_id})")
+                cse_a_raw = await self.get_specific_field_timeseries(
+                    field_identifier=cse_annual_field_id,
+                    tickers=[ticker_symbol],
+                    start_date_str=fundamental_query_start_date_str, # Use same extended range
+                    end_date_str=fundamental_query_end_date_str
+                )
+                annual_cse_points: List[Dict[str, Any]] = []
+                if cse_a_raw.get(ticker_symbol):
+                    for item in cse_a_raw[ticker_symbol]:
+                        date_obj = self._parse_date_flex(item.get('date'))
+                        value = item.get('value')
+                        if date_obj and value is not None:
+                            try: annual_cse_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'annual'})
+                            except (ValueError, TypeError): pass
+                logger.info(f"BOOK_VALUE_PER_SHARE [{ticker_symbol}]: Parsed {len(annual_cse_points)} annual CSE points.")
+
+                # Combine CSE points, giving preference to quarterly if dates overlap
+                combined_cse_map: Dict[datetime, float] = {}
+                for point in annual_cse_points: # Annual first
+                    combined_cse_map[point['date_obj']] = point['value']
+                for point in quarterly_cse_points: # Quarterly overwrites if date matches
+                    combined_cse_map[point['date_obj']] = point['value']
+                
+                processed_cse_points = sorted([{'date_obj': dt, 'value': val} for dt, val in combined_cse_map.items()], key=lambda x: x['date_obj'])
+                logger.info(f"BOOK_VALUE_PER_SHARE [{ticker_symbol}]: Combined to {len(processed_cse_points)} unique CSE points.")
+
+                if not processed_cse_points:
+                    logger.warning(f"BOOK_VALUE_PER_SHARE [{ticker_symbol}]: No CSE data (quarterly or annual). Skipping.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+
+                # 2. Fetch Shares Data using Helper
+                logger.debug(f"BOOK_VALUE_PER_SHARE [{ticker_symbol}]: Calling _get_quarterly_shares_series helper.")
+                quarterly_shares_points = await self._get_quarterly_shares_series(
+                    ticker_symbol,
+                    fundamental_query_start_date_str,
+                    fundamental_query_end_date_str
+                )
+                if not quarterly_shares_points:
+                    logger.warning(f"BOOK_VALUE_PER_SHARE [{ticker_symbol}]: No shares data from helper. Skipping.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+
+                # 3. Calculate Point-in-Time Book Value per Share
+                point_in_time_bvps_series: List[Dict[str, Any]] = []
+                for cse_point in processed_cse_points:
+                    current_cse_date = cse_point['date_obj']
+                    current_cse_value = cse_point['value']
+                    latest_shares_value = None
+                    for sp in reversed(quarterly_shares_points): # Iterate backwards (latest first)
+                        if sp['date_obj'] <= current_cse_date:
+                            latest_shares_value = sp['value']
+                            break
+                    
+                    if latest_shares_value is not None and latest_shares_value != 0:
+                        bvps_value = current_cse_value / latest_shares_value
+                        point_in_time_bvps_series.append({'date_obj': current_cse_date, 'value': bvps_value})
+                    # else: logger.debug(f"BOOK_VALUE_PER_SHARE [{ticker_symbol}]: No shares for CSE date {current_cse_date}, or shares were zero.")
+
+                if not point_in_time_bvps_series:
+                    logger.warning(f"BOOK_VALUE_PER_SHARE [{ticker_symbol}]: No point-in-time BVPS points calculated. Skipping.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+
+                # 4. Generate Daily Series
+                daily_series: List[Dict[str, Any]] = []
+                current_iter_date = user_start_date_obj
+                last_known_val = None
+                # Find initial value for start of user period
+                for point in reversed(point_in_time_bvps_series):
+                    if point['date_obj'] <= current_iter_date:
+                        last_known_val = point['value']
+                        break
+                
+                # If no data before start, but data exists within period, allow it to be picked up
+                if last_known_val is None and point_in_time_bvps_series: 
+                    if point_in_time_bvps_series[0]['date_obj'] <= user_end_date_obj: 
+                       pass # last_known_val remains None, will be picked up by loop if first data point is after user_start_date_obj
+
+                point_idx = 0
+                while current_iter_date <= user_end_date_obj:
+                    while point_idx < len(point_in_time_bvps_series) and point_in_time_bvps_series[point_idx]['date_obj'] <= current_iter_date:
+                        last_known_val = point_in_time_bvps_series[point_idx]['value']
+                        point_idx += 1
+                    
+                    # Only add to series if last_known_val is set AND current_iter_date is on or after the first actual data point date
+                    # This avoids prepending None values if user_start_date_obj is before any available data.
+                    if last_known_val is not None and point_in_time_bvps_series and current_iter_date >= point_in_time_bvps_series[0]['date_obj']:
+                        daily_series.append({'date': current_iter_date.strftime('%Y-%m-%d'), 'value': last_known_val})
+                    elif last_known_val is None and point_in_time_bvps_series and current_iter_date < point_in_time_bvps_series[0]['date_obj']:
+                        # If we haven't reached the first data point yet, and user start date is before it, append None
+                        daily_series.append({'date': current_iter_date.strftime('%Y-%m-%d'), 'value': None})
+                    elif last_known_val is not None and not point_in_time_bvps_series: # Should not happen if point_in_time_bvps_series check is done before
+                        daily_series.append({'date': current_iter_date.strftime('%Y-%m-%d'), 'value': last_known_val})
+                        
+                    current_iter_date += timedelta(days=1)
+                
+                results_by_ticker[ticker_symbol] = daily_series
+                logger.info(f"BOOK_VALUE_PER_SHARE [{ticker_symbol}]: Successfully generated {len(daily_series)} daily BVPS data points.")
+
+            except Exception as e:
+                logger.error(f"BOOK_VALUE_PER_SHARE [{ticker_symbol}]: Unhandled error: {e}", exc_info=True)
+                results_by_ticker[ticker_symbol] = []
+            
+        return results_by_ticker
+    # --- END: Book Value per Share Calculation ---
+
+    # --- NEW: Price/Book Value Calculation ---
+    async def _calculate_price_to_book_value_for_tickers(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str],
+        end_date_str: Optional[str],
+        ticker_profiles_cache: Dict[str, Dict[str, Any]] # Retained for consistency
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+        logger.info(f"PRICE_TO_BOOK_VALUE: Starting calculation for tickers: {tickers}, start: {start_date_str}, end: {end_date_str}")
+
+        # 1. Get Book Value per Share data
+        book_value_per_share_data = await self._calculate_book_value_per_share_for_tickers(
+            tickers,
+            start_date_str,
+            end_date_str,
+            ticker_profiles_cache
+        )
+
+        for ticker_symbol in tickers:
+            try:
+                bvps_series = book_value_per_share_data.get(ticker_symbol, [])
+                if not bvps_series:
+                    logger.warning(f"PRICE_TO_BOOK_VALUE [{ticker_symbol}]: No Book Value/Share data available. Skipping ratio calculation.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+
+                # Convert BVPS series to a map for quick lookup
+                bvps_map = {item['date']: item['value'] for item in bvps_series if item['value'] is not None}
+
+                # 2. Fetch Price Data
+                # Price history already handles default dates if start/end are None, but P/E used explicit defaults.
+                # For consistency with how other P/X ratios are handled here, ensure dates.
+                query_start_date = start_date_str
+                query_end_date = end_date_str
+                
+                # Use user-defined start_date_obj and end_date_obj from Book Value per Share section (which have defaults)
+                # This ensures alignment with the period for which BVPS was generated.
+                # Defaulting to 1 year if not provided, to ensure price_data is fetched.
+                if not query_start_date:
+                    default_start_obj = datetime.now() - timedelta(days=365)
+                    query_start_date = default_start_obj.strftime("%Y-%m-%d")
+                if not query_end_date:
+                    query_end_date = datetime.now().strftime("%Y-%m-%d")
+                
+                logger.debug(f"PRICE_TO_BOOK_VALUE [{ticker_symbol}]: Fetching price data from {query_start_date} to {query_end_date}")
+                price_data = await self.get_price_history(
+                    ticker=ticker_symbol,
+                    interval="1d",
+                    start_date=query_start_date, 
+                    end_date=query_end_date
+                )
+
+                if not price_data:
+                    logger.warning(f"PRICE_TO_BOOK_VALUE [{ticker_symbol}]: No price data returned. Skipping ratio calculation.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+                
+                logger.debug(f"PRICE_TO_BOOK_VALUE [{ticker_symbol}]: Received {len(price_data)} price points.")
+
+                # 3. Calculate Ratio
+                current_ratio_series: List[Dict[str, Any]] = []
+                for price_point in price_data:
+                    price_date_str_key = 'Date' if 'Date' in price_point else 'Datetime'
+                    if price_date_str_key not in price_point:
+                        logger.warning(f"PRICE_TO_BOOK_VALUE [{ticker_symbol}]: Price point missing 'Date' or 'Datetime' key: {price_point}")
+                        continue
+                    
+                    price_date_str = price_point[price_date_str_key].split("T")[0]
+                    price_value = price_point.get('Close')
+
+                    if price_value is None:
+                        current_ratio_series.append({'date': price_date_str, 'value': None})
+                        continue
+
+                    bvps_value_for_date = bvps_map.get(price_date_str)
+
+                    if bvps_value_for_date is not None and bvps_value_for_date > 0: # Denominator must be positive
+                        ratio_value = float(price_value) / float(bvps_value_for_date)
+                        current_ratio_series.append({'date': price_date_str, 'value': ratio_value})
+                    else:
+                        # logger.debug(f"PRICE_TO_BOOK_VALUE [{ticker_symbol}] on {price_date_str}: BVPS value is {bvps_value_for_date}. Ratio set to None.")
+                        current_ratio_series.append({'date': price_date_str, 'value': None})
+                
+                results_by_ticker[ticker_symbol] = current_ratio_series
+                logger.info(f"PRICE_TO_BOOK_VALUE [{ticker_symbol}]: Calculated {len(current_ratio_series)} Price/Book Value points.")
+
+            except Exception as e:
+                logger.error(f"PRICE_TO_BOOK_VALUE [{ticker_symbol}]: Unhandled error: {e}", exc_info=True)
+                results_by_ticker[ticker_symbol] = []
+        
+        return results_by_ticker
+    # --- END: Price/Book Value Calculation ---
 
     # --- NEW: Price / (Cash + ST Investments / Share) Calculation ---
     async def _calculate_price_to_cash_plus_st_inv_for_tickers(

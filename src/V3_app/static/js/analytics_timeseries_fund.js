@@ -1541,6 +1541,18 @@
             // priceToCashPlusStInvOption.style.color = "blue"; // REMOVED
             sfRatioSelect.appendChild(priceToCashPlusStInvOption);
 
+            // NEW: Book Value per Share options
+            const bookValuePerShareOption = document.createElement('option');
+            bookValuePerShareOption.value = "BOOK_VALUE_PER_SHARE";
+            bookValuePerShareOption.textContent = `${componentIcon} Book Value/Share`;
+            sfRatioSelect.appendChild(bookValuePerShareOption);
+
+            const priceToBookValueOption = document.createElement('option');
+            priceToBookValueOption.value = "PRICE_TO_BOOK_VALUE";
+            priceToBookValueOption.textContent = `${ratioIcon} Price/Book Value`;
+            sfRatioSelect.appendChild(priceToBookValueOption);
+            // END NEW
+
             // Select the first one by default if needed, or let HTML decide initial selected
             if (!sfRatioSelect.value) {
                  epsOption.selected = true;
@@ -1770,6 +1782,14 @@
                     yAxisLabel = "Price/Cash+ST Inv Ratio";
                 }
                 // --- END: Add yAxisLabel for Price/Cash+ST Inv ---
+                // NEW: Add yAxisLabels for Book Value per Share and Price/Book Value
+                else if (selectedRatio === "BOOK_VALUE_PER_SHARE") {
+                    yAxisLabel = "Book Value/Share";
+                }
+                else if (selectedRatio === "PRICE_TO_BOOK_VALUE") {
+                    yAxisLabel = "Price/Book Value Ratio";
+                }
+                // END NEW
 
                 window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart(
                     datasets, 
