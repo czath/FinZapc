@@ -753,7 +753,11 @@ class YahooDataQueryService:
 
                     # 2. Data Fetching and Preparation (Annual)
                     annual_lookback_start_obj = user_start_date_obj - timedelta(days=(365 * 2 + 30 * 3)) # Approx 2 years 3 months before user start
-                    logger.debug(f"OPERATING_CF_PER_SHARE_TTM: Querying ANNUAL cash flow statements for {ticker_symbol} from {annual_lookback_start_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}")
+                    annual_lookback_start_str = annual_lookback_start_obj.strftime('%Y-%m-%d')
+                    # Ensure user_end_date_str for annual queries is derived from user_end_date_obj to handle None cases
+                    user_end_date_str_for_annual = user_end_date_obj.strftime('%Y-%m-%d')
+
+                    logger.debug(f"OPERATING_CF_PER_SHARE_TTM: Querying ANNUAL cash flow statements for {ticker_symbol} from {annual_lookback_start_str} to {user_end_date_str_for_annual}")
                     annual_cash_flow_statements = await self.db_repo.get_data_items_by_criteria(
                         ticker=ticker_symbol,
                         item_type="CASH_FLOW_STATEMENT",
@@ -762,6 +766,15 @@ class YahooDataQueryService:
                         end_date=user_end_date_obj,
                         order_by_key_date_desc=False # Fetch ascending
                     )
+
+                    # NEW: Fetch annual shares using the helper
+                    logger.debug(f"OPERATING_CF_PER_SHARE_TTM [{ticker_symbol}]: Fetching annual shares using helper from {annual_lookback_start_str} to {user_end_date_str_for_annual}")
+                    annual_shares_data_from_helper = await self._get_annual_shares_series(
+                        ticker_symbol,
+                        annual_lookback_start_str,
+                        user_end_date_str_for_annual
+                    )
+
                     annual_cf_points: List[Dict[str, Any]] = []
                     if annual_cash_flow_statements:
                         logger.info(f"OPERATING_CF_PER_SHARE_TTM: Found {len(annual_cash_flow_statements)} ANNUAL statements for {ticker_symbol}.")
@@ -774,22 +787,35 @@ class YahooDataQueryService:
                             if not isinstance(payload, dict) or not key_date_from_db: continue
                             
                             current_payload = payload
-                            if rate_annual:
+                            if rate_annual: # Apply conversion to CF value
                                 current_payload = await self._apply_currency_conversion_to_payload(payload, rate_annual, orig_curr_annual, target_curr_annual, "CASH_FLOW_STATEMENT")
                             
                             fy_date_obj = self._parse_date_flex(key_date_from_db)
                             if not fy_date_obj: continue
 
                             cf_value = current_payload.get("Operating Cash Flow")
-                            shares_value = current_payload.get("Diluted Average Shares")
-                            if cf_value is not None and shares_value is not None and shares_value != 0:
+                            
+                            # MODIFIED: Get shares_value for this annual CF date from the helper series
+                            shares_value_for_annual_cf = None
+                            if annual_shares_data_from_helper:
+                                # Find the shares data point that aligns with the annual CF report date
+                                # Iterate backwards for efficiency if shares data is dense and CF date is recent
+                                for shares_point in reversed(annual_shares_data_from_helper):
+                                    if shares_point['date_obj'] <= fy_date_obj:
+                                        shares_value_for_annual_cf = shares_point['value']
+                                        # logger.debug(f"OPERATING_CF_PER_SHARE_TTM [{ticker_symbol}]: For annual CF date {fy_date_obj.strftime('%Y-%m-%d')}, using shares {shares_value_for_annual_cf} from {shares_point['date_obj'].strftime('%Y-%m-%d')}")
+                                        break 
+                            
+                            if cf_value is not None and shares_value_for_annual_cf is not None and shares_value_for_annual_cf != 0:
                                 try: 
                                     annual_cf_points.append({
                                         'date_obj': fy_date_obj, 
-                                        'annual_cf_per_share': float(cf_value) / float(shares_value)
+                                        'annual_cf_per_share': float(cf_value) / float(shares_value_for_annual_cf)
                                     })
                                 except (ValueError, TypeError) as e:
-                                    logger.warning(f"OPERATING_CF_PER_SHARE_TTM [{ticker_symbol}]: Could not calculate annual CF/Share for date {fy_date_obj.strftime('%Y-%m-%d')}. CF: {cf_value}, Shares: {shares_value}. Error: {e}")
+                                    logger.warning(f"OPERATING_CF_PER_SHARE_TTM [{ticker_symbol}]: Could not calculate annual CF/Share for date {fy_date_obj.strftime('%Y-%m-%d')}. CF: {cf_value}, Shares: {shares_value_for_annual_cf}. Error: {e}")
+                            # else: logger.debug(f"OPERATING_CF_PER_SHARE_TTM [{ticker_symbol}]: Skipping annual_cf_per_share for {fy_date_obj.strftime('%Y-%m-%d')} due to missing CF ({cf_value is None}) or Shares ({shares_value_for_annual_cf is None or shares_value_for_annual_cf == 0}).")
+
                         if annual_cf_points:
                             annual_cf_points.sort(key=lambda x: x['date_obj'])
                             logger.debug(f"OPERATING_CF_PER_SHARE_TTM [{ticker_symbol}]: Prepared {len(annual_cf_points)} annual CF/Share points.")
@@ -1050,7 +1076,11 @@ class YahooDataQueryService:
 
                     # 2. Data Fetching and Preparation (Annual)
                     annual_lookback_start_obj = user_start_date_obj - timedelta(days=(365 * 2 + 30 * 3)) # Approx 2 years 3 months before user start
-                    logger.debug(f"FCF_PER_SHARE_TTM: Querying ANNUAL cash flow statements for {ticker_symbol} from {annual_lookback_start_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}")
+                    annual_lookback_start_str = annual_lookback_start_obj.strftime('%Y-%m-%d')
+                    # Ensure user_end_date_str for annual queries is derived from user_end_date_obj to handle None cases
+                    user_end_date_str_for_annual = user_end_date_obj.strftime('%Y-%m-%d')
+
+                    logger.debug(f"FCF_PER_SHARE_TTM: Querying ANNUAL cash flow statements for {ticker_symbol} from {annual_lookback_start_str} to {user_end_date_str_for_annual}")
                     annual_cash_flow_statements = await self.db_repo.get_data_items_by_criteria(
                         ticker=ticker_symbol,
                         item_type="CASH_FLOW_STATEMENT",
@@ -1059,6 +1089,15 @@ class YahooDataQueryService:
                         end_date=user_end_date_obj,
                         order_by_key_date_desc=False # Fetch ascending
                     )
+
+                    # NEW: Fetch annual shares using the helper
+                    logger.debug(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Fetching annual shares using helper from {annual_lookback_start_str} to {user_end_date_str_for_annual}")
+                    annual_shares_data_from_helper = await self._get_annual_shares_series(
+                        ticker_symbol,
+                        annual_lookback_start_str,
+                        user_end_date_str_for_annual
+                    )
+
                     annual_fcf_points: List[Dict[str, Any]] = []
                     if annual_cash_flow_statements:
                         logger.info(f"FCF_PER_SHARE_TTM: Found {len(annual_cash_flow_statements)} ANNUAL statements for {ticker_symbol}.")
@@ -1071,7 +1110,7 @@ class YahooDataQueryService:
                             if not isinstance(payload, dict) or not key_date_from_db: continue
                             
                             current_payload = payload
-                            if rate_annual:
+                            if rate_annual: # Apply conversion to CF value
                                 current_payload = await self._apply_currency_conversion_to_payload(payload, rate_annual, orig_curr_annual, target_curr_annual, "CASH_FLOW_STATEMENT")
                             
                             fy_date_obj = self._parse_date_flex(key_date_from_db)
@@ -1079,16 +1118,23 @@ class YahooDataQueryService:
 
                             # Use Free Cash Flow directly from the database
                             fcf_value = current_payload.get("Free Cash Flow")
-
-                            shares_value = current_payload.get("Diluted Average Shares")
-                            if fcf_value is not None and shares_value is not None and shares_value != 0:
+                            
+                            # MODIFIED: Get shares_value for this annual FCF date from the helper series
+                            shares_value_for_annual_fcf = None
+                            if annual_shares_data_from_helper:
+                                for shares_point in reversed(annual_shares_data_from_helper):
+                                    if shares_point['date_obj'] <= fy_date_obj:
+                                        shares_value_for_annual_fcf = shares_point['value']
+                                        break
+                            
+                            if fcf_value is not None and shares_value_for_annual_fcf is not None and shares_value_for_annual_fcf != 0:
                                 try: 
                                     annual_fcf_points.append({
                                         'date_obj': fy_date_obj, 
-                                        'annual_fcf_per_share': float(fcf_value) / float(shares_value)
+                                        'annual_fcf_per_share': float(fcf_value) / float(shares_value_for_annual_fcf)
                                     })
                                 except (ValueError, TypeError) as e:
-                                    logger.warning(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Could not calculate annual FCF/Share for date {fy_date_obj.strftime('%Y-%m-%d')}. FCF: {fcf_value}, Shares: {shares_value}. Error: {e}")
+                                    logger.warning(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Could not calculate annual FCF/Share for date {fy_date_obj.strftime('%Y-%m-%d')}. FCF: {fcf_value}, Shares: {shares_value_for_annual_fcf}. Error: {e}")
                         if annual_fcf_points:
                             annual_fcf_points.sort(key=lambda x: x['date_obj'])
                             logger.debug(f"FCF_PER_SHARE_TTM [{ticker_symbol}]: Prepared {len(annual_fcf_points)} annual FCF/Share points.")
@@ -2221,3 +2267,70 @@ class YahooDataQueryService:
     # 
     # async def get_latest_ttm_cash_flow_statement(self, ticker: str) -> Optional[Dict[str, Any]]:
     #     return await self.get_latest_data_item_payload(ticker, "CASH_FLOW_STATEMENT", "TTM") 
+
+    # --- NEW: _get_annual_shares_series helper ---
+    async def _get_annual_shares_series(
+        self, 
+        ticker_symbol: str, 
+        start_date_str: str, 
+        end_date_str: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetches and processes annual diluted average shares data from income statements.
+        Returns a chronologically sorted list of shares data points.
+        """
+        logger.debug(f"ANNUAL_SHARES_HELPER [{ticker_symbol}]: Fetching annual shares between {start_date_str} and {end_date_str}")
+        
+        annual_shares_points: List[Dict[str, Any]] = []
+        # yfinance key for diluted average shares from the income statement
+        target_shares_key = "Diluted Average Shares" 
+
+        # Parse start and end dates
+        parsed_start_date = self._parse_date_flex(start_date_str)
+        parsed_end_date = self._parse_date_flex(end_date_str)
+
+        annual_income_statements = await self.db_repo.get_data_items_by_criteria(
+            ticker=ticker_symbol,
+            item_type="INCOME_STATEMENT", # Shares are from Income Statement
+            item_time_coverage="FYEAR",
+            start_date=parsed_start_date,
+            end_date=parsed_end_date,
+            order_by_key_date_desc=False # Fetch ascending for easier processing
+        )
+
+        if annual_income_statements:
+            # Currency conversion is not applied to shares, but fetching info might be needed if other fields were involved.
+            # For shares alone, it's not critical.
+            # conversion_info = await self._get_conversion_info_for_ticker(ticker_symbol, {}) 
+            
+            for item in annual_income_statements:
+                payload = item.get('item_data_payload')
+                key_date_from_db = item.get('item_key_date')
+                
+                if not isinstance(payload, dict) or not key_date_from_db:
+                    logger.debug(f"ANNUAL_SHARES_HELPER [{ticker_symbol}]: Skipping item due to missing payload or key_date. Item: {item.get('id')}")
+                    continue
+                
+                date_obj = self._parse_date_flex(key_date_from_db)
+                if not date_obj:
+                    logger.warning(f"ANNUAL_SHARES_HELPER [{ticker_symbol}]: Could not parse date '{key_date_from_db}' for item {item.get('id')}")
+                    continue
+
+                shares_value = payload.get(target_shares_key)
+                
+                if shares_value is not None:
+                    try:
+                        float_shares = float(shares_value)
+                        if float_shares != 0: # Shares count should not be zero for meaningful per-share metrics
+                            annual_shares_points.append({'date_obj': date_obj, 'value': float_shares})
+                        else:
+                            logger.debug(f"ANNUAL_SHARES_HELPER [{ticker_symbol}]: Zero shares value found for date '{date_obj.strftime('%Y-%m-%d')}', value: {shares_value}")
+                    except (ValueError, TypeError):
+                        logger.warning(f"ANNUAL_SHARES_HELPER [{ticker_symbol}]: Could not parse annual shares value '{shares_value}' for date '{date_obj.strftime('%Y-%m-%d')}'")
+                else:
+                    logger.debug(f"ANNUAL_SHARES_HELPER [{ticker_symbol}]: '{target_shares_key}' not found in payload for date '{date_obj.strftime('%Y-%m-%d')}'")
+        
+        annual_shares_points.sort(key=lambda x: x['date_obj']) # Ensure sorted by date
+        logger.info(f"ANNUAL_SHARES_HELPER [{ticker_symbol}]: Prepared {len(annual_shares_points)} annual shares points.")
+        return annual_shares_points
+    # --- END: _get_annual_shares_series helper ---
