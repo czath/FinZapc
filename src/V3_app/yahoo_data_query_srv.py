@@ -2050,16 +2050,6 @@ class YahooDataQueryService:
     ) -> List[Dict[str, Any]]:
         """
         Get price history data for a ticker, with caching support.
-        
-        Args:
-            ticker: The ticker symbol
-            interval: The price interval (e.g. '1d')
-            period: Optional period type (e.g. '1y', 'max', 'custom')
-            start_date: Optional start date for custom period
-            end_date: Optional end date for custom period
-            
-        Returns:
-            List of price data points
         """
         # Log the request parameters
         logger.info(f"Price history request for {ticker}: interval={interval}, period={period}, start_date={start_date}, end_date={end_date}")
@@ -2071,7 +2061,7 @@ class YahooDataQueryService:
         elif not period:
             cache_period = 'max'  # Default to max if no period specified
         
-        logger.debug(f"Using cache period: {cache_period} for {ticker}")
+        # logger.debug(f"Using cache period: {cache_period} for {ticker}")
 
         # Try to get from cache first
         cached_data = price_cache.get_price_data(
@@ -2121,63 +2111,40 @@ class YahooDataQueryService:
         end_date: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        Internal method to fetch price data from yfinance API.
-        
-        Args:
-            ticker: The ticker symbol
-            interval: The price interval (e.g. '1d')
-            period: Optional period type (e.g. '1y', 'max')
-            start_date: Optional start date for custom period
-            end_date: Optional end date for custom period
-            
-        Returns:
-            List of price data points with date and OHLCV data
+        Fetch price data from yfinance API.
         """
         try:
-            # Create yfinance Ticker object
+            # logger.debug(f"Fetching price data for {ticker} from yfinance: interval={interval}, period={period}, start_date={start_date}, end_date={end_date}")
+            
+            # Initialize yfinance ticker
             yf_ticker = yf.Ticker(ticker)
             
-            # Convert dates to datetime objects if provided
-            start_dt = None
-            end_dt = None
-            if start_date:
-                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            if end_date:
-                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            # Fetch historical data
+            if period:
+                # logger.debug(f"Using period={period} for {ticker}")
+                hist = yf_ticker.history(period=period, interval=interval)
+            else:
+                # logger.debug(f"Using start_date={start_date}, end_date={end_date} for {ticker}")
+                hist = yf_ticker.history(start=start_date, end=end_date, interval=interval)
             
-            # Use ThreadPoolExecutor to run yfinance's synchronous code
-            with ThreadPoolExecutor() as executor:
-                if period:
-                    # Use period-based fetch
-                    df = await asyncio.get_event_loop().run_in_executor(
-                        executor,
-                        lambda: yf_ticker.history(period=period, interval=interval)
-                    )
-                else:
-                    # Use date range-based fetch
-                    df = await asyncio.get_event_loop().run_in_executor(
-                        executor,
-                        lambda: yf_ticker.history(start=start_dt, end=end_dt, interval=interval)
-                    )
-            
-            if df.empty:
+            if hist.empty:
                 logger.warning(f"No price data returned from yfinance for {ticker}")
                 return []
             
-            # Convert DataFrame to list of dicts
+            # Convert to list of dicts
             price_data = []
-            for index, row in df.iterrows():
+            for index, row in hist.iterrows():
                 price_point = {
                     'Date': index.strftime('%Y-%m-%d'),
-                    'Open': float(row['Open']) if pd.notnull(row['Open']) else None,
-                    'High': float(row['High']) if pd.notnull(row['High']) else None,
-                    'Low': float(row['Low']) if pd.notnull(row['Low']) else None,
-                    'Close': float(row['Close']) if pd.notnull(row['Close']) else None,
-                    'Volume': int(row['Volume']) if pd.notnull(row['Volume']) else None
+                    'Open': float(row['Open']),
+                    'High': float(row['High']),
+                    'Low': float(row['Low']),
+                    'Close': float(row['Close']),
+                    'Volume': int(row['Volume'])
                 }
                 price_data.append(price_point)
             
-            logger.info(f"Successfully fetched {len(price_data)} price points for {ticker}")
+            # logger.debug(f"Fetched {len(price_data)} price points for {ticker}")
             return price_data
             
         except Exception as e:

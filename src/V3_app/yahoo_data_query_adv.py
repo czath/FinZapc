@@ -797,16 +797,13 @@ class YahooDataQueryAdvService:
 
         # Look back further for fundamental data
         fundamental_query_start_date_obj = user_start_date_obj - timedelta(days=5*365)
-        # For price history, the user_start_date to user_end_date is usually sufficient.
-        # However, to ensure we have price data for the very first day's TTM calc, let's align.
 
         for ticker_symbol in tickers:
             try:
-                logger.debug(f"[AdvQuerySrv.PRICE_SALES_TTM] Processing Ticker: {ticker_symbol}")
+                # logger.debug(f"[AdvQuerySrv.PRICE_SALES_TTM] Processing Ticker: {ticker_symbol}")
                 final_ratio_series: List[Dict[str, Any]] = []
 
                 # 1. Fetch Total Revenue components (Quarterly and Annual)
-                # MODIFIED: Use get_specific_field_timeseries for fetching revenue
                 quarterly_revenue_data_raw = await self.base_query_srv.get_specific_field_timeseries(
                     field_identifier="yf_item_income_statement_quarterly_TotalRevenue",
                     tickers=[ticker_symbol], 
@@ -817,14 +814,13 @@ class YahooDataQueryAdvService:
                 if quarterly_revenue_data_raw.get(ticker_symbol):
                     for item in quarterly_revenue_data_raw[ticker_symbol]:
                         date_obj = self.base_query_srv._parse_date_flex(item.get('date'))
-                        value = item.get('value') # Value is already processed (currency, key conversion)
+                        value = item.get('value')
                         if date_obj and value is not None:
                             try: quarterly_total_revenue_points.append({"date_obj": date_obj, "value": float(value)})
                             except (ValueError, TypeError): 
                                 logger.warning(f"[AdvQuerySrv.PRICE_SALES_TTM] Could not convert quarterly revenue value '{value}' to float for {ticker_symbol} on {item.get('date')}")
                 quarterly_total_revenue_points.sort(key=lambda x: x['date_obj'])
-                logger.debug(f"[AdvQuerySrv.PRICE_SALES_TTM_DEBUG] Ticker: {ticker_symbol}, Fetched {len(quarterly_total_revenue_points)} quarterly revenue points via get_specific_field_timeseries. First 2: {quarterly_total_revenue_points[:2]}")
-
+                # logger.debug(f"[AdvQuerySrv.PRICE_SALES_TTM_DEBUG] Ticker: {ticker_symbol}, Fetched {len(quarterly_total_revenue_points)} quarterly revenue points via get_specific_field_timeseries. First 2: {quarterly_total_revenue_points[:2]}")
 
                 annual_revenue_data_raw = await self.base_query_srv.get_specific_field_timeseries(
                     field_identifier="yf_item_income_statement_annual_TotalRevenue",
@@ -836,35 +832,30 @@ class YahooDataQueryAdvService:
                 if annual_revenue_data_raw.get(ticker_symbol):
                     for item in annual_revenue_data_raw[ticker_symbol]:
                         date_obj = self.base_query_srv._parse_date_flex(item.get('date'))
-                        value = item.get('value') # Value is already processed
+                        value = item.get('value')
                         if date_obj and value is not None:
                             try: annual_total_revenue_points.append({"date_obj": date_obj, "value": float(value)})
                             except (ValueError, TypeError):
                                 logger.warning(f"[AdvQuerySrv.PRICE_SALES_TTM] Could not convert annual revenue value '{value}' to float for {ticker_symbol} on {item.get('date')}")
                 annual_total_revenue_points.sort(key=lambda x: x['date_obj'])
-                logger.debug(f"[AdvQuerySrv.PRICE_SALES_TTM_DEBUG] Ticker: {ticker_symbol}, Fetched {len(annual_total_revenue_points)} annual revenue points via get_specific_field_timeseries. First 2: {annual_total_revenue_points[:2]}")
+                # logger.debug(f"[AdvQuerySrv.PRICE_SALES_TTM_DEBUG] Ticker: {ticker_symbol}, Fetched {len(annual_total_revenue_points)} annual revenue points via get_specific_field_timeseries. First 2: {annual_total_revenue_points[:2]}")
 
-
-                # 2. Fetch Daily Prices
-                price_history_raw = await self.base_query_srv.get_price_history(
-                    ticker=ticker_symbol, interval="1d",
+                # 2. Fetch Daily Prices - MODIFIED to match P/E pattern
+                price_data = await self.base_query_srv.get_price_history(
+                    ticker=ticker_symbol,
+                    interval="1d",
                     start_date=user_start_date_obj.strftime("%Y-%m-%d"),
                     end_date=user_end_date_obj.strftime("%Y-%m-%d")
                 )
-                daily_prices_map: Dict[datetime, float] = {}
-                if price_history_raw:
-                    for p_item in price_history_raw:
-                        p_date_str = p_item.get('Date')
-                        p_close = p_item.get('Close')
-                        if p_date_str and p_close is not None:
-                            p_date_obj = self.base_query_srv._parse_date_flex(p_date_str)
-                            if p_date_obj:
-                                try: daily_prices_map[p_date_obj.replace(hour=0, minute=0, second=0, microsecond=0)] = float(p_close)
-                                except (ValueError, TypeError) : 
-                                    logger.warning(f"[AdvQuerySrv.PRICE_SALES_TTM] Could not parse price data for {ticker_symbol}: date='{p_date_str}', close='{p_close}'")
-                
+
+                if not price_data:
+                    logger.warning(f"[AdvQuerySrv.PRICE_SALES_TTM] No price data returned for {ticker_symbol} from {user_start_date_obj.strftime('%Y-%m-%d')} to {user_end_date_obj.strftime('%Y-%m-%d')}.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+
+                # logger.debug(f"[AdvQuerySrv.PRICE_SALES_TTM] Received {len(price_data)} price points for {ticker_symbol}.")
+
                 # 3. Fetch Shares Outstanding Series
-                # These helpers fetch "Share Issued"
                 q_shares_series = await self.base_query_srv._get_quarterly_shares_series(
                     ticker_symbol, 
                     fundamental_query_start_date_obj.strftime("%Y-%m-%d"), 
@@ -876,56 +867,66 @@ class YahooDataQueryAdvService:
                     user_end_date_obj.strftime("%Y-%m-%d")
                 )
 
-                # 4. Iterate daily and calculate Price/Sales (TTM)
-                current_eval_date = user_start_date_obj
-                debug_log_count = 0  # For logging first few iterations
-                while current_eval_date <= user_end_date_obj:
-                    logger.debug(f"[AdvQuerySrv.PRICE_SALES_TTM_ITERATION] Ticker: {ticker_symbol}, CurrentEvalDate: {current_eval_date.strftime('%Y-%m-%d')}, DebugLogCount: {debug_log_count}")
-                    eval_date_key = current_eval_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                # 4. Process each price point - MODIFIED to match P/E pattern
+                debug_log_count = 0
+                for price_point in price_data:
+                    price_date_str = price_point['Date'].split("T")[0]  # Ensure YYYY-MM-DD format
+                    price_value = price_point.get('Close')
+
+                    if price_value is None:
+                        continue  # Skip points without price data
+
+                    # Get TTM revenue for this date
+                    price_date_obj = self.base_query_srv._parse_date_flex(price_date_str)
+                    if not price_date_obj:
+                        continue
 
                     ttm_revenue = self.base_query_srv._calculate_ttm_value_generic(
-                        current_eval_date, quarterly_total_revenue_points, annual_total_revenue_points, "value",
-                        debug_identifier=f"TTM_REVENUE_FOR_PS_{ticker_symbol}" 
+                        price_date_obj, 
+                        quarterly_total_revenue_points, 
+                        annual_total_revenue_points, 
+                        "value",
+                        debug_identifier=f"TTM_REVENUE_FOR_PS_{ticker_symbol}"
                     )
-                    current_price = daily_prices_map.get(eval_date_key)
+
+                    # Get shares for this date
                     current_shares = await self._get_applicable_shares_for_date(
-                        current_eval_date, q_shares_series, a_shares_series,
+                        price_date_obj, 
+                        q_shares_series, 
+                        a_shares_series,
                         debug_ticker_symbol=ticker_symbol
                     )
 
+                    # Calculate Price/Sales TTM
                     price_to_sales_ttm: Optional[float] = None
-                    # Explicitly log these values before calculation for the first few iterations
-                    if debug_log_count < 5:
-                        logger.info(
-                            f"[AdvQuerySrv.PRICE_SALES_TTM_INPUTS_DEBUG] Date: {current_eval_date.strftime('%Y-%m-%d')}, "
-                            f"Price: {current_price}, Shares: {current_shares}, TTM_Revenue: {ttm_revenue}"
-                        )
+                    # if debug_log_count < 5:
+                    #     logger.info(
+                    #         f"[AdvQuerySrv.PRICE_SALES_TTM_INPUTS_DEBUG] Date: {price_date_str}, "
+                    #         f"Price: {price_value}, Shares: {current_shares}, TTM_Revenue: {ttm_revenue}"
+                    #     )
 
-                    if current_price is not None and \
-                       current_shares is not None and current_shares != 0 and \
-                       ttm_revenue is not None and ttm_revenue != 0:
-                        market_cap = current_price * current_shares
+                    if current_shares is not None and current_shares != 0 and ttm_revenue is not None and ttm_revenue != 0:
+                        market_cap = float(price_value) * current_shares
                         price_to_sales_ttm = market_cap / ttm_revenue
-                    
-                    if debug_log_count < 5: # Log first 5 iterations
-                        logger.info( # CHANGED TO INFO
-                            f"[AdvQuerySrv.PRICE_SALES_TTM_RESULT_DEBUG] Date: {current_eval_date.strftime('%Y-%m-%d')}, "
-                            f"P/S_TTM_Calculated: {price_to_sales_ttm}"
-                        )
-                        debug_log_count += 1
+
+                    # if debug_log_count < 5:
+                    #     logger.info(
+                    #         f"[AdvQuerySrv.PRICE_SALES_TTM_RESULT_DEBUG] Date: {price_date_str}, "
+                    #         f"P/S_TTM_Calculated: {price_to_sales_ttm}"
+                    #     )
+                    #     debug_log_count += 1
 
                     final_ratio_series.append({
-                        "date": current_eval_date.strftime("%Y-%m-%d"),
+                        "date": price_date_str,
                         "value": price_to_sales_ttm
                     })
-                    current_eval_date += timedelta(days=1)
-                
+
                 results_by_ticker[ticker_symbol] = final_ratio_series
                 logger.info(f"[AdvQuerySrv.PRICE_SALES_TTM] Ticker {ticker_symbol}: Generated {len(final_ratio_series)} P/S TTM points.")
 
             except Exception as e:
                 logger.error(f"[AdvQuerySrv.PRICE_SALES_TTM] Error processing ticker {ticker_symbol} for P/S TTM: {e}", exc_info=True)
                 results_by_ticker[ticker_symbol] = []
-        
+
         logger.info(f"[AdvQuerySrv.calculate_price_to_sales_ttm] Completed for {len(tickers)} tickers.")
         return results_by_ticker
