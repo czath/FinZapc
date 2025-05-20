@@ -1612,93 +1612,24 @@
         if (sfRatioSelect) {
             sfRatioSelect.innerHTML = ''; // Clear existing options first
 
-            const componentIcon = "🧱"; // Brick
-            const ratioIcon = "📊";     // Bar Chart
+            // INSERT NEW LOGIC HERE: (This part was correctly inserted by the previous step)
+            if (window.GlobalSyntheticStudiesList && Array.isArray(window.GlobalSyntheticStudiesList)) {
+                window.GlobalSyntheticStudiesList.forEach(study => {
+                    const option = document.createElement('option');
+                    option.value = study.value;
+                    option.textContent = study.text; // The text now comes from GlobalSyntheticStudiesList
+                    sfRatioSelect.appendChild(option);
+                });
 
-            const epsOption = document.createElement('option');
-            epsOption.value = "EPS_TTM";
-            epsOption.textContent = `${componentIcon} Diluted EPS (TTM)`;
-            // epsOption.style.color = "green"; // REMOVED
-            sfRatioSelect.appendChild(epsOption);
-
-            const peOption = document.createElement('option');
-            peOption.value = "PE_TTM";
-            peOption.textContent = `${ratioIcon} P/E (TTM)`;
-            // peOption.style.color = "blue"; // REMOVED
-            sfRatioSelect.appendChild(peOption);
-
-            // Add Earnings Yield option
-            const earningsYieldOption = document.createElement('option');
-            earningsYieldOption.value = "EARNINGS_YIELD_TTM";
-            earningsYieldOption.textContent = `${ratioIcon} Earnings Yield (TTM)`;
-            sfRatioSelect.appendChild(earningsYieldOption);
-
-            // Add Operating CF/Share (TTM) option
-            const operatingCfPerShareOption = document.createElement('option');
-            operatingCfPerShareOption.value = "OPERATING_CF_PER_SHARE_TTM";
-            operatingCfPerShareOption.textContent = `${componentIcon} Operating CF/Share (TTM)`;
-            sfRatioSelect.appendChild(operatingCfPerShareOption);
-
-            // Add FCF/Share TTM option
-            const fcfPerShareOption = document.createElement('option');
-            fcfPerShareOption.value = "FCF_PER_SHARE_TTM";
-            fcfPerShareOption.textContent = `${componentIcon} FCF/Share (TTM)`;
-            sfRatioSelect.appendChild(fcfPerShareOption);
-            
-            const cashPerShareOption = document.createElement('option');
-            cashPerShareOption.value = "CASH_PER_SHARE";
-            cashPerShareOption.textContent = `${componentIcon} Cash/Share`;
-            // cashPerShareOption.style.color = "green"; // REMOVED
-            sfRatioSelect.appendChild(cashPerShareOption);
-
-            const cashPlusStInvPerShareOption = document.createElement('option');
-            cashPlusStInvPerShareOption.value = "CASH_PLUS_ST_INV_PER_SHARE";
-            cashPlusStInvPerShareOption.textContent = `${componentIcon} Cash+ST Inv/Share`;
-            // cashPlusStInvPerShareOption.style.color = "green"; // REMOVED
-            sfRatioSelect.appendChild(cashPlusStInvPerShareOption);
-            
-            const priceToCashPlusStInvOption = document.createElement('option');
-            priceToCashPlusStInvOption.value = "PRICE_TO_CASH_PLUS_ST_INV";
-            priceToCashPlusStInvOption.textContent = `${ratioIcon} Price/Cash+ST Inv`;
-            // priceToCashPlusStInvOption.style.color = "blue"; // REMOVED
-            sfRatioSelect.appendChild(priceToCashPlusStInvOption);
-
-            // NEW: Book Value per Share options
-            const bookValuePerShareOption = document.createElement('option');
-            bookValuePerShareOption.value = "BOOK_VALUE_PER_SHARE";
-            bookValuePerShareOption.textContent = `${componentIcon} Book Value/Share`;
-            sfRatioSelect.appendChild(bookValuePerShareOption);
-
-            const priceToBookValueOption = document.createElement('option');
-            priceToBookValueOption.value = "PRICE_TO_BOOK_VALUE";
-            priceToBookValueOption.textContent = `${ratioIcon} Price/Book Value`;
-            sfRatioSelect.appendChild(priceToBookValueOption);
-            // END NEW
-
-            // NEW: Add FCF/Share TTM option - This was re-added after book value, let's ensure correct order or consolidate
-            // The fcfPerShareOption is already added above. The duplicate from original template might be here.
-            // We will add the new P/Op CF and P/FCF TTM options after FCF/Share (TTM)
-
-            const pOperCfTtmOption = document.createElement('option');
-            pOperCfTtmOption.value = "P_OPER_CF_TTM";
-            pOperCfTtmOption.textContent = `${ratioIcon} P/Op CF (TTM)`;
-            sfRatioSelect.appendChild(pOperCfTtmOption);
-
-            const pFcfTtmOption = document.createElement('option');
-            pFcfTtmOption.value = "P_FCF_TTM";
-            pFcfTtmOption.textContent = `${ratioIcon} P/FCF (TTM)`;
-            sfRatioSelect.appendChild(pFcfTtmOption);
-
-            // NEW: Add FCF Margin (TTM) option
-            const fcfMarginTtmOption = document.createElement('option');
-            fcfMarginTtmOption.value = "FCF_MARGIN_TTM";
-            fcfMarginTtmOption.textContent = `${ratioIcon} FCF Margin (TTM)`; // Assuming it's a ratio for icon
-            sfRatioSelect.appendChild(fcfMarginTtmOption);
-            // END NEW
-
-            // Select the first one by default if needed, or let HTML decide initial selected
-            if (!sfRatioSelect.value) {
-                 epsOption.selected = true;
+                if (sfRatioSelect.options.length > 0 && !sfRatioSelect.value) {
+                    sfRatioSelect.options[0].selected = true;
+                }
+            } else {
+                console.error(LOG_PREFIX, "GlobalSyntheticStudiesList not found or not an array. SF Ratio select cannot be populated.");
+                const errorOption = document.createElement('option');
+                errorOption.textContent = "Error: Ratios not loaded";
+                errorOption.disabled = true;
+                sfRatioSelect.appendChild(errorOption);
             }
         } 
 
@@ -1972,6 +1903,11 @@
                         yAxisLabel = "Price/FCF (TTM)";
                     }
                     // Note: FCF_MARGIN_TTM will be handled by advDetails if analytics_ts_fund_adv.js is loaded correctly
+                    // END NEW
+                    // NEW: Add yAxisLabel for Gross Margin (TTM)
+                    else if (selectedRatio === "GROSS_MARGIN_TTM") {
+                        yAxisLabel = "Gross Margin % (TTM)";
+                    }
                     // END NEW
                 }
                 // END NEW logic block

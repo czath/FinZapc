@@ -9,6 +9,15 @@
         "FCF_MARGIN_TTM": {
             yAxisLabel: "FCF Margin % (TTM)"
             // Potentially other UI properties like chartType default, tooltip formatter, etc.
+        },
+        "GROSS_MARGIN_TTM": { 
+            yAxisLabel: "Gross Margin % (TTM)"
+        },
+        "OPERATING_MARGIN_TTM": {
+            yAxisLabel: "Operating Margin % (TTM)"
+        },
+        "NET_PROFIT_MARGIN_TTM": {
+            yAxisLabel: "Net Profit Margin % (TTM)"
         }
         // Example for a future study:
         // "ANOTHER_ADV_RATIO": {

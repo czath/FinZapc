@@ -1,33 +1,114 @@
 # Core Application
-fastapi>=0.100.0
-uvicorn>=0.20.0
-sqlalchemy==2.0.41
-pydantic>=2.0.0
-aiohttp>=3.8.0
-httpx>=0.27.0
-requests>=2.26.0 # requests is also a dependency of yfinance and others
-urllib3>=2.1.0  # urllib3 is also a dependency of requests and others
+fastapi==0.104.1
+uvicorn==0.24.0
+sqlalchemy==2.0.23
+pydantic==2.11.3
+pydantic_core==2.33.1
+starlette==0.27.0
+python-multipart==0.0.6
+
+# HTTP & Networking
+aiohttp==3.11.16
+aiohappyeyeballs==2.6.1
+aiosignal==1.3.2
+httpx==0.28.1
+httpcore==1.0.9
+httptools==0.6.4
+requests==2.31.0
+requests-cache==1.2.1
+requests-ratelimiter==0.7.0
+requests-toolbelt==1.0.0
+urllib3==2.1.0
+curl_cffi==0.10.0
+multidict==6.2.0
+yarl==1.19.0
+idna==3.10
+charset-normalizer==3.4.1
+certifi==2025.1.31
+
+# Interactive Brokers
+ib-insync==0.9.86
+ibapi==9.81.1.post1
+eventkit==1.0.3
+nest-asyncio==1.6.0
 
 # Data Handling & Finance
-pandas>=2.0.0
-yfinance>=0.2.0
-cloudscraper>=1.2.0
-beautifulsoup4>=4.12.0
+pandas==2.2.3
+numpy==2.2.4
+yfinance==0.2.59
+cloudscraper==1.2.71
+beautifulsoup4==4.13.3
+soupsieve==2.6
+openpyxl==3.1.5
+et_xmlfile==2.0.0
 cachetools==5.3.3
+python-dateutil==2.9.0.post0
+six==1.17.0
+
+# Database
+aiosqlite==0.21.0
+peewee==3.18.1
+greenlet==3.1.1
 
 # Scheduling & Templating
-apscheduler==3.8.1
-jinja2==3.0.1
+APScheduler==3.10.4
+jinja2==3.1.2
+markupsafe==3.0.2
+pytz==2025.1
+tzdata==2025.1
+tzlocal==5.3.1
 
-# WebSockets
-websocket-client>=1.0.0
+# WebSockets & Async
+websocket-client==1.8.0
+websockets==15.0.1
+anyio==3.7.1
+h11==0.16.0
+sniffio==1.3.1
+frozenlist==1.5.0
 
 # Utilities
 python-dotenv==1.0.0
-python-multipart==0.0.5 # For FastAPI forms
+click==8.1.8
+colorama==0.4.6
+cryptography==45.0.2
+cffi==1.17.1
+pycparser==2.22
+protobuf==5.29.4
+pyyaml==6.0.2
+url-normalize==2.2.1
+frozendict==2.4.6
+attrs==25.3.0
+cattrs==24.1.3
+annotated-types==0.7.0
+typing_extensions==4.12.2
+typing-inspection==0.4.0
+packaging==24.2
+pyparsing==3.2.3
+iniconfig==2.1.0
+pluggy==1.5.0
+propcache==0.3.1
+platformdirs==4.3.7
+pathspec==0.12.1
+multitasking==0.0.11
+pyrate-limiter==2.10.0
+watchfiles==1.0.5
 
-# Development & Testing (keep as is)
-pytest>=7.4.0
-black>=23.7.0
-isort>=5.12.0
-mypy>=1.5.0 
+# Development & Testing
+pytest==8.3.5
+black==25.1.0
+isort==6.0.1
+mypy==1.15.0
+mypy-extensions==1.0.0
+
+# Flask & Related (if needed)
+Flask==3.0.0
+blinker==1.9.0
+itsdangerous==2.2.0
+Werkzeug==3.1.3
+
+# Packaging & Distribution
+pyinstaller==6.12.0
+pyinstaller-hooks-contrib==2025.1
+altgraph==0.17.4
+pefile==2023.2.7
+pywin32-ctypes==0.2.3 

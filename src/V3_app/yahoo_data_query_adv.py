@@ -39,8 +39,8 @@ class YahooDataQueryAdvService:
         logger.info(f"[AdvQuerySrv.calculate_fcf_margin_ttm] Request for Tickers: {tickers}, Start: {start_date_str}, End: {end_date_str}")
         results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
         
-        # Initialize a shared ticker_profiles_cache for this operation
-        ticker_profiles_cache: Dict[str, Dict[str, Any]] = {}
+        # Initialize a shared ticker_profiles_cache for this operation - NO LONGER NEEDED HERE IF CONVERSION IS REMOVED
+        # ticker_profiles_cache: Dict[str, Dict[str, Any]] = {} 
 
         user_start_date_obj: Optional[datetime] = None
         user_end_date_obj: Optional[datetime] = None
@@ -67,9 +67,6 @@ class YahooDataQueryAdvService:
         for ticker_symbol in tickers:
             try:
                 logger.debug(f"[AdvQuerySrv.FCF_MARGIN] Processing Ticker: {ticker_symbol}")
-
-                conversion_info = await self.base_query_srv._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache)
-                rate_to_apply, original_fin_curr, target_trade_curr = (conversion_info[2], conversion_info[1], conversion_info[0]) if conversion_info else (None, None, None)
 
                 # Fetch Quarterly FCF components
                 quarterly_cf_statements_raw = await self.base_query_srv.db_repo.get_data_items_by_criteria(
@@ -100,14 +97,9 @@ class YahooDataQueryAdvService:
                     if idx == 0: # Log for the very first item
                         logger.debug(f"[AdvQuerySrv.FCF_MARGIN_DEBUG_FIRST_Q_CF_DIRECT_GET] Ticker: {ticker_symbol}, Date: {date_obj.strftime('%Y-%m-%d')}, Direct get 'Free Cash Flow': {original_payload_fcf_value}")
 
-                    if rate_to_apply and original_fin_curr and target_trade_curr:
-                        payload = await self.base_query_srv._apply_currency_conversion_to_payload(
-                            payload, rate_to_apply, original_fin_curr, target_trade_curr, "CASH_FLOW_STATEMENT"
-                        )
-                    # After potential conversion, try to get "Free Cash Flow" again from the (possibly new) payload
                     fcf_val_after_conversion = payload.get("Free Cash Flow")
-                    if idx == 0 and (rate_to_apply and original_fin_curr and target_trade_curr): # Log if conversion happened
-                        logger.debug(f"[AdvQuerySrv.FCF_MARGIN_DEBUG_FIRST_Q_CF_CONVERTED_GET] Ticker: {ticker_symbol}, Date: {date_obj.strftime('%Y-%m-%d')}, Get 'Free Cash Flow' after conversion: {fcf_val_after_conversion}")
+                    if idx == 0: # and (rate_to_apply and original_fin_curr and target_trade_curr): # Log if conversion happened (condition modified)
+                        logger.debug(f"[AdvQuerySrv.FCF_MARGIN_DEBUG_FIRST_Q_CF_CONVERTED_GET] Ticker: {ticker_symbol}, Date: {date_obj.strftime('%Y-%m-%d')}, Get 'Free Cash Flow' after (intended no) conversion: {fcf_val_after_conversion}")
 
 
                     # Use fcf_val_after_conversion for appending points
@@ -142,10 +134,6 @@ class YahooDataQueryAdvService:
                     if raw_fcf_a is not None and len(annual_fcf_points) < 1: # Log first one
                         logger.debug(f"[AdvQuerySrv.FCF_MARGIN_DEBUG_RAW_A_FCF] Ticker: {ticker_symbol}, Date: {date_obj.strftime('%Y-%m-%d')}, Raw Annual FCF: {raw_fcf_a}")
 
-                    if rate_to_apply and original_fin_curr and target_trade_curr:
-                         payload = await self.base_query_srv._apply_currency_conversion_to_payload(
-                            payload, rate_to_apply, original_fin_curr, target_trade_curr, "CASH_FLOW_STATEMENT"
-                        )
                     fcf_val = payload.get("Free Cash Flow")
                     # DEBUG: Log FCF after conversion for annual
                     if fcf_val is not None and len(annual_fcf_points) < 1:
@@ -191,14 +179,9 @@ class YahooDataQueryAdvService:
                     if idx == 0: # Log for the very first item
                         logger.debug(f"[AdvQuerySrv.FCF_MARGIN_DEBUG_FIRST_Q_IS_DIRECT_GET] Ticker: {ticker_symbol}, Date: {date_obj.strftime('%Y-%m-%d')}, Direct get 'Total Revenue': {original_payload_revenue_value}")
                     
-                    if rate_to_apply and original_fin_curr and target_trade_curr:
-                        payload = await self.base_query_srv._apply_currency_conversion_to_payload(
-                            payload, rate_to_apply, original_fin_curr, target_trade_curr, "INCOME_STATEMENT"
-                        )
-                    # After potential conversion, try to get "Total Revenue" again from the (possibly new) payload
                     revenue_after_conversion = payload.get("Total Revenue")
-                    if idx == 0 and (rate_to_apply and original_fin_curr and target_trade_curr): # Log if conversion happened
-                        logger.debug(f"[AdvQuerySrv.FCF_MARGIN_DEBUG_FIRST_Q_IS_CONVERTED_GET] Ticker: {ticker_symbol}, Date: {date_obj.strftime('%Y-%m-%d')}, Get 'Total Revenue' after conversion: {revenue_after_conversion}")
+                    if idx == 0: # and (rate_to_apply and original_fin_curr and target_trade_curr): # Log if conversion happened (condition modified)
+                        logger.debug(f"[AdvQuerySrv.FCF_MARGIN_DEBUG_FIRST_Q_IS_CONVERTED_GET] Ticker: {ticker_symbol}, Date: {date_obj.strftime('%Y-%m-%d')}, Get 'Total Revenue' after (intended no) conversion: {revenue_after_conversion}")
                     
                     if revenue_after_conversion is not None:
                         try: quarterly_revenue_points.append({"date_obj": date_obj, "value": float(revenue_after_conversion)})
@@ -230,10 +213,6 @@ class YahooDataQueryAdvService:
                     if raw_rev_a is not None and len(annual_revenue_points) < 1:
                         logger.debug(f"[AdvQuerySrv.FCF_MARGIN_DEBUG_RAW_A_REV] Ticker: {ticker_symbol}, Date: {date_obj.strftime('%Y-%m-%d')}, Raw Annual Revenue: {raw_rev_a}")
 
-                    if rate_to_apply and original_fin_curr and target_trade_curr:
-                        payload = await self.base_query_srv._apply_currency_conversion_to_payload(
-                            payload, rate_to_apply, original_fin_curr, target_trade_curr, "INCOME_STATEMENT"
-                        )
                     revenue = payload.get("Total Revenue")
                      # DEBUG: Log Revenue after conversion for annual
                     if revenue is not None and len(annual_revenue_points) < 1:
@@ -303,3 +282,428 @@ class YahooDataQueryAdvService:
     # e.g., self.base_query_srv.get_specific_field_timeseries(...)
     # e.g., self.base_query_srv._get_quarterly_shares_series(...)
     # e.g., self.base_query_srv._get_annual_shares_series(...)
+
+    async def calculate_gross_margin_ttm(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        logger.info(f"[AdvQuerySrv.calculate_gross_margin_ttm] Request for Tickers: {tickers}, Start: {start_date_str}, End: {end_date_str}")
+        results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+        
+        ticker_profiles_cache: Dict[str, Dict[str, Any]] = {}
+
+        user_start_date_obj: Optional[datetime] = None
+        user_end_date_obj: Optional[datetime] = None
+        today = datetime.today()
+
+        if start_date_str:
+            user_start_date_obj = self.base_query_srv._parse_date_flex(start_date_str)
+        else:
+            user_start_date_obj = today.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        if end_date_str:
+            user_end_date_obj = self.base_query_srv._parse_date_flex(end_date_str)
+        else:
+            user_end_date_obj = today.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        if not user_start_date_obj or not user_end_date_obj:
+            logger.error("[AdvQuerySrv.calculate_gross_margin_ttm] Failed to parse start or end dates.")
+            return results_by_ticker
+
+        # Look back further for fundamental data to ensure enough history for TTM calculation
+        fundamental_query_start_date_obj = user_start_date_obj - timedelta(days=5*365) 
+        # fundamental_query_start_date_str = fundamental_query_start_date_obj.strftime("%Y-%m-%d") # Not directly used by get_data_items_by_criteria
+        # fundamental_query_end_date_str = user_end_date_obj.strftime("%Y-%m-%d") # Not directly used
+
+        for ticker_symbol in tickers:
+            try:
+                logger.debug(f"[AdvQuerySrv.GROSS_MARGIN] Processing Ticker: {ticker_symbol}")
+
+                # Fetch Quarterly Gross Profit and Total Revenue (from Income Statement)
+                quarterly_is_statements_raw = await self.base_query_srv.db_repo.get_data_items_by_criteria(
+                    ticker=ticker_symbol, # Ensure this uses singular ticker
+                    item_type="INCOME_STATEMENT", 
+                    item_time_coverage="QUARTER",
+                    start_date=fundamental_query_start_date_obj, 
+                    end_date=user_end_date_obj, 
+                    order_by_key_date_desc=False
+                )
+                quarterly_gross_profit_points: List[Dict[str, Any]] = []
+                quarterly_total_revenue_points: List[Dict[str, Any]] = []
+
+                for item_data in quarterly_is_statements_raw:
+                    payload = item_data.get('item_data_payload')
+                    key_date_str = item_data.get('item_key_date')
+                    if not isinstance(payload, dict) or not key_date_str: continue
+                    date_obj = self.base_query_srv._parse_date_flex(key_date_str)
+                    if not date_obj: continue
+
+                    gross_profit_val = payload.get("Gross Profit")
+                    total_revenue_val = payload.get("Total Revenue")
+
+                    if gross_profit_val is not None:
+                        try: quarterly_gross_profit_points.append({"date_obj": date_obj, "value": float(gross_profit_val)})
+                        except (ValueError, TypeError): pass
+                    if total_revenue_val is not None:
+                        try: quarterly_total_revenue_points.append({"date_obj": date_obj, "value": float(total_revenue_val)})
+                        except (ValueError, TypeError): pass
+                
+                quarterly_gross_profit_points.sort(key=lambda x: x['date_obj'])
+                quarterly_total_revenue_points.sort(key=lambda x: x['date_obj'])
+                logger.debug(f"[AdvQuerySrv.GROSS_MARGIN_DEBUG_POP_Q_GP] Ticker: {ticker_symbol}, First 2 Q_GP points: {quarterly_gross_profit_points[:2]}")
+                logger.debug(f"[AdvQuerySrv.GROSS_MARGIN_DEBUG_POP_Q_REV] Ticker: {ticker_symbol}, First 2 Q_REV points: {quarterly_total_revenue_points[:2]}")
+
+
+                # Fetch Annual Gross Profit and Total Revenue (from Income Statement)
+                annual_is_statements_raw = await self.base_query_srv.db_repo.get_data_items_by_criteria(
+                    ticker=ticker_symbol, # Ensure this uses singular ticker
+                    item_type="INCOME_STATEMENT", 
+                    item_time_coverage="FYEAR",
+                    start_date=fundamental_query_start_date_obj, 
+                    end_date=user_end_date_obj, 
+                    order_by_key_date_desc=False
+                )
+                annual_gross_profit_points: List[Dict[str, Any]] = []
+                annual_total_revenue_points: List[Dict[str, Any]] = []
+
+                for item_data in annual_is_statements_raw:
+                    payload = item_data.get('item_data_payload')
+                    key_date_str = item_data.get('item_key_date')
+                    if not isinstance(payload, dict) or not key_date_str: continue
+                    date_obj = self.base_query_srv._parse_date_flex(key_date_str)
+                    if not date_obj: continue
+
+                    gross_profit_val = payload.get("Gross Profit")
+                    total_revenue_val = payload.get("Total Revenue")
+
+                    if gross_profit_val is not None:
+                        try: annual_gross_profit_points.append({"date_obj": date_obj, "value": float(gross_profit_val)})
+                        except (ValueError, TypeError): pass
+                    if total_revenue_val is not None:
+                        try: annual_total_revenue_points.append({"date_obj": date_obj, "value": float(total_revenue_val)})
+                        except (ValueError, TypeError): pass
+                
+                annual_gross_profit_points.sort(key=lambda x: x['date_obj'])
+                annual_total_revenue_points.sort(key=lambda x: x['date_obj'])
+                logger.debug(f"[AdvQuerySrv.GROSS_MARGIN_DEBUG_POP_A_GP] Ticker: {ticker_symbol}, First A_GP point: {annual_gross_profit_points[:1]}")
+                logger.debug(f"[AdvQuerySrv.GROSS_MARGIN_DEBUG_POP_A_REV] Ticker: {ticker_symbol}, First A_REV point: {annual_total_revenue_points[:1]}")
+
+                # Generate daily TTM series and Calculate Gross Margin
+                final_margin_series: List[Dict[str, Any]] = []
+                current_eval_date = user_start_date_obj
+                log_count = 0
+
+                while current_eval_date <= user_end_date_obj:
+                    ttm_gross_profit = self.base_query_srv._calculate_ttm_value_generic(
+                        current_eval_date, quarterly_gross_profit_points, annual_gross_profit_points, "value"
+                    )
+                    ttm_total_revenue = self.base_query_srv._calculate_ttm_value_generic(
+                        current_eval_date, quarterly_total_revenue_points, annual_total_revenue_points, "value"
+                    )
+
+                    if log_count < 5: # Log first 5 TTM calculations
+                        logger.debug(f"[AdvQuerySrv.GROSS_MARGIN_DEBUG_TTM_VALS] Ticker: {ticker_symbol}, EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, TTM_GP: {ttm_gross_profit}, TTM_Revenue: {ttm_total_revenue}")
+                        log_count +=1
+                    
+                    gross_margin: Optional[float] = None
+                    if ttm_gross_profit is not None and ttm_total_revenue is not None and ttm_total_revenue != 0:
+                        gross_margin = (ttm_gross_profit / ttm_total_revenue) * 100
+                    
+                    final_margin_series.append({
+                        "date": current_eval_date.strftime("%Y-%m-%d"),
+                        "value": gross_margin
+                    })
+                    current_eval_date += timedelta(days=1)
+                
+                results_by_ticker[ticker_symbol] = final_margin_series
+                logger.info(f"[AdvQuerySrv.GROSS_MARGIN] Ticker {ticker_symbol}: Generated {len(final_margin_series)} gross margin points.")
+
+            except Exception as e:
+                logger.error(f"[AdvQuerySrv.GROSS_MARGIN] Error processing ticker {ticker_symbol} for Gross Margin: {e}", exc_info=True)
+                results_by_ticker[ticker_symbol] = []
+        return results_by_ticker
+
+    async def calculate_operating_margin_ttm(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        logger.info(f"[AdvQuerySrv.calculate_operating_margin_ttm] Request for Tickers: {tickers}, Start: {start_date_str}, End: {end_date_str}")
+        results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+
+        user_start_date_obj: Optional[datetime] = None
+        user_end_date_obj: Optional[datetime] = None
+        today = datetime.today()
+
+        if start_date_str:
+            user_start_date_obj = self.base_query_srv._parse_date_flex(start_date_str)
+        else:
+            user_start_date_obj = today.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        if end_date_str:
+            user_end_date_obj = self.base_query_srv._parse_date_flex(end_date_str)
+        else:
+            user_end_date_obj = today.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        if not user_start_date_obj or not user_end_date_obj:
+            logger.error("[AdvQuerySrv.calculate_operating_margin_ttm] Failed to parse start or end dates.")
+            return results_by_ticker
+
+        fundamental_query_start_date_obj = user_start_date_obj - timedelta(days=5*365)
+
+        for ticker_symbol in tickers:
+            try:
+                logger.debug(f"[AdvQuerySrv.OPERATING_MARGIN] Processing Ticker: {ticker_symbol}")
+
+                # Fetch Quarterly Operating Income and Total Revenue (from Income Statement)
+                quarterly_is_statements_raw = await self.base_query_srv.db_repo.get_data_items_by_criteria(
+                    ticker=ticker_symbol, # Ensure this uses singular ticker
+                    item_type="INCOME_STATEMENT", 
+                    item_time_coverage="QUARTER",
+                    start_date=fundamental_query_start_date_obj, 
+                    end_date=user_end_date_obj, 
+                    order_by_key_date_desc=False
+                )
+                quarterly_operating_income_points: List[Dict[str, Any]] = []
+                quarterly_total_revenue_points: List[Dict[str, Any]] = [] # Reusing from gross margin, can be defined once if refactored
+
+                for item_data in quarterly_is_statements_raw:
+                    payload = item_data.get('item_data_payload')
+                    key_date_str = item_data.get('item_key_date')
+                    if not isinstance(payload, dict) or not key_date_str: continue
+                    date_obj = self.base_query_srv._parse_date_flex(key_date_str)
+                    if not date_obj: continue
+                    
+                    operating_income_val = payload.get("Operating Income")
+                    total_revenue_val = payload.get("Total Revenue")
+
+                    if operating_income_val is not None:
+                        try: quarterly_operating_income_points.append({"date_obj": date_obj, "value": float(operating_income_val)})
+                        except (ValueError, TypeError): pass
+                    if total_revenue_val is not None:
+                        try: quarterly_total_revenue_points.append({"date_obj": date_obj, "value": float(total_revenue_val)})
+                        except (ValueError, TypeError): pass
+                
+                quarterly_operating_income_points.sort(key=lambda x: x['date_obj'])
+                quarterly_total_revenue_points.sort(key=lambda x: x['date_obj'])
+                logger.debug(f"[AdvQuerySrv.OPERATING_MARGIN_DEBUG_POP_Q_OI] Ticker: {ticker_symbol}, First 2 Q_OI points: {quarterly_operating_income_points[:2]}")
+                logger.debug(f"[AdvQuerySrv.OPERATING_MARGIN_DEBUG_POP_Q_REV] Ticker: {ticker_symbol}, First 2 Q_REV points: {quarterly_total_revenue_points[:2]}")
+
+                # Fetch Annual Operating Income and Total Revenue (from Income Statement)
+                annual_is_statements_raw = await self.base_query_srv.db_repo.get_data_items_by_criteria(
+                    ticker=ticker_symbol, # Ensure this uses singular ticker
+                    item_type="INCOME_STATEMENT", 
+                    item_time_coverage="FYEAR",
+                    start_date=fundamental_query_start_date_obj, 
+                    end_date=user_end_date_obj, 
+                    order_by_key_date_desc=False
+                )
+                annual_operating_income_points: List[Dict[str, Any]] = []
+                annual_total_revenue_points: List[Dict[str, Any]] = [] # Reusing
+
+                for item_data in annual_is_statements_raw:
+                    payload = item_data.get('item_data_payload')
+                    key_date_str = item_data.get('item_key_date')
+                    if not isinstance(payload, dict) or not key_date_str: continue
+                    date_obj = self.base_query_srv._parse_date_flex(key_date_str)
+                    if not date_obj: continue
+
+                    operating_income_val = payload.get("Operating Income")
+                    total_revenue_val = payload.get("Total Revenue")
+
+                    if operating_income_val is not None:
+                        try: annual_operating_income_points.append({"date_obj": date_obj, "value": float(operating_income_val)})
+                        except (ValueError, TypeError): pass
+                    if total_revenue_val is not None:
+                        try: annual_total_revenue_points.append({"date_obj": date_obj, "value": float(total_revenue_val)})
+                        except (ValueError, TypeError): pass
+                
+                annual_operating_income_points.sort(key=lambda x: x['date_obj'])
+                annual_total_revenue_points.sort(key=lambda x: x['date_obj'])
+                logger.debug(f"[AdvQuerySrv.OPERATING_MARGIN_DEBUG_POP_A_OI] Ticker: {ticker_symbol}, First A_OI point: {annual_operating_income_points[:1]}")
+                logger.debug(f"[AdvQuerySrv.OPERATING_MARGIN_DEBUG_POP_A_REV] Ticker: {ticker_symbol}, First A_REV point: {annual_total_revenue_points[:1]}")
+
+                final_margin_series: List[Dict[str, Any]] = []
+                current_eval_date = user_start_date_obj
+                log_count = 0
+
+                while current_eval_date <= user_end_date_obj:
+                    ttm_operating_income = self.base_query_srv._calculate_ttm_value_generic(
+                        current_eval_date, quarterly_operating_income_points, annual_operating_income_points, "value"
+                    )
+                    ttm_total_revenue = self.base_query_srv._calculate_ttm_value_generic(
+                        current_eval_date, quarterly_total_revenue_points, annual_total_revenue_points, "value"
+                    )
+
+                    if log_count < 5:
+                        logger.debug(f"[AdvQuerySrv.OPERATING_MARGIN_DEBUG_TTM_VALS] Ticker: {ticker_symbol}, EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, TTM_OI: {ttm_operating_income}, TTM_Revenue: {ttm_total_revenue}")
+                        log_count +=1
+                    
+                    operating_margin: Optional[float] = None
+                    if ttm_operating_income is not None and ttm_total_revenue is not None and ttm_total_revenue != 0:
+                        operating_margin = (ttm_operating_income / ttm_total_revenue) * 100
+                    
+                    final_margin_series.append({
+                        "date": current_eval_date.strftime("%Y-%m-%d"),
+                        "value": operating_margin
+                    })
+                    current_eval_date += timedelta(days=1)
+                
+                results_by_ticker[ticker_symbol] = final_margin_series
+                logger.info(f"[AdvQuerySrv.OPERATING_MARGIN] Ticker {ticker_symbol}: Generated {len(final_margin_series)} operating margin points.")
+
+            except Exception as e:
+                logger.error(f"[AdvQuerySrv.OPERATING_MARGIN] Error processing ticker {ticker_symbol} for Operating Margin: {e}", exc_info=True)
+                results_by_ticker[ticker_symbol] = []
+        return results_by_ticker
+
+    async def calculate_net_profit_margin_ttm(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        logger.info(f"[AdvQuerySrv.calculate_net_profit_margin_ttm] Request for Tickers: {tickers}, Start: {start_date_str}, End: {end_date_str}")
+        results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+
+        user_start_date_obj: Optional[datetime] = None
+        user_end_date_obj: Optional[datetime] = None
+        today = datetime.today()
+
+        if start_date_str:
+            user_start_date_obj = self.base_query_srv._parse_date_flex(start_date_str)
+        else:
+            user_start_date_obj = today.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        if end_date_str:
+            user_end_date_obj = self.base_query_srv._parse_date_flex(end_date_str)
+        else:
+            user_end_date_obj = today.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        if not user_start_date_obj or not user_end_date_obj:
+            logger.error("[AdvQuerySrv.calculate_net_profit_margin_ttm] Failed to parse start or end dates.")
+            return results_by_ticker
+
+        fundamental_query_start_date_obj = user_start_date_obj - timedelta(days=5*365)
+
+        for ticker_symbol in tickers:
+            try:
+                logger.debug(f"[AdvQuerySrv.NET_PROFIT_MARGIN] Processing Ticker: {ticker_symbol}")
+
+                # Fetch Quarterly Net Income and Total Revenue (from Income Statement)
+                quarterly_is_statements_raw = await self.base_query_srv.db_repo.get_data_items_by_criteria(
+                    ticker=ticker_symbol, 
+                    item_type="INCOME_STATEMENT", 
+                    item_time_coverage="QUARTER",
+                    start_date=fundamental_query_start_date_obj, 
+                    end_date=user_end_date_obj, 
+                    order_by_key_date_desc=False
+                )
+                quarterly_net_income_points: List[Dict[str, Any]] = []
+                quarterly_total_revenue_points: List[Dict[str, Any]] = []
+
+                for item_data in quarterly_is_statements_raw:
+                    payload = item_data.get('item_data_payload')
+                    key_date_str = item_data.get('item_key_date')
+                    if not isinstance(payload, dict) or not key_date_str: continue
+                    date_obj = self.base_query_srv._parse_date_flex(key_date_str)
+                    if not date_obj: continue
+                    
+                    # Field names in Yahoo Finance data for Income Statement
+                    # "Net Income" can be under "NetIncome" or "Net Income"
+                    # Let's try common variations, prioritizing direct "Net Income" if available.
+                    # Common keys: "NetIncome", "Net Income Applicable To Common Shares" (longer one for GAAP)
+                    # We should confirm the exact key used in the database payloads.
+                    # For now, assuming "NetIncome" is a reliable key from previous structure.
+                    net_income_val = payload.get("NetIncome") # Or payload.get("Net Income") - needs confirmation
+                    if net_income_val is None: # Fallback if "NetIncome" is not found
+                        net_income_val = payload.get("Net Income")
+
+                    total_revenue_val = payload.get("Total Revenue")
+
+                    if net_income_val is not None:
+                        try: quarterly_net_income_points.append({"date_obj": date_obj, "value": float(net_income_val)})
+                        except (ValueError, TypeError): pass
+                    if total_revenue_val is not None:
+                        try: quarterly_total_revenue_points.append({"date_obj": date_obj, "value": float(total_revenue_val)})
+                        except (ValueError, TypeError): pass
+                
+                quarterly_net_income_points.sort(key=lambda x: x['date_obj'])
+                quarterly_total_revenue_points.sort(key=lambda x: x['date_obj'])
+                logger.debug(f"[AdvQuerySrv.NET_PROFIT_MARGIN_DEBUG_POP_Q_NI] Ticker: {ticker_symbol}, First 2 Q_NI points: {quarterly_net_income_points[:2]}")
+                logger.debug(f"[AdvQuerySrv.NET_PROFIT_MARGIN_DEBUG_POP_Q_REV] Ticker: {ticker_symbol}, First 2 Q_REV points: {quarterly_total_revenue_points[:2]}")
+
+                # Fetch Annual Net Income and Total Revenue (from Income Statement)
+                annual_is_statements_raw = await self.base_query_srv.db_repo.get_data_items_by_criteria(
+                    ticker=ticker_symbol, 
+                    item_type="INCOME_STATEMENT", 
+                    item_time_coverage="FYEAR",
+                    start_date=fundamental_query_start_date_obj, 
+                    end_date=user_end_date_obj, 
+                    order_by_key_date_desc=False
+                )
+                annual_net_income_points: List[Dict[str, Any]] = []
+                annual_total_revenue_points: List[Dict[str, Any]] = []
+
+                for item_data in annual_is_statements_raw:
+                    payload = item_data.get('item_data_payload')
+                    key_date_str = item_data.get('item_key_date')
+                    if not isinstance(payload, dict) or not key_date_str: continue
+                    date_obj = self.base_query_srv._parse_date_flex(key_date_str)
+                    if not date_obj: continue
+
+                    net_income_val = payload.get("NetIncome") # Or payload.get("Net Income")
+                    if net_income_val is None:
+                        net_income_val = payload.get("Net Income")
+                    total_revenue_val = payload.get("Total Revenue")
+
+                    if net_income_val is not None:
+                        try: annual_net_income_points.append({"date_obj": date_obj, "value": float(net_income_val)})
+                        except (ValueError, TypeError): pass
+                    if total_revenue_val is not None:
+                        try: annual_total_revenue_points.append({"date_obj": date_obj, "value": float(total_revenue_val)})
+                        except (ValueError, TypeError): pass
+                
+                annual_net_income_points.sort(key=lambda x: x['date_obj'])
+                annual_total_revenue_points.sort(key=lambda x: x['date_obj'])
+                logger.debug(f"[AdvQuerySrv.NET_PROFIT_MARGIN_DEBUG_POP_A_NI] Ticker: {ticker_symbol}, First A_NI point: {annual_net_income_points[:1]}")
+                logger.debug(f"[AdvQuerySrv.NET_PROFIT_MARGIN_DEBUG_POP_A_REV] Ticker: {ticker_symbol}, First A_REV point: {annual_total_revenue_points[:1]}")
+
+                final_margin_series: List[Dict[str, Any]] = []
+                current_eval_date = user_start_date_obj
+                log_count = 0
+
+                while current_eval_date <= user_end_date_obj:
+                    ttm_net_income = self.base_query_srv._calculate_ttm_value_generic(
+                        current_eval_date, quarterly_net_income_points, annual_net_income_points, "value"
+                    )
+                    ttm_total_revenue = self.base_query_srv._calculate_ttm_value_generic(
+                        current_eval_date, quarterly_total_revenue_points, annual_total_revenue_points, "value"
+                    )
+
+                    if log_count < 5:
+                        logger.debug(f"[AdvQuerySrv.NET_PROFIT_MARGIN_DEBUG_TTM_VALS] Ticker: {ticker_symbol}, EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, TTM_NI: {ttm_net_income}, TTM_Revenue: {ttm_total_revenue}")
+                        log_count +=1
+                    
+                    net_profit_margin: Optional[float] = None
+                    if ttm_net_income is not None and ttm_total_revenue is not None and ttm_total_revenue != 0:
+                        net_profit_margin = (ttm_net_income / ttm_total_revenue) * 100
+                    
+                    final_margin_series.append({
+                        "date": current_eval_date.strftime("%Y-%m-%d"),
+                        "value": net_profit_margin # Will be None if conditions not met
+                    })
+                    current_eval_date += timedelta(days=1)
+                
+                results_by_ticker[ticker_symbol] = final_margin_series
+                logger.info(f"[AdvQuerySrv.NET_PROFIT_MARGIN] Ticker {ticker_symbol}: Generated {len(final_margin_series)} net profit margin points.")
+
+            except Exception as e:
+                logger.error(f"[AdvQuerySrv.NET_PROFIT_MARGIN] Error processing ticker {ticker_symbol} for Net Profit Margin: {e}", exc_info=True)
+                results_by_ticker[ticker_symbol] = [] # Return empty list on error for this ticker
+        
+        logger.info(f"[AdvQuerySrv.calculate_net_profit_margin_ttm] Completed for {len(tickers)} tickers.")
+        return results_by_ticker

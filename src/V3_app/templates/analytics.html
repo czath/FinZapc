@@ -1076,13 +1076,39 @@
     <script src="{{ url_for('static', path='js/analytics_spider_chart.js') }}"></script> <!-- ADDED: Spider Chart Logic -->
     <script src="{{ url_for('static', path='js/yahoo_mass_fetch.js') }}"></script> <!-- Yahoo Mass Fetch UI -->
     <script src="{{ url_for('static', path='js/analytics_price_cache.js') }}"></script> <!-- NEW: Price Cache Module -->
+    <script src="{{ url_for('static', path='js/analytics_synthetic_studies_config.js') }}"></script> {# Correctly added/moved here #}
     <script src="{{ url_for('static', path='js/analytics_timeseries.js') }}"></script> <!-- NEW: Timeseries Module Logic -->
     <script src="{{ url_for('static', path='js/analytics_ts_fund_adv.js') }}"></script>
     <script src="{{ url_for('static', path='js/analytics_timeseries_fund.js') }}"></script> <!-- ADDED -->
+    <script src="{{ url_for('static', path='js/analytics_timeseries_pair.js') }}"></script> {# Correctly added/moved here #}
     {# <script src="{{ url_for('static', path='js/analytics_summary_stats.js') }}"></script> #} <!-- REMOVED -->
     {# <script src="{{ url_for('static', path='js/analytics_export.js') }}"></script> #} <!-- REMOVED -->
 
+    {# The entire block below, from '<<< Add any other page-specific JS files here >>>' 
+       down to the last script tag before the inline <script> block, was causing errors 
+       due to using 'V3_app.static' and duplicating scripts. It will be removed.
+    #}
+    {# DELETED BLOCK - This was the start of the problematic section
     {# <<< Add any other page-specific JS files here >>> #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/common_utils.js') }}"></script> #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/ui_helpers.js') }}"></script> #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_cache.js') }}"></script> #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_data_processor.js') }}"></script> #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_scenario_builder.js') }}"></script> #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_chart_summary.js') }}"></script> #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_main.js') }}"></script> #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_spider.js') }}"></script> #}
+    {# Timeseries Specific Scripts #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_synthetic_studies_config.js') }}"></script> #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_timeseries.js') }}"></script> #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_timeseries_fund.js') }}"></script> #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_ts_fund_adv.js') }}"></script> #}
+    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_timeseries_pair.js') }}"></script> #}
+    {# END DELETED BLOCK #}
+
+    <script>
+// ... existing code ...
+</script>
 {% endblock %}
 
 <!-- Popper.js -->

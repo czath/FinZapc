@@ -485,6 +485,45 @@ async def get_synthetic_fundamental_timeseries(
                 end_date_str=request_payload.end_date
             )
         # END NEW
+        # NEW: Add routing for GROSS_MARGIN_TTM
+        elif fundamental_name.upper() == "GROSS_MARGIN_TTM":
+            logger.info(f"Routing GROSS_MARGIN_TTM to YahooDataQueryAdvService for tickers: {request_payload.tickers}")
+            adv_query_service = YahooDataQueryAdvService(
+                db_repo=query_service.db_repo, 
+                base_query_srv=query_service
+            )
+            result = await adv_query_service.calculate_gross_margin_ttm(
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
+        # END NEW
+        # NEW: Add routing for OPERATING_MARGIN_TTM
+        elif fundamental_name.upper() == "OPERATING_MARGIN_TTM":
+            logger.info(f"Routing OPERATING_MARGIN_TTM to YahooDataQueryAdvService for tickers: {request_payload.tickers}")
+            adv_query_service = YahooDataQueryAdvService(
+                db_repo=query_service.db_repo, 
+                base_query_srv=query_service
+            )
+            result = await adv_query_service.calculate_operating_margin_ttm(
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
+        # END NEW
+        # NEW: Add routing for NET_PROFIT_MARGIN_TTM
+        elif fundamental_name.upper() == "NET_PROFIT_MARGIN_TTM":
+            logger.info(f"Routing NET_PROFIT_MARGIN_TTM to YahooDataQueryAdvService for tickers: {request_payload.tickers}")
+            adv_query_service = YahooDataQueryAdvService(
+                db_repo=query_service.db_repo, 
+                base_query_srv=query_service
+            )
+            result = await adv_query_service.calculate_net_profit_margin_ttm(
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
+        # END NEW
         else:
             result = await query_service.calculate_synthetic_fundamental_timeseries(
                 fundamental_name=fundamental_name,
