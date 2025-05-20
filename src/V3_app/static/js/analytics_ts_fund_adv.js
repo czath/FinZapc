@@ -18,6 +18,9 @@
         },
         "NET_PROFIT_MARGIN_TTM": {
             yAxisLabel: "Net Profit Margin % (TTM)"
+        },
+        "PRICE_TO_SALES_TTM": {
+            yAxisLabel: "Price/Sales (TTM)"
         }
         // Example for a future study:
         // "ANOTHER_ADV_RATIO": {

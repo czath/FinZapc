@@ -89,6 +89,25 @@ class YahooDataQueryService:
         logger.info(f"[QuerySrv._get_conversion_info] {ticker_symbol}: Conversion needed. From {financial_currency} to {trade_currency}. Rate: {exchange_rate}")
         return trade_currency, financial_currency, exchange_rate
 
+    @staticmethod
+    def _convert_camel_to_spaced_human(name: str) -> str:
+        if not name: return ""
+        result = [name[0]]
+        for i in range(1, len(name)):
+            char = name[i]
+            prev_char = name[i-1]
+            if char.isupper():
+                if prev_char.islower():
+                    result.append(' ')
+                # Handles cases like "ABCWord" -> "ABC Word" or "NetPPE" -> "Net PPE"
+                # If prev_char is Upper, and current char (char) is Upper,
+                # but next char is Lower, then char starts a new word.
+                elif prev_char.isupper():
+                    if (i + 1 < len(name)) and name[i+1].islower():
+                        result.append(' ')
+            result.append(char)
+        return "".join(result)
+
     async def _apply_currency_conversion_to_payload(
         self, 
         data_payload: Dict[str, Any], 
@@ -316,22 +335,25 @@ class YahooDataQueryService:
                  logger.error(f"Mismatch after finding output key '{matched_output_key_from_map}' in '{identifier_core}' for {field_identifier}. This indicates a parsing logic error.")
                  return results_by_ticker
 
-
             logger.info(f"Parsed field_identifier: {field_identifier}")
             logger.info(f"  -> Matched output_key: {matched_output_key_from_map}")
             logger.info(f"  -> DB item_type: {db_item_type}")
             logger.info(f"  -> DB item_coverage: {db_item_coverage}")
-            logger.info(f"  -> Payload key for JSON: {payload_key_for_json}")
+            logger.info(f"  -> Raw payload key from identifier: {payload_key_for_json}") # Log raw key
         else:
             logger.error(f"Could not parse field_identifier: {field_identifier} using OUTPUT_KEY_TO_DB_MAPPING. No matching output_key found.")
             return results_by_ticker # Return empty if parsing failed
 
         if not db_item_type or not db_item_coverage or payload_key_for_json is None:
-            logger.error(f"Parsing resulted in missing critical info for {field_identifier}: db_item_type='{db_item_type}', db_item_coverage='{db_item_coverage}', payload_key_for_json='{payload_key_for_json}'. Cannot proceed.")
+            logger.error(f"Parsing resulted in missing critical info for {field_identifier}: db_item_type='{db_item_type}', db_item_coverage='{db_item_coverage}', raw_payload_key_for_json='{payload_key_for_json}'. Cannot proceed.")
             if payload_key_for_json is None and matched_output_key_from_map and len(identifier_core) == len(matched_output_key_from_map) :
                  logger.error(f"This typically means the field '{field_identifier}' refers to a whole data structure, not a specific timeseries value within it.")
             return results_by_ticker
         # --- End of New Parsing Logic ---
+
+        # Convert the raw payload key (e.g., "TotalAssets") to the spaced key (e.g., "Total Assets") for lookup
+        actual_payload_lookup_key = YahooDataQueryService._convert_camel_to_spaced_human(payload_key_for_json)
+        logger.info(f"  -> Attempting lookup with spaced key: '{actual_payload_lookup_key}'")
 
         start_date_obj: Optional[datetime] = None
         end_date_obj: Optional[datetime] = None
@@ -433,70 +455,13 @@ class YahooDataQueryService:
                             continue
                     
                     # Now payload_data should be a dictionary
-                    value = payload_data.get(payload_key_for_json)
+                    value = payload_data.get(actual_payload_lookup_key) # Use the converted spaced key for lookup
                     
                     # --- NEW: Attempt to match key with spaces if direct match fails ---
-                    if value is None:
-                        # Construct a key with spaces, e.g., "CashAndCashEquivalents" -> "Cash And Cash Equivalents"
-                        # This is a common pattern for yfinance field names.
-                        payload_key_with_spaces = ""
-                        for i, char in enumerate(payload_key_for_json):
-                            if char.isupper() and i > 0: # Add space before uppercase letters, except the first char
-                                # Also handle sequences of uppercase letters like "PPE" -> "PPE" not "P P E"
-                                if not (payload_key_for_json[i-1].isupper() and ( (i+1 < len(payload_key_for_json) and payload_key_for_json[i+1].islower()) or payload_key_for_json[i-1].islower() ) ):
-                                     # More refined check for space insertion
-                                    if not (payload_key_for_json[i-1].isupper() and (i + 1 < len(payload_key_for_json) and payload_key_for_json[i+1].islower())):
-                                        # Avoid double spaces if previous char was already a space maker for an acronym end
-                                        if not (payload_key_for_json[i-1].isupper() and i > 1 and payload_key_for_json[i-2].islower()): # e.g. NetIncome -> Net Income, not Net Income
-                                            # General case: lowercase followed by uppercase
-                                            if payload_key_for_json[i-1].islower():
-                                                payload_key_with_spaces += " "
-                                            # Acronym ends, e.g. TotalRevenue -> Total Revenue, CurrentAssets -> Current Assets
-                                            # Handle cases like 'NetPPE' -> 'Net PPE' - if prev is upper and current is upper but next is lower
-                                            elif payload_key_for_json[i-1].isupper() and \
-                                                (i + 1 < len(payload_key_for_json) and payload_key_for_json[i+1].islower()) and \
-                                                not (i > 1 and payload_key_for_json[i-2].islower()): # Avoid A BC -> A B C
-                                                pass # No space if it's part of an acronym like PPE that should remain together until the end.
-                                            # Case for start of new word after an acronym like 'NetWorkingCapital'
-                                            elif i > 0 and payload_key_for_json[i-1].isupper() and \
-                                                 not(i + 1 < len(payload_key_for_json) and payload_key_for_json[i+1].islower()) and \
-                                                 not(i > 1 and payload_key_for_json[i-2].isupper()): # Avoid splitting in middle of acronym
-                                                 # This condition is tricky, aiming for "ABCWord" -> "ABC Word"
-                                                 # Check if previous was an acronym by looking at char before previous
-                                                 if i > 1 and payload_key_for_json[i-2].islower(): # e.g. YFIN -> YFIN
-                                                      payload_key_with_spaces += " "
-
-
-                            payload_key_with_spaces += char
-                        
-                        # A simpler heuristic for now, as the above is getting complex:
-                        # Just try common yfinance patterns: split by uppercase, then try title case.
-                        # Example: "CashAndCashEquivalents"
-                        # 1. "Cash And Cash Equivalents" (add space before capital)
-                        # 2. "Cash and Cash Equivalents" (title case variant, though less common for exact match)
-
-                        # Heuristic 1: Add space before uppercase letters (camel case to spaced title case)
-                        spaced_key = ""
-                        for i, char in enumerate(payload_key_for_json):
-                            if char.isupper() and i > 0 and payload_key_for_json[i-1].islower():
-                                spaced_key += " "
-                            spaced_key += char
-                        
-                        if spaced_key != payload_key_for_json: # Check if a transformation actually happened
-                            logger.debug(f"[QuerySrv.get_specific_field_timeseries] Direct key '{payload_key_for_json}' not found. Trying with spaces: '{spaced_key}'")
-                            value = payload_data.get(spaced_key)
-                            if value is not None:
-                                logger.info(f"[QuerySrv.get_specific_field_timeseries] Found value using spaced key '{spaced_key}' for original '{payload_key_for_json}'.")
-                                payload_key_for_json = spaced_key # Update to the key that worked
-                            else:
-                                # Heuristic 2: Try title case if spaced_key didn't work (e.g. some yfinance keys might be "Net income" vs "NetIncome")
-                                # This is less likely for Balance Sheet items which tend to be TitleCaseWithSpaces
-                                title_cased_key = payload_key_for_json.title() # Converts "NetIncome" to "Netincome" - unlikely match.
-                                                                              # "CashAndCashEquivalents" -> "Cashandcashequivalents" - also unlikely.
-                                # A better title case might be to space it first, then title() each word, but yfinance is usually consistent.
-                                # Let's stick to the spaced_key as the primary alternative for now.
-                                # If `spaced_key` also failed, value remains None.
-                                pass
+                    # This block is now removed as per user instruction to use the converted key directly.
+                    # The _convert_camel_to_spaced_human handles the transformation.
+                    # if value is None:
+                        # ... old logic for trying spaced_key / title_cased_key ...
                     # --- END: Attempt to match key with spaces ---
                     
                     if value is not None:
@@ -504,23 +469,24 @@ class YahooDataQueryService:
                         if rate_to_apply is not None and isinstance(value, (int, float)) and not isinstance(value, bool):
                             # Check item_type and 'shares' keyword before converting
                             CONVERTIBLE_ITEM_TYPES = {"BALANCE_SHEET", "INCOME_STATEMENT", "CASH_FLOW_STATEMENT"}
-                            if db_item_type.upper() in CONVERTIBLE_ITEM_TYPES and "shares" not in payload_key_for_json.lower():
+                            # Use actual_payload_lookup_key for 'shares' check as it's the key present in payload
+                            if db_item_type.upper() in CONVERTIBLE_ITEM_TYPES and "shares" not in actual_payload_lookup_key.lower():
                                 original_value = value
                                 value = value * rate_to_apply
-                                logger.debug(f"[QuerySrv.get_specific_field_timeseries] Converted value for {ticker_symbol}, field '{payload_key_for_json}', date {item_key_date_iso_str}: {original_value} -> {value} using rate {rate_to_apply}")
+                                logger.debug(f"[QuerySrv.get_specific_field_timeseries] Converted value for {ticker_symbol}, field '{actual_payload_lookup_key}', date {item_key_date_iso_str}: {original_value} -> {value} using rate {rate_to_apply}")
                             # else: // Value not converted due to item_type or 'shares' keyword
-                                # logger.debug(f"[QuerySrv.get_specific_field_timeseries] SKIPPED conversion for {ticker_symbol}, field '{payload_key_for_json}', date {item_key_date_iso_str}: item_type={db_item_type}, rate={rate_to_apply}")
+                                # logger.debug(f"[QuerySrv.get_specific_field_timeseries] SKIPPED conversion for {ticker_symbol}, field '{actual_payload_lookup_key}', date {item_key_date_iso_str}: item_type={db_item_type}, rate={rate_to_apply}")
                         
                         current_ticker_series.append({'date': item_key_date_iso_str, 'value': value})
-                        # logger.debug(f"Found key '{payload_key_for_json}' in dict payload for {ticker_symbol} on {item_key_date_iso_str} with value: {value}") # Redundant if conversion log is active
+                        # logger.debug(f"Found key '{actual_payload_lookup_key}' in dict payload for {ticker_symbol} on {item_key_date_iso_str} with value: {value}") # Redundant if conversion log is active
                     else:
-                        logger.warning(f"Key '{payload_key_for_json}' not found or value is None in payload for {ticker_symbol} on {item_key_date_iso_str}. Payload keys: {list(payload_data.keys()) if isinstance(payload_data, dict) else 'Payload not a dict'}")
+                        logger.warning(f"Key '{actual_payload_lookup_key}' (derived from '{payload_key_for_json}') not found or value is None in payload for {ticker_symbol} on {item_key_date_iso_str}. Payload keys: {list(payload_data.keys()) if isinstance(payload_data, dict) else 'Payload not a dict'}")
                                 
             except Exception as e:
                 logger.error(f"Error processing data for ticker {ticker_symbol}, field {field_identifier}: {e}", exc_info=True)
             
             results_by_ticker[ticker_symbol] = current_ticker_series
-            logger.info(f"Collected {len(current_ticker_series)} data points for {ticker_symbol} and field {field_identifier} (parsed as type='{db_item_type}', coverage='{db_item_coverage}', key='{payload_key_for_json}').")
+            logger.info(f"Collected {len(current_ticker_series)} data points for {ticker_symbol} and field {field_identifier} (parsed as type='{db_item_type}', coverage='{db_item_coverage}', key='{actual_payload_lookup_key}').")
 
         return results_by_ticker
 
@@ -1983,117 +1949,78 @@ class YahooDataQueryService:
         end_date_str: Optional[str],
         ticker_profiles_cache: Dict[str, Dict[str, Any]] # Keep for consistency, though not directly used by this top-level ratio func
     ) -> Dict[str, List[Dict[str, Any]]]:
-        logger.info(f"PRICE_TO_CASH_PLUS_ST_INV: Calculation requested for {tickers} from {start_date_str} to {end_date_str}")
-
-        # 1. Get "Cash + ST Investments / Share" data
+        # --- Price / (Cash + ST Investments / Share) Calculation ---
+        price_to_cash_results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+        
+        # First get the cash + ST investments per share data
         cash_st_inv_per_share_data_by_ticker = await self._calculate_cash_plus_st_inv_per_share_for_tickers(
-            tickers,
-            start_date_str,
-            end_date_str,
-            ticker_profiles_cache # Pass cache along
+            tickers=tickers,
+            start_date_str=start_date_str,
+            end_date_str=end_date_str,
+            ticker_profiles_cache=ticker_profiles_cache
         )
 
-        price_to_cash_results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
-        price_api_base_url = "http://127.0.0.1:8000" # Placeholder: Needs to be the actual app's URL
+        for ticker_symbol in tickers:
+            try:
+                logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV: Processing {ticker_symbol}")
+                cash_st_inv_series = cash_st_inv_per_share_data_by_ticker.get(ticker_symbol, [])
+                
+                # Create a map for quick lookup of cash+ST inv values by date
+                cash_st_inv_map = {item['date']: item['value'] for item in cash_st_inv_series if item['value'] is not None}
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            for ticker_symbol in tickers:
-                try:
-                    logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV: Processing {ticker_symbol}")
-                    cash_st_inv_series = cash_st_inv_per_share_data_by_ticker.get(ticker_symbol, [])
-                    
-                    if not cash_st_inv_series:
-                        logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV: No 'Cash+ST Inv/Share' data for {ticker_symbol}, cannot calculate Price/Cash+ST Inv.")
-                        price_to_cash_results_by_ticker[ticker_symbol] = []
-                        continue
+                # Fetch price data using self.get_price_history
+                logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV: Fetching price data for {ticker_symbol} using self.get_price_history from {start_date_str} to {end_date_str}")
+                price_data_raw = await self.get_price_history(
+                    ticker=ticker_symbol,
+                    interval="1d",
+                    start_date=start_date_str,
+                    end_date=end_date_str
+                )
 
-                    # Convert Cash+ST Inv/Share series to a dict for quick lookup by date
-                    cash_st_inv_map = {item['date']: item['value'] for item in cash_st_inv_series if item['value'] is not None}
+                if not price_data_raw:
+                    logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV: No price data returned for {ticker_symbol} from self.get_price_history for range {start_date_str} to {end_date_str}.")
+                    price_to_cash_results_by_ticker[ticker_symbol] = []
+                    continue
+                
+                logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV: Received {len(price_data_raw)} price points for {ticker_symbol}.")
 
-                    # 2. Fetch price data
-                    # Ensure start_date_str and end_date_str are valid for the price API
-                    # The price API requires start_date and end_date.
-                    # _calculate_cash_plus_st_inv_per_share_for_tickers has defaults if these are None.
-                    # We should ensure we use the same effective dates for price fetching.
-                    
-                    # Use the provided start_date_str and end_date_str directly.
-                    # If they were None for the cash_per_share call, they will be None here too,
-                    # and the price API might have its own defaults or error out.
-                    # It's better if calculate_synthetic_fundamental_timeseries enforces date provision for such ratios.
-                    # For now, assume start_date_str and end_date_str are provided as per P/E TTM logic.
-                    
-                    query_start_date = start_date_str
-                    query_end_date = end_date_str
-                    
-                    if not query_start_date or not query_end_date:
-                        # Fallback to a default range if not provided, e.g., last 1 year.
-                        # This should ideally be handled by the calling layer or have consistent defaults.
-                        default_end_obj = datetime.now()
-                        default_start_obj = default_end_obj - timedelta(days=365)
-                        query_start_date = default_start_obj.strftime("%Y-%m-%d")
-                        query_end_date = default_end_obj.strftime("%Y-%m-%d")
-                        logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV [{ticker_symbol}]: start_date or end_date not provided. Defaulting to 1 year: {query_start_date} to {query_end_date}")
-
-                    # Yahoo finance API end_date for price history is exclusive, so add 1 day for price fetch
-                    price_api_end_date_obj = datetime.strptime(query_end_date, "%Y-%m-%d") + timedelta(days=1)
-                    price_api_end_date_str = price_api_end_date_obj.strftime("%Y-%m-%d")
-                    
-                    price_api_url = f"{price_api_base_url}/api/v3/timeseries/price_history"
-                    params = {
-                        "ticker": ticker_symbol,
-                        "interval": "1d",
-                        "start_date": query_start_date,
-                        "end_date": price_api_end_date_str
-                    }
-                    logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV: Fetching price data for {ticker_symbol} from {price_api_url} with params {params}")
-                    
-                    response = await client.get(price_api_url, params=params)
-                    response.raise_for_status()
-                    price_data_raw = response.json()
-
-                    if not price_data_raw:
-                        logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV: No price data returned for {ticker_symbol} from {query_start_date} to {query_end_date}.")
-                        price_to_cash_results_by_ticker[ticker_symbol] = []
+                current_ratio_series: List[Dict[str, Any]] = []
+                for price_point in price_data_raw:
+                    price_date_str_key = 'Date' if 'Date' in price_point else 'Datetime'
+                    if price_date_str_key not in price_point:
+                        logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV: Price point for {ticker_symbol} missing 'Date' or 'Datetime' key. Point: {price_point}")
                         continue
                     
-                    logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV: Received {len(price_data_raw)} price points for {ticker_symbol}.")
+                    price_date_str = price_point[price_date_str_key].split("T")[0] # YYYY-MM-DD
+                    price_value = price_point.get('Close')
 
-                    current_ratio_series: List[Dict[str, Any]] = []
-                    for price_point in price_data_raw:
-                        price_date_str_key = 'Date' if 'Date' in price_point else 'Datetime'
-                        if price_date_str_key not in price_point:
-                            logger.warning(f"PRICE_TO_CASH_PLUS_ST_INV: Price point for {ticker_symbol} missing 'Date' or 'Datetime' key. Point: {price_point}")
-                            continue
-                        
-                        price_date_str = price_point[price_date_str_key].split("T")[0] # YYYY-MM-DD
-                        price_value = price_point.get('Close')
+                    if price_value is None:
+                        current_ratio_series.append({'date': price_date_str, 'value': None})
+                        continue
 
-                        if price_value is None:
-                            current_ratio_series.append({'date': price_date_str, 'value': None})
-                            continue
+                    # Get the cash+ST inv value for this date
+                    cash_st_inv_value = cash_st_inv_map.get(price_date_str)
+                    if cash_st_inv_value is None or cash_st_inv_value == 0:
+                        current_ratio_series.append({'date': price_date_str, 'value': None})
+                        continue
 
-                        cash_st_inv_value_for_date = cash_st_inv_map.get(price_date_str)
+                    # Calculate the ratio
+                    ratio = price_value / cash_st_inv_value
+                    current_ratio_series.append({'date': price_date_str, 'value': ratio})
 
-                        if cash_st_inv_value_for_date is not None and cash_st_inv_value_for_date > 0: # Denominator must be positive
-                            ratio_value = float(price_value) / float(cash_st_inv_value_for_date)
-                            current_ratio_series.append({'date': price_date_str, 'value': ratio_value})
-                        else:
-                            # Log if cash_st_inv_value_for_date is missing for a price date, or if it's zero/negative
-                            # logger.debug(f"PRICE_TO_CASH_PLUS_ST_INV [{ticker_symbol}] on {price_date_str}: Cash+ST Inv/Share value is {cash_st_inv_value_for_date}. Ratio set to None.")
-                            current_ratio_series.append({'date': price_date_str, 'value': None})
-                    
-                    price_to_cash_results_by_ticker[ticker_symbol] = current_ratio_series
-                    logger.info(f"PRICE_TO_CASH_PLUS_ST_INV: Calculated {len(current_ratio_series)} Price/Cash+ST Inv points for {ticker_symbol}.")
+                price_to_cash_results_by_ticker[ticker_symbol] = current_ratio_series
+                logger.info(f"PRICE_TO_CASH_PLUS_ST_INV: Calculated {len(current_ratio_series)} Price/Cash+ST Inv points for {ticker_symbol}.")
 
-                except httpx.HTTPStatusError as e:
-                    logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: HTTP error fetching price for {ticker_symbol}: {e.response.status_code} - {e.response.text}", exc_info=False)
-                    price_to_cash_results_by_ticker[ticker_symbol] = []
-                except httpx.RequestError as e:
-                    logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: Request error fetching price for {ticker_symbol}: {e}", exc_info=False)
-                    price_to_cash_results_by_ticker[ticker_symbol] = []
-                except Exception as e:
-                    logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: Error processing Price/Cash+ST Inv for {ticker_symbol}: {e}", exc_info=True)
-                    price_to_cash_results_by_ticker[ticker_symbol] = []
+            except httpx.HTTPStatusError as e:
+                logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: HTTP error fetching price for {ticker_symbol}: {e.response.status_code} - {e.response.text}", exc_info=False)
+                price_to_cash_results_by_ticker[ticker_symbol] = []
+            except httpx.RequestError as e:
+                logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: Request error fetching price for {ticker_symbol}: {e}", exc_info=False)
+                price_to_cash_results_by_ticker[ticker_symbol] = []
+            except Exception as e:
+                logger.error(f"PRICE_TO_CASH_PLUS_ST_INV: Error processing Price/Cash+ST Inv for {ticker_symbol}: {e}", exc_info=True)
+                price_to_cash_results_by_ticker[ticker_symbol] = []
+
         return price_to_cash_results_by_ticker
     # --- END: Price / (Cash + ST Investments / Share) Calculation ---
 
@@ -2336,9 +2263,10 @@ class YahooDataQueryService:
     def _calculate_ttm_value_generic(
         self,
         current_eval_date: datetime,
-        quarterly_points: List[Dict[str, Any]], # Expects {'date_obj': datetime, 'value_key': float}
-        annual_points: List[Dict[str, Any]],   # Expects {'date_obj': datetime, 'value_key': float}
-        value_key: str  # The key in the dicts that holds the numerical value (e.g., 'q_eps', 'annual_cf_per_share')
+        quarterly_points: List[Dict[str, Any]], # Expects [{'date_obj': datetime, 'value_key': float}]
+        annual_points: List[Dict[str, Any]],   # Expects [{'date_obj': datetime, 'value_key': float}]
+        value_key: str,  # The key in the dicts that holds the numerical value (e.g., 'q_eps', 'annual_cf_per_share')
+        debug_identifier: str = "TTM_GENERIC" # Added for identifiable logging
     ) -> Optional[float]:
         """
         Calculates a Trailing Twelve Months (TTM) value for a given metric.
@@ -2367,17 +2295,28 @@ class YahooDataQueryService:
 
         if quarterly_points:
             relevant_q_points = [p for p in quarterly_points if p['date_obj'] <= current_eval_date and p.get(value_key) is not None]
+            logger.debug(f"[{debug_identifier}] EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, Found {len(relevant_q_points)} relevant Q points with non-None '{value_key}'. All Q points provided: {len(quarterly_points)}.") # Log count of relevant points
+            
             if len(relevant_q_points) >= 4:
                 # Sort descending by date to easily pick the last four
                 last_four_q = sorted(relevant_q_points, key=lambda x: x['date_obj'], reverse=True)[:4]
+                logger.debug(f"[{debug_identifier}] EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, Last four Q points for TTM sum: {[{ 'date': p['date_obj'].strftime('%Y-%m-%d'), value_key: p[value_key]} for p in last_four_q]}")
+                
                 # Ensure these four quarters are distinct enough (e.g., span roughly a year)
                 # and that all selected points actually have the value_key
                 if len(last_four_q) == 4 and (last_four_q[0]['date_obj'] - last_four_q[3]['date_obj']).days > 270:
                     try:
                         ttm_value_from_quarters = sum(float(p[value_key]) for p in last_four_q)
+                        logger.debug(f"[{debug_identifier}] EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, Quarterly TTM sum calculated: {ttm_value_from_quarters}")
                     except (ValueError, TypeError) as e:
-                        logger.warning(f"_calculate_ttm_value_generic: Error summing quarterly values for key '{value_key}'. Points: {last_four_q}. Error: {e}")
+                        logger.warning(f"[{debug_identifier}] EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, Error summing quarterly values for key '{value_key}'. Points: {last_four_q}. Error: {e}")
                         ttm_value_from_quarters = None # Ensure it's None on error
+                else:
+                    logger.debug(f"[{debug_identifier}] EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, Not enough distinct quarterly reports for TTM sum (found {len(last_four_q)}, span: {(last_four_q[0]['date_obj'] - last_four_q[-1]['date_obj']).days if len(last_four_q) > 0 else 'N/A'} days). Attempting annual fallback.")
+            else:
+                logger.debug(f"[{debug_identifier}] EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, Less than 4 relevant quarterly points ({len(relevant_q_points)} found). Attempting annual fallback.")
+        else:
+            logger.debug(f"[{debug_identifier}] EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, No quarterly points provided. Attempting annual fallback.")
 
         if ttm_value_from_quarters is not None:
             # logger.debug(f"_calculate_ttm_value_generic: Using TTM from quarters for {current_eval_date.strftime('%Y-%m-%d')}, value: {ttm_value_from_quarters}")
@@ -2387,14 +2326,21 @@ class YahooDataQueryService:
             last_known_annual_val: Optional[float] = None
             if annual_points:
                 relevant_annual_points = [p for p in annual_points if p['date_obj'] <= current_eval_date and p.get(value_key) is not None]
+                logger.debug(f"[{debug_identifier}] EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, Found {len(relevant_annual_points)} relevant A points for fallback. All A points provided: {len(annual_points)}.")
+
                 if relevant_annual_points:
                     # Get the most recent annual point
                     most_recent_annual_point = max(relevant_annual_points, key=lambda x: x['date_obj'])
                     try:
                         last_known_annual_val = float(most_recent_annual_point[value_key])
+                        logger.info(f"[{debug_identifier}] EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, Using annual fallback value: {last_known_annual_val} from date {most_recent_annual_point['date_obj'].strftime('%Y-%m-%d')}.")
                     except (ValueError, TypeError) as e:
-                        logger.warning(f"_calculate_ttm_value_generic: Error converting annual value for key '{value_key}'. Point: {most_recent_annual_point}. Error: {e}")
+                        logger.warning(f"[{debug_identifier}] EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, Error converting annual value for key '{value_key}'. Point: {most_recent_annual_point}. Error: {e}")
                         last_known_annual_val = None
+                else:
+                    logger.warning(f"[{debug_identifier}] EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, No relevant annual points found for fallback.")
+            else:
+                logger.warning(f"[{debug_identifier}] EvalDate: {current_eval_date.strftime('%Y-%m-%d')}, No annual points provided for fallback.")
             
             # logger.debug(f"_calculate_ttm_value_generic: Using Annual Fallback for {current_eval_date.strftime('%Y-%m-%d')}, value: {last_known_annual_val}")
             return last_known_annual_val

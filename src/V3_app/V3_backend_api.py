@@ -524,6 +524,19 @@ async def get_synthetic_fundamental_timeseries(
                 end_date_str=request_payload.end_date
             )
         # END NEW
+        # NEW: Add routing for PRICE_TO_SALES_TTM
+        elif fundamental_name.upper() == "PRICE_TO_SALES_TTM":
+            logger.info(f"Routing PRICE_TO_SALES_TTM to YahooDataQueryAdvService for tickers: {request_payload.tickers}")
+            adv_query_service = YahooDataQueryAdvService(
+                db_repo=query_service.db_repo, 
+                base_query_srv=query_service
+            )
+            result = await adv_query_service.calculate_price_to_sales_ttm(
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
+        # END NEW
         else:
             result = await query_service.calculate_synthetic_fundamental_timeseries(
                 fundamental_name=fundamental_name,
