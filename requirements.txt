@@ -1,17 +1,33 @@
-flask==3.0.0
-sqlalchemy==1.4.23
-requests==2.26.0
-urllib3==2.1.0
-python-dotenv==1.0.0
+# Core Application
+fastapi>=0.100.0
+uvicorn>=0.20.0
+sqlalchemy==2.0.41
 pydantic>=2.0.0
-fastapi==0.68.1
-uvicorn==0.15.0
+aiohttp>=3.8.0
+httpx>=0.27.0
+requests>=2.26.0 # requests is also a dependency of yfinance and others
+urllib3>=2.1.0  # urllib3 is also a dependency of requests and others
+
+# Data Handling & Finance
+pandas>=2.0.0
+yfinance>=0.2.0
+cloudscraper>=1.2.0
 beautifulsoup4>=4.12.0
+cachetools==5.3.3
+
+# Scheduling & Templating
 apscheduler==3.8.1
 jinja2==3.0.1
-python-multipart==0.0.5
+
+# WebSockets
+websocket-client>=1.0.0
+
+# Utilities
+python-dotenv==1.0.0
+python-multipart==0.0.5 # For FastAPI forms
+
+# Development & Testing (keep as is)
 pytest>=7.4.0
 black>=23.7.0
 isort>=5.12.0
-mypy>=1.5.0
-cachetools==5.3.3 
+mypy>=1.5.0 
