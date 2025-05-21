@@ -100,6 +100,7 @@
     let sfEndDateInput = null;
     let sfRunButton = null;
     let sfStatusLabel = null;
+    let sfDisplayModeToggle = null; // NEW: Changed from sfDisplayModeSelect
 
     function formatDateToYYYYMMDD(dateObj) {
         const year = dateObj.getFullYear();
@@ -1578,11 +1579,12 @@
         sfEndDateInput = document.getElementById('ts-sf-end-date');
         sfRunButton = document.getElementById('ts-sf-run-study-btn');
         sfStatusLabel = document.getElementById('ts-sf-status');
+        sfDisplayModeToggle = document.getElementById('ts-sf-display-mode-toggle'); // NEW: Changed from sfDisplayModeSelect
 
-        if (!sfTickerSelect) console.error(LOG_PREFIX, "SF Ticker select (ts-sf-ticker-select) not found!");
-        if (!sfRatioSelect) console.error(LOG_PREFIX, "SF Ratio select (ts-sf-ratio-select) not found!");
-        if (!sfRunButton) console.error(LOG_PREFIX, "SF Run button (ts-sf-run-study-btn) not found!");
-        // sfStatusLabel is optional to find
+        if (!sfTickerSelect) console.error(LOG_PREFIX, "SF Ticker select not found!");
+        if (!sfRatioSelect) console.error(LOG_PREFIX, "SF Ratio select not found!");
+        if (!sfRunButton) console.error(LOG_PREFIX, "SF Run button not found!");
+        if (!sfDisplayModeToggle) console.warn(LOG_PREFIX, "SF Display Mode toggle not found!");
 
         // Populate tickers (will be handled by 'AnalyticsTransformComplete' event)
         if (isFundDataReady && sfTickerSelect) {
@@ -1716,7 +1718,7 @@
     async function handleRunSyntheticFundamentals() {
         console.log(LOG_PREFIX, "Run Synthetic Fundamentals clicked.");
 
-        if (!sfTickerSelect || !sfRatioSelect || !sfRunButton) {
+        if (!sfTickerSelect || !sfRatioSelect || !sfRunButton || !sfDisplayModeToggle) {
             alert("Error: Essential UI elements for Synthetic Fundamentals are missing.");
             console.error(LOG_PREFIX, "Missing SF UI elements.");
             return;
@@ -1724,48 +1726,57 @@
 
         const selectedTickers = $(sfTickerSelect).val() || [];
         const selectedRatio = sfRatioSelect.value;
+        const displayMode = sfDisplayModeToggle.checked ? 'percent_change' : 'raw_value';
         let startDate = sfStartDateInput ? sfStartDateInput.value : null;
-        let endDate = sfEndDateInput ? sfEndDateInput.value : null;
+        let endDate = sfEndDateInput ? sfEndDateInput.value : new Date().toISOString().split('T')[0]; // Default to today
 
         if (selectedTickers.length === 0) {
-            alert("Please select at least one ticker."); return;
+            alert("Please select at least one ticker.");
+            return;
         }
+
         if (!selectedRatio) {
-            alert("Please select a metric/ratio."); return;
+            alert("Please select a metric/ratio.");
+            return;
         }
 
-        if (!startDate && !endDate) {
-            const today = new Date();
-            endDate = formatDateToYYYYMMDD(today); 
-            const ytdStart = new Date(today.getFullYear(), 0, 1);
-            startDate = formatDateToYYYYMMDD(ytdStart); 
-            console.log(LOG_PREFIX, `SF: No dates provided, defaulting to YTD: ${startDate} to ${endDate}`);
-        } else if (startDate && endDate && new Date(startDate) >= new Date(endDate)) {
-            alert("Start Date must be strictly before End Date."); return;
-        } else if ((startDate && !endDate) || (!startDate && endDate)) {
-            alert("Please provide both Start and End dates, or leave both blank for YTD."); return;
+        // Update status and show loading state
+        if (sfStatusLabel) {
+            sfStatusLabel.textContent = "Fetching data...";
         }
-
-        if (sfStatusLabel) sfStatusLabel.textContent = 'Fetching & calculating data...';
-        let sfRunButtonText, sfRunButtonSpinner;
-        if (sfRunButton) {
-            sfRunButton.disabled = true;
-            sfRunButtonText = sfRunButton.querySelector('.button-text');
-            sfRunButtonSpinner = sfRunButton.querySelector('.spinner-border');
-            if (sfRunButtonText) sfRunButtonText.textContent = 'Loading...';
-            if (sfRunButtonSpinner) sfRunButtonSpinner.style.display = 'inline-block';
+        const runButton = document.getElementById('ts-sf-run-study-btn');
+        if (runButton) {
+            const spinner = runButton.querySelector('.spinner-border');
+            const buttonText = runButton.querySelector('.button-text');
+            if (spinner) spinner.style.display = 'inline-block';
+            if (buttonText) buttonText.textContent = 'Running...';
+            runButton.disabled = true;
         }
-        const generalLoadingIndicator = document.getElementById('timeseries-loading-indicator'); 
-        if (generalLoadingIndicator) generalLoadingIndicator.style.display = 'flex';
-
-        const requestPayload = {
-            tickers: selectedTickers,
-            start_date: startDate, 
-            end_date: endDate,     
-        };
-        console.log(LOG_PREFIX, "SF Request Payload for", selectedRatio, JSON.stringify(requestPayload, null, 2));
 
         try {
+            // NEW: Modified date validation logic
+            if (!startDate && !endDate) {
+                // If no dates provided, use YTD
+                const today = new Date();
+                const startOfYear = new Date(today.getFullYear(), 0, 1);
+                startDate = startOfYear.toISOString().split('T')[0];
+                endDate = today.toISOString().split('T')[0];
+                console.log(LOG_PREFIX, `SF: No dates provided, defaulting to YTD: ${startDate} to ${endDate}`);
+            } else if (startDate && new Date(startDate) >= new Date(endDate)) {
+                alert("Start Date must be strictly before End Date.");
+                return;
+            }
+            // Removed the validation that required both dates to be provided
+            // Now it's okay to have just start date, as end date defaults to today
+
+            // Rest of the function remains the same...
+            const requestPayload = {
+                tickers: selectedTickers,
+                start_date: startDate, 
+                end_date: endDate,     
+            };
+            console.log(LOG_PREFIX, "SF Request Payload for", selectedRatio, JSON.stringify(requestPayload, null, 2));
+
             const response = await fetch(`/api/v3/timeseries/synthetic_fundamental/${selectedRatio}`, {
                 method: 'POST',
                 headers: {
@@ -1798,150 +1809,107 @@
             ];
             let colorIndex = 0;
 
-            selectedTickers.forEach(ticker => {
-                if (apiData[ticker] && apiData[ticker].length > 0) {
-                    const timeseriesForTicker = apiData[ticker];
-                    const dataPoints = timeseriesForTicker.map(point => ({
-                        x: new Date(point.date).valueOf(), 
-                        y: point.value !== null ? (typeof point.value === 'string' ? parseFloat(point.value) : point.value) : null
-                    }));
+            // Process each ticker's data
+            for (const ticker of selectedTickers) {
+                const tickerData = apiData[ticker];
+                if (!tickerData || tickerData.length === 0) {
+                    console.warn(LOG_PREFIX, `No data for ticker ${ticker}`);
+                    continue;
+                }
 
-                    // NEW: Log dataPoints for debugging
-                    if (selectedRatio === "FCF_MARGIN_TTM") {
-                        console.log(LOG_PREFIX, `[SF Debug] Ticker: ${ticker}, Ratio: ${selectedRatio}, Processed dataPoints:`, JSON.parse(JSON.stringify(dataPoints.slice(0, 20)))); // Log first 20 points
-                        // Check for all null values
-                        const allNull = dataPoints.every(p => p.y === null);
-                        if (allNull) {
-                            console.warn(LOG_PREFIX, `[SF Debug] All y-values are null for ${ticker} - ${selectedRatio}`);
-                        }
-                        const hasNaN = dataPoints.some(p => isNaN(p.y) && p.y !==null);
-                        if (hasNaN) {
-                            console.warn(LOG_PREFIX, `[SF Debug] Some y-values are NaN for ${ticker} - ${selectedRatio}`);
+                // NEW: Handle display mode transformation
+                let processedData = tickerData;
+                if (displayMode === 'percent_change' && tickerData.length > 0) {
+                    // Find first valid value as baseline
+                    let baselineValue = null;
+                    for (const point of tickerData) {
+                        if (point.value !== null && !isNaN(point.value)) {
+                            baselineValue = point.value;
+                            break;
                         }
                     }
-                    // END NEW
 
-                    datasets.push({
-                        label: `${ticker} - ${selectedRatio.replace(/_/g, ' ')}`,
-                        data: dataPoints,
-                        borderColor: lineColors[colorIndex % lineColors.length],
-                        backgroundColor: lineColors[colorIndex % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.1)'),
-                        borderWidth: 1.5,
-                        fill: false,
-                        pointRadius: 0, // Set to 0 to hide points
-                        tension: 0.1,
-                        spanGaps: true 
-                    });
-                    colorIndex++;
-                } else {
-                    console.warn(LOG_PREFIX, `SF: No data or empty series for ticker ${ticker} in API response.`);
+                    if (baselineValue !== null && baselineValue !== 0) {
+                        processedData = tickerData.map(point => ({
+                            date: point.date,
+                            value: point.value !== null && !isNaN(point.value) ? 
+                                ((point.value / baselineValue) - 1) * 100 : null
+                        }));
+                    } else {
+                        console.warn(LOG_PREFIX, `No valid baseline value found for ${ticker}, using raw values`);
+                    }
                 }
-            });
+
+                const chartData = processedData.map(point => ({
+                    x: new Date(point.date).valueOf(),
+                    y: point.value
+                }));
+
+                // NEW: Add display mode suffix to label if in percent change mode
+                const displayModeSuffix = displayMode === 'percent_change' ? ' (% Chg)' : '';
+                const seriesLabel = `${ticker} ${selectedRatio.replace(/_/g, ' ')}${displayModeSuffix}`;
+
+                datasets.push({
+                    label: seriesLabel,
+                    data: chartData,
+                    borderColor: lineColors[colorIndex % lineColors.length],
+                    backgroundColor: lineColors[colorIndex % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.1)'),
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    tension: 0.1,
+                    appDataType: displayMode // NEW: Pass display mode for tooltip formatting
+                });
+                colorIndex++;
+            }
 
             if (datasets.length === 0) {
                 showPlaceholderWithMessage(`No chartable data found after processing Synthetic Fundamental: ${selectedRatio}.`);
-                if (sfStatusLabel) sfStatusLabel.textContent = `No chartable data for ${selectedRatio}.`;
+                if (sfStatusLabel) sfStatusLabel.textContent = `No data for ${selectedRatio}.`;
                 return;
             }
 
-            if (typeof window.AnalyticsTimeseriesModule !== 'undefined' && 
-                typeof window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart === 'function') {
-                
-                let chartTitle = `${selectedRatio.replace(/_/g, ' ')} (${selectedTickers.join(', ')})`;
-                let yAxisLabel = "Calculated Value"; 
-
-                // NEW: Check advanced module first for UI details
-                let advDetails = null;
-                if (window.TimeseriesFundamentalsAdvModule && typeof window.TimeseriesFundamentalsAdvModule.getSyntheticStudyUIDetails === 'function') {
-                    advDetails = window.TimeseriesFundamentalsAdvModule.getSyntheticStudyUIDetails(selectedRatio);
-                }
-
-                if (advDetails && advDetails.yAxisLabel) {
-                    yAxisLabel = advDetails.yAxisLabel;
-                } else {
-                    // Fallback to existing logic if not found in advanced module
-                    if (selectedRatio === "EPS_TTM") {
-                        yAxisLabel = "EPS Value (TTM)";
-                    } else if (selectedRatio === "PE_TTM") {
-                        yAxisLabel = "P/E Ratio (TTM)";
-                    } else if (selectedRatio === "EARNINGS_YIELD_TTM") {
-                        yAxisLabel = "Earnings Yield % (TTM)";
-                    } else if (selectedRatio === "OPERATING_CF_PER_SHARE_TTM") {
-                        yAxisLabel = "Operating CF/Share (TTM)";
-                    } else if (selectedRatio === "FCF_PER_SHARE_TTM") {
-                        yAxisLabel = "FCF/Share (TTM)";
-                    }
-                    // --- NEW: Add yAxisLabel for Cash/Share (TTM) ---
-                    else if (selectedRatio === "CASH_PER_SHARE") {
-                        yAxisLabel = "Cash/Share";
-                    }
-                    // --- END: Add yAxisLabel for Cash/Share (TTM) ---
-
-                    // --- NEW: Add yAxisLabel for Cash+ST Inv/Share ---
-                    else if (selectedRatio === "CASH_PLUS_ST_INV_PER_SHARE") {
-                        yAxisLabel = "Cash+ST Inv/Share";
-                    }
-                    // --- END: Add yAxisLabel for Cash+ST Inv/Share ---
-                    // --- NEW: Add yAxisLabel for Price/Cash+ST Inv ---
-                    else if (selectedRatio === "PRICE_TO_CASH_PLUS_ST_INV") {
-                        yAxisLabel = "Price/Cash+ST Inv Ratio";
-                    }
-                    // --- END: Add yAxisLabel for Price/Cash+ST Inv ---
-                    // NEW: Add yAxisLabels for Book Value per Share and Price/Book Value
-                    else if (selectedRatio === "BOOK_VALUE_PER_SHARE") {
-                        yAxisLabel = "Book Value/Share";
-                    }
-                    else if (selectedRatio === "PRICE_TO_BOOK_VALUE") {
-                        yAxisLabel = "Price/Book Value Ratio";
-                    }
-                    // END NEW
-                    // NEW: Add yAxisLabels for P/Op CF TTM and P/FCF TTM
-                    else if (selectedRatio === "P_OPER_CF_TTM") {
-                        yAxisLabel = "Price/Operating CF (TTM)";
-                    }
-                    else if (selectedRatio === "P_FCF_TTM") {
-                        yAxisLabel = "Price/FCF (TTM)";
-                    }
-                    // Note: FCF_MARGIN_TTM will be handled by advDetails if analytics_ts_fund_adv.js is loaded correctly
-                    // END NEW
-                    // NEW: Add yAxisLabel for Gross Margin (TTM)
-                    else if (selectedRatio === "GROSS_MARGIN_TTM") {
-                        yAxisLabel = "Gross Margin % (TTM)";
-                    }
-                    // END NEW
-                }
-                // END NEW logic block
-
-                window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart(
-                    datasets, 
-                    chartTitle, 
-                    yAxisLabel,
-                    {
-                        chartType: 'line',
-                        isTimeseries: true,
-                        rangeDetails: {start: startDate, end: endDate},
-                        interaction: {
-                            mode: 'index',
-                            intersect: false,
-                        },
-                        hover: {
-                            mode: 'index',
-                            intersect: false,
-                        },
-                        plugins: {
-                            customCrosshair: {
-                                color: 'rgba(120, 120, 120, 0.6)', 
-                                width: 1
-                            }
-                        } 
-                    }
-                );
-                if (sfStatusLabel) sfStatusLabel.textContent = `Chart loaded for ${selectedRatio.replace(/_/g, ' ')}. Range: ${startDate || 'N/A'} to ${endDate || 'N/A'}.`;
-            } else {
-                console.error(LOG_PREFIX, "AnalyticsTimeseriesModule.renderGenericTimeseriesChart not found. Cannot display SF chart.");
-                showPlaceholderWithMessage("Charting function is not available. See console.");
-                if (sfStatusLabel) sfStatusLabel.textContent = "Error: Charting function unavailable.";
+            // NEW: Update y-axis label based on display mode
+            let yAxisLabel = null;
+            if (window.AnalyticsTimeseriesFundamentalsAdvModule && 
+                typeof window.AnalyticsTimeseriesFundamentalsAdvModule.getYAxisLabelForSyntheticFundamental === 'function') {
+                yAxisLabel = window.AnalyticsTimeseriesFundamentalsAdvModule.getYAxisLabelForSyntheticFundamental(selectedRatio, displayMode);
             }
+            
+            // If no label found in advanced module, use a default based on display mode
+            if (!yAxisLabel) {
+                const displayName = selectedRatio.replace(/_/g, ' ');
+                yAxisLabel = displayMode === 'percent_change' ? `${displayName} % Change` : `${displayName} Value`;
+            }
+
+            // NEW: Update chart title based on display mode
+            const chartTitleSuffix = displayMode === 'percent_change' ? ' (% Change)' : '';
+            const chartTitle = `Synthetic Fundamentals: ${selectedRatio.replace(/_/g, ' ')}${chartTitleSuffix}`;
+
+            window.AnalyticsTimeseriesModule.renderGenericTimeseriesChart(
+                datasets, 
+                chartTitle, 
+                yAxisLabel,
+                {
+                    chartType: 'line',
+                    isTimeseries: true,
+                    rangeDetails: {start: startDate, end: endDate},
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    hover: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        customCrosshair: {
+                            color: 'rgba(120, 120, 120, 0.6)', 
+                            width: 1
+                        }
+                    } 
+                }
+            );
+            if (sfStatusLabel) sfStatusLabel.textContent = `Chart loaded for ${selectedRatio.replace(/_/g, ' ')}${chartTitleSuffix}. Range: ${startDate || 'N/A'} to ${endDate || 'N/A'}.`;
             
         } catch (error) {
             console.error(LOG_PREFIX, "Error fetching or processing synthetic fundamentals:", error);
@@ -1949,7 +1917,6 @@
             showPlaceholderWithMessage(`Error for ${displayRatioName}: ${error.message}`);
             if (sfStatusLabel) sfStatusLabel.textContent = `Error: ${error.message}`;
         } finally {
-            if (generalLoadingIndicator) generalLoadingIndicator.style.display = 'none';
             if (sfRunButton) {
                 sfRunButton.disabled = false;
                 sfRunButton.querySelector('.spinner-border').style.display = 'none';
