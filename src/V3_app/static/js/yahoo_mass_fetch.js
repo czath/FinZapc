@@ -93,116 +93,187 @@
 
     // --- Event Handlers ---
     async function handleSourceChange() {
-        const source = sourceSelect.value;
-        currentTickers = [];
-        tickerSummaryDiv.textContent = '';
-        setDropZoneEnabled(source === 'upload');
-        dropZone.style.display = source === 'upload' ? 'block' : 'none';
+        const source = document.getElementById('yahoo-mf-source').value;
+        const dropzone = document.getElementById('yahoo-mf-dropzone');
+        const fetchBtn = document.getElementById('yahoo-mf-fetch');
+        const userDefinedContainer = document.getElementById('user-defined-tickers-container');
+        const userDefinedInput = document.getElementById('user-defined-tickers');
+
+        // Reset UI state
+        setDropZoneEnabled(false);
         fetchBtn.disabled = true;
-        if (source !== 'upload') {
-            // Immediately load tickers for non-upload sources
-            try {
-                let tickers = [];
-                if (source === 'screener') {
-                    const resp = await fetch('/api/screener/tickers');
-                    if (!resp.ok) throw new Error('Failed to fetch screener tickers');
-                    tickers = await resp.json();
-                } else if (source === 'portfolio') {
-                    const resp = await fetch('/api/portfolio/tickers');
-                    if (!resp.ok) throw new Error('Failed to fetch portfolio tickers');
-                    tickers = await resp.json();
-                } else if (source === 'yahoo_master') {
-                    const resp = await fetch('/api/yahoo/master_tickers');
-                    if (!resp.ok) throw new Error('Failed to fetch Yahoo master tickers');
-                    tickers = await resp.json();
-                } else if (source === 'pretrans') {
-                    const mainModule = window.AnalyticsMainModule;
-                    if (!mainModule) throw new Error('Analytics module not available');
-                    const data = mainModule.getFullProcessedData();
-                    if (!data || !data.length) throw new Error('No pre-transformation data available');
-                    tickers = data.map(x => x.ticker).filter(Boolean);
-                } else if (source === 'posttrans') {
-                    const mainModule = window.AnalyticsMainModule;
-                    if (!mainModule) throw new Error('Analytics module not available');
-                    const data = mainModule.getFinalDataForAnalysis();
-                    if (!data || !data.length) throw new Error('No post-transformation data available');
-                    tickers = data.map(x => x.ticker).filter(Boolean);
-                }
-                tickers = Array.from(new Set(tickers)).filter(Boolean);
-                currentTickers = tickers;
-                showTickerSummary(tickers);
-            } catch (error) {
-                tickerSummaryDiv.textContent = error.message;
-                fetchBtn.disabled = true;
-            }
+        showStatus('');
+        userDefinedContainer.style.display = 'none';
+        userDefinedInput.value = '';
+
+        switch (source) {
+            case 'upload':
+                setDropZoneEnabled(true);
+                break;
+            case 'user_defined':
+                userDefinedContainer.style.display = 'block';
+                // Enable fetch button when user types something
+                userDefinedInput.addEventListener('input', () => {
+                    const tickers = userDefinedInput.value.trim();
+                    fetchBtn.disabled = !tickers;
+                });
+                break;
+            case 'screener':
+            case 'portfolio':
+            case 'pretrans':
+            case 'posttrans':
+            case 'yahoo_master':
+                // These sources don't need the dropzone
+                fetchBtn.disabled = false;
+                break;
         }
     }
 
     async function handleFetch() {
-        if (isFetching || !currentTickers.length) return;
-        isFetching = true;
-        showSpinner(fetchBtn);
-        showStatus('Starting fetch...');
+        const source = document.getElementById('yahoo-mf-source').value;
+        const fetchBtn = document.getElementById('yahoo-mf-fetch');
+        const userDefinedInput = document.getElementById('user-defined-tickers');
+        let tickers = [];
 
         try {
-            // 1. Start the mass fetch job
-            const resp = await fetch('/api/yahoo/mass_fetch', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tickers: currentTickers })
-            });
+            showSpinner(fetchBtn);
+            showStatus('');
 
-            if (!resp.ok) {
-                const error = await resp.json();
-                throw new Error(error.message || 'Fetch failed');
+            switch (source) {
+                case 'upload':
+                    const fileInput = document.getElementById('yahoo-mf-file');
+                    if (!fileInput.files.length) {
+                        throw new Error('Please select a file first');
+                    }
+                    const file = fileInput.files[0];
+                    const text = await file.text();
+                    tickers = text.split('\n')
+                        .map(line => line.trim())
+                        .filter(line => line && !line.startsWith('#'));
+                    break;
+
+                case 'user_defined':
+                    const inputText = userDefinedInput.value.trim();
+                    if (!inputText) {
+                        throw new Error('Please enter at least one ticker symbol');
+                    }
+                    // Split by comma, trim each ticker, and filter out empty strings
+                    tickers = inputText.split(',')
+                        .map(ticker => ticker.trim().toUpperCase())
+                        .filter(ticker => ticker);
+                    break;
+
+                case 'screener':
+                    const screenerResp = await fetch('/api/screener/tickers');
+                    if (!screenerResp.ok) throw new Error('Failed to fetch screener tickers');
+                    tickers = await screenerResp.json();
+                    break;
+
+                case 'portfolio':
+                    const portfolioResp = await fetch('/api/portfolio/tickers');
+                    if (!portfolioResp.ok) throw new Error('Failed to fetch portfolio tickers');
+                    tickers = await portfolioResp.json();
+                    break;
+
+                case 'pretrans':
+                    const pretransModule = window.AnalyticsMainModule;
+                    if (!pretransModule) throw new Error('Analytics module not available');
+                    const pretransData = pretransModule.getFullProcessedData();
+                    if (!pretransData || !pretransData.length) throw new Error('No pre-transformation data available');
+                    tickers = pretransData.map(x => x.ticker).filter(Boolean);
+                    break;
+
+                case 'posttrans':
+                    const posttransModule = window.AnalyticsMainModule;
+                    if (!posttransModule) throw new Error('Analytics module not available');
+                    const posttransData = posttransModule.getFinalDataForAnalysis();
+                    if (!posttransData || !posttransData.length) throw new Error('No post-transformation data available');
+                    tickers = posttransData.map(x => x.ticker).filter(Boolean);
+                    break;
+
+                case 'yahoo_master':
+                    const masterResp = await fetch('/api/yahoo/master_tickers');
+                    if (!masterResp.ok) throw new Error('Failed to fetch Yahoo master tickers');
+                    tickers = await masterResp.json();
+                    break;
             }
 
-            const data = await resp.json();
-            const jobId = data.job_id;
-            if (!jobId) throw new Error('No job ID returned from backend.');
+            if (!tickers.length) {
+                throw new Error('No valid tickers found');
+            }
 
-            // 2. Poll for progress
-            let lastCurrent = 0;
-            let lastTotal = currentTickers.length;
-            let pollInterval = setInterval(async () => {
-                try {
-                    const statusResp = await fetch(`/api/yahoo/mass_fetch/status/${jobId}`);
-                    if (!statusResp.ok) throw new Error('Failed to get job status');
-                    const statusData = await statusResp.json();
-                    const { current, total, last_ticker, status, errors } = statusData;
-                    lastCurrent = current;
-                    lastTotal = total;
-                    let processed = typeof statusData.success_count === 'number' ? statusData.success_count : (current || 0);
-                    let errorCount = typeof statusData.error_count === 'number' ? statusData.error_count : ((errors && errors.length) ? errors.length : 0);
-                    if (status === 'running') {
-                        showStatus(`Processing ticker ${processed + errorCount}/${total}${last_ticker ? ': ' + last_ticker : ''}`);
-                    } else if (status === 'completed' || status === 'partial_failure' || status === 'failed') {
-                        let msg = `Successfully processed tickers: ${processed} / Tickers with errors: ${errorCount}`;
-                        showStatus(msg, errorCount > 0);
-                        clearInterval(pollInterval);
-                        isFetching = false;
-                        hideSpinner(fetchBtn);
-                        fetchBtn.disabled = true;
-                    } else {
-                        showStatus(`Job status: ${status}`);
-                        clearInterval(pollInterval);
-                        isFetching = false;
-                        hideSpinner(fetchBtn);
-                        fetchBtn.disabled = true;
-                    }
-                } catch (err) {
-                    showStatus('Error polling job status: ' + err.message, true);
-                    clearInterval(pollInterval);
-                    isFetching = false;
-                    hideSpinner(fetchBtn);
-                    fetchBtn.disabled = true;
-                }
-            }, 1000);
+            // Show summary of tickers to be processed
+            showTickerSummary(tickers);
+
+            // Make the API call to fetch data
+            const response = await fetch('/api/yahoo/mass_fetch', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    tickers: tickers,
+                    source: source
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to fetch data');
+            }
+
+            const result = await response.json();
+            // Update status message to match backend response format
+            if (result.job_id) {
+                showStatus('Fetch job started. Processing tickers...', false);
+                // Start polling for status
+                pollJobStatus(result.job_id, source === 'user_defined' ? userDefinedInput : null);
+            } else {
+                throw new Error('No job ID returned from server');
+            }
+
         } catch (error) {
             showStatus(error.message, true);
-            isFetching = false;
+            // Clear input on error if it was user defined
+            if (source === 'user_defined') {
+                userDefinedInput.value = '';
+            }
+        } finally {
             hideSpinner(fetchBtn);
         }
+    }
+
+    // Update polling function to accept input element
+    async function pollJobStatus(jobId, inputElementToClear = null) {
+        const statusInterval = setInterval(async () => {
+            try {
+                const statusResp = await fetch(`/api/yahoo/mass_fetch/status/${jobId}`);
+                if (!statusResp.ok) {
+                    throw new Error('Failed to get job status');
+                }
+                const statusData = await statusResp.json();
+                const { current, total, last_ticker, status, success_count, error_count } = statusData;
+
+                if (status === 'running') {
+                    showStatus(`Processing ticker ${current}/${total}${last_ticker ? ': ' + last_ticker : ''}`, false);
+                } else if (status === 'completed' || status === 'partial_failure' || status === 'failed') {
+                    clearInterval(statusInterval);
+                    const message = `Successfully processed: ${success_count}, Errors: ${error_count}`;
+                    showStatus(message, status !== 'completed');
+                    // Clear input if provided and job is done
+                    if (inputElementToClear) {
+                        inputElementToClear.value = '';
+                    }
+                }
+            } catch (error) {
+                clearInterval(statusInterval);
+                showStatus('Error checking job status: ' + error.message, true);
+                // Clear input on error if provided
+                if (inputElementToClear) {
+                    inputElementToClear.value = '';
+                }
+            }
+        }, 1000); // Poll every second
     }
 
     async function handleFileSelect(event) {

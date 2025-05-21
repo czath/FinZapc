@@ -14,6 +14,7 @@ import yfinance as yf  # Add this import at the top
 
 import logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # Set to DEBUG level for this module
 
 # This new mapping is based on:
 # 1. The `output_key` (3rd element) from `TARGET_ITEM_TYPES` in `V3_backend_api.py`, which forms
@@ -530,6 +531,7 @@ class YahooDataQueryService:
 
                     # Convert EPS series to a dict for quick lookup
                     eps_map = {item['date']: item['value'] for item in eps_series if item['value'] is not None}
+                    logger.debug(f"PE_TTM [{ticker_symbol}]: EPS map contains {len(eps_map)} points. First few values: {list(eps_map.items())[:5]}")
 
                     # Fetch price data using the service directly
                     price_data = await self.get_price_history(
@@ -547,6 +549,7 @@ class YahooDataQueryService:
                     logger.debug(f"PE_TTM: Received {len(price_data)} price points for {ticker_symbol}.")
 
                     current_pe_series: List[Dict[str, Any]] = []
+                    debug_count = 0
                     for price_point in price_data:
                         price_date_str = price_point['Date'].split("T")[0]  # Ensure YYYY-MM-DD format
                         price_value = price_point.get('Close')
@@ -556,11 +559,16 @@ class YahooDataQueryService:
                             continue
 
                         eps_value_for_date = eps_map.get(price_date_str)
+                        if debug_count < 5:  # Log first 5 points for debugging
+                            logger.debug(f"PE_TTM [{ticker_symbol}] Date {price_date_str}: Price={price_value}, EPS={eps_value_for_date}")
+                            debug_count += 1
 
                         if eps_value_for_date is not None and eps_value_for_date > 0:  # P/E typically not shown for zero/negative EPS
                             pe_value = float(price_value) / float(eps_value_for_date)
                             current_pe_series.append({'date': price_date_str, 'value': pe_value})
                         else:
+                            if debug_count <= 5:  # Log why we're skipping
+                                logger.debug(f"PE_TTM [{ticker_symbol}] Date {price_date_str}: Skipping P/E calculation. EPS={eps_value_for_date} (must be > 0)")
                             current_pe_series.append({'date': price_date_str, 'value': None})
                     
                     pe_results_by_ticker[ticker_symbol] = current_pe_series
@@ -1207,10 +1215,9 @@ class YahooDataQueryService:
                 )
                 quarterly_eps_points: List[Dict[str, Any]] = []
                 
-                # NEW: Fetch shares data using the helper for quarterly calculations
+                # Fetch shares data using the helper for quarterly calculations
                 quarterly_shares_data_from_helper: List[Dict[str, Any]] = []
-                if quarterly_income_statements: # Only fetch shares if we have income statements to process
-                    # Determine the date range for fetching shares, covering all quarterly income statement dates
+                if quarterly_income_statements:
                     min_q_date = min(self._parse_date_flex(qis.get('item_key_date')) for qis in quarterly_income_statements if self._parse_date_flex(qis.get('item_key_date'))) if quarterly_income_statements else quarterly_lookback_start_obj
                     max_q_date = max(self._parse_date_flex(qis.get('item_key_date')) for qis in quarterly_income_statements if self._parse_date_flex(qis.get('item_key_date'))) if quarterly_income_statements else user_end_date_obj
                     
@@ -1240,24 +1247,32 @@ class YahooDataQueryService:
                         q_date_obj = self._parse_date_flex(key_date_from_db)
                         if not q_date_obj: continue
 
+                        # Add fallback logic for net income
                         ni_value = current_payload.get(target_net_income_key)
+                        if ni_value is None:  # Fallback to "Net Income" if primary field not found
+                            ni_value = current_payload.get("Net Income")
+                            if ni_value is None:  # Second fallback to "NetIncome" without space
+                                ni_value = current_payload.get("NetIncome")
                         
-                        # MODIFIED: Get shares_value from the helper series
                         shares_value_for_q_eps = None
                         if quarterly_shares_data_from_helper:
                             for shares_point in reversed(quarterly_shares_data_from_helper):
                                 if shares_point['date_obj'] <= q_date_obj:
                                     shares_value_for_q_eps = shares_point['value']
-                                    # logger.debug(f"EPS_TTM [{ticker_symbol}]: For NI date {q_date_obj.strftime('%Y-%m-%d')}, found shares {shares_value_for_q_eps} from helper series dated {shares_point['date_obj'].strftime('%Y-%m-%d')}")
                                     break 
                         else:
                             logger.warning(f"EPS_TTM [{ticker_symbol}]: No quarterly shares data from helper available for NI date {q_date_obj.strftime('%Y-%m-%d')}")
 
                         if ni_value is not None and shares_value_for_q_eps is not None and shares_value_for_q_eps != 0:
-                            try: quarterly_eps_points.append({'date_obj': q_date_obj, 'q_eps': float(ni_value) / float(shares_value_for_q_eps)})
+                            try: 
+                                q_eps = float(ni_value) / float(shares_value_for_q_eps)
+                                quarterly_eps_points.append({
+                                    'date_obj': q_date_obj, 
+                                    'q_eps': q_eps,
+                                    'type': 'quarterly'
+                                })
                             except (ValueError, TypeError) as e:
                                 logger.warning(f"EPS_TTM [{ticker_symbol}]: Could not calculate quarterly EPS for date {q_date_obj.strftime('%Y-%m-%d')}. NI: {ni_value}, Shares: {shares_value_for_q_eps}. Error: {e}")
-                        # else: logger.debug(f"EPS_TTM [{ticker_symbol}]: Skipping q_eps for {q_date_obj.strftime('%Y-%m-%d')} due to missing NI ({ni_value is None}) or Shares ({shares_value_for_q_eps is None or shares_value_for_q_eps == 0}).")
 
                     if quarterly_eps_points:
                         quarterly_eps_points.sort(key=lambda x: x['date_obj']) # Ensure sorted by date
@@ -1279,8 +1294,7 @@ class YahooDataQueryService:
                 annual_eps_points: List[Dict[str, Any]] = []
                 if annual_income_statements:
                     logger.info(f"EPS_TTM: Found {len(annual_income_statements)} ANNUAL statements for {ticker_symbol}.")
-                    # Currency conversion info likely same as quarterly, but can re-fetch if strictness needed or cache is per-call context
-                    conversion_info_annual = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache) # Assuming cache is populated or re-used
+                    conversion_info_annual = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache)
                     rate_annual, orig_curr_annual, target_curr_annual = (conversion_info_annual[2], conversion_info_annual[1], conversion_info_annual[0]) if conversion_info_annual else (None, None, None)
 
                     for an_item in annual_income_statements:
@@ -1295,10 +1309,21 @@ class YahooDataQueryService:
                         fy_date_obj = self._parse_date_flex(key_date_from_db)
                         if not fy_date_obj: continue
 
+                        # Add fallback logic for net income in annual data too
                         ni_value = current_payload.get(target_net_income_key)
+                        if ni_value is None:  # Fallback to "Net Income" if primary field not found
+                            ni_value = current_payload.get("Net Income")
+                            if ni_value is None:  # Second fallback to "NetIncome" without space
+                                ni_value = current_payload.get("NetIncome")
                         shares_value = current_payload.get(target_shares_key)
                         if ni_value is not None and shares_value is not None and shares_value != 0:
-                            try: annual_eps_points.append({'date_obj': fy_date_obj, 'annual_eps': float(ni_value) / float(shares_value)})
+                            try: 
+                                annual_eps = float(ni_value) / float(shares_value)
+                                annual_eps_points.append({
+                                    'date_obj': fy_date_obj, 
+                                    'annual_eps': annual_eps,
+                                    'type': 'annual'
+                                })
                             except (ValueError, TypeError) as e:
                                 logger.warning(f"EPS_TTM [{ticker_symbol}]: Could not calculate annual EPS for date {fy_date_obj.strftime('%Y-%m-%d')}. NI: {ni_value}, Shares: {shares_value}. Error: {e}")
                     if annual_eps_points:
@@ -1309,51 +1334,147 @@ class YahooDataQueryService:
 
                 # 3. Main Daily Loop for Calculation
                 current_iter_date = user_start_date_obj
-                points_by_q_ttm = 0
                 points_by_annual = 0
+                points_by_q_ttm = 0
+                points_by_q_semi = 0
                 points_with_no_data = 0
+                debug_count = 0  # For logging first few points
 
                 while current_iter_date <= user_end_date_obj:
                     ttm_value_for_date: Optional[float] = None
                     calc_method_for_date = "None"
+                    debug_info = {}  # For detailed logging
 
-                    # Attempt Quarterly TTM for current_iter_date
-                    if quarterly_eps_points: # Only attempt if there are any quarterly points at all
-                        relevant_q_eps = [p for p in quarterly_eps_points if p['date_obj'] <= current_iter_date]
-                        if len(relevant_q_eps) >= 4:
-                            last_four_q = sorted(relevant_q_eps, key=lambda x: x['date_obj'], reverse=True)[:4]
-                            # Ensure these four quarters are distinct enough (e.g., span roughly a year)
-                            # This check helps avoid summing up 4 very close reports if data is misreported or unusual
-                            if len(last_four_q) == 4 and (last_four_q[0]['date_obj'] - last_four_q[3]['date_obj']).days > 270: # Approx 9 months span for 4 quarters
-                                ttm_value_for_date = sum(p['q_eps'] for p in last_four_q)
-                                calc_method_for_date = "Quarterly TTM"
+                    # a. Find most recent records
+                    most_recent_annual = None
+                    most_recent_quarterly = None
                     
-                    if ttm_value_for_date is not None:
-                        final_eps_series_for_ticker.append({'date': current_iter_date.strftime("%Y-%m-%d"), 'value': ttm_value_for_date})
-                        points_by_q_ttm += 1
-                    else:
-                        # Fallback to Annual EPS for this specific current_iter_date
-                        last_known_annual_val: Optional[float] = None
-                        if annual_eps_points: # Only attempt if there are any annual points
-                            for point in reversed(annual_eps_points): # Iterate from most recent annual
-                                if point['date_obj'] <= current_iter_date:
-                                    last_known_annual_val = point['annual_eps']
-                                    break # Found the latest applicable annual figure
+                    if annual_eps_points:
+                        relevant_annual = [p for p in annual_eps_points if p['date_obj'] <= current_iter_date]
+                        if relevant_annual:
+                            most_recent_annual = max(relevant_annual, key=lambda x: x['date_obj'])
+                    
+                    if quarterly_eps_points:
+                        relevant_quarterly = [p for p in quarterly_eps_points if p['date_obj'] <= current_iter_date]
+                        if relevant_quarterly:
+                            most_recent_quarterly = max(relevant_quarterly, key=lambda x: x['date_obj'])
+
+                    # b. If most recent is annual, use it and skip quarterly calculation
+                    if most_recent_annual and (not most_recent_quarterly or most_recent_annual['date_obj'] >= most_recent_quarterly['date_obj']):
+                        ttm_value_for_date = most_recent_annual['annual_eps']
+                        calc_method_for_date = "Most Recent Annual"
+                        debug_info = {
+                            'point_date': most_recent_annual['date_obj'].strftime('%Y-%m-%d'),
+                            'point_type': 'annual'
+                        }
+                        points_by_annual += 1
+                    # c. If most recent is quarterly (or equal to annual)
+                    elif most_recent_quarterly:
+                        # Get all quarters up to current date, sorted by date descending
+                        relevant_quarters = [p for p in quarterly_eps_points if p['date_obj'] <= current_iter_date]
+                        relevant_quarters.sort(key=lambda x: x['date_obj'], reverse=True)
+
+                        # d. Check for quarterly patterns
+                        ttm_value_for_date = None  # Will be set if valid pattern found
                         
-                        final_eps_series_for_ticker.append({'date': current_iter_date.strftime("%Y-%m-%d"), 'value': last_known_annual_val})
-                        if last_known_annual_val is not None:
-                            points_by_annual += 1
+                        # First check: Exactly 4 quarters spanning between 270 and 380 days
+                        if len(relevant_quarters) >= 4:
+                            # Check each possible 4-quarter window
+                            for i in range(len(relevant_quarters) - 3):
+                                recent_quarters = relevant_quarters[i:i+4]
+                                span_days = (recent_quarters[0]['date_obj'] - recent_quarters[3]['date_obj']).days
+                                logger.debug(
+                                    f"EPS_TTM [{ticker_symbol}] Checking 4 quarters: "
+                                    f"{[q['date_obj'].strftime('%Y-%m-%d') for q in recent_quarters]}, "
+                                    f"span: {span_days} days"
+                                )
+                                if 270 < span_days < 380:  # Strict bounds for 4-quarter pattern
+                                    quarter_values = [p['q_eps'] for p in recent_quarters]
+                                    ttm_value_for_date = sum(quarter_values)
+                                    calc_method_for_date = "Quarterly TTM (4Q)"
+                                    debug_info = {
+                                        'quarters': [p['date_obj'].strftime('%Y-%m-%d') for p in recent_quarters],
+                                        'span_days': span_days,
+                                        'pattern': '4Q within 270-380 days',
+                                        'quarter_values': quarter_values,
+                                        'ttm_sum': ttm_value_for_date,
+                                        'calculation': f"Sum of quarters: {' + '.join([f'{v:.4f}' for v in quarter_values])} = {ttm_value_for_date:.4f}"
+                                    }
+                                    points_by_q_ttm += 1
+                                    break
+                        
+                        # Second check: Exactly 2 quarters between 170 and 190 days apart
+                        if ttm_value_for_date is None and len(relevant_quarters) >= 2:
+                            # Check each possible 2-quarter window
+                            for i in range(len(relevant_quarters) - 1):
+                                recent_quarters = relevant_quarters[i:i+2]
+                                days_between = (recent_quarters[0]['date_obj'] - recent_quarters[1]['date_obj']).days
+                                logger.debug(
+                                    f"EPS_TTM [{ticker_symbol}] Checking 2 quarters: "
+                                    f"{[q['date_obj'].strftime('%Y-%m-%d') for q in recent_quarters]}, "
+                                    f"days between: {days_between}"
+                                )
+                                if 170 <= days_between <= 190:  # Strict bounds for 2-quarter pattern
+                                    quarter_values = [p['q_eps'] for p in recent_quarters]
+                                    ttm_value_for_date = sum(quarter_values)
+                                    calc_method_for_date = "Quarterly TTM (2Q)"
+                                    debug_info = {
+                                        'quarters': [p['date_obj'].strftime('%Y-%m-%d') for p in recent_quarters],
+                                        'days_between': days_between,
+                                        'pattern': '2Q within 170-190 days',
+                                        'quarter_values': quarter_values,
+                                        'ttm_sum': ttm_value_for_date,
+                                        'calculation': f"Sum of quarters: {' + '.join([f'{v:.4f}' for v in quarter_values])} = {ttm_value_for_date:.4f}"
+                                    }
+                                    points_by_q_semi += 1
+                                    break
+                        
+                        # e. If no valid pattern found, fallback to most recent annual
+                        if ttm_value_for_date is None and most_recent_annual:
+                            ttm_value_for_date = most_recent_annual['annual_eps']
                             calc_method_for_date = "Annual Fallback"
-                        else:
-                            points_with_no_data +=1
-                            # logger.debug(f"EPS_TTM [{ticker_symbol}] Date {current_iter_date.strftime('%Y-%m-%d')}: No TTM and no Annual Fallback data available.")
-                        
-                    # Optional: Log calc_method_for_date if needed for very detailed debugging
-                    # logger.debug(f"EPS_TTM [{ticker_symbol}] Date {current_iter_date.strftime('%Y-%m-%d')}: Method='{calc_method_for_date}', Value={final_eps_series_for_ticker[-1]['value']}")
+                            debug_info = {
+                                'fallback_date': most_recent_annual['date_obj'].strftime('%Y-%m-%d'),
+                                'pattern': 'No valid quarterly pattern, using most recent annual',
+                                'annual_value': ttm_value_for_date
+                            }
+                            points_by_annual += 1
+                            logger.debug(f"EPS_TTM [{ticker_symbol}]: No valid quarterly pattern found, falling back to annual value from {most_recent_annual['date_obj'].strftime('%Y-%m-%d')}")
+                        elif ttm_value_for_date is None:
+                            ttm_value_for_date = None
+                            calc_method_for_date = "No Valid Data"
+                            debug_info = {
+                                'current_date': current_iter_date.strftime('%Y-%m-%d'),
+                                'pattern': 'No valid quarterly pattern and no annual fallback available'
+                            }
+                            points_with_no_data += 1
+                            logger.debug(f"EPS_TTM [{ticker_symbol}]: No valid quarterly pattern found and no annual fallback available for {current_iter_date.strftime('%Y-%m-%d')}")
+
+                    # Add the point to the series
+                    final_eps_series_for_ticker.append({
+                        'date': current_iter_date.strftime("%Y-%m-%d"), 
+                        'value': ttm_value_for_date
+                    })
+
+                    # Debug logging for first few points
+                    if debug_count < 5:
+                        logger.debug(
+                            f"EPS_TTM [{ticker_symbol}] Date {current_iter_date.strftime('%Y-%m-%d')}: "
+                            f"Method={calc_method_for_date}, Value={ttm_value_for_date}, "
+                            f"Debug={debug_info}"
+                        )
+                        debug_count += 1
+
                     current_iter_date += timedelta(days=1)
                 
                 results_by_ticker[ticker_symbol] = final_eps_series_for_ticker
-                logger.info(f"EPS_TTM [{ticker_symbol}]: Generated {len(final_eps_series_for_ticker)} total EPS points. Method stats - Quarterly TTM: {points_by_q_ttm}, Annual Fallback: {points_by_annual}, No Data: {points_with_no_data}")
+                logger.info(
+                    f"EPS_TTM [{ticker_symbol}]: Generated {len(final_eps_series_for_ticker)} total EPS points. "
+                    f"Method stats - Annual: {points_by_annual}, "
+                    f"Quarterly TTM (4Q): {points_by_q_ttm}, "
+                    f"Quarterly TTM (2Q): {points_by_q_semi}, "
+                    f"No Data: {points_with_no_data}"
+                )
 
             except Exception as e:
                 logger.error(f"EPS_TTM: Critical error for {ticker_symbol}: {e}", exc_info=True)
@@ -2048,35 +2169,31 @@ class YahooDataQueryService:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Get price history data for a ticker, with caching support.
-        """
-        # Log the request parameters
+        """Get price history for a ticker."""
         logger.info(f"Price history request for {ticker}: interval={interval}, period={period}, start_date={start_date}, end_date={end_date}")
         
-        # Determine the period type for caching
-        cache_period = period
-        if not period and (start_date and end_date):
-            cache_period = 'custom'
-        elif not period:
-            cache_period = 'max'  # Default to max if no period specified
-        
-        # logger.debug(f"Using cache period: {cache_period} for {ticker}")
+        # Use today's date as end_date if none provided
+        if not end_date:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            logger.info(f"No end_date provided for {ticker}, using today: {end_date}")
+
+        # Check cache first
+        cache_key = f"{ticker}_{interval}_{period}_{start_date}_{end_date}"
 
         # Try to get from cache first
         cached_data = price_cache.get_price_data(
             ticker=ticker,
             interval=interval,
-            period=cache_period,
-            start_date=start_date if cache_period == 'custom' else None,
-            end_date=end_date if cache_period == 'custom' else None
+            period=period,
+            start_date=start_date,
+            end_date=end_date
         )
 
         if cached_data is not None:
-            logger.info(f"PriceCache HIT for {ticker} {interval} {cache_period} - returning {len(cached_data)} data points")
+            logger.info(f"PriceCache HIT for {ticker} {interval} {period} - returning {len(cached_data)} data points")
             return cached_data
 
-        logger.info(f"PriceCache MISS for {ticker} {interval} {cache_period} - fetching from API...")
+        logger.info(f"PriceCache MISS for {ticker} {interval} {period} - fetching from API...")
 
         # If not in cache, fetch from API
         try:
@@ -2089,11 +2206,11 @@ class YahooDataQueryService:
                     ticker=ticker,
                     interval=interval,
                     data=api_data,
-                    period=cache_period,
-                    start_date=start_date if cache_period == 'custom' else None,
-                    end_date=end_date if cache_period == 'custom' else None
+                    period=period,
+                    start_date=start_date,
+                    end_date=end_date
                 )
-                logger.info(f"PriceCache stored {len(api_data)} data points for {ticker} {interval} {cache_period}")
+                logger.info(f"PriceCache stored {len(api_data)} data points for {ticker} {interval} {period}")
                 return api_data
             
             logger.warning(f"No price data returned from API for {ticker}")

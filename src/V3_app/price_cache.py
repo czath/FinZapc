@@ -15,24 +15,16 @@ class PriceCache:
         self._cache_misses = 0
         logger.info("PriceCache initialized")
 
-    def _generate_cache_key(self, ticker: str, interval: str, period: str, start_date: Optional[str] = None, end_date: Optional[str] = None) -> str:
-        """
-        Generate a cache key that matches the frontend implementation.
-        
-        Args:
-            ticker: The ticker symbol
-            interval: The price interval (e.g. '1d')
-            period: The period type (e.g. '1y', 'max', 'custom')
-            start_date: Optional start date for custom period
-            end_date: Optional end date for custom period
-            
-        Returns:
-            A string cache key
-        """
-        # Mirror frontend key structure
-        key_parts = [ticker, interval, period]
-        if period == 'custom' and start_date and end_date:
-            key_parts.extend([start_date, end_date])
+    def _generate_cache_key(self, ticker: str, interval: str, period: Optional[str], start_date: Optional[str], end_date: Optional[str]) -> str:
+        """Generate a cache key from the input parameters."""
+        # Convert None values to empty strings to avoid TypeError in join
+        key_parts = [
+            ticker,
+            interval,
+            period if period is not None else '',
+            start_date if start_date is not None else '',
+            end_date if end_date is not None else ''
+        ]
         return '|'.join(key_parts)
 
     def get_price_data(self, ticker: str, interval: str, period: str, start_date: Optional[str] = None, end_date: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:

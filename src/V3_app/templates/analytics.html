@@ -426,7 +426,15 @@
                                 <option value="pretrans">Pre-transformation table</option>
                                 <option value="posttrans">Post-transformation table</option>
                                 <option value="yahoo_master">Yahoo Master Table</option>
+                                <option value="user_defined">User Defined List</option>
                             </select>
+                        </div>
+                        
+                        {# Add new text input for user defined list #}
+                        <div id="user-defined-tickers-container" class="mb-3" style="display: none;">
+                            <label for="user-defined-tickers" class="form-label">Enter Tickers (comma-separated):</label>
+                            <input type="text" id="user-defined-tickers" class="form-control" placeholder="e.g. GOOG, AAPL, NVDA">
+                            <div class="form-text">Enter ticker symbols separated by commas. Spaces will be automatically removed.</div>
                         </div>
                         
                         <div id="yahoo-mf-dropzone" class="border p-4 text-center mb-3" style="cursor: pointer; border-style: dashed !important; background-color: var(--bs-tertiary-bg);">
