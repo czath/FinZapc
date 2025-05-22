@@ -520,6 +520,7 @@ class YahooDataQueryService:
             "INTEREST_TO_INCOME_TTM": self.adv_service.calculate_interest_to_income_ttm,
             "ROA_TTM": self.adv_service.calculate_roa_ttm,
             "ROE_TTM": self.adv_service.calculate_roe_ttm,
+            "ROIC_TTM": self.adv_service.calculate_roic_ttm,
         }
 
         if fundamental_name.upper() in supported_fundamentals:

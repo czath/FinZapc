@@ -2510,3 +2510,298 @@ class YahooDataQueryAdvService:
         except Exception as e:
             logger.error(f"Error in calculate_roe_ttm: {str(e)}", exc_info=True)
             raise
+
+    async def calculate_roic_ttm(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Calculate ROIC (Return on Invested Capital) TTM ratio timeseries for given tickers.
+        Ratio = (EBIT * (1 - Tax Rate For Calcs)) / Invested Capital
+        EBIT uses TTM calculation from quarterly/annual income statements
+        Falls back to Operating Income if EBIT is not available
+        Tax Rate For Calcs uses TTM calculation from quarterly/annual income statements
+        Invested Capital uses most recent balance sheet value (quarterly or annual)
+        
+        Note: Values are multiplied by 100 to present as percentages.
+        When displaying this metric, the y-axis label should indicate "%" or "Percentage".
+        """
+        logger.info(f"Calculating ROIC (TTM) ratio for tickers: {tickers}")
+        results: Dict[str, List[Dict[str, Any]]] = {ticker: [] for ticker in tickers}
+        
+        try:
+            # Parse date range using base service's method
+            user_start_date = self.base_query_srv._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=5*365)
+            user_end_date = self.base_query_srv._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+
+            # Look back further for fundamental data to ensure enough history for TTM calculation
+            fundamental_query_start_date = user_start_date - timedelta(days=5*365)
+
+            for ticker in tickers:
+                try:
+                    logger.info(f"Processing ROIC (TTM) for {ticker}")
+
+                    # 1. Fetch EBIT data (quarterly and annual)
+                    ebit_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_quarterly_EBIT",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    ebit_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_annual_EBIT",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # 2. Fetch Operating Income data as fallback (quarterly and annual)
+                    operating_income_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_quarterly_OperatingIncome",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    operating_income_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_annual_OperatingIncome",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # 3. Fetch Tax Rate For Calcs data (quarterly and annual)
+                    tax_rate_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_quarterly_TaxRateForCalcs",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    tax_rate_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_annual_TaxRateForCalcs",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # 4. Fetch Invested Capital data (quarterly and annual)
+                    invested_capital_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_balance_sheet_quarterly_InvestedCapital",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    invested_capital_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_balance_sheet_annual_InvestedCapital",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # Process EBIT data points
+                    quarterly_ebit_points: List[Dict[str, Any]] = []
+                    if ticker in ebit_quarterly:
+                        for point in ebit_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_ebit_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly EBIT value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_ebit_points: List[Dict[str, Any]] = []
+                    if ticker in ebit_annual:
+                        for point in ebit_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_ebit_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual EBIT value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Process Operating Income data points (fallback)
+                    quarterly_operating_points: List[Dict[str, Any]] = []
+                    if ticker in operating_income_quarterly:
+                        for point in operating_income_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_operating_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly operating income value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_operating_points: List[Dict[str, Any]] = []
+                    if ticker in operating_income_annual:
+                        for point in operating_income_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_operating_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual operating income value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Process Tax Rate For Calcs data points
+                    quarterly_tax_rate_points: List[Dict[str, Any]] = []
+                    if ticker in tax_rate_quarterly:
+                        for point in tax_rate_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_tax_rate_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly tax rate value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_tax_rate_points: List[Dict[str, Any]] = []
+                    if ticker in tax_rate_annual:
+                        for point in tax_rate_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_tax_rate_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual tax rate value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Process Invested Capital data points
+                    quarterly_capital_points: List[Dict[str, Any]] = []
+                    if ticker in invested_capital_quarterly:
+                        for point in invested_capital_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_capital_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly invested capital value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_capital_points: List[Dict[str, Any]] = []
+                    if ticker in invested_capital_annual:
+                        for point in invested_capital_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_capital_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual invested capital value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Sort all points by date
+                    quarterly_ebit_points.sort(key=lambda x: x['date_obj'])
+                    annual_ebit_points.sort(key=lambda x: x['date_obj'])
+                    quarterly_operating_points.sort(key=lambda x: x['date_obj'])
+                    annual_operating_points.sort(key=lambda x: x['date_obj'])
+                    quarterly_tax_rate_points.sort(key=lambda x: x['date_obj'])
+                    annual_tax_rate_points.sort(key=lambda x: x['date_obj'])
+                    quarterly_capital_points.sort(key=lambda x: x['date_obj'])
+                    annual_capital_points.sort(key=lambda x: x['date_obj'])
+
+                    # Generate daily series
+                    daily_series: List[Dict[str, Any]] = []
+                    current_date = user_start_date
+
+                    while current_date <= user_end_date:
+                        # Calculate TTM EBIT first
+                        ttm_ebit = self.base_query_srv._calculate_ttm_value_generic(
+                            current_date,
+                            quarterly_ebit_points,
+                            annual_ebit_points,
+                            "value",
+                            debug_identifier=f"TTM_EBIT_FOR_ROIC_{ticker}"
+                        )
+
+                        # If EBIT is not available, fall back to Operating Income
+                        if ttm_ebit is None:
+                            logger.debug(f"EBIT not available for {ticker} on {current_date.strftime('%Y-%m-%d')}, falling back to Operating Income")
+                            ttm_ebit = self.base_query_srv._calculate_ttm_value_generic(
+                                current_date,
+                                quarterly_operating_points,
+                                annual_operating_points,
+                                "value",
+                                debug_identifier=f"TTM_OPERATING_INCOME_FOR_ROIC_{ticker}"
+                            )
+
+                        # Calculate TTM Tax Rate
+                        ttm_tax_rate = self.base_query_srv._calculate_ttm_value_generic(
+                            current_date,
+                            quarterly_tax_rate_points,
+                            annual_tax_rate_points,
+                            "value",
+                            debug_identifier=f"TTM_TAX_RATE_FOR_ROIC_{ticker}"
+                        )
+
+                        # Get most recent Invested Capital value
+                        applicable_capital_points = []
+                        if quarterly_capital_points:
+                            applicable_capital_points.extend(quarterly_capital_points)
+                        if annual_capital_points:
+                            applicable_capital_points.extend(annual_capital_points)
+                        
+                        applicable_capital_points.sort(key=lambda x: x['date_obj'], reverse=True)
+                        
+                        current_capital = None
+                        for point in applicable_capital_points:
+                            if point['date_obj'] <= current_date:
+                                current_capital = point['value']
+                                break
+
+                        # Calculate ROIC (TTM)
+                        roic: Optional[float] = None
+                        if ttm_ebit is not None and ttm_tax_rate is not None and current_capital is not None and current_capital != 0:
+                            # Calculate after-tax EBIT
+                            after_tax_ebit = ttm_ebit * (1 - ttm_tax_rate)
+                            # Calculate ROIC and multiply by 100 to present as percentage
+                            roic = (after_tax_ebit / current_capital) * 100
+
+                        daily_series.append({
+                            'date': current_date.strftime('%Y-%m-%d'),
+                            'value': roic
+                        })
+
+                        current_date += timedelta(days=1)
+
+                    results[ticker] = daily_series
+                    logger.info(f"Generated {len(daily_series)} daily ROIC (TTM) points for {ticker}")
+
+                except Exception as e:
+                    logger.error(f"Error calculating ROIC (TTM) for {ticker}: {str(e)}", exc_info=True)
+                    results[ticker] = []
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Error in calculate_roic_ttm: {str(e)}", exc_info=True)
+            raise

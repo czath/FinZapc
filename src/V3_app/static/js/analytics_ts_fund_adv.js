@@ -89,6 +89,10 @@
             yAxisLabel: "ROE % (TTM)",
             percentChangeLabel: "ROE % Change"
         },
+        "ROIC_TTM": {
+            yAxisLabel: "ROIC % (TTM)",
+            percentChangeLabel: "ROIC % Change"
+        },
         "ASSET_TURNOVER_TTM": {
             yAxisLabel: "Asset Turnover % (TTM)",
             percentChangeLabel: "Asset Turnover % Change"
