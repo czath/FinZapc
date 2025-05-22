@@ -584,6 +584,18 @@ async def get_synthetic_fundamental_timeseries(
                 start_date_str=request_payload.start_date,
                 end_date_str=request_payload.end_date
             )
+        # NEW: Add routing for ASSET_TURNOVER_TTM
+        elif fundamental_name.upper() == "ASSET_TURNOVER_TTM":
+            logger.info(f"Routing ASSET_TURNOVER_TTM to YahooDataQueryAdvService for tickers: {request_payload.tickers}")
+            adv_query_service = YahooDataQueryAdvService(
+                db_repo=query_service.db_repo, 
+                base_query_srv=query_service
+            )
+            result = await adv_query_service.calculate_asset_turnover_ttm(
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
         # END NEW
         else:
             result = await query_service.calculate_synthetic_fundamental_timeseries(

@@ -19,6 +19,8 @@
         { value: "CASH_PLUS_ST_INV_PER_SHARE", text: "🧱 Cash+ST Inv/Share" },
         { value: "PRICE_TO_CASH_PLUS_ST_INV", text: "💵 Price/(Cash+ST Inv)" },
         { value: "BOOK_VALUE_PER_SHARE", text: "📚 Book Value/Share" },
+        { value: "ASSET_TURNOVER_TTM", text: "⚡ Asset Turnover (TTM)" },
+        { value: "INVENTORY_TURNOVER_TTM", text: "🏭 Inventory Turnover (TTM)" },
         { value: "DEBT_TO_EQUITY", text: "💰 Debt/Equity" },
         { value: "TOTAL_LIABILITIES_TO_EQUITY", text: "💰 Total Liabilities/Equity" },
         { value: "TOTAL_LIABILITIES_TO_ASSETS", text: "💰 Total Liabilities/Assets" },

@@ -1567,3 +1567,354 @@ class YahooDataQueryAdvService:
                 results[ticker] = []
 
         return results
+
+    async def calculate_asset_turnover_ttm(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Calculate Asset Turnover (TTM) ratio timeseries for given tickers.
+        Ratio = Net Income (TTM) / Total Assets
+        Net Income uses TTM calculation from quarterly/annual income statements
+        Total Assets uses most recent balance sheet value (quarterly or annual)
+        """
+        logger.info(f"Calculating Asset Turnover (TTM) ratio for tickers: {tickers}")
+        results: Dict[str, List[Dict[str, Any]]] = {ticker: [] for ticker in tickers}
+        
+        try:
+            # Parse date range using base service's method
+            user_start_date = self.base_query_srv._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=5*365)
+            user_end_date = self.base_query_srv._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+
+            # Look back further for fundamental data to ensure enough history for TTM calculation
+            fundamental_query_start_date = user_start_date - timedelta(days=5*365)
+
+            for ticker in tickers:
+                try:
+                    logger.info(f"Processing Asset Turnover (TTM) for {ticker}")
+
+                    # 1. Fetch Net Income data (quarterly and annual)
+                    net_income_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_quarterly_NetIncome",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    net_income_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_annual_NetIncome",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # 2. Fetch Total Assets data (quarterly and annual)
+                    total_assets_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_balance_sheet_quarterly_TotalAssets",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    total_assets_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_balance_sheet_annual_TotalAssets",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # Process Net Income data points
+                    quarterly_net_income_points: List[Dict[str, Any]] = []
+                    if ticker in net_income_quarterly:
+                        for point in net_income_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_net_income_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly net income value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_net_income_points: List[Dict[str, Any]] = []
+                    if ticker in net_income_annual:
+                        for point in net_income_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_net_income_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual net income value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Process Total Assets data points
+                    quarterly_assets_points: List[Dict[str, Any]] = []
+                    if ticker in total_assets_quarterly:
+                        for point in total_assets_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_assets_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly total assets value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_assets_points: List[Dict[str, Any]] = []
+                    if ticker in total_assets_annual:
+                        for point in total_assets_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_assets_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual total assets value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Sort all points by date
+                    quarterly_net_income_points.sort(key=lambda x: x['date_obj'])
+                    annual_net_income_points.sort(key=lambda x: x['date_obj'])
+                    quarterly_assets_points.sort(key=lambda x: x['date_obj'])
+                    annual_assets_points.sort(key=lambda x: x['date_obj'])
+
+                    # Generate daily series
+                    daily_series: List[Dict[str, Any]] = []
+                    current_date = user_start_date
+
+                    while current_date <= user_end_date:
+                        # Calculate TTM Net Income
+                        ttm_net_income = self.base_query_srv._calculate_ttm_value_generic(
+                            current_date,
+                            quarterly_net_income_points,
+                            annual_net_income_points,
+                            "value",
+                            debug_identifier=f"TTM_NET_INCOME_FOR_ASSET_TURNOVER_{ticker}"
+                        )
+
+                        # Get most recent Total Assets value
+                        applicable_assets_points = []
+                        if quarterly_assets_points:
+                            applicable_assets_points.extend(quarterly_assets_points)
+                        if annual_assets_points:
+                            applicable_assets_points.extend(annual_assets_points)
+                        
+                        applicable_assets_points.sort(key=lambda x: x['date_obj'], reverse=True)
+                        
+                        current_assets = None
+                        for point in applicable_assets_points:
+                            if point['date_obj'] <= current_date:
+                                current_assets = point['value']
+                                break
+
+                        # Calculate Asset Turnover (TTM)
+                        asset_turnover: Optional[float] = None
+                        if ttm_net_income is not None and current_assets is not None and current_assets != 0:
+                            asset_turnover = ttm_net_income / current_assets
+
+                        daily_series.append({
+                            'date': current_date.strftime('%Y-%m-%d'),
+                            'value': asset_turnover
+                        })
+
+                        current_date += timedelta(days=1)
+
+                    results[ticker] = daily_series
+                    logger.info(f"Generated {len(daily_series)} daily Asset Turnover (TTM) points for {ticker}")
+
+                except Exception as e:
+                    logger.error(f"Error calculating Asset Turnover (TTM) for {ticker}: {str(e)}", exc_info=True)
+                    results[ticker] = []
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Error in calculate_asset_turnover_ttm: {str(e)}", exc_info=True)
+            raise
+
+    async def calculate_inventory_turnover_ttm(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None,
+        ticker_profiles_cache: Optional[Dict[str, Dict[str, Any]]] = None  # Added to match other methods
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Calculate Inventory Turnover (TTM) ratio timeseries for given tickers.
+        Ratio = Cost of Revenue (TTM) / Inventory
+        Cost of Revenue uses TTM calculation from quarterly/annual income statements
+        Inventory uses most recent balance sheet value (quarterly or annual)
+        """
+        logger.info(f"Calculating Inventory Turnover (TTM) ratio for tickers: {tickers}")
+        results: Dict[str, List[Dict[str, Any]]] = {ticker: [] for ticker in tickers}
+        
+        try:
+            # Parse date range using base service's method
+            user_start_date = self.base_query_srv._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=5*365)
+            user_end_date = self.base_query_srv._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+
+            # Look back further for fundamental data to ensure enough history for TTM calculation
+            fundamental_query_start_date = user_start_date - timedelta(days=5*365)
+
+            for ticker in tickers:
+                try:
+                    logger.info(f"Processing Inventory Turnover (TTM) for {ticker}")
+
+                    # 1. Fetch Cost of Revenue data (quarterly and annual)
+                    cost_of_revenue_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_quarterly_CostOfRevenue",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    cost_of_revenue_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_annual_CostOfRevenue",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # 2. Fetch Inventory data (quarterly and annual)
+                    inventory_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_balance_sheet_quarterly_Inventory",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    inventory_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_balance_sheet_annual_Inventory",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # Process Cost of Revenue data points
+                    quarterly_cost_of_revenue_points: List[Dict[str, Any]] = []
+                    if ticker in cost_of_revenue_quarterly:
+                        for point in cost_of_revenue_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_cost_of_revenue_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly cost of revenue value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_cost_of_revenue_points: List[Dict[str, Any]] = []
+                    if ticker in cost_of_revenue_annual:
+                        for point in cost_of_revenue_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_cost_of_revenue_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual cost of revenue value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Process Inventory data points
+                    quarterly_inventory_points: List[Dict[str, Any]] = []
+                    if ticker in inventory_quarterly:
+                        for point in inventory_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_inventory_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly inventory value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_inventory_points: List[Dict[str, Any]] = []
+                    if ticker in inventory_annual:
+                        for point in inventory_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_inventory_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual inventory value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Sort all points by date
+                    quarterly_cost_of_revenue_points.sort(key=lambda x: x['date_obj'])
+                    annual_cost_of_revenue_points.sort(key=lambda x: x['date_obj'])
+                    quarterly_inventory_points.sort(key=lambda x: x['date_obj'])
+                    annual_inventory_points.sort(key=lambda x: x['date_obj'])
+
+                    # Generate daily series
+                    daily_series: List[Dict[str, Any]] = []
+                    current_date = user_start_date
+
+                    while current_date <= user_end_date:
+                        # Calculate TTM Cost of Revenue
+                        ttm_cost_of_revenue = self.base_query_srv._calculate_ttm_value_generic(
+                            current_date,
+                            quarterly_cost_of_revenue_points,
+                            annual_cost_of_revenue_points,
+                            "value",
+                            debug_identifier=f"TTM_COST_OF_REVENUE_FOR_INVENTORY_TURNOVER_{ticker}"
+                        )
+
+                        # Get most recent Inventory value
+                        applicable_inventory_points = []
+                        if quarterly_inventory_points:
+                            applicable_inventory_points.extend(quarterly_inventory_points)
+                        if annual_inventory_points:
+                            applicable_inventory_points.extend(annual_inventory_points)
+                        
+                        applicable_inventory_points.sort(key=lambda x: x['date_obj'], reverse=True)
+                        
+                        current_inventory = None
+                        for point in applicable_inventory_points:
+                            if point['date_obj'] <= current_date:
+                                current_inventory = point['value']
+                                break
+
+                        # Calculate Inventory Turnover (TTM)
+                        inventory_turnover: Optional[float] = None
+                        if ttm_cost_of_revenue is not None and current_inventory is not None and current_inventory != 0:
+                            inventory_turnover = ttm_cost_of_revenue / current_inventory
+
+                        daily_series.append({
+                            'date': current_date.strftime('%Y-%m-%d'),
+                            'value': inventory_turnover
+                        })
+
+                        current_date += timedelta(days=1)
+
+                    results[ticker] = daily_series
+                    logger.info(f"Generated {len(daily_series)} daily Inventory Turnover (TTM) points for {ticker}")
+
+                except Exception as e:
+                    logger.error(f"Error calculating Inventory Turnover (TTM) for {ticker}: {str(e)}", exc_info=True)
+                    results[ticker] = []
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Error in calculate_inventory_turnover_ttm: {str(e)}", exc_info=True)
+            raise
