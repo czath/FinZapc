@@ -76,6 +76,10 @@
         "PRICE_TO_SALES_TTM": {
             yAxisLabel: "Price/Sales (TTM)",
             percentChangeLabel: "Price/Sales % Change"
+        },
+        "INTEREST_TO_INCOME_TTM": {
+            yAxisLabel: "Interest/Income % (TTM)",
+            percentChangeLabel: "Interest/Income % Change"
         }
         // Example for a future study:
         // "ANOTHER_ADV_RATIO": {

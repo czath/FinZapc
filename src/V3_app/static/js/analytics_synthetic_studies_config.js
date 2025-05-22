@@ -35,7 +35,8 @@
         { value: "GROSS_MARGIN_TTM", text: "📊 Gross Margin % (TTM)", isAdvanced: true },
         { value: "OPERATING_MARGIN_TTM", text: "📊 Operating Margin % (TTM)", isAdvanced: true },
         { value: "NET_PROFIT_MARGIN_TTM", text: "📊 Net Profit Margin % (TTM)", isAdvanced: true },
-        { value: "PRICE_TO_SALES_TTM", text: "📊 Price/Sales (TTM)", isAdvanced: true }
+        { value: "PRICE_TO_SALES_TTM", text: "📊 Price/Sales (TTM)", isAdvanced: true },
+        { value: "INTEREST_TO_INCOME_TTM", text: "💰 Interest/Income (TTM)", isAdvanced: true }
         
         // Future studies will be added here, for example:
         // { value: "ANOTHER_RATIO_TTM", text: "📊 Another Ratio (TTM)", isAdvanced: true }

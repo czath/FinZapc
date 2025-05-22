@@ -1918,3 +1918,236 @@ class YahooDataQueryAdvService:
         except Exception as e:
             logger.error(f"Error in calculate_inventory_turnover_ttm: {str(e)}", exc_info=True)
             raise
+
+    async def calculate_interest_to_income_ttm(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None,
+        ticker_profiles_cache: Optional[Dict[str, Dict[str, Any]]] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Calculate Interest/Income (TTM) ratio timeseries for given tickers.
+        Ratio = Interest Expense (TTM) / EBIT (TTM)
+        Falls back to Operating Income (TTM) if EBIT is not available
+        Both values use TTM calculation from quarterly/annual income statements
+        """
+        logger.info(f"Calculating Interest/Income (TTM) ratio for tickers: {tickers}")
+        results: Dict[str, List[Dict[str, Any]]] = {ticker: [] for ticker in tickers}
+        
+        try:
+            # Parse date range using base service's method
+            user_start_date = self.base_query_srv._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=5*365)
+            user_end_date = self.base_query_srv._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+
+            # Look back further for fundamental data to ensure enough history for TTM calculation
+            fundamental_query_start_date = user_start_date - timedelta(days=5*365)
+
+            for ticker in tickers:
+                try:
+                    logger.info(f"Processing Interest/Income (TTM) for {ticker}")
+
+                    # 1. Fetch Interest Expense data (quarterly and annual)
+                    interest_expense_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_quarterly_InterestExpense",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    interest_expense_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_annual_InterestExpense",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # 2. Fetch EBIT data (quarterly and annual)
+                    ebit_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_quarterly_EBIT",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    ebit_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_annual_EBIT",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # 3. Fetch Operating Income data as fallback (quarterly and annual)
+                    operating_income_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_quarterly_OperatingIncome",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    operating_income_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_annual_OperatingIncome",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # Process Interest Expense data points
+                    quarterly_interest_points: List[Dict[str, Any]] = []
+                    if ticker in interest_expense_quarterly:
+                        for point in interest_expense_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_interest_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly interest expense value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_interest_points: List[Dict[str, Any]] = []
+                    if ticker in interest_expense_annual:
+                        for point in interest_expense_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_interest_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual interest expense value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Process EBIT data points
+                    quarterly_ebit_points: List[Dict[str, Any]] = []
+                    if ticker in ebit_quarterly:
+                        for point in ebit_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_ebit_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly EBIT value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_ebit_points: List[Dict[str, Any]] = []
+                    if ticker in ebit_annual:
+                        for point in ebit_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_ebit_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual EBIT value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Process Operating Income data points (fallback)
+                    quarterly_operating_points: List[Dict[str, Any]] = []
+                    if ticker in operating_income_quarterly:
+                        for point in operating_income_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_operating_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly operating income value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_operating_points: List[Dict[str, Any]] = []
+                    if ticker in operating_income_annual:
+                        for point in operating_income_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_operating_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual operating income value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Sort all points by date
+                    quarterly_interest_points.sort(key=lambda x: x['date_obj'])
+                    annual_interest_points.sort(key=lambda x: x['date_obj'])
+                    quarterly_ebit_points.sort(key=lambda x: x['date_obj'])
+                    annual_ebit_points.sort(key=lambda x: x['date_obj'])
+                    quarterly_operating_points.sort(key=lambda x: x['date_obj'])
+                    annual_operating_points.sort(key=lambda x: x['date_obj'])
+
+                    # Generate daily series
+                    daily_series: List[Dict[str, Any]] = []
+                    current_date = user_start_date
+
+                    while current_date <= user_end_date:
+                        # Calculate TTM Interest Expense
+                        ttm_interest = self.base_query_srv._calculate_ttm_value_generic(
+                            current_date,
+                            quarterly_interest_points,
+                            annual_interest_points,
+                            "value",
+                            debug_identifier=f"TTM_INTEREST_FOR_INTEREST_INCOME_{ticker}"
+                        )
+
+                        # Try to calculate TTM EBIT first
+                        ttm_income = self.base_query_srv._calculate_ttm_value_generic(
+                            current_date,
+                            quarterly_ebit_points,
+                            annual_ebit_points,
+                            "value",
+                            debug_identifier=f"TTM_EBIT_FOR_INTEREST_INCOME_{ticker}"
+                        )
+
+                        # If EBIT is not available, fall back to Operating Income
+                        if ttm_income is None:
+                            logger.debug(f"EBIT not available for {ticker} on {current_date.strftime('%Y-%m-%d')}, falling back to Operating Income")
+                            ttm_income = self.base_query_srv._calculate_ttm_value_generic(
+                                current_date,
+                                quarterly_operating_points,
+                                annual_operating_points,
+                                "value",
+                                debug_identifier=f"TTM_OPERATING_INCOME_FOR_INTEREST_INCOME_{ticker}"
+                            )
+
+                        # Calculate Interest/Income (TTM) ratio
+                        interest_to_income: Optional[float] = None
+                        if ttm_interest is not None and ttm_income is not None and ttm_income != 0:
+                            # Return null if income (EBIT or Operating Income) is negative
+                            if ttm_income < 0:
+                                logger.debug(f"Income (EBIT/Operating) is negative ({ttm_income}) for {ticker} on {current_date.strftime('%Y-%m-%d')}, setting ratio to null")
+                                interest_to_income = None
+                            else:
+                                # Multiply by 100 to present as percentage
+                                interest_to_income = (ttm_interest / ttm_income) * 100
+
+                        daily_series.append({
+                            'date': current_date.strftime('%Y-%m-%d'),
+                            'value': interest_to_income
+                        })
+
+                        current_date += timedelta(days=1)
+
+                    results[ticker] = daily_series
+                    logger.info(f"Generated {len(daily_series)} daily Interest/Income (TTM) points for {ticker}")
+
+                except Exception as e:
+                    logger.error(f"Error calculating Interest/Income (TTM) for {ticker}: {str(e)}", exc_info=True)
+                    results[ticker] = []
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Error in calculate_interest_to_income_ttm: {str(e)}", exc_info=True)
+            raise

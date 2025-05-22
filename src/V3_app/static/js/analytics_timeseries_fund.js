@@ -1870,9 +1870,9 @@
 
             // NEW: Update y-axis label based on display mode
             let yAxisLabel = null;
-            if (window.AnalyticsTimeseriesFundamentalsAdvModule && 
-                typeof window.AnalyticsTimeseriesFundamentalsAdvModule.getYAxisLabelForSyntheticFundamental === 'function') {
-                yAxisLabel = window.AnalyticsTimeseriesFundamentalsAdvModule.getYAxisLabelForSyntheticFundamental(selectedRatio, displayMode);
+            if (window.TimeseriesFundamentalsAdvModule && 
+                typeof window.TimeseriesFundamentalsAdvModule.getYAxisLabelForSyntheticFundamental === 'function') {
+                yAxisLabel = window.TimeseriesFundamentalsAdvModule.getYAxisLabelForSyntheticFundamental(selectedRatio, displayMode);
             }
             
             // If no label found in advanced module, use a default based on display mode

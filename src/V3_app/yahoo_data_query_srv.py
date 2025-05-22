@@ -517,6 +517,7 @@ class YahooDataQueryService:
             "DEBT_TO_ASSETS": self.adv_service.calculate_debt_to_assets_for_tickers,
             "ASSET_TURNOVER_TTM": self.adv_service.calculate_asset_turnover_ttm,
             "INVENTORY_TURNOVER_TTM": self.adv_service.calculate_inventory_turnover_ttm,
+            "INTEREST_TO_INCOME_TTM": self.adv_service.calculate_interest_to_income_ttm,
         }
 
         if fundamental_name.upper() in supported_fundamentals:
