@@ -584,6 +584,30 @@ async def get_synthetic_fundamental_timeseries(
                 start_date_str=request_payload.start_date,
                 end_date_str=request_payload.end_date
             )
+        # NEW: Add routing for ROA_TTM
+        elif fundamental_name.upper() == "ROA_TTM":
+            logger.info(f"Routing ROA_TTM to YahooDataQueryAdvService for tickers: {request_payload.tickers}")
+            adv_query_service = YahooDataQueryAdvService(
+                db_repo=query_service.db_repo, 
+                base_query_srv=query_service
+            )
+            result = await adv_query_service.calculate_roa_ttm(
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
+        # NEW: Add routing for ROE_TTM
+        elif fundamental_name.upper() == "ROE_TTM":
+            logger.info(f"Routing ROE_TTM to YahooDataQueryAdvService for tickers: {request_payload.tickers}")
+            adv_query_service = YahooDataQueryAdvService(
+                db_repo=query_service.db_repo, 
+                base_query_srv=query_service
+            )
+            result = await adv_query_service.calculate_roe_ttm(
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
         # NEW: Add routing for ASSET_TURNOVER_TTM
         elif fundamental_name.upper() == "ASSET_TURNOVER_TTM":
             logger.info(f"Routing ASSET_TURNOVER_TTM to YahooDataQueryAdvService for tickers: {request_payload.tickers}")

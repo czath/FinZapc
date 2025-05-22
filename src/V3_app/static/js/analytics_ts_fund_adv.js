@@ -80,6 +80,18 @@
         "INTEREST_TO_INCOME_TTM": {
             yAxisLabel: "Interest/Income % (TTM)",
             percentChangeLabel: "Interest/Income % Change"
+        },
+        "ROA_TTM": {
+            yAxisLabel: "ROA % (TTM)",
+            percentChangeLabel: "ROA % Change"
+        },
+        "ROE_TTM": {
+            yAxisLabel: "ROE % (TTM)",
+            percentChangeLabel: "ROE % Change"
+        },
+        "ASSET_TURNOVER_TTM": {
+            yAxisLabel: "Asset Turnover % (TTM)",
+            percentChangeLabel: "Asset Turnover % Change"
         }
         // Example for a future study:
         // "ANOTHER_ADV_RATIO": {

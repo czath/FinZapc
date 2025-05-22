@@ -1576,9 +1576,12 @@ class YahooDataQueryAdvService:
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Calculate Asset Turnover (TTM) ratio timeseries for given tickers.
-        Ratio = Net Income (TTM) / Total Assets
+        Ratio = (Net Income (TTM) / Total Assets) * 100
         Net Income uses TTM calculation from quarterly/annual income statements
         Total Assets uses most recent balance sheet value (quarterly or annual)
+        
+        Note: Values are multiplied by 100 to present as percentages.
+        When displaying this metric, the y-axis label should indicate "%" or "Percentage".
         """
         logger.info(f"Calculating Asset Turnover (TTM) ratio for tickers: {tickers}")
         results: Dict[str, List[Dict[str, Any]]] = {ticker: [] for ticker in tickers}
@@ -1721,7 +1724,8 @@ class YahooDataQueryAdvService:
                         # Calculate Asset Turnover (TTM)
                         asset_turnover: Optional[float] = None
                         if ttm_net_income is not None and current_assets is not None and current_assets != 0:
-                            asset_turnover = ttm_net_income / current_assets
+                            # Multiply by 100 to present as percentage
+                            asset_turnover = (ttm_net_income / current_assets) * 100
 
                         daily_series.append({
                             'date': current_date.strftime('%Y-%m-%d'),
@@ -2150,4 +2154,359 @@ class YahooDataQueryAdvService:
 
         except Exception as e:
             logger.error(f"Error in calculate_interest_to_income_ttm: {str(e)}", exc_info=True)
+            raise
+
+    async def calculate_roa_ttm(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Calculate ROA (TTM) ratio timeseries for given tickers.
+        Ratio = Net Income (TTM) / Total Assets
+        Net Income uses TTM calculation from quarterly/annual income statements
+        Total Assets uses most recent balance sheet value (quarterly or annual)
+        """
+        logger.info(f"Calculating ROA (TTM) ratio for tickers: {tickers}")
+        results: Dict[str, List[Dict[str, Any]]] = {ticker: [] for ticker in tickers}
+        
+        try:
+            # Parse date range using base service's method
+            user_start_date = self.base_query_srv._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=5*365)
+            user_end_date = self.base_query_srv._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+
+            # Look back further for fundamental data to ensure enough history for TTM calculation
+            fundamental_query_start_date = user_start_date - timedelta(days=5*365)
+
+            for ticker in tickers:
+                try:
+                    logger.info(f"Processing ROA (TTM) for {ticker}")
+
+                    # 1. Fetch Net Income data (quarterly and annual)
+                    net_income_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_quarterly_NetIncome",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    net_income_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_annual_NetIncome",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # 2. Fetch Total Assets data (quarterly and annual)
+                    total_assets_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_balance_sheet_quarterly_TotalAssets",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    total_assets_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_balance_sheet_annual_TotalAssets",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # Process Net Income data points
+                    quarterly_net_income_points: List[Dict[str, Any]] = []
+                    if ticker in net_income_quarterly:
+                        for point in net_income_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_net_income_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly net income value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_net_income_points: List[Dict[str, Any]] = []
+                    if ticker in net_income_annual:
+                        for point in net_income_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_net_income_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual net income value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Process Total Assets data points
+                    quarterly_assets_points: List[Dict[str, Any]] = []
+                    if ticker in total_assets_quarterly:
+                        for point in total_assets_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_assets_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly total assets value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_assets_points: List[Dict[str, Any]] = []
+                    if ticker in total_assets_annual:
+                        for point in total_assets_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_assets_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual total assets value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Sort all points by date
+                    quarterly_net_income_points.sort(key=lambda x: x['date_obj'])
+                    annual_net_income_points.sort(key=lambda x: x['date_obj'])
+                    quarterly_assets_points.sort(key=lambda x: x['date_obj'])
+                    annual_assets_points.sort(key=lambda x: x['date_obj'])
+
+                    # Generate daily series
+                    daily_series: List[Dict[str, Any]] = []
+                    current_date = user_start_date
+
+                    while current_date <= user_end_date:
+                        # Calculate TTM Net Income
+                        ttm_net_income = self.base_query_srv._calculate_ttm_value_generic(
+                            current_date,
+                            quarterly_net_income_points,
+                            annual_net_income_points,
+                            "value",
+                            debug_identifier=f"TTM_NET_INCOME_FOR_ROA_{ticker}"
+                        )
+
+                        # Get most recent Total Assets value
+                        applicable_assets_points = []
+                        if quarterly_assets_points:
+                            applicable_assets_points.extend(quarterly_assets_points)
+                        if annual_assets_points:
+                            applicable_assets_points.extend(annual_assets_points)
+                        
+                        applicable_assets_points.sort(key=lambda x: x['date_obj'], reverse=True)
+                        
+                        current_assets = None
+                        for point in applicable_assets_points:
+                            if point['date_obj'] <= current_date:
+                                current_assets = point['value']
+                                break
+
+                        # Calculate ROA (TTM)
+                        roa: Optional[float] = None
+                        if ttm_net_income is not None and current_assets is not None and current_assets != 0:
+                            # Multiply by 100 to present as percentage
+                            roa = (ttm_net_income / current_assets) * 100
+
+                        daily_series.append({
+                            'date': current_date.strftime('%Y-%m-%d'),
+                            'value': roa
+                        })
+
+                        current_date += timedelta(days=1)
+
+                    results[ticker] = daily_series
+                    logger.info(f"Generated {len(daily_series)} daily ROA (TTM) points for {ticker}")
+
+                except Exception as e:
+                    logger.error(f"Error calculating ROA (TTM) for {ticker}: {str(e)}", exc_info=True)
+                    results[ticker] = []
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Error in calculate_roa_ttm: {str(e)}", exc_info=True)
+            raise
+
+    async def calculate_roe_ttm(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Calculate ROE (Return on Equity) TTM ratio timeseries for given tickers.
+        Ratio = Net Income (TTM) / Common Stock Equity
+        Net Income uses TTM calculation from quarterly/annual income statements
+        Common Stock Equity uses most recent balance sheet value (quarterly or annual)
+        
+        Note: Values are multiplied by 100 to present as percentages.
+        When displaying this metric, the y-axis label should indicate "%" or "Percentage".
+        """
+        logger.info(f"Calculating ROE (TTM) ratio for tickers: {tickers}")
+        results: Dict[str, List[Dict[str, Any]]] = {ticker: [] for ticker in tickers}
+        
+        try:
+            # Parse date range using base service's method
+            user_start_date = self.base_query_srv._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=5*365)
+            user_end_date = self.base_query_srv._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+
+            # Look back further for fundamental data to ensure enough history for TTM calculation
+            fundamental_query_start_date = user_start_date - timedelta(days=5*365)
+
+            for ticker in tickers:
+                try:
+                    logger.info(f"Processing ROE (TTM) for {ticker}")
+
+                    # 1. Fetch Net Income data (quarterly and annual)
+                    net_income_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_quarterly_NetIncome",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    net_income_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_income_statement_annual_NetIncome",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # 2. Fetch Common Stock Equity data (quarterly and annual)
+                    equity_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_balance_sheet_quarterly_CommonStockEquity",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+                    
+                    equity_annual = await self.base_query_srv.get_specific_field_timeseries(
+                        field_identifier="yf_item_balance_sheet_annual_CommonStockEquity",
+                        tickers=[ticker],
+                        start_date_str=fundamental_query_start_date.strftime("%Y-%m-%d"),
+                        end_date_str=user_end_date.strftime("%Y-%m-%d")
+                    )
+
+                    # Process Net Income data points
+                    quarterly_net_income_points: List[Dict[str, Any]] = []
+                    if ticker in net_income_quarterly:
+                        for point in net_income_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_net_income_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly net income value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_net_income_points: List[Dict[str, Any]] = []
+                    if ticker in net_income_annual:
+                        for point in net_income_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_net_income_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual net income value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Process Common Stock Equity data points
+                    quarterly_equity_points: List[Dict[str, Any]] = []
+                    if ticker in equity_quarterly:
+                        for point in equity_quarterly[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    quarterly_equity_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert quarterly equity value '{value}' to float for {ticker} on {point['date']}")
+
+                    annual_equity_points: List[Dict[str, Any]] = []
+                    if ticker in equity_annual:
+                        for point in equity_annual[ticker]:
+                            date_obj = self.base_query_srv._parse_date_flex(point['date'])
+                            value = point['value']
+                            if date_obj and value is not None:
+                                try:
+                                    annual_equity_points.append({
+                                        'date_obj': date_obj,
+                                        'value': float(value)
+                                    })
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Could not convert annual equity value '{value}' to float for {ticker} on {point['date']}")
+
+                    # Sort all points by date
+                    quarterly_net_income_points.sort(key=lambda x: x['date_obj'])
+                    annual_net_income_points.sort(key=lambda x: x['date_obj'])
+                    quarterly_equity_points.sort(key=lambda x: x['date_obj'])
+                    annual_equity_points.sort(key=lambda x: x['date_obj'])
+
+                    # Generate daily series
+                    daily_series: List[Dict[str, Any]] = []
+                    current_date = user_start_date
+
+                    while current_date <= user_end_date:
+                        # Calculate TTM Net Income using existing helper
+                        ttm_net_income = self.base_query_srv._calculate_ttm_value_generic(
+                            current_date,
+                            quarterly_net_income_points,
+                            annual_net_income_points,
+                            "value",
+                            debug_identifier=f"TTM_NET_INCOME_FOR_ROE_{ticker}"
+                        )
+
+                        # Get most recent Common Stock Equity value
+                        applicable_equity_points = []
+                        if quarterly_equity_points:
+                            applicable_equity_points.extend(quarterly_equity_points)
+                        if annual_equity_points:
+                            applicable_equity_points.extend(annual_equity_points)
+                        
+                        applicable_equity_points.sort(key=lambda x: x['date_obj'], reverse=True)
+                        
+                        current_equity = None
+                        for point in applicable_equity_points:
+                            if point['date_obj'] <= current_date:
+                                current_equity = point['value']
+                                break
+
+                        # Calculate ROE (TTM)
+                        roe: Optional[float] = None
+                        if ttm_net_income is not None and current_equity is not None and current_equity != 0:
+                            # Multiply by 100 to present as percentage
+                            roe = (ttm_net_income / current_equity) * 100
+
+                        daily_series.append({
+                            'date': current_date.strftime('%Y-%m-%d'),
+                            'value': roe
+                        })
+
+                        current_date += timedelta(days=1)
+
+                    results[ticker] = daily_series
+                    logger.info(f"Generated {len(daily_series)} daily ROE (TTM) points for {ticker}")
+
+                except Exception as e:
+                    logger.error(f"Error calculating ROE (TTM) for {ticker}: {str(e)}", exc_info=True)
+                    results[ticker] = []
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Error in calculate_roe_ttm: {str(e)}", exc_info=True)
             raise
