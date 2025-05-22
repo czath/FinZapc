@@ -536,6 +536,54 @@ async def get_synthetic_fundamental_timeseries(
                 start_date_str=request_payload.start_date,
                 end_date_str=request_payload.end_date
             )
+        # NEW: Add routing for DEBT_TO_EQUITY
+        elif fundamental_name.upper() == "DEBT_TO_EQUITY":
+            logger.info(f"Routing DEBT_TO_EQUITY to YahooDataQueryAdvService for tickers: {request_payload.tickers}")
+            adv_query_service = YahooDataQueryAdvService(
+                db_repo=query_service.db_repo, 
+                base_query_srv=query_service
+            )
+            result = await adv_query_service.calculate_debt_to_equity_for_tickers(
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
+        # NEW: Add routing for TOTAL_LIABILITIES_TO_EQUITY
+        elif fundamental_name.upper() == "TOTAL_LIABILITIES_TO_EQUITY":
+            logger.info(f"Routing TOTAL_LIABILITIES_TO_EQUITY to YahooDataQueryAdvService for tickers: {request_payload.tickers}")
+            adv_query_service = YahooDataQueryAdvService(
+                db_repo=query_service.db_repo, 
+                base_query_srv=query_service
+            )
+            result = await adv_query_service.calculate_total_liabilities_to_equity_for_tickers(
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
+        # NEW: Add routing for TOTAL_LIABILITIES_TO_ASSETS
+        elif fundamental_name.upper() == "TOTAL_LIABILITIES_TO_ASSETS":
+            logger.info(f"Routing TOTAL_LIABILITIES_TO_ASSETS to YahooDataQueryAdvService for tickers: {request_payload.tickers}")
+            adv_query_service = YahooDataQueryAdvService(
+                db_repo=query_service.db_repo, 
+                base_query_srv=query_service
+            )
+            result = await adv_query_service.calculate_total_liabilities_to_assets_for_tickers(
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
+        # NEW: Add routing for DEBT_TO_ASSETS
+        elif fundamental_name.upper() == "DEBT_TO_ASSETS":
+            logger.info(f"Routing DEBT_TO_ASSETS to YahooDataQueryAdvService for tickers: {request_payload.tickers}")
+            adv_query_service = YahooDataQueryAdvService(
+                db_repo=query_service.db_repo, 
+                base_query_srv=query_service
+            )
+            result = await adv_query_service.calculate_debt_to_assets_for_tickers(
+                tickers=request_payload.tickers,
+                start_date_str=request_payload.start_date,
+                end_date_str=request_payload.end_date
+            )
         # END NEW
         else:
             result = await query_service.calculate_synthetic_fundamental_timeseries(

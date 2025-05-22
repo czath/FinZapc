@@ -836,6 +836,11 @@ class YahooDataQueryService:
             )
             logger.info(f"SYNTHETIC_FUNDAMENTAL: Finished calculating '{fundamental_name}'. Results for {len(results_by_ticker)} tickers.")
             return results_by_ticker
+        elif fundamental_name.upper() == "DEBT_TO_EQUITY": # NEW: For Debt/Equity Ratio
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' requested. Calling calculate_debt_to_equity_for_tickers.")
+            # Note: This will be handled by the advanced service
+            logger.info(f"SYNTHETIC_FUNDAMENTAL: '{fundamental_name}' is handled by advanced service. Returning empty results.")
+            return {ticker: [] for ticker in tickers}
         elif fundamental_name.upper() == "PRICE_TO_CASH_PLUS_ST_INV":
             logger.info(f"PRICE_TO_CASH_PLUS_ST_INV: Calculation requested for {tickers} from {start_date_str} to {end_date_str}")
 

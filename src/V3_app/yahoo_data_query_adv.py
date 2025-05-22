@@ -930,3 +930,640 @@ class YahooDataQueryAdvService:
 
         logger.info(f"[AdvQuerySrv.calculate_price_to_sales_ttm] Completed for {len(tickers)} tickers.")
         return results_by_ticker
+
+    async def calculate_debt_to_equity_for_tickers(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+        logger.info(f"DEBT_TO_EQUITY: Starting calculation for tickers: {tickers}, start: {start_date_str}, end: {end_date_str}")
+
+        user_start_date_obj = self.base_query_srv._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=365*5) # Default 5 years
+        user_end_date_obj = self.base_query_srv._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+
+        fundamental_query_start_date_obj = user_start_date_obj - timedelta(days=180) # Approx 6 months buffer
+        fundamental_query_start_date_str = fundamental_query_start_date_obj.strftime('%Y-%m-%d')
+        fundamental_query_end_date_str = user_end_date_obj.strftime('%Y-%m-%d')
+
+        # Field IDs for Total Debt and Stockholders Equity
+        debt_quarterly_field_id = "yf_item_balance_sheet_quarterly_TotalDebt"
+        debt_annual_field_id = "yf_item_balance_sheet_annual_TotalDebt"
+        equity_quarterly_field_id = "yf_item_balance_sheet_quarterly_CommonStockEquity"
+        equity_annual_field_id = "yf_item_balance_sheet_annual_CommonStockEquity"
+
+        for ticker_symbol in tickers:
+            try:
+                # 1. Fetch Total Debt Data
+                # Fetch Quarterly Debt
+                logger.debug(f"DEBT_TO_EQUITY [{ticker_symbol}]: Fetching Q Debt ({debt_quarterly_field_id})")
+                debt_q_raw = await self.base_query_srv.get_specific_field_timeseries(
+                    field_identifier=debt_quarterly_field_id,
+                    tickers=[ticker_symbol],
+                    start_date_str=fundamental_query_start_date_str,
+                    end_date_str=fundamental_query_end_date_str
+                )
+                quarterly_debt_points: List[Dict[str, Any]] = []
+                if debt_q_raw.get(ticker_symbol):
+                    for item in debt_q_raw[ticker_symbol]:
+                        date_obj = self.base_query_srv._parse_date_flex(item.get('date'))
+                        value = item.get('value')
+                        if date_obj and value is not None:
+                            try: quarterly_debt_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'quarterly'})
+                            except (ValueError, TypeError): pass
+                logger.info(f"DEBT_TO_EQUITY [{ticker_symbol}]: Parsed {len(quarterly_debt_points)} quarterly debt points.")
+
+                # Fetch Annual Debt
+                logger.debug(f"DEBT_TO_EQUITY [{ticker_symbol}]: Fetching A Debt ({debt_annual_field_id})")
+                debt_a_raw = await self.base_query_srv.get_specific_field_timeseries(
+                    field_identifier=debt_annual_field_id,
+                    tickers=[ticker_symbol],
+                    start_date_str=fundamental_query_start_date_str,
+                    end_date_str=fundamental_query_end_date_str
+                )
+                annual_debt_points: List[Dict[str, Any]] = []
+                if debt_a_raw.get(ticker_symbol):
+                    for item in debt_a_raw[ticker_symbol]:
+                        date_obj = self.base_query_srv._parse_date_flex(item.get('date'))
+                        value = item.get('value')
+                        if date_obj and value is not None:
+                            try: annual_debt_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'annual'})
+                            except (ValueError, TypeError): pass
+                logger.info(f"DEBT_TO_EQUITY [{ticker_symbol}]: Parsed {len(annual_debt_points)} annual debt points.")
+
+                # 2. Fetch Stockholders Equity Data
+                # Fetch Quarterly Equity
+                logger.debug(f"DEBT_TO_EQUITY [{ticker_symbol}]: Fetching Q Equity ({equity_quarterly_field_id})")
+                equity_q_raw = await self.base_query_srv.get_specific_field_timeseries(
+                    field_identifier=equity_quarterly_field_id,
+                    tickers=[ticker_symbol],
+                    start_date_str=fundamental_query_start_date_str,
+                    end_date_str=fundamental_query_end_date_str
+                )
+                quarterly_equity_points: List[Dict[str, Any]] = []
+                if equity_q_raw.get(ticker_symbol):
+                    for item in equity_q_raw[ticker_symbol]:
+                        date_obj = self.base_query_srv._parse_date_flex(item.get('date'))
+                        value = item.get('value')
+                        if date_obj and value is not None:
+                            try: quarterly_equity_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'quarterly'})
+                            except (ValueError, TypeError): pass
+                logger.info(f"DEBT_TO_EQUITY [{ticker_symbol}]: Parsed {len(quarterly_equity_points)} quarterly equity points.")
+
+                # Fetch Annual Equity
+                logger.debug(f"DEBT_TO_EQUITY [{ticker_symbol}]: Fetching A Equity ({equity_annual_field_id})")
+                equity_a_raw = await self.base_query_srv.get_specific_field_timeseries(
+                    field_identifier=equity_annual_field_id,
+                    tickers=[ticker_symbol],
+                    start_date_str=fundamental_query_start_date_str,
+                    end_date_str=fundamental_query_end_date_str
+                )
+                annual_equity_points: List[Dict[str, Any]] = []
+                if equity_a_raw.get(ticker_symbol):
+                    for item in equity_a_raw[ticker_symbol]:
+                        date_obj = self.base_query_srv._parse_date_flex(item.get('date'))
+                        value = item.get('value')
+                        if date_obj and value is not None:
+                            try: annual_equity_points.append({'date_obj': date_obj, 'value': float(value), 'source': 'annual'})
+                            except (ValueError, TypeError): pass
+                logger.info(f"DEBT_TO_EQUITY [{ticker_symbol}]: Parsed {len(annual_equity_points)} annual equity points.")
+
+                # 3. Combine data points, giving preference to quarterly if dates overlap
+                combined_debt_map: Dict[datetime, float] = {}
+                for point in annual_debt_points:  # Annual first
+                    combined_debt_map[point['date_obj']] = point['value']
+                for point in quarterly_debt_points:  # Quarterly overwrites if date matches
+                    combined_debt_map[point['date_obj']] = point['value']
+                
+                combined_equity_map: Dict[datetime, float] = {}
+                for point in annual_equity_points:  # Annual first
+                    combined_equity_map[point['date_obj']] = point['value']
+                for point in quarterly_equity_points:  # Quarterly overwrites if date matches
+                    combined_equity_map[point['date_obj']] = point['value']
+
+                # Get all unique dates from both maps
+                all_dates = sorted(set(combined_debt_map.keys()) & set(combined_equity_map.keys()))
+                
+                if not all_dates:
+                    logger.warning(f"DEBT_TO_EQUITY [{ticker_symbol}]: No overlapping dates between debt and equity data. Skipping.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+
+                # 4. Calculate Debt/Equity ratio for each date
+                point_in_time_ratio_series: List[Dict[str, Any]] = []
+                for date_obj in all_dates:
+                    debt_value = combined_debt_map[date_obj]
+                    equity_value = combined_equity_map[date_obj]
+                    
+                    if equity_value != 0:  # Avoid division by zero
+                        try:
+                            ratio_value = float(debt_value) / float(equity_value)
+                            point_in_time_ratio_series.append({
+                                'date_obj': date_obj,
+                                'value': ratio_value
+                            })
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"DEBT_TO_EQUITY [{ticker_symbol}]: Error calculating ratio for date {date_obj}: {e}")
+                    else:
+                        logger.warning(f"DEBT_TO_EQUITY [{ticker_symbol}]: Equity value is zero for date {date_obj}. Skipping ratio calculation.")
+
+                if not point_in_time_ratio_series:
+                    logger.warning(f"DEBT_TO_EQUITY [{ticker_symbol}]: No valid debt/equity ratios calculated. Skipping.")
+                    results_by_ticker[ticker_symbol] = []
+                    continue
+
+                # 5. Generate daily series
+                daily_series: List[Dict[str, Any]] = []
+                current_iter_date = user_start_date_obj
+                last_known_val = None
+
+                # Find initial value for start of user period
+                for point in reversed(point_in_time_ratio_series):
+                    if point['date_obj'] <= current_iter_date:
+                        last_known_val = point['value']
+                        break
+
+                point_idx = 0
+                while current_iter_date <= user_end_date_obj:
+                    while point_idx < len(point_in_time_ratio_series) and point_in_time_ratio_series[point_idx]['date_obj'] <= current_iter_date:
+                        last_known_val = point_in_time_ratio_series[point_idx]['value']
+                        point_idx += 1
+                    if last_known_val is not None:
+                        if point_in_time_ratio_series and current_iter_date >= point_in_time_ratio_series[0]['date_obj']:
+                            daily_series.append({
+                                'date': current_iter_date.strftime('%Y-%m-%d'),
+                                'value': last_known_val
+                            })
+                    current_iter_date += timedelta(days=1)
+
+                results_by_ticker[ticker_symbol] = daily_series
+                logger.info(f"DEBT_TO_EQUITY [{ticker_symbol}]: Successfully generated {len(daily_series)} daily debt/equity ratio points.")
+
+            except Exception as e:
+                logger.error(f"DEBT_TO_EQUITY [{ticker_symbol}]: Unhandled error: {e}", exc_info=True)
+                results_by_ticker[ticker_symbol] = []
+
+        return results_by_ticker
+
+    async def calculate_total_liabilities_to_equity_for_tickers(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Calculate Total Liabilities/Equity ratio timeseries for given tickers.
+        Ratio = Total Liabilities Net Minority Interest / Stockholders Equity
+        Both values from most recent balance sheet (quarterly or annual).
+        """
+        logger.info(f"Calculating Total Liabilities/Equity ratio for tickers: {tickers}")
+        
+        # Initialize results dictionary
+        results: Dict[str, List[Dict[str, Any]]] = {ticker: [] for ticker in tickers}
+        
+        try:
+            # Fetch Total Liabilities Net Minority Interest data (quarterly and annual)
+            total_liabilities_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                field_identifier="yf_item_balance_sheet_quarterly_TotalLiabilitiesNetMinorityInterest",
+                tickers=tickers,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str
+            )
+            
+            total_liabilities_annual = await self.base_query_srv.get_specific_field_timeseries(
+                field_identifier="yf_item_balance_sheet_annual_TotalLiabilitiesNetMinorityInterest",
+                tickers=tickers,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str
+            )
+            
+            # Fetch Stockholders Equity data (quarterly and annual)
+            equity_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                field_identifier="yf_item_balance_sheet_quarterly_CommonStockEquity",
+                tickers=tickers,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str
+            )
+            
+            equity_annual = await self.base_query_srv.get_specific_field_timeseries(
+                field_identifier="yf_item_balance_sheet_annual_CommonStockEquity",
+                tickers=tickers,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str
+            )
+            
+            # Process each ticker
+            for ticker in tickers:
+                logger.info(f"Processing Total Liabilities/Equity ratio for {ticker}")
+                
+                # Combine quarterly and annual data points for both metrics
+                # For Total Liabilities
+                all_liabilities_points = []
+                if ticker in total_liabilities_quarterly:
+                    all_liabilities_points.extend([
+                        {
+                            'date_obj': datetime.fromisoformat(point['date']),
+                            'value': point['value'],
+                            'is_quarterly': True
+                        }
+                        for point in total_liabilities_quarterly[ticker]
+                    ])
+                if ticker in total_liabilities_annual:
+                    all_liabilities_points.extend([
+                        {
+                            'date_obj': datetime.fromisoformat(point['date']),
+                            'value': point['value'],
+                            'is_quarterly': False
+                        }
+                        for point in total_liabilities_annual[ticker]
+                    ])
+                
+                # For Equity
+                all_equity_points = []
+                if ticker in equity_quarterly:
+                    all_equity_points.extend([
+                        {
+                            'date_obj': datetime.fromisoformat(point['date']),
+                            'value': point['value'],
+                            'is_quarterly': True
+                        }
+                        for point in equity_quarterly[ticker]
+                    ])
+                if ticker in equity_annual:
+                    all_equity_points.extend([
+                        {
+                            'date_obj': datetime.fromisoformat(point['date']),
+                            'value': point['value'],
+                            'is_quarterly': False
+                        }
+                        for point in equity_annual[ticker]
+                    ])
+                
+                # Sort points by date
+                all_liabilities_points.sort(key=lambda x: x['date_obj'])
+                all_equity_points.sort(key=lambda x: x['date_obj'])
+                
+                # Calculate ratio for each date where we have both metrics
+                ratio_points = []
+                for liab_point in all_liabilities_points:
+                    # Find the most recent equity point before or on this date
+                    applicable_equity_points = [
+                        p for p in all_equity_points 
+                        if p['date_obj'] <= liab_point['date_obj']
+                    ]
+                    
+                    if applicable_equity_points:
+                        # Get the most recent equity point
+                        equity_point = max(applicable_equity_points, key=lambda x: x['date_obj'])
+                        
+                        # Calculate ratio if equity is not zero
+                        if equity_point['value'] != 0:
+                            ratio = liab_point['value'] / equity_point['value']
+                            ratio_points.append({
+                                'date_obj': liab_point['date_obj'],
+                                'value': ratio,
+                                'is_quarterly': liab_point['is_quarterly']
+                            })
+                
+                # Sort ratio points by date
+                ratio_points.sort(key=lambda x: x['date_obj'])
+                
+                # Generate daily series
+                if ratio_points:
+                    # Use user's date range instead of ratio points date range
+                    user_start_date = self.base_query_srv._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=365*5)
+                    user_end_date = self.base_query_srv._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+                    
+                    # Create daily series
+                    current_date = user_start_date
+                    last_known_val = None
+                    
+                    # Find initial value for start of user period
+                    for point in reversed(ratio_points):
+                        if point['date_obj'] <= current_date:
+                            last_known_val = point['value']
+                            break
+                    
+                    point_idx = 0
+                    while current_date <= user_end_date:
+                        while point_idx < len(ratio_points) and ratio_points[point_idx]['date_obj'] <= current_date:
+                            last_known_val = ratio_points[point_idx]['value']
+                            point_idx += 1
+                        
+                        if last_known_val is not None:
+                            results[ticker].append({
+                                'date': current_date.isoformat(),
+                                'value': last_known_val
+                            })
+                        
+                        current_date += timedelta(days=1)
+                
+                logger.info(f"Generated {len(results[ticker])} daily Total Liabilities/Equity ratio points for {ticker}")
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error calculating Total Liabilities/Equity ratio: {str(e)}")
+            raise
+
+    async def calculate_total_liabilities_to_assets_for_tickers(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Calculate Total Liabilities/Total Assets ratio timeseries for given tickers.
+        Ratio = Total Liabilities Net Minority Interest / Total Assets
+        Both values from most recent balance sheet (quarterly or annual).
+        """
+        logger.info(f"Calculating Total Liabilities/Total Assets ratio for tickers: {tickers}")
+        
+        # Initialize results dictionary
+        results: Dict[str, List[Dict[str, Any]]] = {ticker: [] for ticker in tickers}
+        
+        try:
+            # Fetch Total Liabilities Net Minority Interest data (quarterly and annual)
+            total_liabilities_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                field_identifier="yf_item_balance_sheet_quarterly_TotalLiabilitiesNetMinorityInterest",
+                tickers=tickers,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str
+            )
+            
+            total_liabilities_annual = await self.base_query_srv.get_specific_field_timeseries(
+                field_identifier="yf_item_balance_sheet_annual_TotalLiabilitiesNetMinorityInterest",
+                tickers=tickers,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str
+            )
+            
+            # Fetch Total Assets data (quarterly and annual)
+            total_assets_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                field_identifier="yf_item_balance_sheet_quarterly_TotalAssets",
+                tickers=tickers,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str
+            )
+            
+            total_assets_annual = await self.base_query_srv.get_specific_field_timeseries(
+                field_identifier="yf_item_balance_sheet_annual_TotalAssets",
+                tickers=tickers,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str
+            )
+            
+            # Process each ticker
+            for ticker in tickers:
+                logger.info(f"Processing Total Liabilities/Total Assets ratio for {ticker}")
+                
+                # Combine quarterly and annual data points for both metrics
+                # For Total Liabilities
+                all_liabilities_points = []
+                if ticker in total_liabilities_quarterly:
+                    all_liabilities_points.extend([
+                        {
+                            'date_obj': datetime.fromisoformat(point['date']),
+                            'value': point['value'],
+                            'is_quarterly': True
+                        }
+                        for point in total_liabilities_quarterly[ticker]
+                    ])
+                if ticker in total_liabilities_annual:
+                    all_liabilities_points.extend([
+                        {
+                            'date_obj': datetime.fromisoformat(point['date']),
+                            'value': point['value'],
+                            'is_quarterly': False
+                        }
+                        for point in total_liabilities_annual[ticker]
+                    ])
+                
+                # For Total Assets
+                all_assets_points = []
+                if ticker in total_assets_quarterly:
+                    all_assets_points.extend([
+                        {
+                            'date_obj': datetime.fromisoformat(point['date']),
+                            'value': point['value'],
+                            'is_quarterly': True
+                        }
+                        for point in total_assets_quarterly[ticker]
+                    ])
+                if ticker in total_assets_annual:
+                    all_assets_points.extend([
+                        {
+                            'date_obj': datetime.fromisoformat(point['date']),
+                            'value': point['value'],
+                            'is_quarterly': False
+                        }
+                        for point in total_assets_annual[ticker]
+                    ])
+                
+                # Sort points by date
+                all_liabilities_points.sort(key=lambda x: x['date_obj'])
+                all_assets_points.sort(key=lambda x: x['date_obj'])
+                
+                # Calculate ratio for each date where we have both metrics
+                ratio_points = []
+                for liab_point in all_liabilities_points:
+                    # Find the most recent assets point before or on this date
+                    applicable_assets_points = [
+                        p for p in all_assets_points 
+                        if p['date_obj'] <= liab_point['date_obj']
+                    ]
+                    
+                    if applicable_assets_points:
+                        # Get the most recent assets point
+                        assets_point = max(applicable_assets_points, key=lambda x: x['date_obj'])
+                        
+                        # Calculate ratio if assets is not zero
+                        if assets_point['value'] != 0:
+                            ratio = liab_point['value'] / assets_point['value']
+                            ratio_points.append({
+                                'date_obj': liab_point['date_obj'],
+                                'value': ratio,
+                                'is_quarterly': liab_point['is_quarterly']
+                            })
+                
+                # Sort ratio points by date
+                ratio_points.sort(key=lambda x: x['date_obj'])
+                
+                # Generate daily series
+                if ratio_points:
+                    # Use user's date range instead of ratio points date range
+                    user_start_date = self.base_query_srv._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=365*5)
+                    user_end_date = self.base_query_srv._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+                    
+                    # Create daily series
+                    current_date = user_start_date
+                    last_known_val = None
+                    
+                    # Find initial value for start of user period
+                    for point in reversed(ratio_points):
+                        if point['date_obj'] <= current_date:
+                            last_known_val = point['value']
+                            break
+                    
+                    point_idx = 0
+                    while current_date <= user_end_date:
+                        while point_idx < len(ratio_points) and ratio_points[point_idx]['date_obj'] <= current_date:
+                            last_known_val = ratio_points[point_idx]['value']
+                            point_idx += 1
+                        
+                        if last_known_val is not None:
+                            results[ticker].append({
+                                'date': current_date.isoformat(),
+                                'value': last_known_val
+                            })
+                        
+                        current_date += timedelta(days=1)
+                
+                logger.info(f"Generated {len(results[ticker])} daily Total Liabilities/Total Assets ratio points for {ticker}")
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error calculating Total Liabilities/Total Assets ratio: {str(e)}")
+            raise
+
+    async def calculate_debt_to_assets_for_tickers(
+        self,
+        tickers: List[str],
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Calculate the Debt/Total Assets ratio for given tickers.
+        Ratio = Total Debt / Total Assets
+        Both values come from the most recent balance sheet (quarterly or annual).
+        No currency conversion needed since both values are in the same currency.
+        """
+        logger.info(f"Calculating Debt/Total Assets ratio for tickers: {tickers}")
+        results = {}
+
+        # Parse date range using base service's method
+        user_start_date = self.base_query_srv._parse_date_flex(start_date_str) if start_date_str else datetime.now() - timedelta(days=5*365)
+        user_end_date = self.base_query_srv._parse_date_flex(end_date_str) if end_date_str else datetime.now()
+
+        for ticker in tickers:
+            try:
+                # Fetch Total Debt data (both quarterly and annual)
+                total_debt_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                    field_identifier="yf_item_balance_sheet_quarterly_TotalDebt",
+                    tickers=ticker,
+                    start_date_str=start_date_str,
+                    end_date_str=end_date_str
+                )
+                total_debt_annual = await self.base_query_srv.get_specific_field_timeseries(
+                    field_identifier="yf_item_balance_sheet_annual_TotalDebt",
+                    tickers=ticker,
+                    start_date_str=start_date_str,
+                    end_date_str=end_date_str
+                )
+
+                # Fetch Total Assets data (both quarterly and annual)
+                total_assets_quarterly = await self.base_query_srv.get_specific_field_timeseries(
+                    field_identifier="yf_item_balance_sheet_quarterly_TotalAssets",
+                    tickers=ticker,
+                    start_date_str=start_date_str,
+                    end_date_str=end_date_str
+                )
+                total_assets_annual = await self.base_query_srv.get_specific_field_timeseries(
+                    field_identifier="yf_item_balance_sheet_annual_TotalAssets",
+                    tickers=ticker,
+                    start_date_str=start_date_str,
+                    end_date_str=end_date_str
+                )
+
+                # Process the data points
+                debt_points = []
+                assets_points = []
+
+                # Process quarterly data
+                for point in total_debt_quarterly.get(ticker, []):
+                    debt_points.append({
+                        'date_obj': datetime.fromisoformat(point['date']),
+                        'value': point['value']
+                    })
+                for point in total_assets_quarterly.get(ticker, []):
+                    assets_points.append({
+                        'date_obj': datetime.fromisoformat(point['date']),
+                        'value': point['value']
+                    })
+
+                # Process annual data
+                for point in total_debt_annual.get(ticker, []):
+                    debt_points.append({
+                        'date_obj': datetime.fromisoformat(point['date']),
+                        'value': point['value']
+                    })
+                for point in total_assets_annual.get(ticker, []):
+                    assets_points.append({
+                        'date_obj': datetime.fromisoformat(point['date']),
+                        'value': point['value']
+                    })
+
+                # Sort points by date
+                debt_points.sort(key=lambda x: x['date_obj'])
+                assets_points.sort(key=lambda x: x['date_obj'])
+
+                # Calculate ratio points
+                ratio_points = []
+                for debt_point in debt_points:
+                    # Find the most recent assets point before or on the debt point date
+                    applicable_assets_point = None
+                    for assets_point in reversed(assets_points):
+                        if assets_point['date_obj'] <= debt_point['date_obj']:
+                            applicable_assets_point = assets_point
+                            break
+
+                    if applicable_assets_point and applicable_assets_point['value'] != 0:
+                        ratio = debt_point['value'] / applicable_assets_point['value']
+                        ratio_points.append({
+                            'date_obj': debt_point['date_obj'],
+                            'value': ratio
+                        })
+
+                # Generate daily series using user's requested date range
+                daily_series = []
+                if ratio_points:
+                    # Sort ratio points by date
+                    ratio_points.sort(key=lambda x: x['date_obj'])
+                    
+                    # Generate daily series from user's start date to end date
+                    current_date = user_start_date
+                    last_known_ratio = None
+
+                    while current_date <= user_end_date:
+                        # Find the most recent ratio point before or on the current date
+                        applicable_ratio_point = None
+                        for point in reversed(ratio_points):
+                            if point['date_obj'] <= current_date:
+                                applicable_ratio_point = point
+                                break
+
+                        if applicable_ratio_point:
+                            last_known_ratio = applicable_ratio_point['value']
+                            daily_series.append({
+                                'date': current_date.isoformat(),
+                                'value': last_known_ratio
+                            })
+                        elif last_known_ratio is not None:
+                            # Carry forward the last known ratio
+                            daily_series.append({
+                                'date': current_date.isoformat(),
+                                'value': last_known_ratio
+                            })
+                        
+                        current_date += timedelta(days=1)
+
+                results[ticker] = daily_series
+                logger.info(f"Generated {len(daily_series)} daily points for {ticker} Debt/Total Assets ratio")
+
+            except Exception as e:
+                logger.error(f"Error calculating Debt/Total Assets ratio for {ticker}: {str(e)}")
+                results[ticker] = []
+
+        return results
