@@ -1092,32 +1092,32 @@ def create_app():
             await job_lock.acquire() # Acquire lock
             try:
                 # The is_active check has already passed if we are here.
-                    logger.info(f"Job '{job_id}' is active. Proceeding with fetch and update.")
-                    from .V3_yahoo_fetch import mass_load_yahoo_data_from_file
-                    from .yahoo_repository import YahooDataRepository
-                
-                    yahoo_repo = YahooDataRepository(repository.database_url)
-                    tickers = await yahoo_repo.get_all_master_tickers()
-                    if not tickers:
-                        logger.warning("No master tickers found for Yahoo scheduled job.")
+                logger.info(f"Job '{job_id}' is active. Proceeding with fetch and update.")
+                from .V3_yahoo_fetch import mass_load_yahoo_data_from_file
+                from .yahoo_repository import YahooDataRepository
+            
+                yahoo_repo = YahooDataRepository(repository.database_url)
+                tickers = await yahoo_repo.get_all_master_tickers()
+                if not tickers:
+                    logger.warning("No master tickers found for Yahoo scheduled job.")
                     # fetch_successful remains False, so last_run won't be updated.
-                        return
-                
-                    await mass_load_yahoo_data_from_file(tickers, yahoo_repo)
+                    return
+            
+                await mass_load_yahoo_data_from_file(tickers, yahoo_repo)
                 fetch_successful = True # Mark fetch as successful
-                    
+                
                 # await update_screener_from_yahoo(repository) # Assuming this is intended
                 # update_successful = True 
-                    
-                    logger.info(f"Scheduled Yahoo fetch and screener update completed.")
-                    
-                    # --- Broadcast Update --- 
-                    try:
-                        logger.info(f"[{job_id}] Broadcasting data update notification.")
-                        await app.state.manager.broadcast(json.dumps({"event": "data_updated"}))
-                    except Exception as broadcast_err:
-                        logger.error(f"[{job_id}] Error during broadcast: {broadcast_err}")
-                    # --- End Broadcast --- 
+                
+                logger.info(f"Scheduled Yahoo fetch and screener update completed.")
+                
+                # --- Broadcast Update --- 
+                try:
+                    logger.info(f"[{job_id}] Broadcasting data update notification.")
+                    await app.state.manager.broadcast(json.dumps({"event": "data_updated"}))
+                except Exception as broadcast_err:
+                    logger.error(f"[{job_id}] Error during broadcast: {broadcast_err}")
+                # --- End Broadcast --- 
                     
             except Exception as e:
                 logger.error(f"Error during scheduled {job_id} execution: {str(e)}")
@@ -1125,11 +1125,11 @@ def create_app():
                 fetch_successful = False # Ensure this is false on error
             finally:
                 if fetch_successful: # Only update last_run if the core task was successful
-                try:
-                    now = datetime.now()
+                    try:
+                        now = datetime.now()
                         logger.info(f"Updating last_run for successful job '{job_id}' to {now}")
-                    await repository.update_job_config(job_id, {'last_run': now})
-                except Exception as db_update_err:
+                        await repository.update_job_config(job_id, {'last_run': now})
+                    except Exception as db_update_err:
                         logger.error(f"Failed to update last_run time for successful {job_id}: {db_update_err}")
                 
                 job_lock.release() # Release lock
@@ -1200,10 +1200,10 @@ def create_app():
                                 # Also fetch is_active status which should be stored alongside or fetched separately
                                 # For now, assuming get_job_is_active works independently or job_config contains it
                                 is_active_from_db = await repository.get_job_is_active(job_id, default_active=True)
-                else:
+                            else:
                                 logger.warning(f"Job config for '{job_id}' is malformed or missing 'cron' key: {job_config_str}. Using default.")
                         except json.JSONDecodeError:
-                            logger.warning(f"Failed to parse job config JSON for '{job_id}': {job_config_str}. Using default.")
+                                logger.warning(f"Failed to parse job config JSON for '{job_id}': {job_config_str}. Using default.")
                     
                     if not cron_expression: # If config missing, malformed, or cron key not found
                         logger.info(f"No valid cron config found for '{job_id}'. Ensuring default config exists.")
@@ -1865,7 +1865,7 @@ def create_app():
                     elif scheduler_instance:
                         logger.warning(f"Job '{job_id}' not found in running scheduler. Database updated, but job not rescheduled (was not running or was removed).")
                         message += " Job not found in scheduler, so not rescheduled (was not running or was removed)."
-                        else:
+                    else:
                         logger.warning("Scheduler instance not found. Database updated, but job not rescheduled.")
                         message += " Scheduler instance not available; job not rescheduled."
                     
