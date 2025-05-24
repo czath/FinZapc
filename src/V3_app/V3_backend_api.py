@@ -15,9 +15,9 @@ from datetime import datetime
 from .V3_yahoo_fetch import mass_load_yahoo_data_from_file, YahooDataRepository, fetch_daily_historical_data
 from .dependencies import get_db # Assuming you have a get_db dependency provider
 from .yahoo_data_query_srv import YahooDataQueryService
-from .analytics_data_processor import AnalyticsDataProcessor # <-- IMPORT AnalyticsDataProcessor
-# NEW: Import YahooDataQueryAdvService
+from .analytics_data_processor import AnalyticsDataProcessor
 from .yahoo_data_query_adv import YahooDataQueryAdvService
+from .yahoo_data_query_pro import YahooDataQueryProService
 
 router = APIRouter()
 
@@ -152,6 +152,16 @@ async def get_yahoo_query_service(
     db_repo: YahooDataRepository = Depends(get_yahoo_repository)
 ) -> YahooDataQueryService:
     return YahooDataQueryService(db_repo=db_repo)
+
+async def get_yahoo_data_query_pro_service(
+    db_repo: YahooDataRepository = Depends(get_yahoo_repository),
+    base_query_srv: YahooDataQueryService = Depends(get_yahoo_query_service)
+) -> YahooDataQueryProService:
+    """FastAPI dependency provider for YahooDataQueryProService.""" 
+    logger.debug("Dependency: YahooDataQueryProService requested.")
+    service_instance = YahooDataQueryProService(db_repo=db_repo, base_query_srv=base_query_srv)
+    logger.debug(f"YahooDataQueryProService instance created: {service_instance}")
+    return service_instance
 
 # --- Target Item Types ---
 TARGET_ITEM_TYPES = [
@@ -458,7 +468,8 @@ class SyntheticFundamentalRequest(BaseModel):
 async def get_synthetic_fundamental_timeseries(
     fundamental_name: str,
     request_payload: SyntheticFundamentalRequest,
-    query_service: YahooDataQueryService = Depends(get_yahoo_query_service)
+    query_service: YahooDataQueryService = Depends(get_yahoo_query_service),
+    pro_query_service: YahooDataQueryProService = Depends(get_yahoo_data_query_pro_service)
 ):
     """
     Calculates and retrieves a timeseries for a specified synthetic fundamental metric.
@@ -631,6 +642,14 @@ async def get_synthetic_fundamental_timeseries(
                 tickers=request_payload.tickers,
                 start_date_str=request_payload.start_date,
                 end_date_str=request_payload.end_date
+            )
+        # NEW: Add routing for EV_TO_FCF_TTM
+        elif fundamental_name.upper() == "EV_TO_FCF_TTM":
+            logger.info(f"Routing EV_TO_FCF_TTM to YahooDataQueryProService for tickers: {request_payload.tickers}")
+            result = await pro_query_service.get_ev_to_fcf_ttm_timeseries(
+                tickers=request_payload.tickers,
+                start_date=request_payload.start_date,
+                end_date=request_payload.end_date
             )
         # END NEW
         else:
