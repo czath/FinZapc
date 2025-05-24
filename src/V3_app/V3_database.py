@@ -1538,6 +1538,57 @@ class SQLiteRepository:
             logger.error(f"[DB] Error fetching portfolio rule ID {rule_id}: {str(e)}", exc_info=True)
             raise
 
+    async def get_job_config_str(self, job_id: str) -> Optional[str]:
+        """Get the raw schedule JSON string for a job configuration by ID."""
+        try:
+            async with self.engine.connect() as conn:
+                stmt = select(JobConfigModel.schedule).where(JobConfigModel.job_id == job_id)
+                result = await conn.execute(stmt)
+                schedule_str = result.scalar_one_or_none()
+                if schedule_str:
+                    # Log only a snippet for brevity if the string is long
+                    log_schedule_str = schedule_str if len(schedule_str) < 70 else schedule_str[:67] + "..."
+                    logger.info(f"[DB] Found schedule string for job_id '{job_id}': '{log_schedule_str}'")
+                else:
+                    logger.info(f"[DB] No schedule string found for job_id '{job_id}'.")
+                return schedule_str
+        except Exception as e:
+            logger.error(f"[DB] Error fetching schedule string for job_id '{job_id}': {str(e)}", exc_info=True)
+            return None # Return None on error to allow calling code to handle default/creation
+
+    async def save_job_config(self, job_config_data: Dict[str, Any]) -> None:
+        """Save or update job configuration using SQLite upsert (for generic schedules)."""
+        try:
+            # Ensure updated_at is set
+            job_config_data['updated_at'] = datetime.now()
+            # Ensure necessary fields exist for insert, providing defaults
+            job_config_data.setdefault('job_type', 'data_fetch')
+            job_config_data.setdefault('is_active', 1)
+            job_config_data.setdefault('created_at', job_config_data['updated_at'])
+            
+            # Create the initial insert statement
+            stmt = sqlite_insert(JobConfigModel).values(**job_config_data)
+            
+            # Define the fields to update on conflict (exclude primary key and created_at)
+            update_fields = {
+                c.name: getattr(stmt.excluded, c.name) # Use getattr for excluded columns
+                for c in JobConfigModel.__table__.columns
+                if c.name not in ['id', 'job_id', 'created_at'] # Don't update id, job_id, or created_at
+            }
+            
+            # Add the ON CONFLICT DO UPDATE clause
+            upsert_stmt = stmt.on_conflict_do_update(
+                index_elements=['job_id'], # The unique column causing the conflict
+                set_=update_fields
+            )
+            
+            async with self.engine.begin() as conn:
+                await conn.execute(upsert_stmt)
+            logger.info(f"[DB] Saved/Updated job config for: {job_config_data.get('job_id')}")
+        except Exception as e:
+            logger.error(f"Error saving/updating job config: {str(e)}", exc_info=True)
+            raise
+
 # Method to fetch exchange rates
 async def get_exchange_rates(session):
     try:

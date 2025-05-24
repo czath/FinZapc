@@ -74,34 +74,34 @@
                             <span>IB fetch - account data</span>
                              <div class="form-check form-switch">
                                 <input class="form-check-input job-active-toggle" type="checkbox" role="switch" 
-                                       id="ibkr-active-switch" 
+                                       id="ibkr-fetch-active-switch"
                                        data-job-id="ibkr_fetch" 
-                                       {% if ibkr_is_active %}checked{% endif %} 
+                                       {% if ibkr_fetch_is_active %}checked{% endif %} 
                                        data-bs-toggle="tooltip" data-bs-placement="top" 
-                                       title="Enable/Disable scheduled data pull from IBKR">
-                                <label class="form-check-label" for="ibkr-active-switch"><small>Active</small></label>
+                                       title="Enable/Disable scheduled account data pull from IBKR">
+                                <label class="form-check-label" for="ibkr-fetch-active-switch"><small>Active</small></label>
                             </div>
                         </div>
                         <div class="card-body">
                             <p class="card-text">
-                                <small>Set the frequency for pulling account, position, and order data from IBKR. Use numbers with units (e.g., '1 hour', '900 seconds').</small>
+                                <small>Set the schedule for pulling account, position, and order data from IBKR using CRON syntax.</small>
                             </p>
                             <div class="input-group mb-3">
                                 <input type="text" class="form-control" 
-                                       id="ibkr-schedule-input" 
-                                       placeholder="e.g., 1 hour, 900" 
-                                       aria-label="IBKR pull interval"
-                                       value="{{ interval_to_human(current_interval) }}">
+                                       id="ibkr-fetch-schedule-input" 
+                                       placeholder="e.g., 0 */2 * * * (every 2 hours)" 
+                                       aria-label="IBKR account data pull schedule"
+                                       value="{{ ibkr_fetch_schedule_cron | default('0 * * * *') }}">
                                 <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
                                         data-job-id="ibkr_fetch" 
-                                        data-input-id="ibkr-schedule-input"
+                                        data-input-id="ibkr-fetch-schedule-input"
                                         data-bs-toggle="tooltip" data-bs-placement="top" 
-                                        title="Update IBKR pull interval">
+                                        title="Update IBKR account data pull schedule">
                                     Update
                                 </button>
                             </div>
-                            <small class="text-muted">Current interval: <span id="current-ibkr_fetch-interval">{{ interval_to_human(current_interval) }}</span></small>
-                            <small class="text-muted d-block">Ensure IB gateway is started by bin\\run.bat root\\conf.yaml and user is authenticated using https://localhost:5000/</small>
+                            <small class="text-muted">Current schedule: <span id="current-ibkr_fetch-schedule">{{ ibkr_fetch_schedule_cron | default('0 * * * *') }}</span></small>
+                            <small class="text-muted d-block">Use standard 5-field cron syntax. <a href="https://crontab.guru/" target="_blank">Help</a></small>
                         </div>
                     </div>
                 </div>
@@ -124,24 +124,24 @@
                         </div>
                         <div class="card-body">
                             <p class="card-text">
-                                <small>Set the frequency for pulling market data snapshots via sync service. Use numbers with units (e.g., '1 minute', '60 seconds').</small>
+                                <small>Set the schedule for pulling market data snapshots via sync service using CRON syntax.</small>
                             </p>
                             <div class="input-group mb-3">
                                 <input type="text" class="form-control" 
                                        id="ibkr-snapshot-schedule-input" 
-                                       placeholder="e.g., 1 minute, 60" 
-                                       aria-label="IBKR snapshot interval"
-                                       value="{{ interval_to_human(ibkr_snapshot_schedule_seconds) }}">
+                                       placeholder="e.g., */10 * * * * (every 10 mins)" 
+                                       aria-label="IBKR snapshot schedule"
+                                       value="{{ ibkr_snapshot_schedule_cron | default('*/10 * * * *') }}">
                                 <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
                                         data-job-id="ibkr_sync_snapshot" 
                                         data-input-id="ibkr-snapshot-schedule-input"
                                         data-bs-toggle="tooltip" data-bs-placement="top" 
-                                        title="Update IBKR snapshot interval">
+                                        title="Update IBKR snapshot schedule">
                                     Update
                                 </button>
                             </div>
-                            <small class="text-muted">Current interval: <span id="current-ibkr_sync_snapshot-interval">{{ interval_to_human(ibkr_snapshot_schedule_seconds) }}</span></small>
-                            <small class="text-muted d-block">Ensure IB gateway is started by bin\\run.bat root\\conf.yaml and user is authenticated using https://localhost:5000/</small>
+                            <small class="text-muted">Current schedule: <span id="current-ibkr_sync_snapshot-schedule">{{ ibkr_snapshot_schedule_cron | default('*/10 * * * *') }}</span></small>
+                             <small class="text-muted d-block">Use standard 5-field cron syntax. <a href="https://crontab.guru/" target="_blank">Help</a></small>
                         </div>
                     </div>
                 </div>
@@ -151,7 +151,7 @@
                 <div class="mb-4">
                     <div class="card h-100">
                         <div class="card-header d-flex justify-content-between align-items-center">
-                            <span>FinViz Pull Interval</span>
+                            <span>FinViz Pull Schedule</span>
                              <div class="form-check form-switch">
                                 <input class="form-check-input job-active-toggle" type="checkbox" role="switch" 
                                        id="finviz-active-switch" 
@@ -164,23 +164,24 @@
                         </div>
                         <div class="card-body">
                              <p class="card-text">
-                                <small>Set the frequency for pulling data from FinViz. Use numbers with units (e.g., '1 day', '6 hours', '900 seconds').</small>
+                                <small>Set the schedule for pulling data from FinViz using CRON syntax.</small>
                             </p>
                            <div class="input-group mb-3">
                                 <input type="text" class="form-control" 
                                        id="finviz-schedule-input"
-                                       placeholder="e.g., 1 day, 6 hours, 900"
-                                       aria-label="FinViz pull interval"
-                                       value="{{ interval_to_human(finviz_schedule_seconds) }}">
+                                       placeholder="e.g., 0 3 * * * (daily at 3 AM)"
+                                       aria-label="FinViz pull schedule"
+                                       value="{{ finviz_schedule_cron | default('0 3 * * *') }}">
                                 <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
                                         data-job-id="finviz_data_fetch" 
                                         data-input-id="finviz-schedule-input"
                                         data-bs-toggle="tooltip" data-bs-placement="top" 
-                                        title="Update FinViz pull interval">
+                                        title="Update FinViz pull schedule">
                                     Update
                                 </button>
                             </div>
-                            <small class="text-muted">Current interval: <span id="current-finviz_data_fetch-interval">{{ interval_to_human(finviz_schedule_seconds) }}</span></small>
+                            <small class="text-muted">Current schedule: <span id="current-finviz_data_fetch-schedule">{{ finviz_schedule_cron | default('0 3 * * *') }}</span></small>
+                             <small class="text-muted d-block">Use standard 5-field cron syntax. <a href="https://crontab.guru/" target="_blank">Help</a></small>
                         </div>
                     </div>
                 </div>
@@ -203,14 +204,14 @@
                         </div>
                          <div class="card-body">
                             <p class="card-text">
-                                <small>Set the calendar schedule for Yahoo data refresh using cron syntax (e.g., "0 16 * * 1" for Mondays at 4pm).</small>
+                                <small>Set the calendar schedule for Yahoo data refresh using CRON syntax (e.g., "0 16 * * 1" for Mondays at 4pm).</small>
                             </p>
                              <div class="input-group mb-3">
                                 <input type="text" class="form-control" 
                                        id="yahoo-schedule-input"
                                        placeholder="e.g., 0 16 * * 1 (Mon 4pm)"
                                        aria-label="Yahoo data refresh schedule"
-                                       value="{{ yahoo_schedule_cron }}">
+                                       value="{{ yahoo_schedule_cron | default('0 1 * * *') }}">
                                 <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
                                         data-job-id="yahoo_data_fetch" 
                                         data-input-id="yahoo-schedule-input"
@@ -219,7 +220,7 @@
                                     Update
                                 </button>
                             </div>
-                             <small class="text-muted">Current schedule: <span id="current-yahoo_data_fetch-interval">{{ yahoo_schedule_cron }}</span></small>
+                             <small class="text-muted">Current schedule: <span id="current-yahoo_data_fetch-schedule">{{ yahoo_schedule_cron | default('0 1 * * *') }}</span></small>
                              <small class="text-muted d-block">Use standard 5-field cron syntax. <a href="https://crontab.guru/" target="_blank">Help</a></small>
                         </div>
                     </div>
@@ -1029,20 +1030,18 @@
                 return;
             }
             const scheduleValue = scheduleInput.value.trim();
-            const displaySpan = document.getElementById(`current-${jobId}-interval`); // Use full job ID
+            const displaySpan = document.getElementById(`current-${jobId}-schedule`); // Use full job ID
 
             if (!scheduleValue) {
                 showAlert('Schedule input cannot be empty.', 'warning');
                 return;
             }
 
-            // Validate cron syntax for Yahoo job
-            if (jobId === 'yahoo_data_fetch') {
-                const cronRegex = /^(\*|[0-9]{1,2}|\*\/[0-9]{1,2})(\s+(\*|[0-9]{1,2}|\*\/[0-9]{1,2})){4}$/;
-                if (!cronRegex.test(scheduleValue)) {
-                    showAlert('Invalid cron syntax. Please use standard 5-field format (e.g., "0 16 * * 1").', 'warning');
-                    return;
-                }
+            // Validate cron syntax for ALL jobs now, not just 'yahoo_data_fetch'
+            const cronRegex = /^(\*|[0-9]{1,2}|\*\/[0-9]{1,2})(\s+(\*|[0-9]{1,2}|\*\/[0-9]{1,2})){4}$/;
+            if (!cronRegex.test(scheduleValue)) {
+                showAlert('Invalid cron syntax. Please use standard 5-field format (e.g., "0 */2 * * *"). Link to crontab.guru for help.', 'warning');
+                return;
             }
 
             const url = '/config/schedule/generic_update';
@@ -1062,13 +1061,12 @@
                 showAlert(result.message || `Schedule updated for ${jobId}!`, 'success');
                 
                 // Update the display span with the schedule value
-                if (displaySpan) {
-                    if (jobId === 'yahoo_data_fetch') {
-                        displaySpan.textContent = scheduleValue; // For Yahoo, show raw cron
-                    } else {
-                        displaySpan.textContent = intervalSecondsToHumanJS(result.schedule_seconds); // For others, show human readable
-                    }
+                if (displaySpan && result.cron_schedule) { // Check if cron_schedule exists in response
+                    displaySpan.textContent = result.cron_schedule; // Use cron_schedule from response
                     console.log(`Updated display span #${displaySpan.id} to: ${displaySpan.textContent}`);
+                } else if (displaySpan) { // Fallback if cron_schedule not in response (should not happen)
+                    displaySpan.textContent = scheduleValue;
+                     console.warn(`Display span for ${jobId} updated with input value as fallback. Response was:`, result);
                 } else {
                     console.warn(`Display span for ${jobId} not found.`);
                 }

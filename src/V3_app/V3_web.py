@@ -21,6 +21,7 @@ from fastapi.templating import Jinja2Templates
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.base import JobLookupError # <-- ADD THIS LINE
+from apscheduler.triggers.cron import CronTrigger # <-- ADD THIS LINE
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response, StreamingResponse # ADDED for setting cookies indirectly via response and StreamingResponse
 import json
 from pydantic import BaseModel, Field, ValidationError
@@ -54,7 +55,7 @@ from .V3_ibkr_api import IBKRService, IBKRError, SyncIBKRService # ADD SyncIBKRS
 from .V3_finviz_fetch import fetch_and_store_finviz_data, update_screener_from_finviz # Corrected import
 from .V3_finviz_fetch import fetch_and_store_analytics_finviz
 # from .V3_yahoo_api import YahooFinanceAPI, YahooError # Assuming Yahoo API integration
-from .V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate, add_or_update_exchange_rate_conid, update_screener_multi_fields_sync, get_screener_tickers_and_conids_sync, get_exchange_rates_and_conids_sync # Import new DB function AND SQLiteRepository
+from .V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate, add_or_update_exchange_rate_conid, update_screener_multi_fields_sync, get_screener_tickers_and_conids_sync # Import new DB function AND SQLiteRepository
 # --- End Local Application Imports ---
 
 # --- Import V3_ibkr_monitor (Keep existing imports) ---
@@ -553,7 +554,7 @@ class ScheduleUpdatePayload(BaseModel):
 # Payload for generic schedule updates
 class GenericScheduleUpdatePayload(BaseModel):
     job_id: str 
-    schedule: str # Raw input (e.g., "daily", "3 hours", "900")
+    schedule: str # Raw input: CRON expression string (e.g., "0 */2 * * *")
 
 # Payload for status update
 class JobStatusUpdatePayload(BaseModel):
@@ -1150,157 +1151,108 @@ def create_app():
                 # --- End table creation --- 
                 
                 # --- Determine DB Path for Sync Job --- 
-                # Assuming db_path is consistent and accessible here
-                # --- Construct DB URL instead of just path --- 
-                db_url_for_sync_job = app.state.repository.database_url # Get the URL from the main repository
+                db_url_for_sync_job = app.state.repository.database_url
                 logger.info(f"Using DB URL for sync job: {db_url_for_sync_job}")
-                # --- End DB URL --- 
                 
-                global scheduler # Ensure we are using the global scheduler instance
+                global scheduler
                 if not scheduler:
                     scheduler = AsyncIOScheduler()
-                    # --- Store scheduler in app state --- 
-                    # Store it right after creation if it wasn't already running
                     app.state.scheduler = scheduler 
-                    # --- End Store --- 
                 
-                # --- Get Event Loop and Manager for Sync Job --- 
                 loop = asyncio.get_running_loop()
-                manager: ConnectionManager = app.state.manager # Get manager from state
-                # --- End Get --- 
+                manager: ConnectionManager = app.state.manager
                  
-                # --- Schedule IBKR Job --- 
-                ibkr_db_job_id = 'ibkr_fetch' # ID used in DB config
-                current_interval = await repository.get_fetch_interval_seconds(default_interval=3600)
-                ibkr_is_active = await repository.get_job_is_active(ibkr_db_job_id, default_active=True) # Check DB
+                job_ids_to_configure = ["ibkr_fetch", "finviz_data_fetch", "yahoo_data_fetch", "ibkr_sync_snapshot"]
+                default_cron_schedules = {
+                    "ibkr_fetch": "0 * * * *",  # Default: every hour
+                    "finviz_data_fetch": "0 */2 * * *", # Default: every 2 hours
+                    "yahoo_data_fetch": "*/15 * * * *", # Default: every 15 minutes (example, adjust as needed)
+                    "ibkr_sync_snapshot": "*/10 * * * *" # Default: every 10 minutes
+                }
+                job_functions = {
+                    "ibkr_fetch": scheduled_fetch_job,
+                    "finviz_data_fetch": scheduled_finviz_job,
+                    "yahoo_data_fetch": scheduled_yahoo_job,
+                    "ibkr_sync_snapshot": run_sync_ibkr_snapshot_job
+                }
+                job_args = {
+                    "ibkr_sync_snapshot": lambda: [app.state.repository, loop, manager, os.environ.get("IBKR_BASE_URL", "https://localhost:5000/v1/api/")]
+                }
 
-                # Always add the job
-                if current_interval > 0:
+                for job_id in job_ids_to_configure:
+                    job_config_str = await repository.get_job_config_str(job_id) # Assumes this method exists
+                    job_config = None
+                    cron_expression = None
+                    is_active_from_db = True # Default to active
+
+                    if job_config_str:
+                        try:
+                            job_config = json.loads(job_config_str)
+                            if isinstance(job_config, dict) and "cron" in job_config:
+                                cron_expression = job_config["cron"]
+                                # Also fetch is_active status which should be stored alongside or fetched separately
+                                # For now, assuming get_job_is_active works independently or job_config contains it
+                                is_active_from_db = await repository.get_job_is_active(job_id, default_active=True)
+                            else:
+                                logger.warning(f"Job config for '{job_id}' is malformed or missing 'cron' key: {job_config_str}. Using default.")
+                        except json.JSONDecodeError:
+                            logger.warning(f"Failed to parse job config JSON for '{job_id}': {job_config_str}. Using default.")
+                    
+                    if not cron_expression: # If config missing, malformed, or cron key not found
+                        logger.info(f"No valid cron config found for '{job_id}'. Ensuring default config exists.")
+                        cron_expression = default_cron_schedules.get(job_id, "0 0 * * *") # Fallback default
+                        default_config_json = json.dumps({"cron": cron_expression})
+                        # is_active_from_db is already True by default here.
+                        # If creating for the first time, save it with active status.
+                        try:
+                            await repository.save_job_config({
+                                'job_id': job_id,
+                                'schedule': default_config_json,
+                                # 'is_active' should be handled by save_job_config or a separate update
+                                # For now, ensure repository.update_job_active_status is called if creating.
+                            })
+                            # Explicitly set active status if we are creating the default
+                            await repository.update_job_active_status(job_id, True) 
+                            is_active_from_db = True # Reflect that it's now active
+                            logger.info(f"Saved default cron config for '{job_id}': {default_config_json}")
+                        except Exception as e_save:
+                            logger.error(f"Failed to save default config for '{job_id}': {e_save}")
+                            continue # Skip scheduling this job if default save fails
+
+                    # Validate cron_expression format before adding
+                    cron_trigger_instance = None # Initialize
+                    try:
+                        # CronTrigger.from_crontab(cron_expression) # Basic validation # OLD
+                        cron_trigger_instance = CronTrigger.from_crontab(cron_expression) # Store the instance
+                    except ValueError as cron_val_err:
+                        logger.error(f"Invalid cron expression '{cron_expression}' for job '{job_id}': {cron_val_err}. Using emergency fallback: {default_cron_schedules[job_id]}")
+                        cron_expression = default_cron_schedules[job_id] # Fallback to a known good default
+                        cron_trigger_instance = CronTrigger.from_crontab(cron_expression) # Create instance with fallback
+
+                    current_job_function = job_functions.get(job_id)
+                    if not current_job_function:
+                        logger.error(f"No function mapped for job_id '{job_id}'. Skipping.")
+                        continue
+                    
+                    current_job_args_func = job_args.get(job_id)
+                    args_to_pass = current_job_args_func() if current_job_args_func else []
+
                     try:
                         scheduler.add_job(
-                            scheduled_fetch_job, 
-                            'interval', 
-                            seconds=current_interval, 
-                            id=ibkr_db_job_id, 
-                            replace_existing=True
-                        )
-                        logger.info(f"Added job '{ibkr_db_job_id}' with interval: {current_interval} seconds.")
-                        # Pause it immediately if it's not active
-                        if not ibkr_is_active:
-                            scheduler.pause_job(ibkr_db_job_id)
-                            logger.info(f"Job '{ibkr_db_job_id}' is inactive in DB. Paused in scheduler.")
-                    except Exception as e:
-                         logger.error(f"Failed to add or pause job '{ibkr_db_job_id}': {e}", exc_info=True)
-                else:
-                    logger.warning(f"Job '{ibkr_db_job_id}' has invalid interval ({current_interval}s). Not scheduling.")
-                # --- End Schedule IBKR Job --- 
-
-                # --- Schedule Finviz Job --- 
-                finviz_job_id = "finviz_data_fetch"
-                finviz_default_seconds = 86400 # Default to 1 day
-                finviz_interval_seconds = await repository.get_job_schedule_seconds(finviz_job_id, default_seconds=finviz_default_seconds)
-                finviz_is_active = await repository.get_job_is_active(finviz_job_id, default_active=True) # Check DB
-
-                # Always add the job if interval is valid
-                if finviz_interval_seconds > 0:
-                    try:
-                        scheduler.add_job(
-                            scheduled_finviz_job, 
-                            trigger='interval', 
-                            seconds=finviz_interval_seconds, 
-                            id=finviz_job_id, 
-                            replace_existing=True
-                        )
-                        logger.info(f"Added job '{finviz_job_id}' with interval: {finviz_interval_seconds} seconds.")
-                        # Pause it immediately if it's not active
-                        if not finviz_is_active:
-                            scheduler.pause_job(finviz_job_id)
-                            logger.info(f"Job '{finviz_job_id}' is inactive in DB. Paused in scheduler.")
-                    except Exception as e:
-                         logger.error(f"Failed to add or pause job '{finviz_job_id}': {e}", exc_info=True)
-                else:
-                    logger.warning(f"Job '{finviz_job_id}' has invalid interval ({finviz_interval_seconds}s). Not scheduling.")
-                # --- End Schedule Finviz Job ---
-
-                # --- Schedule Yahoo Job --- 
-                yahoo_job_id = "yahoo_data_fetch"
-                yahoo_default_seconds = 86400 # Default to 1 day
-                yahoo_interval_seconds = await repository.get_job_schedule_seconds(yahoo_job_id, default_seconds=yahoo_default_seconds)
-                yahoo_is_active = await repository.get_job_is_active(yahoo_job_id, default_active=True) # Check DB
-
-                # Always add the job if interval is valid
-                if yahoo_interval_seconds > 0:
-                    try:
-                        scheduler.add_job(
-                            scheduled_yahoo_job, # Use the placeholder function
-                            trigger='interval',
-                            seconds=yahoo_interval_seconds,
-                            id=yahoo_job_id,
-                            replace_existing=True
-                        )
-                        logger.info(f"Added job '{yahoo_job_id}' with interval: {yahoo_interval_seconds} seconds.")
-                        # Pause it immediately if it's not active
-                        if not yahoo_is_active:
-                            scheduler.pause_job(yahoo_job_id)
-                            logger.info(f"Job '{yahoo_job_id}' is inactive in DB. Paused in scheduler.")
-                    except Exception as e:
-                         logger.error(f"Failed to add or pause job '{yahoo_job_id}': {e}", exc_info=True)
-                else:
-                    logger.warning(f"Job '{yahoo_job_id}' has invalid interval ({yahoo_interval_seconds}s). Not scheduling.")
-                # --- End Schedule Yahoo Job --- 
-
-                # --- Schedule NEW Sync IBKR Snapshot Job --- 
-                sync_snapshot_job_id = "ibkr_sync_snapshot"
-                
-                # --- Ensure default config exists --- 
-                existing_sync_config = await repository.get_job_config(sync_snapshot_job_id)
-                if existing_sync_config is None:
-                    logger.warning(f"Job config for '{sync_snapshot_job_id}' not found. Creating default (60s interval, active).")
-                    default_sync_schedule = json.dumps({"trigger": "interval", "seconds": 60}) # Default 60s
-                    default_sync_job_data = {
-                        'job_id': sync_snapshot_job_id,
-                        'schedule': default_sync_schedule,
-                        'is_active': 1, # Default to active
-                        'job_type': 'data_fetch' # Assuming this type is appropriate
-                    }
-                    try:
-                        await repository.save_job_config(default_sync_job_data)
-                        logger.info(f"Successfully created default job config for '{sync_snapshot_job_id}'.")
-                        sync_interval_seconds = 60 # Use default since we just created it
-                        sync_is_active = True     # Use default since we just created it
-                    except Exception as create_err:
-                         logger.error(f"Failed to create default job config for '{sync_snapshot_job_id}': {create_err}")
-                         sync_interval_seconds = 0 # Prevent scheduling on error
-                         sync_is_active = False    # Prevent scheduling on error
-                else:
-                    # Config exists, read interval and status
-                    sync_default_seconds = 60 # Default to 60 seconds if not configured
-                    sync_interval_seconds = await repository.get_job_schedule_seconds(sync_snapshot_job_id, default_seconds=sync_default_seconds)
-                    sync_is_active = await repository.get_job_is_active(sync_snapshot_job_id, default_active=True) 
-                # --- End ensure config --- 
-                
-                # Always add the job if interval is valid
-                if sync_interval_seconds > 0:
-                    try:
-                        ibkr_base_url_for_job = os.environ.get("IBKR_BASE_URL", "https://localhost:5000/v1/api/")
-                        scheduler.add_job(
-                            run_sync_ibkr_snapshot_job, 
-                            trigger='interval',
-                            seconds=sync_interval_seconds,
-                            id=sync_snapshot_job_id,
+                            current_job_function,
+                            # trigger='cron', # OLD
+                            # cron_expression=cron_expression, # OLD
+                            trigger=cron_trigger_instance, # NEW: Pass the instance directly
+                            id=job_id,
                             replace_existing=True,
-                            args=[app.state.repository, loop, manager, ibkr_base_url_for_job]
+                            args=args_to_pass
                         )
-                        logger.info(f"Added job '{sync_snapshot_job_id}' with interval: {sync_interval_seconds} seconds.")
-                        # Pause it immediately if it's not active
-                        if not sync_is_active:
-                            scheduler.pause_job(sync_snapshot_job_id)
-                            logger.info(f"Job '{sync_snapshot_job_id}' is inactive in DB. Paused in scheduler.")
-                    except Exception as e:
-                         logger.error(f"Failed to add or pause job '{sync_snapshot_job_id}': {e}", exc_info=True)
-                else:
-                    logger.warning(f"Job '{sync_snapshot_job_id}' has invalid interval ({sync_interval_seconds}s). Not scheduling.")
-                # --- End Schedule NEW Sync Job --- 
+                        logger.info(f"Scheduled job '{job_id}' with cron: '{cron_expression}'.")
+                        if not is_active_from_db:
+                            scheduler.pause_job(job_id)
+                            logger.info(f"Job '{job_id}' is inactive in DB. Paused in scheduler.")
+                    except Exception as e_add:
+                        logger.error(f"Failed to add or pause job '{job_id}' with cron '{cron_expression}': {e_add}", exc_info=True)
 
                 # Start the scheduler if not already running
                 if not scheduler.running:
@@ -1323,7 +1275,6 @@ def create_app():
             # --- END NEW Finviz Fetch ---
 
             # Add at the top with other imports
-            from apscheduler.triggers.cron import CronTrigger
             import pytz
 
             # Add this async function near other helpers
@@ -1713,85 +1664,98 @@ def create_app():
             message = request.query_params.get('message')
             message_type = request.query_params.get('message_type', 'info')
             repository: SQLiteRepository = request.app.state.repository
+            
+            default_crons = {
+                "ibkr_fetch": "0 * * * *",
+                "ibkr_sync_snapshot": "*/10 * * * *",
+                "finviz_data_fetch": "0 3 * * *",
+                "yahoo_data_fetch": "0 1 * * *"
+            }
+
+            async def _get_cron_from_db_config(job_id: str) -> str:
+                job_config_data = await repository.get_job_config(job_id)
+                cron_expression = default_crons.get(job_id, "0 0 * * *") # Fallback default
+                if job_config_data and 'schedule' in job_config_data and job_config_data['schedule']:
+                    try:
+                        schedule_details_str = job_config_data['schedule']
+                        schedule_details = json.loads(schedule_details_str)
+                        if isinstance(schedule_details, dict) and "cron" in schedule_details:
+                            cron_expression = schedule_details["cron"]
+                        else:
+                            logger.warning(f"Cron key not found or schedule is not a dict for {job_id} in DB. Using default: {cron_expression}")
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse schedule JSON for {job_id} from DB: '{job_config_data['schedule']}'. Using default: {cron_expression}")
+                    except Exception as e:
+                        logger.error(f"Unexpected error parsing schedule for {job_id} from DB: {e}. Using default: {cron_expression}")
+                else:
+                    logger.info(f"No schedule config found for {job_id} in DB or schedule field is empty. Using default: {cron_expression}")
+                return cron_expression
+
             try:
-                # Fetch ALL interval seconds
-                current_interval = await repository.get_fetch_interval_seconds(default_interval=3600) # IBKR Fetch
-                ibkr_snapshot_seconds = await repository.get_job_schedule_seconds('ibkr_sync_snapshot')
-                finviz_seconds = await repository.get_job_schedule_seconds('finviz_data_fetch')
-                yahoo_seconds = await repository.get_job_schedule_seconds('yahoo_data_fetch')
+                # Fetch CRON schedules for all jobs
+                ibkr_fetch_schedule_cron = await _get_cron_from_db_config('ibkr_fetch')
+                ibkr_snapshot_schedule_cron = await _get_cron_from_db_config('ibkr_sync_snapshot')
+                finviz_schedule_cron = await _get_cron_from_db_config('finviz_data_fetch')
+                yahoo_schedule_cron = await _get_cron_from_db_config('yahoo_data_fetch')
                                 
-                # Fetch ALL active statuses
-                ibkr_active = await repository.get_job_is_active('ibkr_fetch')
-                ibkr_snapshot_active = await repository.get_job_is_active('ibkr_sync_snapshot')
-                finviz_active = await repository.get_job_is_active('finviz_data_fetch')
-                yahoo_active = await repository.get_job_is_active('yahoo_data_fetch')
+                # Fetch is_active statuses for all jobs
+                ibkr_fetch_is_active = await repository.get_job_is_active('ibkr_fetch')
+                ibkr_snapshot_is_active = await repository.get_job_is_active('ibkr_sync_snapshot')
+                finviz_is_active = await repository.get_job_is_active('finviz_data_fetch')
+                yahoo_is_active = await repository.get_job_is_active('yahoo_data_fetch')
                                 
-                # Fetch other data
+                # Fetch other necessary data
                 exchange_rates = await get_exchange_rates(request.state.db_session) 
                 portfolio_rules = await repository.get_all_portfolio_rules()
-                portfolio_rules_json = json.dumps(portfolio_rules, default=str) # Keep JSON for JS
+                portfolio_rules_json = json.dumps(portfolio_rules, default=str)
 
-                # Fetch Yahoo cron schedule string
-                yahoo_job_config = await repository.get_job_config('yahoo_data_fetch')
-                yahoo_schedule_cron = None
-                if yahoo_job_config and 'schedule' in yahoo_job_config:
-                    try:
-                        schedule_json = yahoo_job_config['schedule']
-                        if isinstance(schedule_json, str):
-                            schedule_json = json.loads(schedule_json)
-                        if schedule_json.get('trigger') == 'cron':
-                            yahoo_schedule_cron = schedule_json.get('cron')
-                    except Exception as e:
-                        logger.warning(f"Could not parse Yahoo cron schedule: {e}")
-
-                # CORRECTED context dictionary
+                # Context strictly for CRON-based UI
                 context = {
                     "request": request,
                     "message": message,
                     "message_type": message_type,
-                    # Scheduler Intervals
-                    "current_interval": current_interval,
-                    "ibkr_snapshot_schedule_seconds": ibkr_snapshot_seconds,
-                    "finviz_schedule_seconds": finviz_seconds,
-                    "yahoo_schedule_seconds": yahoo_seconds,
+                    
+                    # CRON Schedules for the template
+                    "ibkr_fetch_schedule_cron": ibkr_fetch_schedule_cron,
+                    "ibkr_snapshot_schedule_cron": ibkr_snapshot_schedule_cron,
+                    "finviz_schedule_cron": finviz_schedule_cron,
                     "yahoo_schedule_cron": yahoo_schedule_cron,
                     
-                    # Scheduler Statuses
-                    "ibkr_is_active": ibkr_active,
-                    "ibkr_snapshot_is_active": ibkr_snapshot_active,
-                    "finviz_is_active": finviz_active,
-                    "yahoo_is_active": yahoo_active,
+                    # Active Statuses for the template
+                    "ibkr_fetch_is_active": ibkr_fetch_is_active,
+                    "ibkr_snapshot_is_active": ibkr_snapshot_is_active,
+                    "finviz_is_active": finviz_is_active,
+                    "yahoo_is_active": yahoo_is_active,
                     
-                    # Other Data
+                    # Other data (unrelated to scheduler intervals)
                     "exchange_rates": exchange_rates,
-                    "portfolio_rules": portfolio_rules, # Pass the list for Jinja
-                    "portfolio_rules_json": portfolio_rules_json # Pass JSON string for JS
+                    "portfolio_rules": portfolio_rules,
+                    "portfolio_rules_json": portfolio_rules_json
                 }
                 return request.app.state.templates.TemplateResponse("config.html", context)
+            
             except Exception as e:
                 logger.error(f"Error loading config page: {e}", exc_info=True)
-                # CORRECTED defaults in the except block
+                # Fallback context in case of errors, using default CRON strings
                 return request.app.state.templates.TemplateResponse("config.html", {
                     "request": request, 
-                    "message": "Error loading configuration data.", # Display error message
+                    "message": "Error loading configuration data. Displaying default values.",
                     "message_type": "danger",
-                    # Default Intervals
-                    "current_interval": 3600, 
-                    "ibkr_snapshot_schedule_seconds": 0, 
-                    "finviz_schedule_seconds": 0,
-                    "yahoo_schedule_seconds": 0,
                     
-                    # Default Statuses (assume active on error?)
-                    "ibkr_is_active": True, 
+                    "ibkr_fetch_schedule_cron": default_crons["ibkr_fetch"],
+                    "ibkr_snapshot_schedule_cron": default_crons["ibkr_sync_snapshot"],
+                    "finviz_schedule_cron": default_crons["finviz_data_fetch"],
+                    "yahoo_schedule_cron": default_crons["yahoo_data_fetch"],
+                    
+                    "ibkr_fetch_is_active": True, 
                     "ibkr_snapshot_is_active": True,
                     "finviz_is_active": True,
                     "yahoo_is_active": True,
                     
-                     # Default Other Data
                     "exchange_rates": {},
                     "portfolio_rules": [], 
                     "portfolio_rules_json": "[]", 
-                    "error": "Failed to load configuration." # Keep original error for logging? 
+                    "error": "Failed to load configuration data from the backend."
                  })
         
         @app.post("/config/schedule")
@@ -1842,107 +1806,72 @@ def create_app():
 
         @app.post("/config/schedule/generic_update", response_class=JSONResponse)
         async def update_generic_schedule(request: Request, payload: GenericScheduleUpdatePayload):
-            """Update schedule for FinViz/Yahoo (supports interval string or cron JSON for Yahoo Mass Fetch)."""
+            """Update schedule for a given job_id using a CRON expression."""
             repository: SQLiteRepository = request.app.state.repository
+            # Consider making valid_job_ids dynamically fetched or managed elsewhere if it grows
             valid_job_ids = ['yahoo_data_fetch', 'finviz_data_fetch', 'ibkr_fetch', 'ibkr_sync_snapshot'] 
             job_id = payload.job_id
-            raw_schedule_input = payload.schedule.strip()
-            logger.info(f"Received generic schedule update for {job_id}: '{raw_schedule_input}'")
+            cron_expression = payload.schedule.strip()
+            logger.info(f"Received generic schedule update for {job_id}: CRON '{cron_expression}'")
 
             if job_id not in valid_job_ids:
                 raise HTTPException(status_code=400, detail=f"Invalid job_id for generic update: {job_id}")
 
-            if not raw_schedule_input:
-                raise HTTPException(status_code=400, detail="Schedule cannot be empty.")
+            if not cron_expression:
+                raise HTTPException(status_code=400, detail="Cron schedule string cannot be empty.")
 
-            # Handle Yahoo job differently - expect cron expression
-            if job_id == 'yahoo_data_fetch':
-                # Validate cron syntax (5 fields)
-                cron_pattern = re.compile(r'^(\*|[0-9]{1,2}|\*\/[0-9]{1,2})(\s+(\*|[0-9]{1,2}|\*\/[0-9]{1,2})){4}$')
-                if not cron_pattern.match(raw_schedule_input):
-                    raise HTTPException(status_code=400, detail="Invalid cron syntax. Use standard 5-field format (e.g., '0 16 * * 1').")
-                
-                # Store as cron JSON
-                schedule_json_str = json.dumps({"trigger": "cron", "cron": raw_schedule_input})
-                seconds = None  # No seconds for cron jobs
-            else:
-                # Handle other jobs with interval parsing
-                raw_schedule_input = raw_schedule_input.lower()
-                seconds = 0
-                
-                # UPDATED regex to handle singular/plural units and optional unit
-                time_pattern = re.compile(r"^(\d+)\s*(days?|d|hours?|h|minutes?|min|m|seconds?|sec|s)?$")
-                match = time_pattern.match(raw_schedule_input)
-
-                if raw_schedule_input == 'daily':
-                    seconds = 86400
-                elif raw_schedule_input == 'hourly':
-                    seconds = 3600
-                elif match:
-                    value = int(match.group(1))
-                    unit = match.group(2)
-                    if unit in ['day', 'd']:
-                        seconds = value * 86400
-                    elif unit in ['hour', 'h', 'hours']:
-                        seconds = value * 3600
-                    elif unit in ['minute', 'min', 'm', 'minutes']:
-                        seconds = value * 60
-                    else: # Includes second, sec, s, seconds or no unit
-                        seconds = value
-                else:
-                    raise HTTPException(status_code=400, detail="Invalid format. Use N (days|d|hours|h|minutes|min|m|seconds|sec|s) or daily/hourly.")
-
-                if seconds <= 0:
-                    raise HTTPException(status_code=400, detail="Calculated interval must be positive.")
-                
-                schedule_json_str = json.dumps({"trigger": "interval", "seconds": seconds})
+            # Validate cron syntax using APScheduler's CronTrigger for robustness
+            try:
+                CronTrigger.from_crontab(cron_expression)
+                logger.info(f"Cron expression '{cron_expression}' for job '{job_id}' is valid.")
+            except ValueError as cron_val_err:
+                logger.error(f"Invalid cron expression '{cron_expression}' for job '{job_id}': {cron_val_err}")
+                raise HTTPException(status_code=400, detail=f"Invalid cron syntax: {cron_val_err}. Example: '0 */2 * * *' for every 2 hours.")
+            
+            schedule_json_str = json.dumps({"cron": cron_expression})
 
             try:
                 job_config_data = {
                     'job_id': job_id,
                     'schedule': schedule_json_str,
+                    # 'is_active' status is managed by a separate endpoint/logic
                 }
                 await repository.save_job_config(job_config_data)
-                logger.info(f"Generic job config for '{job_id}' updated with JSON: '{schedule_json_str}'")
+                logger.info(f"Generic job config for '{job_id}' updated in DB with JSON: '{schedule_json_str}'")
                 
-                # --- Reschedule the running job --- 
+                message = f"Schedule for {job_id} updated to CRON '{cron_expression}' in DB."
+                
+                # Reschedule the running job
                 try:
-                    existing_job = scheduler.get_job(job_id)
-                    if existing_job:
-                        if job_id == 'yahoo_data_fetch':
-                            # Parse the cron expression
-                            cron_parts = raw_schedule_input.split()
-                            scheduler.reschedule_job(
-                                job_id,
-                                trigger='cron',
-                                minute=cron_parts[0],
-                                hour=cron_parts[1],
-                                day=cron_parts[2],
-                                month=cron_parts[3],
-                                day_of_week=cron_parts[4]
-                            )
-                            logger.info(f"Successfully rescheduled job '{job_id}' with cron: '{raw_schedule_input}'")
-                            message = f"Schedule for {job_id} updated to '{raw_schedule_input}' and rescheduled."
-                        else:
-                            scheduler.reschedule_job(
-                                job_id,
-                                trigger='interval',
-                                seconds=seconds
-                            )
-                            logger.info(f"Successfully rescheduled job '{job_id}' to run every {seconds} seconds.")
-                            message = f"Schedule for {job_id} updated to {seconds} seconds and rescheduled."
+                    # Access scheduler from app state as it might be more reliable
+                    scheduler_instance: AsyncIOScheduler = request.app.state.scheduler
+                    if scheduler_instance and scheduler_instance.get_job(job_id):
+                        cron_trigger_instance = CronTrigger.from_crontab(cron_expression) # Create instance
+                        scheduler_instance.reschedule_job(
+                            job_id,
+                            # trigger='cron', # OLD
+                            # cron_expression=cron_expression # OLD
+                            trigger=cron_trigger_instance # NEW: Pass the instance
+                        )
+                        logger.info(f"Successfully rescheduled job '{job_id}' with new cron: '{cron_expression}'")
+                        message += " Job has been rescheduled."
+                    elif scheduler_instance:
+                        logger.warning(f"Job '{job_id}' not found in running scheduler. Database updated, but job not rescheduled (was not running or was removed).")
+                        message += " Job not found in scheduler, so not rescheduled (was not running or was removed)."
                     else:
-                        logger.warning(f"Job '{job_id}' not found in running scheduler. Database updated, but job not rescheduled.")
-                        message = f"Schedule for {job_id} updated in DB (job not running)."
-                    
+                        logger.warning("Scheduler instance not found. Database updated, but job not rescheduled.")
+                        message += " Scheduler instance not available; job not rescheduled."
+                        
                 except Exception as schedule_err:
                     logger.error(f"Error rescheduling job '{job_id}': {schedule_err}", exc_info=True)
-                    message = f"Schedule updated in DB, but failed to reschedule running job: {schedule_err}"
+                    # Keep the original DB update message, but add reschedule error
+                    message += f" Failed to reschedule running job: {schedule_err}"
+                    # Optionally, re-raise or return a different status if reschedule failure is critical
                 
-                return {"message": message, "schedule_seconds": seconds if job_id != 'yahoo_data_fetch' else None}
+                return {"message": message, "job_id": job_id, "cron_schedule": cron_expression}
             except Exception as e:
                 logger.error(f"Error saving generic schedule for '{job_id}': {e}", exc_info=True)
-                raise HTTPException(status_code=500, detail=f"Error saving schedule for {job_id}")
+                raise HTTPException(status_code=500, detail=f"Error saving schedule for {job_id}: {str(e)}")
 
         @app.post("/config/schedule/update_status", response_class=JSONResponse)
         async def update_job_status(request: Request, payload: JobStatusUpdatePayload):
@@ -2633,95 +2562,6 @@ def create_app():
             )
         # --- End Add Ticker Page Route ---
 
-        @app.get("/config", name="get_config_page", response_class=HTMLResponse)
-        async def get_config_page(request: Request):
-            """Display the configuration page."""
-            message = request.query_params.get('message')
-            message_type = request.query_params.get('message_type', 'info')
-            repository: SQLiteRepository = request.app.state.repository
-            try:
-                # Fetch ALL interval seconds
-                current_interval = await repository.get_fetch_interval_seconds(default_interval=3600) # IBKR Fetch
-                ibkr_snapshot_seconds = await repository.get_job_schedule_seconds('ibkr_sync_snapshot')
-                finviz_seconds = await repository.get_job_schedule_seconds('finviz_data_fetch')
-                yahoo_seconds = await repository.get_job_schedule_seconds('yahoo_data_fetch')
-                
-                
-                # Fetch ALL active statuses
-                ibkr_active = await repository.get_job_is_active('ibkr_fetch')
-                ibkr_snapshot_active = await repository.get_job_is_active('ibkr_sync_snapshot')
-                finviz_active = await repository.get_job_is_active('finviz_data_fetch')
-                yahoo_active = await repository.get_job_is_active('yahoo_data_fetch')
-                
-                
-                # Fetch other data
-                exchange_rates = await get_exchange_rates(request.state.db_session) 
-                portfolio_rules = await repository.get_all_portfolio_rules()
-                portfolio_rules_json = json.dumps(portfolio_rules, default=str) # Keep JSON for JS
-
-                # Fetch Yahoo cron schedule string
-                yahoo_job_config = await repository.get_job_config('yahoo_data_fetch')
-                yahoo_schedule_cron = None
-                if yahoo_job_config and 'schedule' in yahoo_job_config:
-                    try:
-                        schedule_json = yahoo_job_config['schedule']
-                        if isinstance(schedule_json, str):
-                            schedule_json = json.loads(schedule_json)
-                        if schedule_json.get('trigger') == 'cron':
-                            yahoo_schedule_cron = schedule_json.get('cron')
-                    except Exception as e:
-                        logger.warning(f"Could not parse Yahoo cron schedule: {e}")
-
-                # CORRECTED context dictionary
-                context = {
-                    "request": request,
-                    "message": message,
-                    "message_type": message_type,
-                    # Scheduler Intervals
-                    "current_interval": current_interval,
-                    "ibkr_snapshot_schedule_seconds": ibkr_snapshot_seconds,
-                    "finviz_schedule_seconds": finviz_seconds,
-                    "yahoo_schedule_seconds": yahoo_seconds,
-                    "yahoo_schedule_cron": yahoo_schedule_cron,
-                    
-                    # Scheduler Statuses
-                    "ibkr_is_active": ibkr_active,
-                    "ibkr_snapshot_is_active": ibkr_snapshot_active,
-                    "finviz_is_active": finviz_active,
-                    "yahoo_is_active": yahoo_active,
-                    
-                    # Other Data
-                    "exchange_rates": exchange_rates,
-                    "portfolio_rules": portfolio_rules, # Pass the list for Jinja
-                    "portfolio_rules_json": portfolio_rules_json # Pass JSON string for JS
-                }
-                return request.app.state.templates.TemplateResponse("config.html", context)
-            except Exception as e:
-                logger.error(f"Error loading config page: {e}", exc_info=True)
-                # CORRECTED defaults in the except block
-                return request.app.state.templates.TemplateResponse("config.html", {
-                    "request": request, 
-                    "message": "Error loading configuration data.", # Display error message
-                    "message_type": "danger",
-                    # Default Intervals
-                    "current_interval": 3600, 
-                    "ibkr_snapshot_schedule_seconds": 0, 
-                    "finviz_schedule_seconds": 0,
-                    "yahoo_schedule_seconds": 0,
-                    
-                    # Default Statuses (assume active on error?)
-                    "ibkr_is_active": True, 
-                    "ibkr_snapshot_is_active": True,
-                    "finviz_is_active": True,
-                    "yahoo_is_active": True,
-                    # Default Other Data
-                    "exchange_rates": {},
-                    "portfolio_rules": [], 
-                    "portfolio_rules_json": "[]", 
-                    "error": "Failed to load configuration." # Keep original error for logging? 
-                 })
-
-        # --- NEW Analytics Page Route ---
         @app.get("/analytics", response_class=HTMLResponse, name="get_analytics_page")
         async def get_analytics_page(request: Request):
             logger.info("Serving analytics page.")
@@ -2844,7 +2684,6 @@ def create_app():
                      status = result.get("status", "failed")
                      final_message = result.get("message", "Fetch completed with unknown status.")
                      logger.info(f"[Background Task - {job_id}] Finviz fetch completed. Status: {status}")
-                     
              except Exception as e:
                  logger.error(f"[Background Task - {job_id}] Error during analytics Finviz fetch: {e}", exc_info=True)
                  final_message = f"Error during fetch: {e}"
@@ -2916,7 +2755,6 @@ def create_app():
                     status = result.get("status", "failed")
                     final_message = result.get("message", "Fetch completed with unknown status.")
                     logger.info(f"[Background Task - {job_id}] Finviz fetch for list completed. Status: {status}")
-                    
             except Exception as e:
                 logger.error(f"[Background Task - {job_id}] Error during analytics Finviz fetch for list: {e}", exc_info=True)
                 final_message = f"Error during fetch: {e}"
@@ -2943,8 +2781,8 @@ def create_app():
             logger.info(f"[SSE] Client connected for job_id: {job_id}")
 
             async def event_generator():
+                last_status = None # Initialize last_status here
                 try:
-                    last_status = None
                     while True:
                         # Check if client is still connected
                         if await request.is_disconnected():
@@ -2987,7 +2825,6 @@ def create_app():
 
                         # Wait before checking again
                         await asyncio.sleep(1) # Poll every 1 second
-                        
                 except asyncio.CancelledError:
                     logger.info(f"[SSE] Task cancelled for job_id: {job_id}")
                     raise
