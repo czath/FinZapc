@@ -29,6 +29,7 @@
         { value: "P_OPER_CF_TTM", text: "📊 P/Op CF (TTM)" },
         { value: "P_FCF_TTM", text: "📊 P/FCF (TTM)" },
         { value: "EV_TO_FCF_TTM", text: "🧱 EV/FCF (TTM)" },
+        { value: "EV_TO_SALES_TTM", text: "📈 EV/Sales (TTM)" },
 
         // Advanced Synthetic Studies (now also defined here for dropdown population consistency)
         // The yAxisLabel will still primarily be driven by analytics_ts_fund_adv.js at render time.

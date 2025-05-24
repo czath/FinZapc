@@ -651,6 +651,14 @@ async def get_synthetic_fundamental_timeseries(
                 start_date=request_payload.start_date,
                 end_date=request_payload.end_date
             )
+        # NEW: Add routing for EV_TO_SALES_TTM
+        elif fundamental_name.upper() == "EV_TO_SALES_TTM":
+            logger.info(f"Routing EV_TO_SALES_TTM to YahooDataQueryProService for tickers: {request_payload.tickers}")
+            result = await pro_query_service.get_ev_to_sales_ttm_timeseries(
+                tickers=request_payload.tickers,
+                start_date=request_payload.start_date,
+                end_date=request_payload.end_date
+            )
         # END NEW
         else:
             result = await query_service.calculate_synthetic_fundamental_timeseries(
