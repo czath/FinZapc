@@ -754,9 +754,13 @@ async def fetch_and_process_yahoo_info(ticker_symbol: str) -> Optional[Dict[str,
     """
     logger.info(f"Fetching and processing Yahoo .info for {ticker_symbol}")
     try:
-        yf_ticker = yf.Ticker(ticker_symbol) # REMOVE session
-        # Add basic retry or timeout logic here if needed, yfinance can hang
-        info_data = yf_ticker.info
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_info():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            return yf_ticker.info
+        
+        info_data = await asyncio.to_thread(_sync_get_info)
+        # END MODIFICATION
         
         if not info_data:
             logger.warning(f"No .info data received from yfinance for ticker: {ticker_symbol}")
@@ -995,8 +999,13 @@ async def update_ticker_master_market_data(ticker_symbol: str, db_repo: YahooDat
     """
     logger.info(f"Fetching .info to update market data for {ticker_symbol}")
     try:
-        yf_ticker = yf.Ticker(ticker_symbol) # REMOVE session
-        info_data = yf_ticker.info
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_info_for_market_data():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            return yf_ticker.info
+
+        info_data = await asyncio.to_thread(_sync_get_info_for_market_data)
+        # END MODIFICATION
 
         if not info_data:
             logger.warning(f"No .info data received from yfinance for ticker: {ticker_symbol}")
@@ -1065,8 +1074,12 @@ async def fetch_and_upsert_analyst_targets_summary(ticker_symbol: str, db_repo: 
     logger.info(f"--- Starting Fetch & Upsert for Analyst Price Targets: {ticker_symbol} (from .analyst_price_targets) ---")
     
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
-        analyst_targets_data = yf_ticker.analyst_price_targets # This could be a DataFrame or Dict
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_analyst_targets():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            return yf_ticker.analyst_price_targets
+        analyst_targets_data = await asyncio.to_thread(_sync_get_analyst_targets)
+        # END MODIFICATION
         
         payload_data = None
 
@@ -1118,9 +1131,12 @@ async def fetch_and_store_annual_balance_sheets(ticker_symbol: str, db_repo: Yah
     logger.info(f"--- Starting Fetch & Store for Annual Balance Sheets: {ticker_symbol} ---")
     
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
-        # .balance_sheet returns a DataFrame where columns are dates and rows are financial items
-        annual_bs_df = yf_ticker.balance_sheet 
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_annual_bs():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            return yf_ticker.balance_sheet
+        annual_bs_df = await asyncio.to_thread(_sync_get_annual_bs)
+        # END MODIFICATION
         
         if not isinstance(annual_bs_df, pd.DataFrame) or annual_bs_df.empty:
             logger.warning(f"[Annual BS Store] No DataFrame received from .balance_sheet for {ticker_symbol}, or DataFrame is empty. Skipping.")
@@ -1186,9 +1202,12 @@ async def fetch_and_store_quarterly_balance_sheets(ticker_symbol: str, db_repo: 
     logger.info(f"--- Starting Fetch & Store for Quarterly Balance Sheets: {ticker_symbol} ---")
     
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
-        # .quarterly_balance_sheet returns a DataFrame where columns are dates
-        quarterly_bs_df = yf_ticker.quarterly_balance_sheet
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_quarterly_bs():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            return yf_ticker.quarterly_balance_sheet
+        quarterly_bs_df = await asyncio.to_thread(_sync_get_quarterly_bs)
+        # END MODIFICATION
         
         if not isinstance(quarterly_bs_df, pd.DataFrame) or quarterly_bs_df.empty:
             logger.warning(f"[Quarterly BS Store] No DataFrame received from .quarterly_balance_sheet for {ticker_symbol}, or DataFrame is empty. Skipping.")
@@ -1247,8 +1266,12 @@ async def fetch_and_store_annual_income_statements(ticker_symbol: str, db_repo: 
     """
     logger.info(f"--- Starting Fetch & Store for Annual Income Statements: {ticker_symbol} ---")
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
-        annual_is_df = yf_ticker.income_stmt
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_annual_is():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            return yf_ticker.income_stmt
+        annual_is_df = await asyncio.to_thread(_sync_get_annual_is)
+        # END MODIFICATION
         
         if not isinstance(annual_is_df, pd.DataFrame) or annual_is_df.empty:
             logger.warning(f"[Annual IS Store] No DataFrame from .income_stmt for {ticker_symbol}, or empty. Skipping.")
@@ -1289,8 +1312,12 @@ async def fetch_and_store_quarterly_income_statements(ticker_symbol: str, db_rep
     """
     logger.info(f"--- Starting Fetch & Store for Quarterly Income Statements: {ticker_symbol} ---")
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
-        quarterly_is_df = yf_ticker.quarterly_income_stmt
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_quarterly_is():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            return yf_ticker.quarterly_income_stmt
+        quarterly_is_df = await asyncio.to_thread(_sync_get_quarterly_is)
+        # END MODIFICATION
         
         if not isinstance(quarterly_is_df, pd.DataFrame) or quarterly_is_df.empty:
             logger.warning(f"[Quarterly IS Store] No DataFrame from .quarterly_income_stmt for {ticker_symbol}, or empty. Skipping.")
@@ -1332,8 +1359,12 @@ async def fetch_and_store_ttm_income_statement(ticker_symbol: str, db_repo: Yaho
     """
     logger.info(f"--- Starting Fetch & Store for TTM Income Statement: {ticker_symbol} ---")
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
-        ttm_data_raw = yf_ticker.ttm_income_stmt # Renamed to indicate it's raw
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_ttm_is():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            return yf_ticker.ttm_income_stmt
+        ttm_data_raw = await asyncio.to_thread(_sync_get_ttm_is)
+        # END MODIFICATION
         ttm_is_series = None # Initialize
 
         # --- DIAGNOSTIC LOGGING (keeping it for now) ---
@@ -1418,8 +1449,12 @@ async def fetch_and_store_annual_cash_flow_statements(ticker_symbol: str, db_rep
     """
     logger.info(f"--- Starting Fetch & Store for Annual Cash Flow Statements: {ticker_symbol} ---")
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
-        annual_cf_df = yf_ticker.cashflow
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_annual_cf():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            return yf_ticker.cashflow
+        annual_cf_df = await asyncio.to_thread(_sync_get_annual_cf)
+        # END MODIFICATION
         
         if not isinstance(annual_cf_df, pd.DataFrame) or annual_cf_df.empty:
             logger.warning(f"[Annual CF Store] No DataFrame from .cashflow for {ticker_symbol}, or empty. Skipping.")
@@ -1460,8 +1495,12 @@ async def fetch_and_store_quarterly_cash_flow_statements(ticker_symbol: str, db_
     """
     logger.info(f"--- Starting Fetch & Store for Quarterly Cash Flow Statements: {ticker_symbol} ---")
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
-        quarterly_cf_df = yf_ticker.quarterly_cashflow
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_quarterly_cf():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            return yf_ticker.quarterly_cashflow
+        quarterly_cf_df = await asyncio.to_thread(_sync_get_quarterly_cf)
+        # END MODIFICATION
         
         if not isinstance(quarterly_cf_df, pd.DataFrame) or quarterly_cf_df.empty:
             logger.warning(f"[Quarterly CF Store] No DataFrame from .quarterly_cashflow for {ticker_symbol}, or empty. Skipping.")
@@ -1503,8 +1542,12 @@ async def fetch_and_store_ttm_cash_flow_statement(ticker_symbol: str, db_repo: Y
     """
     logger.info(f"--- Starting Fetch & Store for TTM Cash Flow Statement: {ticker_symbol} ---")
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
-        ttm_data_raw = yf_ticker.ttm_cashflow
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_ttm_cf():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            return yf_ticker.ttm_cashflow
+        ttm_data_raw = await asyncio.to_thread(_sync_get_ttm_cf)
+        # END MODIFICATION
         ttm_cf_series = None
         series_name_date_str = None
 
@@ -1577,8 +1620,12 @@ async def fetch_and_store_dividend_history(ticker_symbol: str, db_repo: YahooDat
     """
     logger.info(f"--- Starting Fetch & Store for Dividend History: {ticker_symbol} ---")
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
-        dividends_series = yf_ticker.get_dividends()
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_dividends():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            return yf_ticker.get_dividends()
+        dividends_series = await asyncio.to_thread(_sync_get_dividends)
+        # END MODIFICATION
 
         if not isinstance(dividends_series, pd.Series) or dividends_series.empty:
             logger.warning(f"[Dividend History Store] No dividend data found for {ticker_symbol}, or data is not a Series. Skipping.")
@@ -1645,24 +1692,28 @@ async def fetch_and_store_earnings_estimate_history(ticker_symbol: str, db_repo:
     item_time_coverage_val = "CUMULATIVE"
 
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
-        # .earnings_history might be an attribute or a method, let's try as attribute first
-        # and then as a method call if the attribute is None or not what we expect.
-        new_estimates_df = None
-        try:
-            data = yf_ticker.earnings_history
-            if isinstance(data, pd.DataFrame):
-                new_estimates_df = data
-            elif callable(data): # If it's a method like get_earnings_history()
-                logger.debug("[Earnings Est Store] .earnings_history is callable, attempting to call.")
-                new_estimates_df = data() # Call the method
-        except Exception as e_fetch:
-            logger.warning(f"[Earnings Est Store] Error trying to access/call .earnings_history for {ticker_symbol}: {e_fetch}. Trying get_earnings_history().")
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_earnings_history():
+            yf_ticker = yf.Ticker(ticker_symbol)
+            new_estimates_df_local = None
             try:
-                 new_estimates_df = yf_ticker.get_earnings_history()
-            except Exception as e_get_fetch:
-                logger.error(f"[Earnings Est Store] Error calling .get_earnings_history() for {ticker_symbol}: {e_get_fetch}")
-                new_estimates_df = None
+                data = yf_ticker.earnings_history
+                if isinstance(data, pd.DataFrame):
+                    new_estimates_df_local = data
+                elif callable(data): # If it's a method like get_earnings_history()
+                    logger.debug("[Earnings Est Store] .earnings_history is callable, attempting to call.")
+                    new_estimates_df_local = data() # Call the method
+            except Exception as e_fetch_local:
+                logger.warning(f"[Earnings Est Store - Sync] Error trying to access/call .earnings_history for {ticker_symbol}: {e_fetch_local}. Trying get_earnings_history().")
+                try:
+                    new_estimates_df_local = yf_ticker.get_earnings_history()
+                except Exception as e_get_fetch_local:
+                    logger.error(f"[Earnings Est Store - Sync] Error calling .get_earnings_history() for {ticker_symbol}: {e_get_fetch_local}")
+                    new_estimates_df_local = None
+            return new_estimates_df_local
+
+        new_estimates_df = await asyncio.to_thread(_sync_get_earnings_history)
+        # END MODIFICATION
 
         if not isinstance(new_estimates_df, pd.DataFrame) or new_estimates_df.empty:
             logger.warning(f"[Earnings Est Store] No earnings estimate data found for {ticker_symbol}. Skipping.")
@@ -1797,33 +1848,32 @@ async def fetch_and_store_forecast_summary(ticker_symbol: str, db_repo: YahooDat
     }
 
     try:
-        yf_ticker = yf.Ticker(ticker_symbol)
+        # MODIFIED: Wrap yfinance calls in asyncio.to_thread
+        def _sync_get_forecast_data():
+            yf_ticker_local = yf.Ticker(ticker_symbol)
+            eps_trend_df_local = None
+            revenue_estimate_df_local = None
+            try:
+                eps_trend_df_local = yf_ticker_local.get_eps_trend()
+                if not isinstance(eps_trend_df_local, pd.DataFrame) or eps_trend_df_local.empty:
+                    logger.warning(f"[Forecast Summary Store - Sync] EPS trend data for {ticker_symbol} is not a non-empty DataFrame. Setting to None.")
+                    eps_trend_df_local = None
+            except Exception as e_eps_local:
+                logger.error(f"[Forecast Summary Store - Sync] Error fetching EPS trend for {ticker_symbol}: {e_eps_local}", exc_info=True)
+                eps_trend_df_local = None
+            
+            try:
+                revenue_estimate_df_local = yf_ticker_local.get_revenue_estimate()
+                if not isinstance(revenue_estimate_df_local, pd.DataFrame) or revenue_estimate_df_local.empty:
+                    logger.warning(f"[Forecast Summary Store - Sync] Revenue estimate data for {ticker_symbol} is not a non-empty DataFrame. Setting to None.")
+                    revenue_estimate_df_local = None
+            except Exception as e_rev_local:
+                logger.error(f"[Forecast Summary Store - Sync] Error fetching revenue estimates for {ticker_symbol}: {e_rev_local}", exc_info=True)
+                revenue_estimate_df_local = None
+            return eps_trend_df_local, revenue_estimate_df_local
 
-        # 1. Fetch EPS Trend
-        eps_trend_df = None
-        try:
-            eps_trend_df = yf_ticker.get_eps_trend()
-            if not isinstance(eps_trend_df, pd.DataFrame) or eps_trend_df.empty:
-                logger.warning(f"[Forecast Summary Store] EPS trend data for {ticker_symbol} is not a non-empty DataFrame. Skipping EPS part.")
-                eps_trend_df = None # Ensure it's None if not valid
-            else:
-                logger.info(f"[Forecast Summary Store] Fetched EPS trend data for {ticker_symbol}, shape: {eps_trend_df.shape}")
-        except Exception as e_eps:
-            logger.error(f"[Forecast Summary Store] Error fetching EPS trend for {ticker_symbol}: {e_eps}", exc_info=True)
-            eps_trend_df = None
-
-        # 2. Fetch Revenue Estimates
-        revenue_estimate_df = None
-        try:
-            revenue_estimate_df = yf_ticker.get_revenue_estimate()
-            if not isinstance(revenue_estimate_df, pd.DataFrame) or revenue_estimate_df.empty:
-                logger.warning(f"[Forecast Summary Store] Revenue estimate data for {ticker_symbol} is not a non-empty DataFrame. Skipping revenue part.")
-                revenue_estimate_df = None # Ensure it's None if not valid
-            else:
-                logger.info(f"[Forecast Summary Store] Fetched revenue estimate data for {ticker_symbol}, shape: {revenue_estimate_df.shape}")
-        except Exception as e_rev:
-            logger.error(f"[Forecast Summary Store] Error fetching revenue estimates for {ticker_symbol}: {e_rev}", exc_info=True)
-            revenue_estimate_df = None
+        eps_trend_df, revenue_estimate_df = await asyncio.to_thread(_sync_get_forecast_data)
+        # END MODIFICATION
 
         all_periods = set()
         if eps_trend_df is not None:

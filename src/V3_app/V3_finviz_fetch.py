@@ -66,7 +66,7 @@ def convert_to_numeric(value):
     # Return original value if no conversion possible
     return value
 
-def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
+async def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
     """Fetches and parses the snapshot table data for a given stock symbol from Finviz."""
     # Create list of symbol variations if dot is present
     symbol_variations = [symbol]
@@ -86,7 +86,8 @@ def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
         
         try:
             logger.debug(f"Attempting to fetch data for {symbol} using variation {sym} from {url}")
-            response = requests.get(url, headers=headers, timeout=10) # Added timeout
+            # MODIFIED: Wrap requests.get in asyncio.to_thread
+            response = await asyncio.to_thread(requests.get, url, headers=headers, timeout=10)
             response.raise_for_status()
             
             # Parse the HTML content
@@ -374,14 +375,14 @@ async def fetch_and_store_finviz_data(repository):
         for ticker in tickers:
             logger.info(f"Processing ticker: {ticker} ({processed_count + failed_count + 1}/{len(tickers)})")
             # 3. Fetch data using get_stock_data with the primary ticker
-            finviz_data = get_stock_data(ticker)
+            finviz_data = await get_stock_data(ticker)
             
             # 3a. If fetch failed, try using t_source1 as alternative symbol
             if not finviz_data:
                 alternative_symbol = ticker_to_source1.get(ticker)
                 if alternative_symbol and alternative_symbol.strip():
                     logger.info(f"Primary ticker {ticker} failed, trying alternative symbol: {alternative_symbol}")
-                    finviz_data = get_stock_data(alternative_symbol)
+                    finviz_data = await get_stock_data(alternative_symbol)
                     if finviz_data:
                         logger.info(f"Successfully fetched data for {ticker} using alternative symbol {alternative_symbol}")
                     else:
@@ -444,7 +445,7 @@ async def fetch_and_store_analytics_finviz(repository, tickers: List[str]):
         try:
             # 1. Fetch data using existing function
             # Note: get_stock_data handles ticker variations (e.g., BRK.B vs BRK-B)
-            finviz_data_dict = get_stock_data(ticker)
+            finviz_data_dict = await get_stock_data(ticker)
 
             if finviz_data_dict:
                 # 2. Serialize the fetched data dictionary
