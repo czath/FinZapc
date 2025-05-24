@@ -2156,9 +2156,19 @@ document.addEventListener('DOMContentLoaded', function() {
                                     label += 'N/A';
                                 }
 
-                                // NEW: Add percent change for Fundamentals History annual fields (and potentially other future uses)
-                                if (context.raw && typeof context.raw.percentChange === 'number') { // Check type is number
-                                    label += ` (${context.raw.percentChange.toFixed(2)}% chg)`;
+                                // Display Annual % Change
+                                if (context.raw && typeof context.raw.percentChange === 'number') { 
+                                    label += ` (${context.raw.percentChange.toFixed(2)}% Ann. chg)`;
+                                }
+
+                                // NEW: Display Quarterly QoQ % Change
+                                if (context.raw && typeof context.raw.qoqPercentChange === 'number') {
+                                    label += ` (QoQ: ${context.raw.qoqPercentChange.toFixed(2)}%)`;
+                                }
+
+                                // NEW: Display Quarterly YoY % Change
+                                if (context.raw && typeof context.raw.yoyPercentChange === 'number') {
+                                    label += ` (YoY: ${context.raw.yoyPercentChange.toFixed(2)}%)`;
                                 }
                                 return label;
                             }

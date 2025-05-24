@@ -497,44 +497,91 @@
                     if (apiData[ticker][payloadKeyInData] && apiData[ticker][payloadKeyInData].length > 0) {
                         const timeseriesForField = apiData[ticker][payloadKeyInData];
                         
-                        // Determine if this field is annual
+                        // Determine if this field is annual or quarterly
                         let isAnnual = false;
-                        // Try to find the original full identifier for this payloadKeyInData
+                        let isQuarterly = false;
                         const fullIdentifierForThisPayloadKey = spacedKeyToFullIdentifierMap[payloadKeyInData] || 
                                                                 selectedFieldIdentifiers_FULL.find(id => _convertCamelToSpacedHuman(_getCoreFieldFromIdentifier(id)) === payloadKeyInData);
                         
-                        if (fullIdentifierForThisPayloadKey && fullIdentifierForThisPayloadKey.includes('_annual_')) {
-                            isAnnual = true;
-                            console.log(LOG_PREFIX, `Field '${payloadKeyInData}' (from ${fullIdentifierForThisPayloadKey}) is ANNUAL.`);
+                        if (fullIdentifierForThisPayloadKey) {
+                            if (fullIdentifierForThisPayloadKey.includes('_annual_')) {
+                                isAnnual = true;
+                                console.log(LOG_PREFIX, `Field '${payloadKeyInData}' (from ${fullIdentifierForThisPayloadKey}) is ANNUAL.`);
+                            } else if (fullIdentifierForThisPayloadKey.includes('_quarterly_')) {
+                                isQuarterly = true;
+                                console.log(LOG_PREFIX, `Field '${payloadKeyInData}' (from ${fullIdentifierForThisPayloadKey}) is QUARTERLY.`);
+                            }
                         } else {
-                            // console.log(LOG_PREFIX, `Field '${payloadKeyInData}' (from ${fullIdentifierForThisPayloadKey}) is NOT annual.`);
+                            // console.log(LOG_PREFIX, `Could not find fullIdentifier for payloadKey: '${payloadKeyInData}'. Map:`, spacedKeyToFullIdentifierMap);
                         }
 
-                        let previousValue = null;
+                        let previousValue = null; // For annual % change
+                        let previousQuarterValue = null; // For QoQ % change
+
                         const dataPoints = chartLabels.map(labelTimestamp => {
                             const point = timeseriesForField.find(p => new Date(p.date).valueOf() === labelTimestamp);
                             const currentValue = point ? (typeof point.value === 'string' ? parseFloat(point.value) : point.value) : null;
-                            let percentChange = null;
+                            
+                            let percentChange = null; // Annual
+                            let qoqPercentChange = null; // Quarterly
+                            let yoyPercentChange = null; // Quarterly
 
                             if (isAnnual && currentValue !== null && previousValue !== null && previousValue !== 0) {
                                 percentChange = ((currentValue - previousValue) / previousValue) * 100;
+                            }
+
+                            if (isQuarterly && currentValue !== null) {
+                                // QoQ Change
+                                if (previousQuarterValue !== null && previousQuarterValue !== 0) {
+                                    qoqPercentChange = ((currentValue - previousQuarterValue) / previousQuarterValue) * 100;
+                                }
+
+                                // YoY Change (for quarterly)
+                                const targetYearAgoTimestamp = labelTimestamp - (365 * 24 * 60 * 60 * 1000); // Milliseconds in a year
+                                const yearAgoTolerance = 30 * 24 * 60 * 60 * 1000; // +/- 30 days tolerance
+                                const lowerBound = targetYearAgoTimestamp - yearAgoTolerance;
+                                const upperBound = targetYearAgoTimestamp + yearAgoTolerance;
+
+                                const potentialYearAgoPoints = timeseriesForField.filter(p => {
+                                    const pTimestamp = new Date(p.date).valueOf();
+                                    return pTimestamp >= lowerBound && pTimestamp <= upperBound && p.value !== null;
+                                });
+
+                                if (potentialYearAgoPoints.length > 0) {
+                                    // Find the point closest to the exact year-ago mark
+                                    let closestPoint = potentialYearAgoPoints[0];
+                                    let minDiff = Math.abs(new Date(closestPoint.date).valueOf() - targetYearAgoTimestamp);
+
+                                    for (let i = 1; i < potentialYearAgoPoints.length; i++) {
+                                        const diff = Math.abs(new Date(potentialYearAgoPoints[i].date).valueOf() - targetYearAgoTimestamp);
+                                        if (diff < minDiff) {
+                                            minDiff = diff;
+                                            closestPoint = potentialYearAgoPoints[i];
+                                        }
+                                    }
+                                    const yearAgoValue = (typeof closestPoint.value === 'string' ? parseFloat(closestPoint.value) : closestPoint.value);
+                                    if (yearAgoValue !== null && yearAgoValue !== 0) {
+                                        yoyPercentChange = ((currentValue - yearAgoValue) / yearAgoValue) * 100;
+                                    }
+                                }
                             }
                             
                             const dataPoint = {
                                 x: labelTimestamp, 
                                 y: currentValue,
-                                percentChange: percentChange // Will be null if not annual or not calculable
+                                percentChange: percentChange,       // For annual
+                                qoqPercentChange: qoqPercentChange, // For quarterly
+                                yoyPercentChange: yoyPercentChange  // For quarterly
                             };
 
                             if (isAnnual && currentValue !== null) {
-                                previousValue = currentValue; // Update previous value for next iteration (only for annual fields)
+                                previousValue = currentValue;
+                            }
+                            if (isQuarterly && currentValue !== null) {
+                                previousQuarterValue = currentValue;
                             }
                             return dataPoint;
                         });
-
-                        // If it was annual and we want to ensure previousValue is reset for the next series:
-                        // previousValue = null; // Reset for next field/ticker if this was inside the loops that need it
-                        // However, previousValue is scoped locally per field series here, so it's fine.
 
                         datasets.push({
                             label: `${ticker} - ${payloadKeyInData}`,
