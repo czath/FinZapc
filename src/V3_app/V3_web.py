@@ -55,7 +55,7 @@ from .V3_ibkr_api import IBKRService, IBKRError, SyncIBKRService # ADD SyncIBKRS
 from .V3_finviz_fetch import fetch_and_store_finviz_data, update_screener_from_finviz # Corrected import
 from .V3_finviz_fetch import fetch_and_store_analytics_finviz
 # from .V3_yahoo_api import YahooFinanceAPI, YahooError # Assuming Yahoo API integration
-from .V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate, add_or_update_exchange_rate_conid, update_screener_multi_fields_sync, get_screener_tickers_and_conids_sync # Import new DB function AND SQLiteRepository
+from .V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate, add_or_update_exchange_rate_conid, update_screener_multi_fields_sync, get_screener_tickers_and_conids_sync, get_exchange_rates_and_conids_sync # Import new DB function AND SQLiteRepository
 # --- End Local Application Imports ---
 
 # --- Import V3_ibkr_monitor (Keep existing imports) ---
@@ -1067,9 +1067,11 @@ def create_app():
             job_id = "yahoo_data_fetch"
             logger.info(f"Scheduler executing {job_id}...")
 
+            repository: SQLiteRepository = app.state.repository # Define repository once here
+
             # --- ADD Check is_active status --- 
             try:
-                repository: SQLiteRepository = app.state.repository
+                # repository: SQLiteRepository = app.state.repository # Removed re-definition
                 is_active = await repository.get_job_is_active(job_id)
                 if not is_active:
                     logger.info(f"Job '{job_id}' is inactive in DB. Skipping execution.")
@@ -1080,7 +1082,7 @@ def create_app():
             # --- END Check ---
 
             fetch_successful = False
-            update_successful = False
+            # update_successful = False # This flag was not used for last_run logic, can be kept or removed based on other needs
             job_lock: asyncio.Lock = app.state.job_execution_lock
             
             if job_lock.locked():
@@ -1089,53 +1091,58 @@ def create_app():
             
             await job_lock.acquire() # Acquire lock
             try:
-                repository: SQLiteRepository = app.state.repository
-                is_active = await repository.get_job_is_active(job_id, default_active=False)
+                # The is_active check has already passed if we are here.
+                logger.info(f"Job '{job_id}' is active. Proceeding with fetch and update.")
+                from .V3_yahoo_fetch import mass_load_yahoo_data_from_file
+                from .yahoo_repository import YahooDataRepository
                 
-                if is_active:
-                    logger.info(f"Job '{job_id}' is active. Proceeding with fetch and update.")
-                    # Add at the top with other imports
-                    from .V3_yahoo_fetch import mass_load_yahoo_data_from_file
-                    from .yahoo_repository import YahooDataRepository
-                    # Get all master tickers
-                    yahoo_repo = YahooDataRepository(repository.database_url)
-                    tickers = await yahoo_repo.get_all_master_tickers()
-                    if not tickers:
-                        logger.warning("No master tickers found for Yahoo scheduled job.")
-                        return
-                    await mass_load_yahoo_data_from_file(tickers, yahoo_repo)
-                    fetch_successful = True # Mark fetch as attempted/done
-                    
-                    # await update_screener_from_yahoo(repository)
-                    update_successful = True # Mark update as attempted/done
-                    
-                    logger.info(f"Scheduled Yahoo fetch and screener update completed.")
-                    
-                    # --- Broadcast Update --- 
-                    try:
-                        logger.info(f"[{job_id}] Broadcasting data update notification.")
-                        await app.state.manager.broadcast(json.dumps({"event": "data_updated"}))
-                    except Exception as broadcast_err:
-                        logger.error(f"[{job_id}] Error during broadcast: {broadcast_err}")
-                    # --- End Broadcast --- 
-                else:
-                    logger.info(f"Job '{job_id}' is inactive. Skipping execution.")
+                yahoo_repo = YahooDataRepository(repository.database_url)
+                tickers = await yahoo_repo.get_all_master_tickers()
+                if not tickers:
+                    logger.warning("No master tickers found for Yahoo scheduled job.")
+                    # fetch_successful remains False, so last_run won't be updated.
+                    return 
+                
+                await mass_load_yahoo_data_from_file(tickers, yahoo_repo)
+                fetch_successful = True # Mark fetch as successful
+                
+                # await update_screener_from_yahoo(repository) # Assuming this is intended
+                # update_successful = True 
+                
+                logger.info(f"Scheduled Yahoo fetch and screener update completed.")
+                
+                # --- Broadcast Update --- 
+                try:
+                    logger.info(f"[{job_id}] Broadcasting data update notification.")
+                    await app.state.manager.broadcast(json.dumps({"event": "data_updated"}))
+                except Exception as broadcast_err:
+                    logger.error(f"[{job_id}] Error during broadcast: {broadcast_err}")
+                # --- End Broadcast --- 
                     
             except Exception as e:
                 logger.error(f"Error during scheduled {job_id} execution: {str(e)}")
                 logger.exception(f"Scheduled {job_id} failed:")
+                fetch_successful = False # Ensure this is false on error
             finally:
-                 job_lock.release() # Release lock in finally block
-                 logger.debug(f"Job lock released by {job_id}")
+                if fetch_successful: # Only update last_run if the core task was successful
+                    try:
+                        now = datetime.now()
+                        logger.info(f"Updating last_run for successful job '{job_id}' to {now}")
+                        await repository.update_job_config(job_id, {'last_run': now})
+                    except Exception as db_update_err:
+                        logger.error(f"Failed to update last_run time for successful {job_id}: {db_update_err}")
+                
+                job_lock.release() # Release lock
+                logger.debug(f"Job lock released by {job_id}")
 
-            # Update last_run time in DB if the job was active (regardless of internal success)
-            if is_active: 
-                try:
-                    now = datetime.now()
-                    logger.info(f"Updating last_run for job '{job_id}' to {now}")
-                    await repository.update_job_config(job_id, {'last_run': now})
-                except Exception as db_update_err:
-                     logger.error(f"Failed to update last_run time for {job_id}: {db_update_err}")
+            # Remove the old last_run update block from here
+            # if is_active: 
+            #     try:
+            #         now = datetime.now()
+            #         logger.info(f"Updating last_run for job '{job_id}' to {now}")
+            #         await repository.update_job_config(job_id, {'last_run': now})
+            #     except Exception as db_update_err:
+            #          logger.error(f"Failed to update last_run time for {job_id}: {db_update_err}")
 
         @app.on_event("startup")
         async def startup_event():

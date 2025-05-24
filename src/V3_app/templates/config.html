@@ -87,7 +87,7 @@
                                 <small>Set the schedule for pulling account, position, and order data from IBKR using CRON syntax.</small>
                             </p>
                             <div class="input-group mb-3">
-                                <input type="text" class="form-control" 
+                                <input type="text" class="form-control cron-input-hover-description" 
                                        id="ibkr-fetch-schedule-input" 
                                        placeholder="e.g., 0 */2 * * * (every 2 hours)" 
                                        aria-label="IBKR account data pull schedule"
@@ -127,7 +127,7 @@
                                 <small>Set the schedule for pulling market data snapshots via sync service using CRON syntax.</small>
                             </p>
                             <div class="input-group mb-3">
-                                <input type="text" class="form-control" 
+                                <input type="text" class="form-control cron-input-hover-description" 
                                        id="ibkr-snapshot-schedule-input" 
                                        placeholder="e.g., */10 * * * * (every 10 mins)" 
                                        aria-label="IBKR snapshot schedule"
@@ -167,7 +167,7 @@
                                 <small>Set the schedule for pulling data from FinViz using CRON syntax.</small>
                             </p>
                            <div class="input-group mb-3">
-                                <input type="text" class="form-control" 
+                                <input type="text" class="form-control cron-input-hover-description" 
                                        id="finviz-schedule-input"
                                        placeholder="e.g., 0 3 * * * (daily at 3 AM)"
                                        aria-label="FinViz pull schedule"
@@ -207,7 +207,7 @@
                                 <small>Set the calendar schedule for Yahoo data refresh using CRON syntax (e.g., "0 16 * * 1" for Mondays at 4pm).</small>
                             </p>
                              <div class="input-group mb-3">
-                                <input type="text" class="form-control" 
+                                <input type="text" class="form-control cron-input-hover-description" 
                                        id="yahoo-schedule-input"
                                        placeholder="e.g., 0 16 * * 1 (Mon 4pm)"
                                        aria-label="Yahoo data refresh schedule"
@@ -370,6 +370,8 @@
     <script type="application/json" id="initial-rules-data">
         {{ portfolio_rules_json | safe }}
     </script>
+    {# Add cronstrue library #}
+    <script src="{{ url_for('static', path='js/libs/cronstrue.min.js') }}"></script>
 
     {% raw %}
     <script>
@@ -380,11 +382,14 @@
         document.addEventListener('DOMContentLoaded', function() {
             console.log("[DEBUG Config] DOM loaded.");
             
-            // Initialize tooltips
-            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            // Initialize tooltips (general ones)
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]:not(.cron-input-hover-description)')); // Exclude cron inputs for now
             tooltipTriggerList.map(function (tooltipTriggerEl) {
                 return new bootstrap.Tooltip(tooltipTriggerEl);
             });
+
+            // Initialize CRON description tooltips
+            initializeCronDescriptionTooltips();
 
             // Initialize DataTables
             initializeRulesTable();
@@ -520,6 +525,54 @@
 
             console.log("[DEBUG Config] DOMContentLoaded listeners set up.");
         }); // --- End DOMContentLoaded ---
+
+        // --- NEW: CRON Description Tooltip Logic ---
+        function getCronDescription(cronValue) {
+            if (typeof cronstrue === 'undefined') {
+                console.warn('cronstrue library is not loaded.');
+                return 'CRON parser not loaded.';
+            }
+            if (!cronValue || cronValue.trim() === '') {
+                return 'Enter a CRON expression.';
+            }
+            try {
+                // Example options for cronstrue, customize as needed
+                const options = { 
+                    use24HourTimeFormat: true,
+                    verbose: false, // Set to true for more detailed descriptions
+                    throwExceptionOnParseError: true 
+                };
+                return cronstrue.toString(cronValue.trim(), options);
+            } catch (e) {
+                return e.message || 'Invalid CRON syntax.';
+            }
+        }
+
+        function initializeCronDescriptionTooltips() {
+            const cronInputs = document.querySelectorAll('.cron-input-hover-description');
+            cronInputs.forEach(inputEl => {
+                // Initialize Bootstrap Tooltip
+                const tooltipInstance = new bootstrap.Tooltip(inputEl, {
+                    title: getCronDescription(inputEl.value), // Initial title
+                    trigger: 'hover focus', // Show on hover and focus
+                    placement: 'top',       // Adjust placement as needed
+                    customClass: 'cron-description-tooltip' // Optional custom class for styling
+                });
+
+                // Update tooltip content on input change
+                inputEl.addEventListener('input', function() {
+                    const newDescription = getCronDescription(this.value);
+                    tooltipInstance.setContent({ '.tooltip-inner': newDescription });
+                });
+
+                // Optional: Update on focus as well if content might change externally
+                // inputEl.addEventListener('focus', function() {
+                //     const newDescription = getCronDescription(this.value);
+                //     tooltipInstance.setContent({ '.tooltip-inner': newDescription });
+                // });
+            });
+        }
+        // --- END: CRON Description Tooltip Logic ---
 
         // --- DataTable Initialization --- 
         function initializeRulesTable() {
