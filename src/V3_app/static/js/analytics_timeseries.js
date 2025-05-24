@@ -2133,29 +2133,32 @@ document.addEventListener('DOMContentLoaded', function() {
                                         label += `${context.raw[0]} - ${context.raw[1]}`;
                                     } else if (typeof context.parsed.y === 'number') {
                                         let decimals = 2;
-                                        const isPercentChange = context.dataset.appDataType === 'percent_change';
-                                        const isRawOrDefault = context.dataset.appDataType === 'raw' || typeof context.dataset.appDataType === 'undefined';
+                                        const isPercentChangeDisplayMode = context.dataset.appDataType === 'percent_change'; // Renamed for clarity
+                                        const isRawOrDefault = context.dataset.appDataType === 'raw_value' || typeof context.dataset.appDataType === 'undefined';
 
                                         const isRawAndSmall = isRawOrDefault && 
                                                               Math.abs(context.parsed.y) > 0 && 
                                                               Math.abs(context.parsed.y) < 0.01;
                                         if (isRawAndSmall) {
-                                            // Ensure at least 2 significant figures after decimal for small raw numbers
                                             decimals = Math.max(2, -Math.floor(Math.log10(Math.abs(context.parsed.y))) + 1); 
                                         }
                                         label += context.parsed.y.toFixed(decimals);
-                                        if (isPercentChange) {
+                                        if (isPercentChangeDisplayMode) {
                                             label += '%';
                                         }
                                     } else {
-                                        // Fallback for non-numeric y or unexpected type
                                         label += context.parsed.y; 
                                         if (context.dataset.appDataType === 'percent_change') {
-                                            label += '%'; // Still attempt to add % if type is percent_change
+                                            label += '%';
                                         }
                                     }
                                 } else {
                                     label += 'N/A';
+                                }
+
+                                // NEW: Add percent change for Fundamentals History annual fields (and potentially other future uses)
+                                if (context.raw && typeof context.raw.percentChange === 'number') { // Check type is number
+                                    label += ` (${context.raw.percentChange.toFixed(2)}% chg)`;
                                 }
                                 return label;
                             }

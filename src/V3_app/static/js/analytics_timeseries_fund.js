@@ -69,6 +69,42 @@
     const LOG_PREFIX = "[TimeseriesFundamentalsModule]";
     let timeseriesChartInstance = null; // To hold the Chart.js instance for this module
     let fhTickerSelect = null; // Store globally within this IIFE
+
+    // NEW Helper function: Extracts the core field name from a full yf_item identifier
+    function _getCoreFieldFromIdentifier(fullIdentifier) {
+        if (!fullIdentifier || !fullIdentifier.startsWith('yf_item_')) return fullIdentifier;
+        const parts = fullIdentifier.split('_');
+        // Assumes format yf_item_source_coverage_FieldNamePart1FieldNamePart2
+        // We want to get "FieldNamePart1FieldNamePart2"
+        if (parts.length > 3) { // yf, item, source, coverage, FieldName...
+            return parts.slice(4).join(''); // Joins all parts after the coverage
+        }
+        return fullIdentifier; // Fallback
+    }
+
+    // NEW Helper function: Converts CamelCase to Spaced Human Readable
+    // Similar to Python's _convert_camel_to_spaced_human
+    function _convertCamelToSpacedHuman(name) {
+        if (!name) return "";
+        let result = name[0];
+        for (let i = 1; i < name.length; i++) {
+            const char = name[i];
+            const prevChar = name[i-1];
+            if (char === char.toUpperCase() && char !== char.toLowerCase()) { // is uppercase letter
+                if (prevChar === prevChar.toLowerCase() && prevChar !== prevChar.toUpperCase()) { // prev is lowercase
+                    result += ' ';
+                } else if (prevChar === prevChar.toUpperCase() && prevChar !== prevChar.toLowerCase()) { // prev is also uppercase
+                    // Check if next char is lowercase (e.g., in "NetPPE" -> "Net PPE")
+                    if ((i + 1 < name.length) && name[i+1] === name[i+1].toLowerCase() && name[i+1] !== name[i+1].toUpperCase()) {
+                        result += ' ';
+                    }
+                }
+            }
+            result += char;
+        }
+        return result;
+    }
+
     let fhFieldSelect = null; // Store globally
     let fhStartDateInput = null;
     let fhEndDateInput = null;
@@ -384,7 +420,7 @@
             // The renderFundamentalsHistoryChart function will need to understand that selectedFields
             // (passed to it) now effectively means the payload_keys derived from the response structure.
             // The chart title / legend might also need adjustment if it was using itemType/itemCoverage.
-            renderFundamentalsHistoryChart(data, chartType, selectedTickers, Object.keys(data[selectedTickers[0]] || {})); // Pass payload_keys
+            renderFundamentalsHistoryChart(data, chartType, selectedTickers, selectedFieldIdentifiers); // MODIFIED: Pass full selectedFieldIdentifiers
             
         } catch (error) {
             console.error(LOG_PREFIX, "Error fetching or processing fundamentals history:", error);
@@ -402,15 +438,16 @@
      * @param {string[]} selectedTickers - List of selected tickers
      * @param {string[]} selectedFields - List of selected fields
      */
-    function renderFundamentalsHistoryChart(apiData, chartType, selectedTickers, fieldPayloadKeys) {
-        console.log(LOG_PREFIX, `Rendering ${chartType} chart for fundamentals. Tickers: ${selectedTickers.join(', ')}, Fields: ${fieldPayloadKeys.join(', ')}`);
-        
+    function renderFundamentalsHistoryChart(apiData, chartType, selectedTickers, selectedFieldIdentifiers_FULL) { // Renamed to avoid conflict, will use this for type checking
+        // The fieldPayloadKeys are the actual keys in apiData[ticker], e.g., "Total Assets"
+        // We need to derive these or assume they are consistent with what's selected if only one field is chosen.
+        // For multiple fields, we must iterate over what's present in the data.
+
         const chartCanvas = document.getElementById('ts-chart-canvas');
         if (!chartCanvas) {
             console.error(LOG_PREFIX, "Chart canvas element (ts-chart-canvas) not found.");
             return;
         }
-        // const ctx = chartCanvas.getContext('2d'); // Get context inside renderGenericTimeseriesChart
 
         if (timeseriesChartInstance) {
             timeseriesChartInstance.destroy();
@@ -425,47 +462,90 @@
         ];
         let colorIndex = 0;
 
-        // Determine all unique dates from the apiData to use as chart labels
         const allDates = new Set();
         selectedTickers.forEach(ticker => {
             if (apiData[ticker]) {
-                fieldPayloadKeys.forEach(payloadKey => {
-                    if (apiData[ticker][payloadKey]) {
-                        apiData[ticker][payloadKey].forEach(point => allDates.add(point.date));
+                // Iterate over the keys present in the data for this ticker
+                Object.keys(apiData[ticker]).forEach(payloadKeyInData => { 
+                    if (apiData[ticker][payloadKeyInData]) {
+                        apiData[ticker][payloadKeyInData].forEach(point => allDates.add(point.date));
                     }
                 });
             }
         });
         const sortedDateStrings = Array.from(allDates).sort((a, b) => new Date(a) - new Date(b));
-        const chartLabels = sortedDateStrings.map(dateStr => new Date(dateStr).valueOf()); // Use numeric timestamps for time scale
+        const chartLabels = sortedDateStrings.map(dateStr => new Date(dateStr).valueOf());
+
+        console.log(LOG_PREFIX, `Rendering ${chartType} chart. Tickers: ${selectedTickers.join(', ')}. Full Identifiers selected: ${selectedFieldIdentifiers_FULL.join(', ')}`);
+
+        // Create a map for easier lookup: Spaced Payload Key -> Full Identifier
+        const spacedKeyToFullIdentifierMap = {};
+        selectedFieldIdentifiers_FULL.forEach(fullId => {
+            const coreField = _getCoreFieldFromIdentifier(fullId);
+            const spacedKey = _convertCamelToSpacedHuman(coreField);
+            spacedKeyToFullIdentifierMap[spacedKey] = fullId;
+            // Also map the direct core field in case the spaced conversion isn't perfect or data key is direct
+            if (coreField !== spacedKey) {
+                spacedKeyToFullIdentifierMap[coreField] = fullId;
+            }
+        });
+        console.log(LOG_PREFIX, "Built SpacedKey to Full Identifier Map:", spacedKeyToFullIdentifierMap);
 
         selectedTickers.forEach(ticker => {
             if (apiData[ticker]) {
-                fieldPayloadKeys.forEach(payloadKey => {
-                    if (apiData[ticker][payloadKey] && apiData[ticker][payloadKey].length > 0) {
-                        const timeseriesForField = apiData[ticker][payloadKey];
+                Object.keys(apiData[ticker]).forEach(payloadKeyInData => { // payloadKeyInData is like "Total Assets"
+                    if (apiData[ticker][payloadKeyInData] && apiData[ticker][payloadKeyInData].length > 0) {
+                        const timeseriesForField = apiData[ticker][payloadKeyInData];
                         
-                        // MODIFIED: Map data to {x: timestamp, y: value}
-                        // Ensure data points align with unique sorted dates (chartLabels)
-                        // chartLabels contains sorted numeric timestamps.
+                        // Determine if this field is annual
+                        let isAnnual = false;
+                        // Try to find the original full identifier for this payloadKeyInData
+                        const fullIdentifierForThisPayloadKey = spacedKeyToFullIdentifierMap[payloadKeyInData] || 
+                                                                selectedFieldIdentifiers_FULL.find(id => _convertCamelToSpacedHuman(_getCoreFieldFromIdentifier(id)) === payloadKeyInData);
+                        
+                        if (fullIdentifierForThisPayloadKey && fullIdentifierForThisPayloadKey.includes('_annual_')) {
+                            isAnnual = true;
+                            console.log(LOG_PREFIX, `Field '${payloadKeyInData}' (from ${fullIdentifierForThisPayloadKey}) is ANNUAL.`);
+                        } else {
+                            // console.log(LOG_PREFIX, `Field '${payloadKeyInData}' (from ${fullIdentifierForThisPayloadKey}) is NOT annual.`);
+                        }
+
+                        let previousValue = null;
                         const dataPoints = chartLabels.map(labelTimestamp => {
                             const point = timeseriesForField.find(p => new Date(p.date).valueOf() === labelTimestamp);
-                            return {
-                                x: labelTimestamp, // Use the timestamp for x
-                                y: point ? (typeof point.value === 'string' ? parseFloat(point.value) : point.value) : null
+                            const currentValue = point ? (typeof point.value === 'string' ? parseFloat(point.value) : point.value) : null;
+                            let percentChange = null;
+
+                            if (isAnnual && currentValue !== null && previousValue !== null && previousValue !== 0) {
+                                percentChange = ((currentValue - previousValue) / previousValue) * 100;
+                            }
+                            
+                            const dataPoint = {
+                                x: labelTimestamp, 
+                                y: currentValue,
+                                percentChange: percentChange // Will be null if not annual or not calculable
                             };
+
+                            if (isAnnual && currentValue !== null) {
+                                previousValue = currentValue; // Update previous value for next iteration (only for annual fields)
+                            }
+                            return dataPoint;
                         });
 
+                        // If it was annual and we want to ensure previousValue is reset for the next series:
+                        // previousValue = null; // Reset for next field/ticker if this was inside the loops that need it
+                        // However, previousValue is scoped locally per field series here, so it's fine.
+
                         datasets.push({
-                            label: `${ticker} - ${payloadKey}`,
+                            label: `${ticker} - ${payloadKeyInData}`,
                             data: dataPoints,
                             borderColor: lineColors[colorIndex % lineColors.length],
                             backgroundColor: chartType === 'bar' ? lineColors[colorIndex % lineColors.length] : lineColors[colorIndex % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.1)'),
-                            borderWidth: chartType === 'bar' ? 0 : 1.5, // No border for bars, or thin border
+                            borderWidth: chartType === 'bar' ? 0 : 1.5, 
                             fill: false,
                             pointRadius: chartType === 'line' ? 2 : 0,
                             tension: chartType === 'line' ? 0.1 : 0,
-                            spanGaps: chartType === 'line' // Connect lines over null data points for line charts
+                            spanGaps: chartType === 'line' 
                         });
                         colorIndex++;
                     }
