@@ -1333,7 +1333,8 @@ def create_app():
                     logger.info(f"No catch-up needed for {job_id}. Last run: {last_run}, last scheduled: {prev_run_time}")
 
             # In startup_event, after scheduler/repository are ready, add:
-            await catch_up_yahoo_job(repository, scheduled_yahoo_job)
+            # await catch_up_yahoo_job(repository, scheduled_yahoo_job) # OLD WAY
+            asyncio.create_task(catch_up_yahoo_job(repository, scheduled_yahoo_job)) # NEW WAY: Run in background
 
         @app.on_event("shutdown")
         async def shutdown_event():
