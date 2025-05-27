@@ -2089,55 +2089,85 @@ async def mass_load_yahoo_data_from_file(ticker_source, db_repo, progress_callba
     total = len(tickers)
     for idx, ticker_symbol in enumerate(tickers, 1):
         logger.info(f"[Mass Load] >>> Processing ticker: {ticker_symbol} <<<")
-        ticker_had_errors = False
+        ticker_master_data_found = False # Tracks if the core ticker info was found
+        ticker_had_critical_error = False # Tracks if a top-level exception occurred for the ticker
+
         try:
             # --- Step B: Master Ticker Update ---
             logger.info(f"[Mass Load][{ticker_symbol}] Updating Ticker Master record...")
             master_data = await fetch_and_process_yahoo_info(ticker_symbol)
+            
             if master_data:
+                ticker_master_data_found = True
                 await db_repo.upsert_yahoo_ticker_master(master_data)
                 logger.info(f"[Mass Load][{ticker_symbol}] Ticker Master record updated/inserted.")
+
+                # --- Step C: Ticker Data Items Update (only if master_data was found) ---
+                logger.info(f"[Mass Load][{ticker_symbol}] Updating Ticker Data Items...")
+                data_item_fetch_functions = {
+                    "AnalystPriceTargets": fetch_and_upsert_analyst_targets_summary,
+                    "AnnualBalanceSheets": fetch_and_store_annual_balance_sheets,
+                    "QuarterlyBalanceSheets": fetch_and_store_quarterly_balance_sheets,
+                    "AnnualIncomeStatements": fetch_and_store_annual_income_statements,
+                    "QuarterlyIncomeStatements": fetch_and_store_quarterly_income_statements,
+                    "TTMIncomeStatement": fetch_and_store_ttm_income_statement,
+                    "AnnualCashFlow": fetch_and_store_annual_cash_flow_statements,
+                    "QuarterlyCashFlow": fetch_and_store_quarterly_cash_flow_statements,
+                    "TTMCashFlow": fetch_and_store_ttm_cash_flow_statement,
+                    "DividendHistory": fetch_and_store_dividend_history,
+                    "EarningsEstimateHistory": fetch_and_store_earnings_estimate_history,
+                    "ForecastSummary": fetch_and_store_forecast_summary
+                }
+
+                for item_name, fetch_func in data_item_fetch_functions.items():
+                    try:
+                        logger.info(f"[Mass Load][{ticker_symbol}] Fetching/Storing {item_name}...")
+                        await fetch_func(ticker_symbol, db_repo)
+                        logger.info(f"[Mass Load][{ticker_symbol}] {item_name} processed.")
+                    except Exception as e_item: # Individual item fetch error
+                        logger.error(f"[Mass Load][{ticker_symbol}] Error processing {item_name}: {e_item}", exc_info=False)
+                        # This does NOT set ticker_master_data_found to False or ticker_had_critical_error to True
             else:
-                logger.warning(f"[Mass Load][{ticker_symbol}] Failed to fetch master data. Skipping Ticker Master update.")
+                # master_data is None
+                logger.warning(f"[Mass Load][{ticker_symbol}] Failed to fetch master data. Ticker considered not found.")
+                # ticker_master_data_found remains False
 
-            # --- Step C: Ticker Data Items Update ---
-            logger.info(f"[Mass Load][{ticker_symbol}] Updating Ticker Data Items...")
-            data_item_fetch_functions = {
-                "AnalystPriceTargets": fetch_and_upsert_analyst_targets_summary,
-                "AnnualBalanceSheets": fetch_and_store_annual_balance_sheets,
-                "QuarterlyBalanceSheets": fetch_and_store_quarterly_balance_sheets,
-                "AnnualIncomeStatements": fetch_and_store_annual_income_statements,
-                "QuarterlyIncomeStatements": fetch_and_store_quarterly_income_statements,
-                "TTMIncomeStatement": fetch_and_store_ttm_income_statement,
-                "AnnualCashFlow": fetch_and_store_annual_cash_flow_statements,
-                "QuarterlyCashFlow": fetch_and_store_quarterly_cash_flow_statements,
-                "TTMCashFlow": fetch_and_store_ttm_cash_flow_statement,
-                "DividendHistory": fetch_and_store_dividend_history,
-                "EarningsEstimateHistory": fetch_and_store_earnings_estimate_history,
-                "ForecastSummary": fetch_and_store_forecast_summary
-            }
+            # Determine final status for counting and logging for this ticker
+            if ticker_master_data_found:
+                processed_count += 1
+                logger.info(f"[Mass Load] <<< Finished processing for ticker: {ticker_symbol} - MASTER DATA FOUND >>>")
+            else:
+                # This branch is hit if master_data was None
+                error_count += 1
+                tickers_with_errors.append(ticker_symbol)
+                logger.warning(f"[Mass Load] <<< Finished processing for ticker: {ticker_symbol} - MASTER DATA NOT FOUND OR FAILED >>>")
 
-            for item_name, fetch_func in data_item_fetch_functions.items():
-                try:
-                    logger.info(f"[Mass Load][{ticker_symbol}] Fetching/Storing {item_name}...")
-                    await fetch_func(ticker_symbol, db_repo)
-                    logger.info(f"[Mass Load][{ticker_symbol}] {item_name} processed.")
-                except Exception as e_item:
-                    logger.error(f"[Mass Load][{ticker_symbol}] Error processing {item_name}: {e_item}", exc_info=False)
-            logger.info(f"[Mass Load] <<< Finished processing for ticker: {ticker_symbol} >>>")
-            processed_count += 1
-        except Exception as e_ticker:
+        except Exception as e_ticker: # This is for truly unexpected critical errors for the whole ticker
             logger.error(f"[Mass Load] UNEXPECTED CRITICAL ERROR processing ticker {ticker_symbol}: {e_ticker}", exc_info=True)
-            error_count += 1
-            tickers_with_errors.append(ticker_symbol)
-            ticker_had_errors = True
+            ticker_had_critical_error = True
+            if not ticker_master_data_found: # If master data wasn't found AND a critical error occurred
+                if ticker_symbol not in tickers_with_errors: # Add to errors if not already there due to master data fail
+                    error_count +=1 # Increment error if it wasn't already from master_data fail path
+                    tickers_with_errors.append(ticker_symbol)
+            else: # Master data was found, but then a critical error happened
+                # This ticker was likely counted in processed_count already if error is late.
+                # We need to re-classify it as an error.
+                processed_count -=1 # Decrement if it was optimistically counted
+                error_count += 1
+                if ticker_symbol not in tickers_with_errors:
+                    tickers_with_errors.append(ticker_symbol)
+        
+        # Determine the status to pass to the callback
+        # Callback's 'had_error' should be true if master data wasn't found OR a critical error occurred.
+        callback_had_error_status = not ticker_master_data_found or ticker_had_critical_error
+
         # --- Progress callback ---
         if progress_callback:
-            await progress_callback(idx, total, ticker_symbol)
-            await asyncio.sleep(0)  # Yield to event loop for UI polling
+            await progress_callback(idx, total, ticker_symbol, callback_had_error_status)
+            await asyncio.sleep(0.01)  # Explicit additional yield after each ticker
     logger.info(f"--- Mass Load from File FINISHED ---")
-    logger.info(f"Successfully processed tickers: {processed_count}")
-    logger.info(f"Tickers with errors: {error_count}")
+    logger.info(f"Tickers processed (master data found): {processed_count}")
+    logger.info(f"Tickers with errors (master data not found or critical error): {error_count}")
     if tickers_with_errors:
         logger.warning(f"Tickers that encountered errors: {tickers_with_errors}")
     return {

@@ -10,7 +10,7 @@ Key features:
 
 import logging
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Set, Union
+from typing import Dict, Any, List, Optional, Set, Union, Tuple
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, create_engine, delete, MetaData, Table, insert, update, and_, distinct, Text, Boolean, text, func
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
@@ -22,6 +22,8 @@ import os
 import json
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import sqlite3
+import aiosqlite
+
 # Remove the temporary Pydantic import and definitions here
 # from pydantic import BaseModel
 # from typing import Optional
@@ -228,6 +230,7 @@ class SQLiteRepository:
     def __init__(self, database_url: str):
         """Initialize the repository with a database URL."""
         self.database_url = database_url
+        logger.info(f"SQLiteRepository initialized with DB URL: {self.database_url}")
         self.engine = create_async_engine(database_url)
         # --- ADDED ---
         self.async_session_factory = async_sessionmaker(
@@ -237,160 +240,24 @@ class SQLiteRepository:
         )
         # --- END ADDED ---
 
-    # --- NEW Method to Get All Analytics Raw Data ---
-    async def get_all_analytics_raw_data(self) -> List[Dict[str, Any]]:
-        """Fetches all records (ticker, source, raw_data) from the analytics_raw table."""
-        logger.info("[DB] Fetching all data from analytics_raw table.")
+    async def get_db_path(self) -> str:
+        # Extracts the file path from the SQLite URL
+        if self.database_url.startswith("sqlite+aiosqlite:///"):
+            return self.database_url[len("sqlite+aiosqlite:///"):]
+        elif self.database_url.startswith("sqlite:///"):
+            return self.database_url[len("sqlite:///"):]
+        # Add handling for other sqlite URL formats if necessary
+        raise ValueError(f"Unsupported SQLite URL format: {self.database_url}")
+
+    async def execute_script(self, conn: aiosqlite.Connection, script: str):
         try:
-            async with self.engine.connect() as conn:
-                stmt = select(
-                    AnalyticsRawDataModel.ticker, 
-                    AnalyticsRawDataModel.source, 
-                    AnalyticsRawDataModel.raw_data
-                )
-                result = await conn.execute(stmt)
-                rows = result.mappings().all()
-                logger.info(f"[DB] Fetched {len(rows)} records from analytics_raw.")
-                return [dict(row) for row in rows]
-        except Exception as e:
-            logger.error(f"[DB] Error fetching from analytics_raw table: {e}", exc_info=True)
-            raise # Re-raise the exception after logging
-    # --- End Method to Get All Analytics Raw Data ---
-
-    # --- NEW Method to Get Analytics Raw Data by Source ---
-    async def get_analytics_raw_data_by_source(self, source_filter: str) -> List[Dict[str, Any]]:
-        """
-        Fetches records from the analytics_raw table for a specific source
-        and parses the raw_data field.
-        For 'finviz' source, field names (except 'ticker') will be prefixed with 'fv_'.
-        """
-        logger.info(f"[DB] Fetching analytics_raw data for source: {source_filter}")
-        try:
-            async with self.async_session_factory() as session: # Use async_session_factory
-                stmt = select(AnalyticsRawDataModel).filter(AnalyticsRawDataModel.source == source_filter)
-                result = await session.execute(stmt)
-                records = result.scalars().all()
-
-                data_list = []
-                for record in records:
-                    parsed_data = {}
-                    if record.raw_data:
-                        try:
-                            # Attempt to parse as JSON first
-                            parsed_data = json.loads(record.raw_data)
-                        except json.JSONDecodeError:
-                            # Fallback to comma-separated key-value parsing
-                            try:
-                                parsed_data = dict(pair.split('=', 1) for pair in record.raw_data.split(',') if '=' in pair)
-                            except ValueError:
-                                logger.warning(f"ADP_DB: Could not parse raw_data for {record.ticker} (source: {record.source}) as key-value pairs: {record.raw_data[:100]}...")
-                                parsed_data = {"error_parsing_raw_data": record.raw_data}
-                    
-                    # Ensure 'ticker' is present, using the model's ticker attribute as authoritative.
-                    # This also standardizes the ticker key to lowercase 'ticker'.
-                    final_record = {'ticker': record.ticker} 
-                    
-                    # Merge parsed_data into final_record
-                    for key_original, value in parsed_data.items():
-                        # Skip 'ticker' from parsed_data, as record.ticker is the source of truth.
-                        # Perform a case-insensitive check.
-                        if key_original.lower() == 'ticker':
-                            continue
-
-                        if source_filter == 'finviz':
-                            # Prefix Finviz fields with 'fv_'
-                            final_key = f"fv_{key_original}"
-                            final_record[final_key] = value
-                        else:
-                            # For other sources, use the original key
-                            final_record[key_original] = value
-                    
-                    data_list.append(final_record)
-                
-                logger.info(f"[DB] Successfully fetched and parsed {len(data_list)} records for source: {source_filter}.")
-                # Example logging for the first record if data exists, to verify prefixing
-                if data_list and source_filter == 'finviz':
-                    logger.debug(f"[DB] Example Finviz record after prefixing: {data_list[0]}")
-                elif data_list:
-                    logger.debug(f"[DB] Example record for source {source_filter}: {data_list[0]}")
-
-                return data_list
-        except Exception as e:
-            logger.error(f"[DB] Error fetching analytics_raw data for source {source_filter}: {e}", exc_info=True)
-            return []
-    # --- End Method to Get Analytics Raw Data by Source ---
-
-    # --- NEW Method for Analytics Raw Data Save/Update (Moved from end of file) ---
-    async def save_or_update_analytics_raw_data(self, ticker: str, source: str, raw_data: str) -> None:
-        """Saves or updates raw analytics data for a specific ticker and source."""
-        logger.info(f"[DB Analytics Raw] Saving/Updating data for ticker: {ticker}, source: {source}")
-        if not ticker or not source:
-            logger.error("[DB Analytics Raw] Ticker and Source cannot be empty.")
-            return
-        try:
-            async with self.engine.begin() as conn:
-                data_to_insert = {
-                    'ticker': ticker,
-                    'source': source,
-                    'raw_data': raw_data,
-                    'last_fetched_at': datetime.now()
-                }
-                # Use sqlite_insert for UPSERT functionality
-                stmt = sqlite_insert(AnalyticsRawDataModel).values(data_to_insert)
-                
-                # Define what to do on conflict (composite key: ticker, source)
-                # Update raw_data and last_fetched_at
-                update_dict = {
-                    'raw_data': stmt.excluded.raw_data, 
-                    'last_fetched_at': stmt.excluded.last_fetched_at
-                }
-                
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=['ticker', 'source'], # Conflict on the composite primary key
-                    set_=update_dict
-                )
-                
-                await conn.execute(stmt)
-            logger.info(f"[DB Analytics Raw] Successfully saved/updated data for {ticker} from {source}")
-        except Exception as e:
-            logger.error(f"[DB Analytics Raw] Error saving/updating data for {ticker} from {source}: {e}", exc_info=True)
-            raise
-    # --- End Analytics Raw Data Save/Update ---
-
-    # --- Method MOVED to YahooDataRepository ---
-    async def upsert_yahoo_ticker_master(self, ticker_data: Dict[str, Any]) -> None:
-        # This method has been moved to YahooDataRepository in yahoo_repository.py
-        logger.warning("'upsert_yahoo_ticker_master' was called on SQLiteRepository. This method has been moved to YahooDataRepository.")
-        pass
-    # --- End Upsert Yahoo Ticker Master Data ---
-
-    # --- Method MOVED to YahooDataRepository ---
-    async def update_ticker_master_fields(self, ticker_symbol: str, updates: Dict[str, Any]) -> bool:
-        # This method has been moved to YahooDataRepository in yahoo_repository.py
-        logger.warning("'update_ticker_master_fields' was called on SQLiteRepository. This method has been moved to YahooDataRepository.")
-        pass
-    # --- End Update Yahoo Ticker Master Fields ---
-
-    # --- NEW: Method to Get IBKR Contract Details by Symbol ---
-    async def get_ibkr_contract_details_by_symbol(self, symbol: str) -> List[Dict[str, Any]]:
-        logger.info(f"[DB] Fetching IBKR contract details for symbol: {symbol}")
-        try:
-            async with self.engine.connect() as conn:
-                stmt = select(AccountModel).where(AccountModel.account_id == symbol)
-                result = await conn.execute(stmt)
-                account = result.mappings().first()
-                if account:
-                    logger.info(f"[DB] Found IBKR contract details for symbol: {symbol}")
-                    return dict(account)
-                else:
-                    logger.warning(f"[DB] No IBKR contract details found for symbol: {symbol}")
-                    return None
-        except Exception as e:
-            logger.error(f"[DB] Error fetching IBKR contract details for symbol {symbol}: {str(e)}", exc_info=True)
+            await conn.executescript(script)
+            await conn.commit()
+            logger.info("Database script executed successfully.")
+        except aiosqlite.Error as e:
+            logger.error(f"Error executing database script: {e}", exc_info=True)
             raise
 
-    # --- Add Finviz Raw Data Save/Update ---    
-    # --- Keep simple create_tables --- 
     async def create_tables(self) -> None:
          """Creates tables using Base.metadata."""
          try:
@@ -402,7 +269,33 @@ class SQLiteRepository:
          except Exception as e:
              logger.error(f"[DB Init] Error during table creation: {e}", exc_info=True)
              raise
-    # --- End create_tables --- 
+
+         # ADDED: SQL for persistent_job_states table
+         sql_create_persistent_job_states_table = """
+         CREATE TABLE IF NOT EXISTS persistent_job_states (
+             job_id TEXT PRIMARY KEY,
+             status TEXT NOT NULL,
+             last_completion_time TEXT, -- ISO format datetime string
+             last_run_summary TEXT,
+             total_count INTEGER,
+             successful_count INTEGER,
+             failed_count INTEGER,
+             job_specific_data TEXT, -- JSON string for extra data if needed
+             updated_at TEXT NOT NULL -- ISO format datetime string
+         );
+         """
+         db_path = await self.get_db_path()
+         try:
+             # Use aiosqlite directly for this one table, assuming self.database_url is usable by aiosqlite
+             logger.info(f"[DB Init] Attempting to create 'persistent_job_states' table directly in {db_path}...")
+             async with aiosqlite.connect(db_path) as db:
+                 await db.execute(sql_create_persistent_job_states_table)
+                 await db.commit()
+             logger.info("[DB Init] 'persistent_job_states' table check/creation complete.")
+         except Exception as e:
+             logger.error(f"[DB Init] Error creating 'persistent_job_states' table: {e}", exc_info=True)
+             raise # Ensure the exception is re-raised to halt startup if this critical table fails
+         logger.info("'persistent_job_states' table check/creation process completed.") # Clarified log
 
     async def clear_positions(self, account_id: str) -> None:
         """Clear all positions for a specific account using ORM model."""
@@ -1588,6 +1481,57 @@ class SQLiteRepository:
         except Exception as e:
             logger.error(f"Error saving/updating job config: {str(e)}", exc_info=True)
             raise
+
+    async def save_persistent_job_state(self, job_data: Dict[str, Any]):
+        """Saves or updates the state of a job in the persistent_job_states table."""
+        sql = """
+        INSERT OR REPLACE INTO persistent_job_states (
+            job_id, status, last_completion_time, last_run_summary,
+            total_count, successful_count, failed_count, job_specific_data, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """
+        # Ensure all fields are present, providing defaults if necessary
+        params = (
+            job_data.get("job_id"),
+            job_data.get("status"),
+            job_data.get("last_completion_time"), # Should be ISO string
+            job_data.get("last_run_summary"),
+            job_data.get("total_count"),
+            job_data.get("successful_count"),
+            job_data.get("failed_count"),
+            job_data.get("job_specific_data"), # e.g., JSON string of extra details
+            job_data.get("updated_at", datetime.now().isoformat()) # Should be ISO string
+        )
+        db_path = await self.get_db_path()
+        try:
+            async with aiosqlite.connect(db_path) as conn:
+                await conn.execute(sql, params)
+                await conn.commit()
+            logger.info(f"Persistent job state saved for job_id: {job_data.get('job_id')}")
+        except aiosqlite.Error as e:
+            logger.error(f"Error saving persistent job state for job_id {job_data.get('job_id')}: {e}", exc_info=True)
+            raise # Re-raise the aiosqlite.Error
+        except Exception as e: # Catch any other potential errors during the operation
+            logger.error(f"Unexpected error saving persistent job state for job_id {job_data.get('job_id')}: {e}", exc_info=True)
+            raise # Re-raise any other exception
+
+    async def get_persistent_job_state(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves the persisted state of a job from the persistent_job_states table."""
+        sql = "SELECT * FROM persistent_job_states WHERE job_id = ?;"
+        db_path = await self.get_db_path()
+        try:
+            async with aiosqlite.connect(db_path) as conn:
+                conn.row_factory = aiosqlite.Row # Access columns by name
+                async with conn.execute(sql, (job_id,)) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        logger.debug(f"Persistent job state found for job_id: {job_id}")
+                        return dict(row) # Convert row object to dict
+            logger.debug(f"No persistent job state found for job_id: {job_id}")
+            return None
+        except aiosqlite.Error as e:
+            logger.error(f"Error retrieving persistent job state for job_id {job_id}: {e}", exc_info=True)
+            return None
 
 # Method to fetch exchange rates
 async def get_exchange_rates(session):

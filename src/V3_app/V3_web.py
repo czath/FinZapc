@@ -69,6 +69,8 @@ from .V3_analytics import preprocess_raw_analytics_data # CORRECTED Import
 # --- Import Utilities Router --- 
 from .routers import utilities_router
 # --- End Import Utilities Router ---
+from .routers.yahoo_job_router import router as yahoo_job_api_router
+from . import yahoo_job_manager
 
 # Configure logging
 logging.basicConfig(
@@ -1335,6 +1337,19 @@ def create_app():
             # In startup_event, after scheduler/repository are ready, add:
             # await catch_up_yahoo_job(repository, scheduled_yahoo_job) # OLD WAY
             asyncio.create_task(catch_up_yahoo_job(repository, scheduled_yahoo_job)) # NEW WAY: Run in background
+
+            logger.info("Application startup: Initializing Yahoo Mass Fetch job status...")
+            try:
+                if hasattr(app.state, 'repository') and app.state.repository:
+                    repo_instance = app.state.repository
+                    await yahoo_job_manager.load_initial_job_state_from_db(repo_instance)
+                    logger.info("Initial Yahoo job state loading attempted.")
+                else:
+                    logger.error("Repository not available in app.state during startup for Yahoo job init.")
+            except AttributeError as ae:
+                 logger.error(f"AttributeError during Yahoo job status init on startup (likely app.state.repository not ready): {ae}", exc_info=True)
+            except Exception as e_startup_job:
+                logger.error(f"Error initializing Yahoo job status on startup: {e_startup_job}", exc_info=True)
 
         @app.on_event("shutdown")
         async def shutdown_event():
@@ -2873,7 +2888,11 @@ def create_app():
         logger.info("Included backend_router and utilities_router.")
         # --- End Include Routers ---
 
-        logger.info("FastAPI app instance created and configured successfully.")
+        # Include the new Yahoo Job API router
+        app.include_router(yahoo_job_api_router)
+        logger.info("Included Yahoo Job API router.")
+
+        logger.info("FastAPI app instance created and configured successfully with Yahoo Job module.")
         return app 
         # --- End Correct Indentation / End of try block ---
 

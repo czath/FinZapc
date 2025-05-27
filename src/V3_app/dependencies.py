@@ -6,6 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Request, HTTPException
 import logging
 
+# Assuming SQLiteRepository is accessible via a direct or adjusted relative import
+# This path needs to be correct based on your project structure.
+# If V3_database is in the same directory as dependencies.py (e.g. both in V3_app)
+from .V3_database import SQLiteRepository 
+
 logger = logging.getLogger(__name__)
 
 async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
@@ -40,3 +45,12 @@ async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
             # logger.debug("Ensuring session is closed in get_db finally block.")
             # await session.close() # Usually not needed with 'async with async_session_factory() as session:'
             pass 
+
+def get_repository(request: Request) -> SQLiteRepository:
+    """Dependency function to get the repository instance from app state."""
+    if not hasattr(request.app.state, 'repository') or request.app.state.repository is None:
+        logger.error("CRITICAL: Repository not found in application state! Ensure it is set during app creation.")
+        raise HTTPException(status_code=500, detail="Internal server error: Repository not initialized.")
+    return request.app.state.repository
+
+# You can add other shared dependencies here in the future 
