@@ -178,10 +178,35 @@
             console.warn(`[updateUIFromJobData @ ${new Date().toISOString()}] Required UI elements not yet available. Cannot update UI.`);
             return;
         }
+
+        // --- Universal Progress Bar Update (before deciding to hide it) ---
+        // Update progress bar visuals if the data is available, regardless of current job status.
+        // This ensures that if a terminal state (e.g., completed, partial_failure) has 100% progress, it's shown briefly.
+        if (progressBar) {
+            let percentValue = 0;
+            if (data.progress_percent !== undefined && data.progress_percent !== null) {
+                percentValue = data.progress_percent;
+            } else if (data.current_count !== undefined && data.total_count !== undefined && data.total_count > 0) {
+                percentValue = Math.round((data.current_count / data.total_count) * 100);
+            }
+            progressBar.style.width = percentValue + '%';
+            progressBar.textContent = percentValue + '%';
+            // console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Universal progress bar update applied: ${percentValue}%.`);
+        }
+
         // Log incoming data and current isFetching state
         // console.log(`[updateUIFromJobData] Called with data:`, JSON.parse(JSON.stringify(data)), `Current isFetching before update: ${isFetching}`);
 
-        let displayMessage = data.message || data.progress_message || `Status: ${data.status}`;
+        let displayMessage;
+        if (data.status === 'running' && data.progress_message) {
+            displayMessage = data.progress_message;
+        } else if (data.message) {
+            displayMessage = data.message;
+        } else if (data.status === 'queued' && data.progress_message) { // Also show progress_message if queued and available
+             displayMessage = data.progress_message;
+        } else {
+            displayMessage = `Status: ${data.status}`;
+        }
         let msgType = 'info'; // Default message type
 
         // Ensure critical UI elements are updated reliably
@@ -206,27 +231,29 @@
             msgType = 'info';
             // console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Status is running/queued. Set isFetching to true.`);
 
-        } else if (data.status === 'completed' || data.status === 'failed' || data.status === 'error') {
+        } else if (data.status === 'completed' || data.status === 'failed' || data.status === 'error' || data.status === 'partial_failure') {
             if (fetchBtn && fetchBtn.disabled) { // Only enable if disabled
                 enableButton(fetchBtn); // Restore original text, remove spinner
-                console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Fetch button enabled.`);
+                console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Fetch button enabled for terminal status: ${data.status}.`);
             }
             if (progressBarContainer) {
+                // The universal update at the start of the function should have set the final percentage.
+                // Now hide it for terminal states.
                 progressBarContainer.style.display = 'none';
-                console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Progress bar container hidden.`);
+                console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Progress bar container hidden for terminal status: ${data.status}.`);
             }
             // displayMessage remains as set above
-            if (data.status === 'failed' || data.status === 'error') {
+            if (data.status === 'failed' || data.status === 'error' || data.status === 'partial_failure') { // Added partial_failure for error styling
                 msgType = 'error';
-                } else {
-                msgType = 'success'; // for 'completed'
+            } else { // completed
+                msgType = 'success';
             }
             isFetching = false; // Mark as not fetching
             console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Status is terminal (${data.status}). Set isFetching to false.`);
 
             // If job is terminal and polling interval exists, clear it.
             if (jobPollIntervalId) {
-                console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Job is terminal and jobPollIntervalId exists. Clearing interval: ${jobPollIntervalId}`);
+                console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Job is terminal (${data.status}) and jobPollIntervalId exists. Clearing interval: ${jobPollIntervalId}`);
                 clearInterval(jobPollIntervalId);
                 jobPollIntervalId = null;
             }
@@ -245,14 +272,14 @@
     // --- NEW: Helper to reset UI for a new fetch (MOVED INSIDE IIFE) ---
     function resetUIForNewFetch() {
         if(fetchBtn) {
-            hideSpinner(fetchBtn);
-            fetchBtn.disabled = false;
+            enableButton(fetchBtn); // Use enableButton to restore text and ensure it's enabled
+            // fetchBtn.disabled = false; // No longer needed, enableButton handles this
         }
         if (progressBarContainer) {
             progressBarContainer.style.display = 'none';
         }
         isFetching = false;
-        showStatus("Ready to fetch Yahoo data.", "info");
+        // Removed: showStatus("Ready to fetch Yahoo data.", "info"); // Caller should set status if needed
     }
 
     // --- NEW: Function to fetch and apply current job status (MOVED INSIDE IIFE) ---
