@@ -458,6 +458,48 @@
             </div>
             {# --- End Yahoo Mass Fetch Card --- #}
 
+            <!-- --- NEW: Finviz Mass Data Fetch Pane (REVISED) --- -->
+            <div class="my-3 p-3 border rounded bg-body-tertiary"> {# Applied Yahoo's container style #}
+                <h5 class="mb-3">Finviz Mass Data Fetch</h5>
+                <div class="row gy-3">
+                    <div class="col-md-12">
+                        <div class="mb-3">
+                            <label for="finviz-data-source-select" class="form-label">Data Source:</label>
+                            <select class="form-select" id="finviz-data-source-select" style="max-width: 350px;"> {# Removed disabled, added max-width #}
+                                <option value="finviz_screener">Finviz Screener (Default)</option>
+                                <option value="upload_finviz_txt" selected>Upload TXT file</option> {# Made Upload TXT default #}
+                            </select>
+                            <small class="form-text text-muted" id="finviz-source-help-text">
+                                Fetches all data from the main Finviz source.
+                            </small>
+                        </div>
+
+                        {# Mimicking Yahoo's dropzone structure #}
+                        <div id="finviz-mf-dropzone" class="border p-4 text-center mb-3" style="cursor: pointer; border-style: dashed !important; background-color: var(--bs-tertiary-bg);">
+                             <p class="mb-0">
+                                <span class="status-icon bi bi-cloud-arrow-up me-2 align-middle"></span>
+                                <span class="status-text">Drag & drop .txt file or click</span>
+                            </p>
+                        </div>
+                        <input type="file" id="finviz-mf-file" accept=".txt" style="display: none;">
+
+                        <div class="mb-3">
+                            <button id="fetch-finviz-data-btn" class="btn btn-success" disabled> {# Matched Yahoo button style #}
+                                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;" id="finviz-fetch-spinner"></span> {# Added spinner with ID #}
+                                <span class="button-text">Fetch Finviz Data</span>
+                            </button>
+                        </div>
+                        
+                        <div id="finviz-progress-bar-container" class="progress-container mt-3" style="display: none;">
+                            <div class="progress">
+                                <div id="finviz-progress-bar" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                            </div>
+                        </div>
+                        <div id="finviz-status-div" class="mt-2 small text-muted"></div> {# Matched Yahoo status div style #}
+                    </div>
+                </div>
+            </div> <!-- End Finviz Mass Data Fetch Pane -->
+
             {# --- Placeholder for Future Import Sources --- #}
             <!-- 
             <div class="my-3 p-3 border rounded bg-body-tertiary">
@@ -1086,33 +1128,34 @@
     <script src="{{ url_for('static', path='js/analytics_price_cache.js') }}"></script> <!-- NEW: Price Cache Module -->
     <script src="{{ url_for('static', path='js/analytics_synthetic_studies_config.js') }}"></script> {# Correctly added/moved here #}
     <script src="{{ url_for('static', path='js/analytics_timeseries.js') }}"></script> <!-- NEW: Timeseries Module Logic -->
-    <script src="{{ url_for('static', path='js/analytics_ts_fund_adv.js') }}"></script>
     <script src="{{ url_for('static', path='js/analytics_timeseries_fund.js') }}"></script> <!-- ADDED -->
     {# <script src="{{ url_for('static', path='js/analytics_timeseries_pair.js') }}"></script> #} {# Removed as functionality is in analytics_timeseries.js #}
     {# <script src="{{ url_for('static', path='js/analytics_summary_stats.js') }}"></script> #} <!-- REMOVED -->
     {# <script src="{{ url_for('static', path='js/analytics_export.js') }}"></script> #} <!-- REMOVED -->
 
-    {# The entire block below, from '<<< Add any other page-specific JS files here >>>' 
-       down to the last script tag before the inline <script> block, was causing errors 
-       due to using 'V3_app.static' and duplicating scripts. It will be removed.
-    #}
-    {# DELETED BLOCK - This was the start of the problematic section
-    {# <<< Add any other page-specific JS files here >>> #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/common_utils.js') }}"></script> #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/ui_helpers.js') }}"></script> #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_cache.js') }}"></script> #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_data_processor.js') }}"></script> #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_scenario_builder.js') }}"></script> #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_chart_summary.js') }}"></script> #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_main.js') }}"></script> #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_spider.js') }}"></script> #}
-    {# Timeseries Specific Scripts #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_synthetic_studies_config.js') }}"></script> #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_timeseries.js') }}"></script> #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_timeseries_fund.js') }}"></script> #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_ts_fund_adv.js') }}"></script> #}
-    {# <script src="{{ url_for('V3_app.static', filename='js/analytics_timeseries_pair.js') }}"></script> #}
-    {# END DELETED BLOCK #}
+    <!-- Finviz Mass Fetch UI - Moved here -->
+    <script src="{{ url_for('static', path='js/finviz_mass_fetch.js') }}"></script>
+
+    {# --- START OF SIMPLIFIED COMMENTED OUT BLOCK ---
+    The following block of script tags was causing parsing errors and has been fully commented out.
+    It appeared to be an old or duplicated section.
+
+      <<< Add any other page-specific JS files here >>>
+      <script src="{{ url_for('V3_app.static', filename='js/common_utils.js') }}"></script>
+      <script src="{{ url_for('V3_app.static', filename='js/ui_helpers.js') }}"></script>
+      <script src="{{ url_for('V3_app.static', filename='js/analytics_cache.js') }}"></script>
+      <script src="{{ url_for('V3_app.static', filename='js/analytics_data_processor.js') }}"></script>
+      <script src="{{ url_for('V3_app.static', filename='js/analytics_scenario_builder.js') }}"></script>
+      <script src="{{ url_for('V3_app.static', filename='js/analytics_chart_summary.js') }}"></script>
+      <script src="{{ url_for('V3_app.static', filename='js/analytics_main.js') }}"></script>
+      <script src="{{ url_for('V3_app.static', filename='js/analytics_spider.js') }}"></script>
+      Timeseries Specific Scripts
+      <script src="{{ url_for('V3_app.static', filename='js/analytics_synthetic_studies_config.js') }}"></script>
+      <script src="{{ url_for('V3_app.static', filename='js/analytics_timeseries.js') }}"></script>
+      <script src="{{ url_for('V3_app.static', filename='js/analytics_timeseries_fund.js') }}"></script>
+      <script src="{{ url_for('V3_app.static', filename='js/analytics_ts_fund_adv.js') }}"></script>
+      <script src="{{ url_for('V3_app.static', filename='js/analytics_timeseries_pair.js') }}"></script>
+    --- END OF SIMPLIFIED COMMENTED OUT BLOCK --- #}
 
     <script>
 // ... existing code ...

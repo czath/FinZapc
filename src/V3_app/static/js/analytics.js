@@ -3697,6 +3697,15 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     };
     console.log("AnalyticsMainModule initialized and exposed."); // <<< ADD CONFIRMATION LOG
 
+    // --- NEW: Initialize Finviz Mass Fetch UI after AnalyticsMainModule is ready ---
+    if (window.FinvizMassFetchModule && typeof window.FinvizMassFetchModule.initialize === 'function') {
+        console.log("[Analytics.js] Calling FinvizMassFetchModule.initialize().");
+        window.FinvizMassFetchModule.initialize();
+    } else {
+        console.warn("[Analytics.js] FinvizMassFetchModule or its initialize function not found.");
+    }
+    // --- END NEW ---
+
     // --- Add event listener for the Filters & Output tab to adjust DataTable columns --- ADDED
     // <<< Remove listener from old tab >>>
     /*

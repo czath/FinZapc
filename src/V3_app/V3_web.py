@@ -15,7 +15,7 @@ import logging
 import importlib # <-- ADD THIS LINE
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime, timedelta
-from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, WebSocketDisconnect, Body, Depends, status, BackgroundTasks # ADDED BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, WebSocketDisconnect, Body, Depends, status, BackgroundTasks, APIRouter, Query # MODIFIED: Added APIRouter and Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import asyncio
@@ -71,6 +71,189 @@ from .routers import utilities_router
 # --- End Import Utilities Router ---
 from .routers.yahoo_job_router import router as yahoo_job_api_router
 from . import yahoo_job_manager
+
+# --- NEW: Import Finviz Job Manager ---
+from . import finviz_job_manager
+from .finviz_job_manager import (
+    FINVIZ_MASS_FETCH_JOB_ID,
+    trigger_finviz_mass_fetch_job,
+    get_job_details_internal as get_finviz_job_details_internal, # Alias to avoid conflicts
+    finviz_sse_update_queue
+)
+# --- END: Import Finviz Job Manager ---
+
+# --- NEW: Pydantic models for Job System (if not already globally defined) ---
+# These might already exist or be imported from a common models file.
+# For clarity, defining what JobDetailsResponse and TickerListPayload are expected to be.
+# from .V3_models import TickerListPayload, JobDetailsResponse # Assuming they are in V3_models.py
+# If not, they would be defined like this:
+# class TickerListPayload(BaseModel):
+#     tickers: List[str]
+# class JobDetailsResponse(BaseModel):
+#     job_id: str
+#     status: str
+#     message: Optional[str] = None
+#     job_type: Optional[str] = None 
+#     progress_percent: Optional[int] = None
+#     current_count: Optional[int] = None
+#     total_count: Optional[int] = None
+#     last_run_summary: Optional[str] = None
+#     # ... other relevant fields
+# Ensure these models are correctly imported or defined globally if needed.
+from .V3_models import TickerListPayload, JobDetailsResponse # This should already be there for Yahoo jobs
+
+# --- NEW Dependency Function ---
+def get_repository(request: Request) -> SQLiteRepository:
+    """Dependency function to get the repository instance from app state."""
+    # --- Restore original implementation ---
+    # Ensure the repository exists in state
+    if not hasattr(request.app.state, 'repository') or request.app.state.repository is None:
+        logger.error("CRITICAL: Repository not found in application state!")
+        # Raise an internal server error because this is a configuration issue
+        raise HTTPException(status_code=500, detail="Internal server error: Repository not initialized.")
+    return request.app.state.repository
+    # --- End original implementation ---
+# --- End Dependency Function ---
+# --- NEW: Finviz Job API Router ---
+finviz_job_api_router = APIRouter() # MODIFIED: Changed from FastAPI() to APIRouter()
+
+@finviz_job_api_router.post("/finviz/trigger", response_model=JobDetailsResponse, summary="Trigger Finviz Mass Fetch Job")
+async def trigger_finviz_job(
+    payload: TickerListPayload, # For uploaded tickers or dummy for screener
+    source_type: Optional[str] = Query(None, description="Source of tickers. Expected: 'finviz_screener' or 'upload_finviz_txt'"),
+    repository: SQLiteRepository = Depends(get_repository) 
+):
+    try:
+        effective_source = source_type
+        if not effective_source:
+            # If source_type is None, and payload.tickers is guaranteed by TickerListPayload to be non-empty,
+            # it implies an upload from a client not yet sending source_type.
+            # Defaulting to upload_finviz_txt if not specified by query param.
+            effective_source = "upload_finviz_txt"
+            logger.info(f"[API FINVIZ TRIGGER] 'source_type' query parameter not provided, defaulting to '{effective_source}' based on payload presence.")
+        
+        logger.info(f"[API FINVIZ TRIGGER] Effective source: '{effective_source}', Payload tickers count: {len(payload.tickers)}.")
+        
+        job_details = await finviz_job_manager.trigger_finviz_mass_fetch_job(
+            request_payload=payload, 
+            source_identifier=effective_source, 
+            repository=repository
+        )
+        return job_details
+    except HTTPException as http_exc: # Re-raise HTTPExceptions directly
+        raise http_exc
+    except Exception as e:
+        logger.error(f"[API FINVIZ TRIGGER] Error triggering Finviz job: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to trigger Finviz job: {str(e)}")
+
+@finviz_job_api_router.get("/finviz/details", response_model=JobDetailsResponse, summary="Get Finviz Mass Fetch Job Details")
+async def get_finviz_job_status_details(
+    repository: SQLiteRepository = Depends(get_repository)
+):
+    try:
+        logger.debug(f"[API FINVIZ DETAILS] Received request for Finviz job details.")
+        job_details = await finviz_job_manager.get_job_details_internal(FINVIZ_MASS_FETCH_JOB_ID, repository)
+        return job_details
+    except Exception as e:
+        logger.error(f"[API FINVIZ DETAILS] Error getting Finviz job details: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to get Finviz job details: {str(e)}")
+
+@finviz_job_api_router.get("/finviz/sse", summary="Finviz Job Status SSE Stream")
+async def finviz_job_sse(
+    request: Request, 
+    repository: SQLiteRepository = Depends(get_repository) # Added repository dependency
+): 
+    logger.info(f"[API FINVIZ SSE] Client connected for Finviz job status stream. Using queue (id: {id(finviz_job_manager.finviz_sse_update_queue)}).") # MODIFIED LOG
+
+    async def event_generator():
+        initial_status_sent = False
+        try:
+            logger.debug(f"[API FINVIZ SSE] INITIAL_STATUS_BLOCK: Attempting to get initial details for {FINVIZ_MASS_FETCH_JOB_ID}.") # ADDED LOG
+            initial_status = await get_finviz_job_details_internal(FINVIZ_MASS_FETCH_JOB_ID, repository)
+            logger.debug(f"[API FINVIZ SSE] INITIAL_STATUS_BLOCK: Got initial_status object: {initial_status is not None}, Status: {initial_status.get('status') if initial_status else 'N/A'}.") # ADDED LOG
+            
+            if initial_status:
+                logger.debug(f"[API FINVIZ SSE] INITIAL_STATUS_BLOCK: Preparing to yield initial status: {initial_status.get('status')}.") # ADDED LOG
+                # REVERTED: Send the full initial_status object
+                yield f"data: {json.dumps(initial_status)}\n\n"
+                initial_status_sent = True
+                logger.debug(f"[API FINVIZ SSE] INITIAL_STATUS_BLOCK: Successfully yielded full initial status: {initial_status.get('status')}.") # MODIFIED LOG
+            else:
+                logger.debug(f"[API FINVIZ SSE] INITIAL_STATUS_BLOCK: No initial_status found for {FINVIZ_MASS_FETCH_JOB_ID}. Not sending initial data.") # ADDED LOG
+            
+            logger.debug(f"[API FINVIZ SSE] INITIAL_STATUS_BLOCK: Finished try block. initial_status_sent = {initial_status_sent}")
+
+        except asyncio.CancelledError as e_cancel_initial:
+            logger.error(f"[API FINVIZ SSE] INITIAL_STATUS_BLOCK: CancelledError during initial status fetch/send: {e_cancel_initial}", exc_info=True)
+            # Do not yield here if cancelled, just log and let it proceed to main loop or exit
+            logger.debug("[API FINVIZ SSE] INITIAL_STATUS_BLOCK: Finished CancelledError block. Generator will return.") # MODIFIED LOG
+            return # MODIFIED: from raise to return
+        except Exception as e_initial:
+            logger.error(f"[API FINVIZ SSE] INITIAL_STATUS_BLOCK: Exception during initial status fetch/send: {e_initial}", exc_info=True)
+            error_event = {"job_id": FINVIZ_MASS_FETCH_JOB_ID, "status": "error", "message": f"Error fetching initial state: {str(e_initial)}"}
+            try:
+                yield f"data: {json.dumps(error_event)}\n\n"
+                logger.debug(f"[API FINVIZ SSE] INITIAL_STATUS_BLOCK: Yielded error event due to exception.")
+            except Exception as e_yield_err:
+                logger.error(f"[API FINVIZ SSE] INITIAL_STATUS_BLOCK: Exception while yielding error event: {e_yield_err}", exc_info=True)
+            logger.debug("[API FINVIZ SSE] INITIAL_STATUS_BLOCK: Finished Exception block.")
+        finally:
+            logger.debug(f"[API FINVIZ SSE] INITIAL_STATUS_BLOCK: Reached finally block. initial_status_sent = {initial_status_sent}")
+
+        logger.debug(f"[API FINVIZ SSE] Proceeding to main event loop for queue after initial status block. Initial status was sent: {initial_status_sent}")
+        
+        # REMOVE THE ENTIRE "EARLY_QUEUE_DRAIN" try/except block.
+
+        try: # Outer try for the main loop
+            first_queue_attempt = True # ADDED
+            while True:
+                logger.debug(f"[API FINVIZ SSE] Top of main event loop. First attempt: {first_queue_attempt}") # MODIFIED LOG
+                try:
+                    if await request.is_disconnected():
+                        logger.info("[API FINVIZ SSE] Client disconnected (checked before queue.get()).")
+                        break 
+
+                    current_timeout = 0.1 if first_queue_attempt else 15.0 # ADDED short timeout for first attempt
+                    logger.debug(f"[API FINVIZ SSE] Attempting finviz_sse_update_queue.get() (id: {id(finviz_job_manager.finviz_sse_update_queue)}) with timeout {current_timeout}s. Queue size: {finviz_job_manager.finviz_sse_update_queue.qsize()}") # MODIFIED LOG
+                    
+                    status_update = await asyncio.wait_for(finviz_job_manager.finviz_sse_update_queue.get(), timeout=current_timeout)
+                    
+                    logger.debug(f"[API FINVIZ SSE] GOT FROM QUEUE: Status {status_update.get('status')}, JobID {status_update.get('job_id')}, JobType {status_update.get('job_type')}")
+                    first_queue_attempt = False # ADDED: Reset after first successful get or even timeout
+
+                    if status_update.get("job_id") == FINVIZ_MASS_FETCH_JOB_ID and status_update.get("job_type") == "finviz_mass_fetch":
+                        logger.debug(f"[API FINVIZ SSE] YIELDING data for job {FINVIZ_MASS_FETCH_JOB_ID}: Status {status_update.get('status')}")
+                        # REVERTED: Send the full status_update object
+                        yield f"data: {json.dumps(status_update)}\n\n"
+                        log_msg = status_update.get('progress_message', status_update.get('message', 'No message'))
+                        if len(log_msg) > 70 : log_msg = log_msg[:67] + "..."
+                        logger.debug(f"[API FINVIZ SSE] Sent update: {status_update.get('status')}, Msg: {log_msg}")
+                
+                except asyncio.TimeoutError:
+                    logger.debug(f"[API FINVIZ SSE] Timeout (duration: {current_timeout}s) occurred waiting for queue item. First attempt was: {first_queue_attempt}") # MODIFIED LOG
+                    first_queue_attempt = False # ADDED: Ensure it's false after first timeout
+                    if await request.is_disconnected():
+                        logger.info("[API FINVIZ SSE] Client disconnected (checked after queue.get() timeout).")
+                        break 
+                    yield ": finviz heartbeat\\n\\n" 
+                    continue
+                except asyncio.CancelledError:
+                    logger.info("[API FINVIZ SSE] Main loop: Stream cancelled by client disconnect or server shutdown (CancelledError). Loop will break.") # MODIFIED LOG
+                    break # MODIFIED: Changed from raise to break
+                except Exception as e:
+                    logger.error(f"[API FINVIZ SSE] Error in Finviz SSE event generator main loop: {e}", exc_info=True)
+                    error_event = {"job_id": FINVIZ_MASS_FETCH_JOB_ID, "job_type": "finviz_mass_fetch", "status": "error", "message": "SSE stream error occurred on server"}
+                    try:
+                        yield f"data: {json.dumps(error_event)}\n\n"
+                    except Exception as send_err:
+                        logger.error(f"[API FINVIZ SSE] Failed to send error event to client (Finviz): {send_err}")
+                    await asyncio.sleep(2)
+        finally:
+            logger.info(f"[API FINVIZ SSE] Exiting event_generator for Finviz. Request is_disconnected: {await request.is_disconnected() if request else 'N/A - Request object not available'}")
+    
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+# --- END: Finviz Job API Router ---
 
 # Configure logging
 logging.basicConfig(
@@ -697,6 +880,13 @@ def create_app():
             yahoo_fields = await yahoo_repo.get_all_yahoo_fields_for_analytics()
             return finviz_fields + yahoo_fields
         app.include_router(backend_router)
+
+        # --- Include Routers (Consolidated) ---
+        # Assuming utilities_router is for general utility endpoints
+        app.include_router(utilities_router.router, prefix="/api/v3/utilities", tags=["Utilities"])
+        app.include_router(yahoo_job_api_router, prefix="/api/v3/jobs", tags=["Jobs - Yahoo"])
+        app.include_router(finviz_job_api_router, prefix="/api/v3/jobs", tags=["Jobs - Finviz"]) # NEW: Include Finviz job router
+        # --- End Include Routers ---
 
         # Revert: Put back static files setup?
         # Assuming it was correct before
@@ -1344,19 +1534,23 @@ def create_app():
                     repo_instance = app.state.repository
                     await yahoo_job_manager.load_initial_job_state_from_db(repo_instance)
                     logger.info("Initial Yahoo job state loading attempted.")
+                    # NEW: Load Finviz job state
+                    await finviz_job_manager.load_initial_job_state_from_db(repo_instance)
+                    logger.info("Initial Finviz job state loading attempted.")
                 else:
-                    logger.error("Repository not available in app.state during startup for Yahoo job init.")
-            except AttributeError as ae:
-                 logger.error(f"AttributeError during Yahoo job status init on startup (likely app.state.repository not ready): {ae}", exc_info=True)
-            except Exception as e_startup_job:
-                logger.error(f"Error initializing Yahoo job status on startup: {e_startup_job}", exc_info=True)
+                    logger.error("Repository not available in app.state during startup for Yahoo/Finviz job init.")
+            except Exception as e_job_load:
+                logger.error(f"Error loading initial job states (Yahoo/Finviz): {e_job_load}", exc_info=True)
+            # --- End Job State Loading ---
+        
+            logger.info("Application startup complete.") # Ensure this is logged after all startup tasks attempt
 
         @app.on_event("shutdown")
         async def shutdown_event():
             """Shutdown the scheduler gracefully."""
             logger.info("Application shutdown: Stopping scheduler.")
             if scheduler.running:
-                scheduler.shutdown()
+                scheduler.shutdown(wait=False) # MODIFIED: Added wait=False
             logger.info("Scheduler stopped.")
 
         @app.get("/")
@@ -2891,6 +3085,19 @@ def create_app():
         # Include the new Yahoo Job API router
         app.include_router(yahoo_job_api_router)
         logger.info("Included Yahoo Job API router.")
+
+        # --- Mount Static Files (Corrected Placement) ---
+        # Ensure static files are mounted correctly relative to the execution path or package structure.
+        # If V3_web.py is in src/V3_app, and static is src/V3_app/static:
+        static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+        # --- End Mount Static Files ---
+
+        # --- Include Routers ---
+        app.include_router(utilities_router.router) # Include the utilities router
+        app.include_router(yahoo_job_api_router, prefix="/api/v3/jobs", tags=["Jobs - Yahoo"]) # Existing Yahoo job router
+        app.include_router(finviz_job_api_router, prefix="/api/v3/jobs", tags=["Jobs - Finviz"]) # NEW: Include Finviz job router
+        # --- End Include Routers ---
 
         logger.info("FastAPI app instance created and configured successfully with Yahoo Job module.")
         return app 

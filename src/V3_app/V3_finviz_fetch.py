@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import logging
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable
 import asyncio
 import os
 
@@ -248,291 +248,304 @@ async def update_screener_from_finviz(repository):
             logger.warning("No data found in finviz_raw table. Skipping screener update.")
             return
         
+        # 2. Parse and update each ticker in screener
         update_count = 0
-        error_count = 0
-        # 2. Loop through each record, parse, and update screener
-        for record in all_raw_data:
-            ticker = record.get('ticker')
-            raw_data_str = record.get('raw_data')
+        for raw_entry in all_raw_data:
+            ticker = raw_entry['ticker']
+            raw_data_str = raw_entry.get('raw_data', '')
             
-            if not ticker or not raw_data_str:
-                logger.warning(f"Skipping record due to missing ticker or raw_data: {record}")
+            if not raw_data_str:
+                logger.debug(f"Skipping ticker {ticker} due to empty raw_data.")
                 continue
                 
-            # 3. Parse the raw data string
             parsed_data = parse_raw_data(raw_data_str)
             if not parsed_data:
-                logger.warning(f"Could not parse raw data for ticker {ticker}. Skipping update.")
+                logger.debug(f"Skipping ticker {ticker} as parsed_data is empty.")
                 continue
                 
-            # 4. Prepare updates for the screener table
-            updates_for_screener = {}
+            # Prepare updates for the screener table
+            # Example: update 'sector', 'industry', 'price' if they exist in parsed_data
+            updates = {}
+            if 'Sector' in parsed_data:
+                updates['sector'] = parsed_data['Sector']
+            if 'Industry' in parsed_data:
+                updates['industry'] = parsed_data['Industry']
+            if 'Price' in parsed_data:
+                updates['price'] = parsed_data['Price']
+            # Add more fields as needed
             
-            # Get values from the parsed Finviz data
-            # Ensure keys exist before accessing
-            sector = parsed_data.get('Sector')
-            industry = parsed_data.get('Industry')
-            beta = parsed_data.get('Beta')
-            atr = parsed_data.get('ATR (14)')
-            company_name = parsed_data.get('Name') 
-
-            # LOGGING: Check the value and type of ATR before the check
-            logger.info(f"[Finviz Update Info] Checking ATR for {ticker}: Value='{atr}', Type={type(atr)}")
-
-            # Add to updates dict only if the value is not None
-            if sector is not None:
-                updates_for_screener['sector'] = sector
-            if industry is not None:
-                updates_for_screener['industry'] = industry
-            if beta is not None:
-                # Check if beta is a valid float/int before adding
-                if isinstance(beta, (float, int)):
-                     updates_for_screener['beta'] = beta
-                else:
-                    logger.warning(f"[Finviz Update] Invalid Beta '{beta}' (type: {type(beta)}) found for {ticker}. Skipping Beta update.")
-            if isinstance(atr, (float, int)) and atr > 0: # Check if it's a positive number
-                updates_for_screener['atr'] = atr
-                logger.debug(f"[Finviz Update] Adding valid ATR {atr} for {ticker} to updates.")
-            elif atr is None: # Explicitly handle None (Finviz displayed '-')
-                updates_for_screener['atr'] = None # Add None to potentially clear DB field
-                logger.info(f"[Finviz Update] ATR for {ticker} is None (from Finviz ''). Adding None to updates.")
-            if company_name is not None:
-                updates_for_screener['Company'] = company_name # Use 'Company' key for DB
-            
-            # Check if there are any updates to apply
-            if updates_for_screener:
-                logger.info(f"[Finviz Update] Applying updates for {ticker}: {updates_for_screener}")
-                # --- Corrected Call: Loop through updates ---
-                update_errors = 0
-                for field, value in updates_for_screener.items():
-                    try:
-                        # Call the DB method for each field-value pair
-                        await repository.update_screener_ticker_details(ticker, field, value)
-                    except ValueError as ve: # Catch errors like "Ticker not found" or "Invalid value"
-                        logger.error(f"[Finviz Update] Error updating {field}={value} for {ticker}: {ve}")
-                        update_errors += 1
-                        # Decide if we should break or continue on error
-                        # break # Stop updating this ticker on first error
-                        # continue # Continue with next field for this ticker
-                    except Exception as e:
-                        logger.error(f"[Finviz Update] Unexpected error updating {field}={value} for {ticker}: {e}", exc_info=True)
-                        update_errors += 1
-                        # break # Stop updating this ticker
-                        # continue # Continue with next field
-                        
-                if update_errors == 0:
-                    logger.info(f"[Finviz Update] Successfully applied all updates for {ticker}.")
-                    update_count += 1
-                else:
-                    logger.warning(f"[Finviz Update] Encountered {update_errors} errors while applying updates for {ticker}.")
-                    error_count += 1
-                # --- End Corrected Call ---
-            else:
-                logger.info(f"[Finviz Update] No relevant updates found in Finviz data for {ticker}.")
-
-        logger.info("Screener update process finished.")
-        logger.info(f"Screener records updated: {update_count}, Errors/Skipped: {error_count}")
-
-    except Exception as e:
-        logger.error(f"An error occurred during the screener update process: {e}", exc_info=True)
-
-# --- Finviz Fetch Service (Code before this function needs adjustment) ---
-async def fetch_and_store_finviz_data(repository):
-    """ 
-    Fetches Finviz data for all tickers in the screener table and stores 
-    the raw data in the finviz_raw table.
-    
-    Args:
-        repository: An instance of the SQLiteRepository.
-    """
-    logger.info("Starting Finviz data fetch process...")
-    try:
-        # 0. Clear the existing finviz_raw table data
-        logger.info("Clearing existing Finviz raw data...")
-        await repository.clear_finviz_raw_data()
-        
-        # 1. Get tickers from the screener table
-        logger.info("Fetching tickers from screener table...")
-        screened_tickers_data = await repository.get_all_screened_tickers() 
-        if not screened_tickers_data:
-            logger.warning("No tickers found in the screener table. Aborting Finviz fetch.")
-            return
-        
-        # Create a list of tickers and a mapping for t_source1 lookup
-        tickers = []
-        ticker_to_source1 = {}
-        for item in screened_tickers_data:
-            ticker = item.get('ticker')
-            if ticker:
-                tickers.append(ticker)
-                ticker_to_source1[ticker] = item.get('t_source1') # Store t_source1, might be None
-                
-        logger.info(f"Found {len(tickers)} tickers to process.")
-
-        processed_count = 0
-        failed_count = 0
-        # 2. Loop through tickers, fetch data, and store
-        for ticker in tickers:
-            logger.info(f"Processing ticker: {ticker} ({processed_count + failed_count + 1}/{len(tickers)})")
-            # 3. Fetch data using get_stock_data with the primary ticker
-            finviz_data = await get_stock_data(ticker)
-            
-            # 3a. If fetch failed, try using t_source1 as alternative symbol
-            if not finviz_data:
-                alternative_symbol = ticker_to_source1.get(ticker)
-                if alternative_symbol and alternative_symbol.strip():
-                    logger.info(f"Primary ticker {ticker} failed, trying alternative symbol: {alternative_symbol}")
-                    finviz_data = await get_stock_data(alternative_symbol)
-                    if finviz_data:
-                        logger.info(f"Successfully fetched data for {ticker} using alternative symbol {alternative_symbol}")
-                    else:
-                        logger.warning(f"Failed to fetch Finviz data for {ticker} using both primary and alternative symbol {alternative_symbol}.")
-                # else: # No need for else, just proceeds if finviz_data is still None
-                #    logger.warning(f"Failed to fetch Finviz data for {ticker} (no alternative symbol available).")
-            
-            # 4. Store raw data if fetch was successful (using either symbol)
-            if finviz_data:
+            if updates:
                 try:
-                    # Serialize the data first
-                    raw_data_str = serialize_raw_data(finviz_data)
-                    # IMPORTANT: Always save using the original ticker from the screener table
-                    # Call the NEW repository method
-                    await repository.save_or_update_finviz_raw_data(ticker, raw_data_str) 
-                    processed_count += 1
-                except Exception as db_err:
-                    logger.error(f"Database error saving Finviz data for {ticker}: {db_err}", exc_info=True)
-                    failed_count += 1
+                    # This method needs to exist in SQLiteRepository
+                    await repository.update_screener_multi_fields(ticker, updates) 
+                    update_count += 1
+                    logger.debug(f"Successfully updated screener for {ticker} with fields: {list(updates.keys())}")
+                except Exception as e:
+                    logger.error(f"Error updating screener for {ticker}: {e}", exc_info=False) # Keep log concise
             else:
-                # This log now correctly reflects failure after trying both primary and alternative
-                logger.warning(f"Failed to fetch Finviz data for {ticker}. Skipping database save.") 
-                failed_count += 1
-            
-            # Optional: Add a small delay to avoid hammering Finviz too hard
-            # await asyncio.sleep(0.5) # Example: 0.5 second delay
+                logger.debug(f"No relevant fields found in parsed_data for {ticker} to update screener.")
 
-        logger.info(f"Finviz data fetch process completed.")
-        logger.info(f"Successfully processed: {processed_count}, Failed: {failed_count}")
+        logger.info(f"Screener update process completed. Updated {update_count} tickers.")
 
     except Exception as e:
-        logger.error(f"An error occurred during the Finviz fetch process: {e}", exc_info=True)
+        logger.error(f"Error during screener update from Finviz: {e}", exc_info=True)
 
-# --- NEW Function for Analytics Finviz Fetch --- 
-async def fetch_and_store_analytics_finviz(repository, tickers: List[str]):
-    """
-    Fetches Finviz data for a given list of tickers and stores it 
-    in the analytics_raw table.
 
-    Args:
-        repository: An instance of the SQLiteRepository.
-        tickers: A list of ticker symbols to process.
+# Fetch and store data for a list of tickers (used by analytics pipe)
+async def fetch_and_store_finviz_data(repository): # Keep existing for scheduled job compatibility for now
+    """Fetches Finviz data for all tickers in the screener and stores it."""
+    logger.info("Starting Finviz data fetch for all screener tickers...")
+    try:
+        screener_tickers_dicts = await repository.get_all_screened_tickers()
+        if not screener_tickers_dicts:
+            logger.warning("No tickers found in the screener. Skipping Finviz data fetch.")
+            return {"success_count": 0, "failed_count": 0, "errors": [], "message": "No tickers in screener."}
+
+        tickers = [item['ticker'] for item in screener_tickers_dicts if item.get('ticker')]
+        if not tickers:
+            logger.warning("Ticker list extracted from screener is empty.")
+            return {"success_count": 0, "failed_count": 0, "errors": [], "message": "Extracted ticker list is empty."}
+
+        logger.info(f"Fetching Finviz data for {len(tickers)} tickers from screener.")
         
-    Returns:
-        A dictionary containing the status and a summary message. 
-        Example: {"status": "completed", "message": "Processed 10/12 tickers."}
+        successful_count = 0
+        failed_count = 0
+        errors_list = []
+
+        for ticker in tickers:
+            stock_data = await get_stock_data(ticker)
+            if stock_data:
+                raw_data_str = serialize_raw_data(stock_data)
+                try:
+                    await repository.save_or_update_analytics_raw_data(ticker, 'finviz', raw_data_str)
+                    successful_count += 1
+                    logger.debug(f"Successfully fetched and stored Finviz data for {ticker}")
+                except Exception as e_save:
+                    logger.error(f"Error saving Finviz data for {ticker} to analytics_raw: {e_save}")
+                    failed_count += 1
+                    errors_list.append({"ticker": ticker, "error": str(e_save)})
+            else:
+                logger.warning(f"Failed to fetch Finviz data for {ticker}")
+                failed_count += 1
+                errors_list.append({"ticker": ticker, "error": "Failed to fetch data from Finviz"})
+        
+        total_processed = successful_count + failed_count
+        summary_msg = f"Finviz data fetch for screener completed. Fetched: {successful_count}/{total_processed}. Errors: {failed_count}."
+        logger.info(summary_msg)
+        return {
+            "success_count": successful_count, 
+            "failed_count": failed_count, 
+            "errors": errors_list,
+            "message": summary_msg
+        }
+    except Exception as e:
+        logger.error(f"Error in fetch_and_store_finviz_data: {e}", exc_info=True)
+        return {
+            "success_count": 0, 
+            "failed_count": 0, # Assume all failed if error here
+            "errors": [{"ticker": "GENERAL", "error": str(e)}],
+            "message": f"General error in Finviz data fetch: {e}"
+        }
+
+async def fetch_and_store_analytics_finviz(
+    repository, 
+    tickers: List[str], 
+    progress_callback: Optional[Callable] = None
+):
     """
-    logger.info(f"[Analytics Fetch] Starting Finviz data fetch for analytics_raw table for {len(tickers)} tickers.")
+    Fetches Finviz data for a given list of tickers and stores it in analytics_raw.
+    Includes progress callback and detailed return status.
+    """
     if not tickers:
-        logger.warning("[Analytics Fetch] No tickers provided for Finviz analytics fetch. Skipping.")
-        return {"status": "completed", "message": "No tickers provided."} # Return status dict
+        logger.warning("fetch_and_store_analytics_finviz called with an empty ticker list.")
+        return {"success_count": 0, "failed_count": 0, "errors": [], "message": "No tickers provided."}
 
     total_tickers = len(tickers)
-    processed_count = 0
+    logger.info(f"Starting Finviz analytics data fetch for {total_tickers} tickers.")
+    
+    successful_count = 0
     failed_count = 0
-    source_name = "finviz" # Define source explicitly
+    errors_list = []
 
-    for ticker in tickers:
-        logger.info(f"[Analytics Fetch] Processing {ticker} ({processed_count + failed_count + 1}/{total_tickers}) for {source_name} analytics.")
+    for idx, ticker in enumerate(tickers):
+        ticker_had_errors = False
+        error_message_for_ticker = "Unknown error"
         try:
-            # 1. Fetch data using existing function
-            # Note: get_stock_data handles ticker variations (e.g., BRK.B vs BRK-B)
-            finviz_data_dict = await get_stock_data(ticker)
-
-            if finviz_data_dict:
-                # 2. Serialize the fetched data dictionary
-                raw_data_str = serialize_raw_data(finviz_data_dict)
-                
-                # 3. Store in the analytics_raw table
-                await repository.save_or_update_analytics_raw_data(ticker, source_name, raw_data_str)
-                processed_count += 1
+            logger.debug(f"Processing ticker {idx+1}/{total_tickers}: {ticker}")
+            stock_data = await get_stock_data(ticker)
+            if stock_data:
+                raw_data_str = serialize_raw_data(stock_data)
+                try:
+                    await repository.save_or_update_analytics_raw_data(ticker, 'finviz', raw_data_str)
+                    successful_count += 1
+                    logger.debug(f"Successfully fetched and stored Finviz data for {ticker} (analytics).")
+                except Exception as e_save:
+                    logger.error(f"Error saving Finviz data for {ticker} to analytics_raw: {e_save}")
+                    failed_count += 1
+                    errors_list.append({"ticker": ticker, "error": str(e_save)})
+                    ticker_had_errors = True
+                    error_message_for_ticker = str(e_save)
             else:
-                # Log failure if get_stock_data returned None after trying variations
-                logger.warning(f"[Analytics Fetch] Failed to fetch Finviz data for {ticker} (for analytics). Skipping database save.")
+                logger.warning(f"Failed to fetch Finviz data for {ticker} (analytics).")
                 failed_count += 1
-                # Optionally: Save a record indicating failure?
-                # await repository.save_or_update_analytics_raw_data(ticker, source_name, "FETCH_FAILED")
-
-            # Optional small delay
-            # await asyncio.sleep(0.1) 
-
-        except Exception as e:
-            logger.error(f"[Analytics Fetch] Error processing ticker {ticker} for {source_name} analytics: {e}", exc_info=True)
-            failed_count += 1
-
-    logger.info(f"[Analytics Fetch] {source_name.capitalize()} data fetch for analytics completed.")
-    logger.info(f"[Analytics Fetch] Successfully processed: {processed_count}, Failed: {failed_count}")
-    
-    # Construct final message and status
-    final_status = "completed" if failed_count == 0 else "partial_failure"
-    if processed_count == 0 and failed_count > 0:
-        final_status = "failed"
+                errors_list.append({"ticker": ticker, "error": "Failed to fetch data from Finviz"})
+                ticker_had_errors = True
+                error_message_for_ticker = "Failed to fetch data from Finviz"
         
-    final_message = f"Processed {processed_count}/{total_tickers} tickers. Failures: {failed_count}."
+        except Exception as e_outer:
+            logger.error(f"Outer loop exception processing ticker {ticker}: {e_outer}", exc_info=True)
+            failed_count += 1
+            errors_list.append({"ticker": ticker, "error": str(e_outer)})
+            ticker_had_errors = True
+            error_message_for_ticker = str(e_outer)
+
+        if progress_callback:
+            try:
+                await progress_callback(
+                    current_idx=idx + 1,
+                    total_items=total_tickers,
+                    last_ticker_processed=ticker,
+                    ticker_had_errors=ticker_had_errors
+                )
+            except Exception as cb_exc:
+                logger.error(f"Error in progress_callback for ticker {ticker}: {cb_exc}", exc_info=True)
+
+    summary_msg = f"Finviz analytics data fetch completed. Processed: {total_tickers}, Successful: {successful_count}, Errors: {failed_count}."
+    if errors_list:
+        summary_msg += f" First error on: {errors_list[0]['ticker']} - {errors_list[0]['error'][:50]}..."
+
+    logger.info(summary_msg)
     
-    return {"status": final_status, "message": final_message} # Return status dict
-# --- END NEW Function --- 
+    return {
+        "success_count": successful_count,
+        "failed_count": failed_count,
+        "errors": errors_list,
+        "message": summary_msg
+    }
 
+# For testing this module directly
 if __name__ == '__main__':
-    # Import the repository (adjust path if necessary based on your structure)
-    # Assuming V3_database.py is in the same directory or accessible via PYTHONPATH
+    # This is a basic test setup. You'll need to ensure your DB path is correct
+    # and that the SQLiteRepository class is accessible.
+    
+    # --- Determine the correct path to the database ---
+    # Assuming this script is in src/V3_app and the DB is in src/V3_app/database/
+    # Adjust if your structure is different.
+    current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    db_relative_path = os.path.join('..', '..', 'database', 'V3_app_main.db') # Path from src/V3_app to database/
+    # db_absolute_path = os.path.abspath(os.path.join(current_script_dir, db_relative_path))
+    
+    # --- MORE ROBUST PATH: Assume DB is in the same directory as this script for simplicity in test ---
+    # --- OR, one level up in a 'database' folder if this script is in 'src/V3_app' ---
+    # For example, if V3_finviz_fetch.py is in src/V3_app/
+    # and V3_app_main.db is in src/database/
+    # db_path = os.path.join(os.path.dirname(current_script_dir), 'database', 'V3_app_main.db') # Two levels up then into database
+    
+    # Let's simplify and assume the DB is directly in a 'database' subdir relative to 'src'
+    # and this script is in 'src/V3_app'
+    # So, from 'src/V3_app' go up to 'src', then into 'database'
+    
+    # --- Safest relative path assuming script is in src/V3_app and DB in src/database/V3_app_main.db ---
+    db_path_from_src_V3_app = os.path.join(current_script_dir, '..', 'database', 'V3_app_main.db')
+    
+    # If you run this script directly from the workspace root (e.g. /c%3A/Users/zoumb/financial-app/)
+    # then the path might be 'src/database/V3_app_main.db'
+    # This needs to be robust. The get_db_path from V3_web.py is more reliable.
+    # For this standalone test, we might need to hardcode or use an env var.
+    
+    # Let's assume we are running from workspace root: financial-app/
+    # and the script is financial-app/src/V3_app/V3_finviz_fetch.py
+    # and DB is financial-app/src/database/V3_app_main.db
+    
+    # Simplification for test: Assume DB is where it's expected for the app
+    # This will likely fail if run standalone without the app's full context/PYTHONPATH.
+    # The test below requires SQLiteRepository to be importable.
+    
+    # To make this test runnable standalone more easily:
+    # 1. Add `src` to PYTHONPATH: `export PYTHONPATH=$PYTHONPATH:/path/to/your/financial-app/src`
+    # 2. Or, modify sys.path within the script (less ideal for production code)
+    import sys
+    # Assuming the script is in financial-app/src/V3_app/
+    # We want to add financial-app/src/ to sys.path
+    project_src_dir = os.path.abspath(os.path.join(current_script_dir, '..'))
+    if project_src_dir not in sys.path:
+        sys.path.insert(0, project_src_dir)
+        
+    # Now try importing (this might still fail depending on your exact structure)
     try:
-        from V3_database import SQLiteRepository
+        from V3_app.V3_database import SQLiteRepository # Assuming SQLiteRepository is in V3_database.py within V3_app
     except ImportError:
-        # Handle case where the script might be run from a different context
-        import sys
-        # Assuming V3_database is in the same parent directory as the script's dir
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        sys.path.append(os.path.dirname(current_dir)) # Add parent directory
-        from V3_app.V3_database import SQLiteRepository
+        print("Failed to import SQLiteRepository. Ensure PYTHONPATH is set correctly or adjust import paths.")
+        print(f"Current sys.path: {sys.path}")
+        print(f"Attempted to add project_src_dir: {project_src_dir}")
+        sys.exit(1)
 
-    # --- Test get_stock_data (optional, keep if useful) ---
-    # test_symbol = 'AAPL' 
-    # logger.info(f"Testing get_stock_data for symbol: {test_symbol}")
-    # stock_data = get_stock_data(test_symbol)
-    # if stock_data: print(f"Data for {test_symbol} found.")
-    # else: print(f"Data for {test_symbol} not found.")
-    # -----------------------------------------------------
+    # Construct DB URL for SQLiteRepository
+    # Assuming db_path_from_src_V3_app is the correct relative path from script location
+    db_file_path = os.path.abspath(db_path_from_src_V3_app)
+    DATABASE_URL = f"sqlite+aiosqlite:///{db_file_path}"
+    print(f"Using Database URL: {DATABASE_URL}")
+
 
     async def main_test():
         # Point to your actual database file
-        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'V3_database.db')
-        db_url = f"sqlite+aiosqlite:///{db_path}"
-        repository = SQLiteRepository(db_url)
-        
-        # Ensure the finviz_raw table exists (important for first run)
-        logger.info("Ensuring database tables exist...")
-        await repository.create_tables() 
-        
-        logger.info("Running Finviz fetch and store process...")
-        await fetch_and_store_finviz_data(repository)
-        
-        logger.info("Running screener update from Finviz raw data process...")
-        await update_screener_from_finviz(repository)
-        
-        # --- ADD TEST CODE FOR analytics_raw ---
-        # logger.info("--- Testing analytics_raw table save --- ")
-        # test_ticker = "TESTAAPL"
-        # test_source = "finviz"
-        # test_raw_data = "P/E=25,MarketCap=2T,Test=Value"
-        # await repository.save_or_update_analytics_raw_data(test_ticker, test_source, test_raw_data)
-        # # Test update
-        # test_raw_data_updated = "P/E=26,MarketCap=2.1T,Test=UpdatedValue,NewField=123"
-        # await repository.save_or_update_analytics_raw_data(test_ticker, test_source, test_raw_data_updated)
-        # # Test different source
-        # await repository.save_or_update_analytics_raw_data(test_ticker, "test_source", "Source=Test,Value=ABC")
-        # logger.info("--- Finished testing analytics_raw table save --- ")
-        # --- END TEST CODE ---
+        # repository = SQLiteRepository("sqlite+aiosqlite:///../database/V3_app_main.db") # Example path
+        repository = SQLiteRepository(DATABASE_URL) # Use constructed URL
 
-        logger.info("Test finished.")
+        # Test 1: Fetch data for a single known ticker (if get_stock_data is to be tested standalone)
+        # symbol_to_test = "AAPL" 
+        # print(f"--- Testing get_stock_data for {symbol_to_test} ---")
+        # data = await get_stock_data(symbol_to_test)
+        # if data:
+        #     print(f"Data for {symbol_to_test}:")
+        #     for key, value in data.items():
+        #         print(f"  {key}: {value}")
+        #     # Test serialization
+        #     raw_str = serialize_raw_data(data)
+        #     print(f"  Serialized: {raw_str[:100]}...") # Print first 100 chars
+        #     # Test parsing
+        #     parsed_back = parse_raw_data(raw_str)
+        #     print(f"  Parsed back (first 3 items): {list(parsed_back.items())[:3]}")
+        # else:
+        #     print(f"No data found for {symbol_to_test}")
 
-    # Run the async main function
+        # Test 2: Fetch and store data for a list of tickers (analytics pipe)
+        # test_tickers = ["MSFT", "GOOGL", "NONEXISTENTTICKER"] 
+        test_tickers = ["MSFT", "GOOGL", "TSLA", "NVDA", "AMZN", "BRK-A", "BRK-B", "META", "UNH", "XOM"]
+        print(f"\n--- Testing fetch_and_store_analytics_finviz for tickers: {test_tickers} ---")
+        
+        async def sample_progress_callback(current_idx, total_items, last_ticker_processed, ticker_had_errors):
+            print(f"[Progress CB] {current_idx}/{total_items} - Ticker: {last_ticker_processed}, Error: {ticker_had_errors}")
+
+        results = await fetch_and_store_analytics_finviz(repository, test_tickers, progress_callback=sample_progress_callback)
+        print("Results of fetch_and_store_analytics_finviz:")
+        print(f"  Message: {results.get('message')}")
+        print(f"  Success Count: {results.get('success_count')}")
+        print(f"  Failed Count: {results.get('failed_count')}")
+        if results.get('errors'):
+            print("  Errors:")
+            for err in results.get('errors')[:3]: # Print first 3 errors
+                print(f"    - Ticker: {err['ticker']}, Error: {err['error']}")
+            if len(results.get('errors')) > 3:
+                print(f"    ... and {len(results.get('errors')) - 3} more errors.")
+        
+        # Test 3: Update screener from raw data (optional, depends on data being in finviz_raw)
+        # print("\n--- Testing update_screener_from_finviz ---")
+        # await update_screener_from_finviz(repository) # This requires data in finviz_raw table
+
+        # Test 4: Fetch and store data for all screener tickers (original scheduled job logic)
+        # print("\n--- Testing fetch_and_store_finviz_data (for all screener) ---")
+        # all_screener_results = await fetch_and_store_finviz_data(repository)
+        # print("Results of fetch_and_store_finviz_data (all screener):")
+        # print(f"  Message: {all_screener_results.get('message')}")
+        # print(f"  Success Count: {all_screener_results.get('success_count')}")
+        # print(f"  Failed Count: {all_screener_results.get('failed_count')}")
+        # if all_screener_results.get('errors'):
+        #     print("  Errors:")
+        #     for err in all_screener_results.get('errors')[:3]: # Print first 3 errors
+        #         print(f"    - Ticker: {err['ticker']}, Error: {err['error']}")
+        #     if len(all_screener_results.get('errors')) > 3:
+        #         print(f"    ... and {len(all_screener_results.get('errors')) - 3} more errors.")
+
+
     asyncio.run(main_test()) 

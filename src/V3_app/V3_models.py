@@ -2,7 +2,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 
 class TickerListPayload(BaseModel):
-    tickers: List[str] = Field(..., min_items=1)
+    source: str
+    tickers: List[str] = []
 
 class YahooFetchTriggerResponse(BaseModel):
     message: str

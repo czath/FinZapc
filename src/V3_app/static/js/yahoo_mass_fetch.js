@@ -448,15 +448,15 @@
             const response = await fetch('/api/analytics/yahoo-job/trigger', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tickers: tickersToFetch })
+                body: JSON.stringify({ source: source, tickers: tickersToFetch })
             });
             const triggerResultJobDetails = await response.json(); // Parse the response from /trigger
 
             if (!response.ok) {
                 const errorMsg = triggerResultJobDetails.detail || `Failed to trigger job: ${response.statusText}`;
                 resetUIForNewFetch();
-                showStatus(errorMsg, 'error');
-                throw new Error(errorMsg);
+                showStatus(JSON.stringify(errorMsg), 'error');
+                throw new Error(JSON.stringify(errorMsg));
             }
             
             console.log('[Job Triggered] Received initial job details from /trigger POST:', triggerResultJobDetails);
