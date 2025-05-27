@@ -366,59 +366,13 @@
             <h5>Data Import Sources</h5>
             <p>Import raw data from external sources.</p>
 
-            {# --- Finviz Import Card --- #}
-            <div class="my-3 p-3 border rounded bg-body-tertiary">
-                <h5 class="mb-3">Import from Finviz</h5>
-                <div class="row gy-3"> {# Use row with gutter spacing #}
-                    
-                    {# --- Column 1: Screened Tickers --- #}
-                    <div class="col-md-6">
-                        <h6>All Tracked Tickers</h6>
-                        <p class="small text-muted mb-2">Fetch data for tickers currently in the <strong>tracker list</strong>.</p>
-                        <button id="run-finviz-btn" class="btn btn-primary" style="max-width: 200px;">
-                            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span> <!-- Spinner -->
-                            <span class="button-text">Fetch Tracked</span> <!-- Text -->
-                        </button>
-                         <span id="finviz-status" class="ms-1 mt-1 d-block small"></span> {# Moved status below button #}
-                    </div>
-                    {# --- End Column 1 --- #}
-
-                    {# --- Column 2: Custom List --- #}
-                    <div class="col-md-6">
-                        <h6>Custom List</h6>
-                        <p class="small text-muted mb-2">Upload a .txt file (one ticker per line).</p>
-                        
-                        {# Button First #}
-                        <button id="run-finviz-upload-btn" class="btn btn-primary mb-2" disabled style="max-width: 200px;">
-                            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span> <!-- Spinner -->
-                            <span class="button-text">Fetch Uploaded</span> <!-- Text -->
-                        </button>
-                        <span id="finviz-upload-status" class="ms-1 mt-1 d-block small mb-2"></span> {# Status below button #}
-
-                        {# Hidden File Input #}
-                        <input type="file" id="ticker-file-input" accept=".txt" style="display: none;">
-
-                        {# Drag and Drop Zone Below Button #}
-                        <div id="drop-zone" class="border rounded p-4 text-center" style="cursor: pointer; border-style: dashed !important; background-color: var(--bs-tertiary-bg);">
-                            <p class="mb-0">
-                                <span class="status-icon bi bi-cloud-arrow-up me-2 align-middle"></span>
-                                <span class="status-text">Drag & drop .txt file or click</span>
-                            </p>
-                        </div>
-                        
-                    </div>
-                    {# --- End Column 2 --- #}
-                </div>
-            </div>
-            {# --- End Finviz Import Card --- #}
-
             {# --- Yahoo Mass Fetch Card --- #}
             <div class="my-3 p-3 border rounded bg-body-tertiary">
-                <h5 class="mb-3">Yahoo Mass Fetch</h5>
+                <h5 class="mb-3">Yahoo Data Fetch</h5>
                 <div class="row gy-3">
                     <div class="col-md-12">
                         <div class="mb-3">
-                            <label for="yahoo-mf-source" class="form-label">Select Ticker Source:</label>
+                            <label for="yahoo-mf-source" class="form-label">Select Data Source:</label>
                             <select id="yahoo-mf-source" class="form-select" style="max-width: 350px;">
                                 <option value="upload">Uploaded TXT file</option>
                                 <option value="screener">Screener table</option>
@@ -446,10 +400,7 @@
                         <input type="file" id="yahoo-mf-file" accept=".txt" style="display: none;">
                         
                         <div class="mb-3">
-                            <button id="yahoo-mf-fetch" class="btn btn-success" disabled>
-                                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span>
-                                <span class="button-text">Fetch</span>
-                            </button>
+                            <button id="yahoo-mf-fetch" class="btn btn-success" disabled><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display: none;"></span><span class="button-text">Fetch Yahoo Data</span></button>
                         </div>
                         
                         <div id="yahoo-mf-status" class="mt-2 small text-muted"></div>
@@ -460,13 +411,13 @@
 
             <!-- --- NEW: Finviz Mass Data Fetch Pane (REVISED) --- -->
             <div class="my-3 p-3 border rounded bg-body-tertiary"> {# Applied Yahoo's container style #}
-                <h5 class="mb-3">Finviz Mass Data Fetch</h5>
+                <h5 class="mb-3">Finviz Data Fetch</h5>
                 <div class="row gy-3">
                     <div class="col-md-12">
                         <div class="mb-3">
-                            <label for="finviz-data-source-select" class="form-label">Data Source:</label>
+                            <label for="finviz-data-source-select" class="form-label">Select Data Source:</label>
                             <select class="form-select" id="finviz-data-source-select" style="max-width: 350px;"> {# Removed disabled, added max-width #}
-                                <option value="finviz_screener">Finviz Screener (Default)</option>
+                                <option value="finviz_screener">Screener table</option>
                                 <option value="upload_finviz_txt" selected>Upload TXT file</option> {# Made Upload TXT default #}
                             </select>
                             <small class="form-text text-muted" id="finviz-source-help-text">
@@ -490,11 +441,11 @@
                             </button>
                         </div>
                         
-                        <div id="finviz-progress-bar-container" class="progress-container mt-3" style="display: none;">
-                            <div class="progress">
-                                <div id="finviz-progress-bar" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
-                            </div>
+                        {# Corrected Finviz Progress Bar Structure #}
+                        <div id="finviz-progress-bar-container" style="display: none;"> 
+                            <div id="finviz-progress-bar" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
                         </div>
+
                         <div id="finviz-status-div" class="mt-2 small text-muted"></div> {# Matched Yahoo status div style #}
                     </div>
                 </div>

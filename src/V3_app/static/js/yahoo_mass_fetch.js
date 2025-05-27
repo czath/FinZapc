@@ -5,10 +5,13 @@
     let isFetching = false;
     let currentTickers = [];
     let jobPollIntervalId = null;
+    let activeYahooJobTriggerTime = null; // For filtering stale poll data
 
     // --- UI Elements (ensure these are fetched after DOM is ready) ---
     let sourceSelect, dropZone, fileInput, fetchBtn, statusDiv, tickerSummaryDiv, progressBarContainer, progressBar;
     const originalFetchButtonText = "Fetch Yahoo Data"; // Store original button text
+    let yahooSourceHelpText; // Added for the help text
+    let dropZoneTextSpan; // Added for the text span inside dropzone
 
     function initializeDOMElements() {
         sourceSelect = document.getElementById('yahoo-mf-source');
@@ -18,6 +21,18 @@
         statusDiv = document.getElementById('yahoo-mf-status');
         progressBarContainer = document.getElementById('yahoo-mf-progress-container');
         progressBar = document.getElementById('yahoo-mf-progress-bar');
+        // Ensure dropZoneTextSpan is correctly identified or created if needed.
+        // The selector looks for .dropzone-text first, then .status-text as a fallback.
+        if (dropZone) {
+            dropZoneTextSpan = dropZone.querySelector('.dropzone-text');
+            if (!dropZoneTextSpan) { // If .dropzone-text is not found, try .status-text
+                dropZoneTextSpan = dropZone.querySelector('.status-text');
+            }
+            // If neither is found, and we need one, it should be created. 
+            // For now, assuming one of these classes is present in the HTML span inside the dropzone.
+        } else {
+            dropZoneTextSpan = null;
+        }
 
         // Create tickerSummaryDiv if it doesn't exist (idempotent)
         tickerSummaryDiv = document.getElementById('yahoo-mf-ticker-summary');
@@ -25,6 +40,16 @@
             tickerSummaryDiv = createEl('div', { id: 'yahoo-mf-ticker-summary', class: 'mt-2 small text-muted' });
             fetchBtn.parentNode.insertBefore(tickerSummaryDiv, fetchBtn.nextSibling);
         }
+
+        // Create yahooSourceHelpText if it doesn't exist (idempotent)
+        yahooSourceHelpText = document.getElementById('yahoo-source-help-text');
+        if (!yahooSourceHelpText && sourceSelect && sourceSelect.parentNode) {
+            yahooSourceHelpText = createEl('div', { id: 'yahoo-source-help-text', class: 'form-text small mt-1 mb-2', style: 'color: var(--bs-secondary-color);'});
+            // Insert it after the sourceSelect dropdown, or its direct parent if the parent is a wrapper.
+            // Assuming sourceSelect.parentNode is a good place to append relative to the dropdown.
+            sourceSelect.parentNode.insertBefore(yahooSourceHelpText, sourceSelect.nextSibling);
+        }
+
         // Create progress bar dynamically if it doesn't exist (idempotent)
         if (!progressBarContainer && statusDiv && statusDiv.parentNode) {
             progressBarContainer = createEl('div', { id: 'yahoo-mf-progress-container', class: 'progress mt-2', style: 'height: 20px; display: none;' });
@@ -38,7 +63,7 @@
                 'aria-valuemax': '100' 
             });
             progressBarContainer.appendChild(progressBar);
-            statusDiv.parentNode.insertBefore(progressBarContainer, statusDiv.nextSibling);
+            statusDiv.parentNode.insertBefore(progressBarContainer, statusDiv);
         } else if (progressBarContainer) {
             // Ensure it starts hidden
              progressBarContainer.style.display = 'none';
@@ -61,40 +86,40 @@
     }
 
     function showTickerSummary(tickers) {
-        if (!tickerSummaryDiv) return;
-        if (!tickers || !tickers.length) {
-            tickerSummaryDiv.textContent = 'No tickers found.';
-            if(fetchBtn) fetchBtn.disabled = true;
-            return;
+        // This function is now primarily for enabling/disabling the fetch button based on ticker count.
+        // The display of ticker summary is handled directly in handleFileSelect within the dropzone.
+        if (!fetchBtn) return;
+        fetchBtn.disabled = !tickers || tickers.length === 0;
+
+        // Clear or hide tickerSummaryDiv as it's no longer the primary display for file parse results.
+        if (tickerSummaryDiv) {
+            tickerSummaryDiv.textContent = ''; // Clear it
+            // Alternatively, hide it: tickerSummaryDiv.style.display = 'none';
         }
-        const exampleCount = Math.min(5, tickers.length);
-        const exampleTickers = tickers.slice(0, exampleCount).join(', ');
-        const selectedSource = sourceSelect ? sourceSelect.value : 'unknown';
-        let message = `Tickers found: ${tickers.length}. Example: ${exampleTickers}${tickers.length > exampleCount ? ', ...' : ''}`;
-        
-        if (selectedSource === 'pretrans') {
-            message += ' (from loaded data)';
-        } else if (selectedSource === 'posttrans') {
-            const mainModule = window.AnalyticsMainModule;
-            if (!mainModule) {
-                message += ' (analytics module not available)';
-            } else {
-                const preData = mainModule.getFullProcessedData() || [];
-                const postData = mainModule.getFinalDataForAnalysis() || [];
-                const hasTransformations = preData.length !== postData.length || 
-                    JSON.stringify(preData.map(x => x.ticker).sort()) !== JSON.stringify(postData.map(x => x.ticker).sort());
-                message += hasTransformations ? ' (after transformations)' : ' (no transformations applied yet)';
-            }
-        }
-        
-        tickerSummaryDiv.textContent = message;
-        if(fetchBtn) fetchBtn.disabled = false;
     }
 
-    function setDropZoneEnabled(enabled) {
+    function setDropZoneEnabled(enabled, source) {
         if (!dropZone) return;
-        dropZone.style.pointerEvents = enabled ? 'auto' : 'none';
-        dropZone.style.opacity = enabled ? '1' : '0.5';
+        const textSpan = dropZoneTextSpan || (dropZone.querySelector('.dropzone-text') || dropZone.querySelector('.status-text'));
+
+        if (enabled) {
+            dropZone.style.pointerEvents = 'auto';
+            dropZone.style.opacity = '1';
+            dropZone.style.backgroundColor = 'var(--bs-tertiary-bg)';
+            if (textSpan) textSpan.textContent = "Drag & drop .txt file(s) or click to select";
+        } else {
+            dropZone.style.pointerEvents = 'none';
+            dropZone.style.opacity = '0.6';
+            dropZone.style.backgroundColor = 'var(--bs-secondary-bg)'; // Or var(--bs-light-bg-subtle)
+            if (textSpan) {
+                if (source && source !== 'upload') {
+                    textSpan.textContent = "File upload not applicable for this source.";
+            } else {
+                    // Default disabled text if source isn't specified or is upload but still disabled for other reasons
+                    textSpan.textContent = "File upload disabled."; 
+                }
+            }
+        }
     }
 
     function showSpinner(button) {
@@ -123,15 +148,26 @@
         
         if (textEl) {
             // Store original text if not already stored, or if it's different (e.g. after an error state)
-            if (!button.dataset.originalText || button.dataset.originalText !== textEl.textContent) {
+            // Ensure we store the specific original text of *this* button if not already set.
+            if (!button.dataset.originalText) {
+                 // If the current text is already the 'text' param (e.g. "Fetching..."), 
+                 // and original is not set, try to fall back to a known default for this button if applicable
+                 // For now, we rely on originalFetchButtonText if textEl.textContent is a processing state.
+                 // This logic is a bit tricky; ideally originalText is set when button is first enabled with its proper text.
+                 // Let's simplify: if originalText is not there, set it to current text *unless* current text is the incoming 'text'
+                if (textEl.textContent !== text) {
                 button.dataset.originalText = textEl.textContent;
+                } else {
+                    // If current text IS the processing text, and we have no original,
+                    // we must use the module-level constant.
+                    // This handles the case where disableButton is called before enableButton ever sets an originalText.
+                    button.dataset.originalText = originalFetchButtonText; 
+                }
             }
             textEl.textContent = text; // Set new text
-            textEl.style.display = 'inline'; // Ensure text is visible initially for sizing
+            textEl.style.display = 'inline'; 
         }
         if (spinnerEl) spinnerEl.style.display = 'inline-block';
-        // if (textEl && spinnerEl) textEl.style.marginLeft = '5px'; // Optional: add some space
-        
         button.disabled = true;
     }
 
@@ -142,23 +178,54 @@
 
         if (spinnerEl) spinnerEl.style.display = 'none';
         if (textEl) {
-            textEl.textContent = button.dataset.originalText || originalFetchButtonText; // Restore original or default text
+            textEl.textContent = button.dataset.originalText || originalFetchButtonText; 
             textEl.style.display = 'inline';
-            // textEl.style.marginLeft = '0'; // Reset margin if set
         }
         button.disabled = false;
+        // Clear originalText after restoring so it can be freshly captured next time if needed
+        // delete button.dataset.originalText; // Let's not delete it, it should be stable unless button text changes meaningfully
     }
 
-    function showStatus(message, messageType = 'info') {
-        if (!statusDiv) return;
-        statusDiv.textContent = message;
-        let className = 'text-muted';
-        if (messageType === 'error') {
-            className = 'text-danger';
-        } else if (messageType === 'success') {
-            className = 'text-success';
+    function formatDisplayTimestamp(dateInput) {
+        if (!dateInput) return new Date().toLocaleTimeString(); // Fallback, though job data should have timestamps
+        const date = new Date(dateInput);
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0'); // Months are 0-indexed
+        const year = date.getFullYear();
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${day}/${month}/${year} ${hours}:${minutes}`;
+    }
+
+    function getIconForAlertType(type) {
+        switch (type) {
+            case 'success': return '<i class="bi bi-check-circle-fill me-2"></i>';
+            case 'error': return '<i class="bi bi-x-octagon-fill me-2"></i>';
+            case 'warning': return '<i class="bi bi-exclamation-triangle-fill me-2"></i>';
+            case 'info':
+            default: return '<i class="bi bi-info-circle-fill me-2"></i>';
         }
-        statusDiv.className = `mt-2 small ${className}`;
+    }
+
+    function showYahooStatusAlert(message, type = 'info', timestampSource = null) {
+        if (!statusDiv) {
+            console.warn("[showYahooStatusAlert] statusDiv not initialized.");
+            return;
+        }
+        let alertClass = 'alert-info';
+        if (type === 'success') alertClass = 'alert-success';
+        else if (type === 'error') alertClass = 'alert-danger';
+        else if (type === 'warning') alertClass = 'alert-warning';
+
+        const displayTimestamp = formatDisplayTimestamp(timestampSource || new Date());
+        const icon = getIconForAlertType(type);
+
+        statusDiv.innerHTML = 
+            `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+                ${icon}[${displayTimestamp}] ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>`;
+        console.log(`[Yahoo Status Alert @ ${new Date().toISOString()}] ${type.toUpperCase()}: ${message}`);
     }
     
     function showProgressBarContainer() {
@@ -191,80 +258,87 @@
             }
             progressBar.style.width = percentValue + '%';
             progressBar.textContent = percentValue + '%';
-            // console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Universal progress bar update applied: ${percentValue}%.`);
+            progressBar.setAttribute('aria-valuenow', percentValue);
+            // Apply Bootstrap classes and height for progress bar and container
+            if (progressBarContainer) {
+                progressBarContainer.classList.add('progress', 'mt-2');
+                progressBarContainer.style.height = '20px';
+            }
+            progressBar.classList.add('progress-bar', 'progress-bar-striped', 'progress-bar-animated');
+            // Conditional coloring (though it might be hidden quickly for terminal states)
+            if (data.status === 'partial_failure') {
+                progressBar.classList.remove('bg-primary', 'bg-danger'); // Remove others
+                progressBar.classList.add('bg-warning');
+            } else if (data.status === 'failed' || data.status === 'error') {
+                progressBar.classList.remove('bg-primary', 'bg-warning');
+                progressBar.classList.add('bg-danger');
+            } else {
+                progressBar.classList.remove('bg-warning', 'bg-danger');
+                // progressBar.classList.add('bg-primary'); // Default Bootstrap blue, often no specific class needed
+            }
         }
 
         // Log incoming data and current isFetching state
         // console.log(`[updateUIFromJobData] Called with data:`, JSON.parse(JSON.stringify(data)), `Current isFetching before update: ${isFetching}`);
 
-        let displayMessage;
-        if (data.status === 'running' && data.progress_message) {
+        let displayMessage = '';
+        let msgType = 'info';
+        const jobStatus = data.status || 'unknown';
+        const timestampForAlert = data.last_updated || data.job_end_time || data.last_triggered_time || new Date();
+
+        if (jobStatus === 'completed' || jobStatus === 'failed' || jobStatus === 'error' || jobStatus === 'partial_failure') {
+            msgType = (jobStatus === 'completed') ? 'success' : 'error';
+            if (jobStatus === 'partial_failure') msgType = 'warning';
+
+            let statusText = `Status: ${jobStatus}.`;
+            let countsText = ''; // Ensure it starts empty
+            
+            // Determine Tickers count
+            const tickersDisplayCount = data.total_processed_count !== undefined 
+                ? data.total_processed_count 
+                : (data.total_count !== undefined ? data.total_count : 0);
+            countsText += ` Tickers: ${tickersDisplayCount}.`; // Append Tickers count
+            
+            // Determine Errors count
+            const errorDisplayCount = data.failed_count !== undefined ? data.failed_count : 0;
+            countsText += ` Errors: ${errorDisplayCount}.`; // Append Errors count
+            
+            displayMessage = statusText + countsText; // Combine status with counts
+
+            if (errorDisplayCount > 0 && data.sample_error_tickers && data.sample_error_tickers.length > 0) {
+                const MAX_SAMPLE_ERRORS = 5; 
+                const sampleTickers = data.sample_error_tickers.slice(0, MAX_SAMPLE_ERRORS).join(', ');
+                displayMessage += ` Errored tickers sample: ${sampleTickers}${data.sample_error_tickers.length > MAX_SAMPLE_ERRORS ? ', ...' : ''}.`;
+            }
+
+        } else if (jobStatus === 'running' && data.progress_message) {
             displayMessage = data.progress_message;
-        } else if (data.message) {
-            displayMessage = data.message;
-        } else if (data.status === 'queued' && data.progress_message) { // Also show progress_message if queued and available
-             displayMessage = data.progress_message;
-        } else {
-            displayMessage = `Status: ${data.status}`;
-        }
-        let msgType = 'info'; // Default message type
-
-        // Ensure critical UI elements are updated reliably
-        if (data.status === 'queued' || data.status === 'running') {
-            if (progressBarContainer) {
-                progressBarContainer.style.display = 'flex';
-                void progressBarContainer.offsetHeight; // Force reflow
-                // console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Progress bar container set to flex.`);
-            }
-            if (progressBar) {
-                const percent = data.progress_percent !== undefined && data.progress_percent !== null ? data.progress_percent : (data.current_count && data.total_count ? Math.round((data.current_count / data.total_count) * 100) : 0);
-                progressBar.style.width = percent + '%';
-                progressBar.textContent = percent + '%';
-                // console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Progress bar updated to ${percent}%.`);
-            }
-            if (fetchBtn && !fetchBtn.disabled) { // Only disable if not already, to avoid redundant spinner logic
-                disableButton(fetchBtn, "Fetching...");
-                // console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Fetch button disabled.`);
-            }
-            isFetching = true; // Mark as fetching
-            // displayMessage = data.progress_message || data.message || `Job is ${data.status}...`; // Already set above
             msgType = 'info';
-            // console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Status is running/queued. Set isFetching to true.`);
+        } else if (data.message) { // General message for other states (queued, idle)
+            displayMessage = data.message;
+            msgType = 'info';
+        } else if (jobStatus === 'queued' && data.progress_message) {
+             displayMessage = data.progress_message;
+             msgType = 'info';
+        } else {
+            displayMessage = `Status: ${jobStatus}`;
+            msgType = 'info';
+        }
 
-        } else if (data.status === 'completed' || data.status === 'failed' || data.status === 'error' || data.status === 'partial_failure') {
-            if (fetchBtn && fetchBtn.disabled) { // Only enable if disabled
-                enableButton(fetchBtn); // Restore original text, remove spinner
-                console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Fetch button enabled for terminal status: ${data.status}.`);
-            }
-            if (progressBarContainer) {
-                // The universal update at the start of the function should have set the final percentage.
-                // Now hide it for terminal states.
-                progressBarContainer.style.display = 'none';
-                console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Progress bar container hidden for terminal status: ${data.status}.`);
-            }
-            // displayMessage remains as set above
-            if (data.status === 'failed' || data.status === 'error' || data.status === 'partial_failure') { // Added partial_failure for error styling
-                msgType = 'error';
-            } else { // completed
-                msgType = 'success';
-            }
-            isFetching = false; // Mark as not fetching
-            console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Status is terminal (${data.status}). Set isFetching to false.`);
-
-            // If job is terminal and polling interval exists, clear it.
+        if (jobStatus === 'queued' || jobStatus === 'running') {
+            if (progressBarContainer) progressBarContainer.style.display = 'flex';
+            if (fetchBtn && !fetchBtn.disabled) disableButton(fetchBtn, "Fetching...");
+            isFetching = true;
+        } else { // completed, failed, error, partial_failure, idle
+            if (progressBarContainer) progressBarContainer.style.display = 'none';
+            if (fetchBtn && fetchBtn.disabled) enableButton(fetchBtn);
+            isFetching = false;
             if (jobPollIntervalId) {
-                console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Job is terminal (${data.status}) and jobPollIntervalId exists. Clearing interval: ${jobPollIntervalId}`);
                 clearInterval(jobPollIntervalId);
                 jobPollIntervalId = null;
             }
         }
-
-        // Update status message
-        if (statusDiv) {
-            statusDiv.textContent = displayMessage;
-            statusDiv.className = `status-message ${msgType}`; // Apply class for styling (info, success, error)
-            console.log(`[updateUIFromJobData @ ${new Date().toISOString()}] Status message set to: "${displayMessage}", type: ${msgType}`);
-        }
+        showYahooStatusAlert(displayMessage, msgType, timestampForAlert);
         const uiUpdateExitTime = new Date().toISOString();
         console.log(`[updateUIFromJobData EXIT @ ${uiUpdateExitTime}] Finished. isFetching after update: ${isFetching}`);
     }
@@ -272,14 +346,18 @@
     // --- NEW: Helper to reset UI for a new fetch (MOVED INSIDE IIFE) ---
     function resetUIForNewFetch() {
         if(fetchBtn) {
-            enableButton(fetchBtn); // Use enableButton to restore text and ensure it's enabled
-            // fetchBtn.disabled = false; // No longer needed, enableButton handles this
+            enableButton(fetchBtn);
         }
         if (progressBarContainer) {
             progressBarContainer.style.display = 'none';
         }
+        if (statusDiv) statusDiv.innerHTML = ''; // Clear old alerts
         isFetching = false;
-        // Removed: showStatus("Ready to fetch Yahoo data.", "info"); // Caller should set status if needed
+        activeYahooJobTriggerTime = null; // Reset active job trigger time
+        if (jobPollIntervalId) {
+            clearInterval(jobPollIntervalId);
+            jobPollIntervalId = null;
+        }
     }
 
     // --- NEW: Function to fetch and apply current job status (MOVED INSIDE IIFE) ---
@@ -290,33 +368,29 @@
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error(`[fetchCurrentJobStatus @ ${new Date().toISOString()}] Failed to fetch job details for ${fixedJobId}. Status: ${response.status}, Msg: ${errorText}`);
-                showStatus(`Error fetching current job status: ${response.statusText}`, 'error');
+                showYahooStatusAlert(`Error fetching job status: ${response.statusText} - ${errorText}`, 'error');
                 resetUIForNewFetch(); 
                 return;
             }
             const data = await response.json();
             console.log(`[fetchCurrentJobStatus @ ${new Date().toISOString()}] Received job details:`, data);
-            updateUIFromJobData(data); // This will set isFetching and update UI elements
+            
+            if (data && data.last_triggered_time) {
+                activeYahooJobTriggerTime = data.last_triggered_time;
+            } else if (!data.status || data.status === 'idle') {
+                 // If job is idle or has no trigger time, effectively no active job to track for polling purposes
+                activeYahooJobTriggerTime = null;
+            }
+            // No time-based filtering here, as this is to establish initial state or recover.
+            updateUIFromJobData(data); 
 
-            // If the job is active (running or queued), start the polling interval.
-            // isFetching is set by updateUIFromJobData based on data.status.
             if (isFetching) { 
-                console.log(`[fetchCurrentJobStatus @ ${new Date().toISOString()}] Job ${fixedJobId} is ${data.status}. Initiating polling interval (3000ms).`);
-                if (jobPollIntervalId) clearInterval(jobPollIntervalId); // Clear any existing interval
-                jobPollIntervalId = setInterval(() => pollJobStatus(fixedJobId), 3000); // Use 3000ms interval
-            } else {
-                // If job is not active (e.g. completed, failed), ensure any old interval is cleared.
-                // updateUIFromJobData already handles clearing jobPollIntervalId for terminal states it processes.
-                // This is an additional safeguard if fetchCurrentJobStatus is called and finds a terminal job when an interval might have existed.
-                if (jobPollIntervalId) {
-                    console.log(`[fetchCurrentJobStatus @ ${new Date().toISOString()}] Job ${fixedJobId} is ${data.status} (not active). Clearing any existing interval: ${jobPollIntervalId}`);
-                    clearInterval(jobPollIntervalId);
-                    jobPollIntervalId = null;
-                }
+                if (jobPollIntervalId) clearInterval(jobPollIntervalId);
+                jobPollIntervalId = setInterval(() => pollJobStatus(fixedJobId), 3000);
             }
         } catch (error) {
             console.error(`[fetchCurrentJobStatus @ ${new Date().toISOString()}] Error in fetchCurrentJobStatus for ${fixedJobId}:`, error);
-            showStatus(`Network error fetching job status: ${error.message}`, 'error');
+            showYahooStatusAlert(`Network error fetching job status: ${error.message}`, 'error');
             resetUIForNewFetch();
         }
     }
@@ -331,17 +405,78 @@
         const userDefinedContainer = document.getElementById('user-defined-tickers-container');
         const userDefinedInput = document.getElementById('user-defined-tickers');
 
-        setDropZoneEnabled(false);
-        if(fetchBtn) fetchBtn.disabled = true;
-        showStatus('');
-        if(userDefinedContainer) userDefinedContainer.style.display = 'none';
-        if(userDefinedInput) userDefinedInput.value = '';
+        // Update help text based on selected source
+        if (yahooSourceHelpText) {
+            switch (source) {
+                case 'upload':
+                    yahooSourceHelpText.textContent = "Upload a .txt file (one ticker per line, or comma/semicolon separated).";
+                    break;
+                case 'user_defined':
+                    yahooSourceHelpText.textContent = "Enter ticker symbols separated by commas.";
+                    break;
+                case 'screener':
+                    yahooSourceHelpText.textContent = "Fetches tickers from the general screener.";
+                    break;
+                case 'portfolio':
+                    yahooSourceHelpText.textContent = "Fetches tickers from your saved portfolio.";
+                    break;
+                case 'pretrans':
+                    yahooSourceHelpText.textContent = "Uses tickers from the current analytics data table (pre-transformation).";
+                    break;
+                case 'posttrans':
+                    yahooSourceHelpText.textContent = "Uses tickers from the current analytics data table (post-transformation).";
+                    break;
+                case 'yahoo_master':
+                    yahooSourceHelpText.textContent = "Fetches all tickers from the Yahoo master list.";
+                    break;
+                default:
+                    yahooSourceHelpText.textContent = "Select a data source."; // Default or clear
+            }
+        }
 
+        if (source === 'upload') {
+            setDropZoneEnabled(true, source);
+            if (tickerSummaryDiv) tickerSummaryDiv.textContent = ''; // Clear previous summary
+            if (fetchBtn) fetchBtn.disabled = true; // Disabled until a file is selected
+        } else {
+            setDropZoneEnabled(false, source);
+            if (tickerSummaryDiv) tickerSummaryDiv.textContent = ''; // Clear ticker summary if not upload
+            if (fetchBtn) {
+                // Enable button for non-upload sources that don't require further input before fetching
+                fetchBtn.disabled = source === 'user_defined' ? !userDefinedInput.value.trim() : false;
+            }
+        }
+        
+        showYahooStatusAlert(''); // Clear general status messages
+        if(userDefinedContainer) {
+            userDefinedContainer.style.display = source === 'user_defined' ? 'block' : 'none';
+        }
+        if(userDefinedInput) {
+            userDefinedInput.value = ''; // Clear user input when source changes
+             if (source === 'user_defined') {
+                userDefinedInput.addEventListener('input', () => { 
+                    if(fetchBtn) fetchBtn.disabled = !userDefinedInput.value.trim(); 
+                });
+            }
+        }
+         // Original switch logic for enabling fetch button for non-upload sources
+        // This is now partially handled by the setDropZoneEnabled logic block above for fetchBtn.disabled
+        // Re-check and simplify this part.
         switch (source) {
-            case 'upload': setDropZoneEnabled(true); break;
+            // case 'upload': // Handled above
+            //     break;
             case 'user_defined':
                 if(userDefinedContainer) userDefinedContainer.style.display = 'block';
-                if(userDefinedInput) userDefinedInput.addEventListener('input', () => { if(fetchBtn) fetchBtn.disabled = !userDefinedInput.value.trim(); });
+                if(userDefinedInput) {
+                    // Clear previous listener to avoid multiple triggers
+                    const newUserDefinedInput = userDefinedInput.cloneNode(true);
+                    userDefinedInput.parentNode.replaceChild(newUserDefinedInput, userDefinedInput);
+                    userDefinedInput = newUserDefinedInput;
+                    userDefinedInput.addEventListener('input', () => { 
+                        if(fetchBtn) fetchBtn.disabled = !userDefinedInput.value.trim(); 
+                    });
+                }
+                if(fetchBtn) fetchBtn.disabled = !userDefinedInput.value.trim();
                 break;
             case 'screener':
             case 'portfolio':
@@ -350,18 +485,25 @@
             case 'yahoo_master':
                 if(fetchBtn) fetchBtn.disabled = false;
                 break;
-            default: if(fetchBtn) fetchBtn.disabled = false; break;
+            default:
+                // For unknown sources, keep button disabled or based on specific logic
+                if(fetchBtn) fetchBtn.disabled = true; 
+                break;
         }
     }
 
     async function handleFetch() {
         if (!sourceSelect || !fetchBtn) return;
 
-        if (tickerSummaryDiv) { // Clear ticker summary message
+        // **** Critical Debug Log ****
+        console.log('[handleFetch] Entry. sourceSelect.id:', sourceSelect.id, 'sourceSelect.value IS:', sourceSelect.value);
+
+        resetUIForNewFetch(); // Clear previous status and prepare for new fetch
+
+        if (tickerSummaryDiv) { 
             tickerSummaryDiv.textContent = '';
         }
-
-        // Initial UI state for starting a fetch
+        // Initial UI state for starting a fetch handled by resetUIForNewFetch and subsequent updates
         updateUIFromJobData({
             job_id: fixedJobId,
             status: 'queued', // Representing the frontend action of queueing the request
@@ -377,13 +519,21 @@
         const userDefinedInputValue = document.getElementById('user-defined-tickers') ? document.getElementById('user-defined-tickers').value : '';
         let tickersToFetch = [];
 
+        // **** Critical Debug Log ****
+        console.log('[handleFetch] Source variable set to:', source, "Proceeding to switch.");
+
         try {
             switch (source) {
                 case 'upload':
-                    if (!fileInput || !fileInput.files.length) throw new Error('Please select a file first');
-                    const file = fileInput.files[0];
-                    const text = await file.text();
-                    tickersToFetch = text.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'));
+                    console.log('[handleFetch] Entered "upload" case.'); // Log case entry
+                    // Check currentTickers, which is populated by handleFileSelect
+                    if (!currentTickers || currentTickers.length === 0) {
+                        console.error('[handleFetch] "upload" case: currentTickers is empty. A file should have been processed by handleFileSelect.');
+                        throw new Error('No tickers processed from file. Please select a valid file.');
+                    }
+                    tickersToFetch = currentTickers; // Use the already parsed tickers
+                    // No need to re-read fileInput.files[0] as it's cleared by handleFileSelect
+                    console.log(`[handleFetch] "upload" case: Using ${currentTickers.length} pre-parsed tickers.`);
                     break;
                 case 'user_defined':
                     if (!userDefinedInputValue.trim()) throw new Error('Please enter at least one ticker symbol');
@@ -393,6 +543,7 @@
                     const screenerResp = await fetch('/api/screener/tickers');
                     if (!screenerResp.ok) throw new Error(`Failed to fetch screener tickers: ${screenerResp.statusText}`);
                     tickersToFetch = await screenerResp.json();
+                    tickersToFetch = tickersToFetch.map(t => typeof t === 'string' ? t.toUpperCase() : t); // Ensure uppercase
                     break;
                 case 'portfolio':
                     console.log('[Debug Portfolio] Fetching /api/portfolio/tickers...');
@@ -403,9 +554,9 @@
                     }
                     const portfolioData = await portfolioResp.json();
                     if (Array.isArray(portfolioData) && portfolioData.every(item => typeof item === 'string')) {
-                        tickersToFetch = portfolioData.filter(Boolean);
+                        tickersToFetch = portfolioData.filter(Boolean).map(t => t.toUpperCase()); // Ensure uppercase
                     } else if (Array.isArray(portfolioData)) {
-                        tickersToFetch = portfolioData.map(t => t.ticker).filter(Boolean);
+                        tickersToFetch = portfolioData.map(t => t.ticker).filter(Boolean).map(t => t.toUpperCase()); // Ensure .ticker is uppercase
                     } else {
                         tickersToFetch = [];
                     }
@@ -415,32 +566,37 @@
                     if (!pretransModule) throw new Error('Analytics module not available');
                     const pretransData = pretransModule.getFullProcessedData();
                     if (!pretransData || !pretransData.length) throw new Error('No pre-transformation data available');
-                    tickersToFetch = pretransData.map(x => x.ticker).filter(Boolean);
+                    tickersToFetch = pretransData.map(x => x.ticker).filter(Boolean).map(t => t.toUpperCase()); // Ensure uppercase
                     break;
                 case 'posttrans':
                     const posttransModule = window.AnalyticsMainModule;
                     if (!posttransModule) throw new Error('Analytics module not available');
                     const posttransData = posttransModule.getFinalDataForAnalysis();
                     if (!posttransData || !posttransData.length) throw new Error('No post-transformation data available');
-                    tickersToFetch = posttransData.map(x => x.ticker).filter(Boolean);
+                    tickersToFetch = posttransData.map(x => x.ticker).filter(Boolean).map(t => t.toUpperCase()); // Ensure uppercase
                     break;
                 case 'yahoo_master':
                     const masterResp = await fetch('/api/yahoo/master_tickers');
                     if (!masterResp.ok) throw new Error(`Failed to fetch Yahoo master tickers: ${masterResp.statusText}`);
                     tickersToFetch = await masterResp.json();
+                    tickersToFetch = tickersToFetch.map(t => typeof t === 'string' ? t.toUpperCase() : t); // Ensure uppercase
                     break;
                 default: throw new Error(`Unsupported source: ${source}`);
             }
 
             if (!tickersToFetch || tickersToFetch.length === 0) {
-                throw new Error('No tickers found for the selected source.');
+                showYahooStatusAlert('No tickers found for the selected source.', 'warning');
+                resetUIForNewFetch(); // Ensure UI is reset
+                return; // Stop execution if no tickers
             }
             
+            showYahooStatusAlert(`Triggering Yahoo mass fetch for ${tickersToFetch.length} tickers...`, 'info');
+            // Update UI to show queued state immediately, before API call
             updateUIFromJobData({
                 job_id: fixedJobId,
                 status: 'queued',
-                progress_message: `Triggering Yahoo mass fetch for ${tickersToFetch.length} tickers...`,
-                total_count: tickersToFetch.length,
+                message: `Triggering Yahoo mass fetch for ${tickersToFetch.length} tickers...`,
+                total_count: tickersToFetch.length, // For progress bar context
                 current_count: 0,
                 progress_percent: 0
             });
@@ -454,34 +610,44 @@
 
             if (!response.ok) {
                 const errorMsg = triggerResultJobDetails.detail || `Failed to trigger job: ${response.statusText}`;
-                resetUIForNewFetch();
-                showStatus(JSON.stringify(errorMsg), 'error');
-                throw new Error(JSON.stringify(errorMsg));
+                // resetUIForNewFetch(); // Done by catch block or initial call
+                showYahooStatusAlert( typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg), 'error');
+                // throw new Error(JSON.stringify(errorMsg)); // Let error handling below manage UI reset
+                updateUIFromJobData({ job_id: fixedJobId, status: 'failed', message: typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg) });
+                return; // Stop if trigger fails
             }
             
-            console.log('[Job Triggered] Received initial job details from /trigger POST:', triggerResultJobDetails);
-            updateUIFromJobData(triggerResultJobDetails); // Update UI with the immediate response from trigger
-
-            if (triggerResultJobDetails.job_id) {
-                // Force isFetching to true before calling fetchCurrentJobStatus in the click-and-wait path
-                // to ensure the polling interval is set up by fetchCurrentJobStatus.
-                // The subsequent call to updateUIFromJobData within fetchCurrentJobStatus will then set it accurately.
-                isFetching = true; 
-                console.log(`[handleFetch @ ${new Date().toISOString()}] Manually set isFetching=true. Trigger successful for ${triggerResultJobDetails.job_id}. Immediately calling fetchCurrentJobStatus().`);
-                fetchCurrentJobStatus(); // This will handle UI update and start setInterval if job is active.
-
+            // console.log('[Job Triggered] Received initial job details from /trigger POST:', triggerResultJobDetails);
+            if (triggerResultJobDetails && triggerResultJobDetails.last_triggered_time) {
+                activeYahooJobTriggerTime = triggerResultJobDetails.last_triggered_time;
             } else {
-                console.warn("[handleFetch] No job_id in triggerResultJobDetails. Cannot call fetchCurrentJobStatus.");
-                // UI should have been set to an error state by updateUIFromJobData with triggerResultJobDetails
+                console.warn("[handleFetch] Trigger API success but no last_triggered_time in response. Polling filtering might be affected.");
+                activeYahooJobTriggerTime = null; // Ensure it's reset if not present
+            }
+            updateUIFromJobData(triggerResultJobDetails); 
+
+            if (triggerResultJobDetails.job_id && isFetching) { 
+                // isFetching should be true if triggerResultJobDetails.status is queued/running
+                // console.log(`[handleFetch @ ${new Date().toISOString()}] Trigger successful for ${triggerResultJobDetails.job_id}. Initiating polling.`);
+                if (jobPollIntervalId) clearInterval(jobPollIntervalId); // Clear existing before starting new
+                jobPollIntervalId = setInterval(() => pollJobStatus(fixedJobId), 3000);
+            } else {
+                // console.warn("[handleFetch] No job_id in triggerResultJobDetails or job not active. Cannot start polling.");
+                if (jobPollIntervalId) { // Clear interval if job isn't active post-trigger
+                    clearInterval(jobPollIntervalId);
+                    jobPollIntervalId = null;
+                }
             }
 
-            if (source === 'upload' && fileInput) fileInput.value = '';
+            if (source === 'upload') { // No specific clearing needed here for fileInput as currentTickers is used
+                // if (fileInput) fileInput.value = ''; // This was done in handleFileSelect already
+            }
 
         } catch (error) {
             console.error('[Handle Fetch Error] Error during fetch operation:', error);
-            if (typeof response === 'undefined' || (response && response.ok)) {
-                showStatus(`Error: ${error.message}`, 'error');
-            }
+            // Show error using the new alert function
+            const errorMessage = error.message.includes("{") ? JSON.parse(error.message).detail || error.message : error.message;
+            showYahooStatusAlert(`Error: ${errorMessage}`, 'error');
             resetUIForNewFetch();
         }
     }
@@ -489,77 +655,112 @@
     // --- NEW: Polling function ---
     async function pollJobStatus(jobId) {
         const pollStartTime = new Date().toISOString();
-        // console.log(`[pollJobStatus ENTRY @ ${pollStartTime}] JobId: ${jobId}. isFetching (global): ${isFetching}, jobPollIntervalId: ${jobPollIntervalId}`);
-
-        // If isFetching is false (meaning a terminal state was likely processed by another poll)
-        // AND the jobPollIntervalId has been cleared, then this is likely a zombie poll.
-        // Exception: The very first poll called by setTimeout when jobPollIntervalId might not be set yet, but isFetching is true.
-        if (!isFetching && jobPollIntervalId === null) {
-            // Only log and exit if this is NOT the scenario where fetchCurrentJobStatus on page load found a completed job.
-            // In that specific case, isFetching is false, and jobPollIntervalId is null, but we *do* want that one updateUIFromJobData call.
-            // We can infer this isn't from initial page load's fetchCurrentJobStatus if a fetch button exists and is disabled (active job) or enabled (just finished).
-            // This check is imperfect but aims to prevent zombie polls after a job triggered by user action has finished.
-            if (fetchBtn) { // Check if fetchBtn is initialized, meaning not the initial page load before DOM ready for fetchCurrentJobStatus.
-                 console.log(`[pollJobStatus @ ${pollStartTime}] Aborting zombie poll: isFetching is false AND jobPollIntervalId is null. JobId: ${jobId}`);
+        if (!activeYahooJobTriggerTime) {
+            // console.log(`[pollJobStatus @ ${pollStartTime}] Aborting poll: activeYahooJobTriggerTime is not set. JobId: ${jobId}`);
+            // If no active job time, this poll is likely for a previous, now irrelevant job, or page just loaded with idle job.
+            // Clearing interval here might be too aggressive if fetchCurrentJobStatus is meant to start it.
+            // Let isFetching guard in updateUI handle interval clearing.
                  return;
-            }
         }
 
-        console.log(`[pollJobStatus START @ ${pollStartTime}] Polling for job ${jobId}. Making fetch call.`);
+        // console.log(`[pollJobStatus START @ ${pollStartTime}] Polling for job ${jobId}. Active Trigger Time: ${activeYahooJobTriggerTime}. Making fetch call.`);
 
         try {
             const response = await fetch(`/api/analytics/yahoo-job/details/${jobId}`);
             const receivedDetailsTime = new Date().toISOString();
             if (!response.ok) {
-                console.error(`[pollJobStatus @ ${receivedDetailsTime}] Error fetching job details for ${jobId}: ${response.statusText}`);
-                // Potentially stop polling on certain types of errors, or implement retry logic
-                // For now, we'll let it continue polling or be stopped by isFetching logic in updateUI.
+                let errorMsg = `Polling failed: ${response.statusText}`;
                 try {
                     const errorData = await response.json();
-                    console.error(`[pollJobStatus @ ${new Date().toISOString()}] Error details:`, errorData);
-                    updateUIFromJobData({ job_id: jobId, status: 'error', message: errorData.detail || `Polling failed: ${response.statusText}` });
-                } catch (e) {
-                    updateUIFromJobData({ job_id: jobId, status: 'error', message: `Polling failed: ${response.statusText}. Could not parse error response.` });
-                }
-                return; // Return early after handling error
+                    errorMsg = errorData.detail || errorMsg;
+                } catch (e) { /* Ignore parsing error, use original statusText */ }
+                showYahooStatusAlert(errorMsg, 'error');
+                // updateUIFromJobData will set isFetching to false if error implies terminal state
+                updateUIFromJobData({ job_id: jobId, status: 'error', message: errorMsg, last_triggered_time: activeYahooJobTriggerTime });
+                return; 
             }
             const details = await response.json();
-            console.log(`[pollJobStatus @ ${receivedDetailsTime}] Received details for ${jobId}:`, JSON.parse(JSON.stringify(details)));
+            // console.log(`[pollJobStatus @ ${receivedDetailsTime}] Received details for ${jobId}:`, JSON.parse(JSON.stringify(details)));
+
+            if (details.last_triggered_time !== activeYahooJobTriggerTime) {
+                console.warn(`[pollJobStatus @ ${receivedDetailsTime}] Stale data received for job ${jobId}. Expected trigger time ${activeYahooJobTriggerTime}, got ${details.last_triggered_time}. IGNORING UPDATE.`);
+                // If it's stale, but the job is terminal, we might still want to stop polling.
+                if (details.status === 'completed' || details.status === 'failed' || details.status === 'error' || details.status === 'partial_failure') {
+                     if (jobPollIntervalId) {
+                        console.log(`[pollJobStatus @ ${receivedDetailsTime}] Stale data indicated terminal state. Clearing interval ${jobPollIntervalId}.`);
+                        clearInterval(jobPollIntervalId);
+                        jobPollIntervalId = null;
+                        isFetching = false; // Ensure isFetching is also false
+                    }
+                }
+                return;
+            }
             updateUIFromJobData(details);
 
-            // If the job is terminal, isFetching will be set to false by updateUIFromJobData.
-            // The setInterval in handleFetch checks isFetching and clears itself.
-            // No need to explicitly clear jobPollIntervalId here anymore as it might clear the one from handleFetch
-            // if this pollJobStatus was called by the setTimeout.
-            // console.log(`[pollJobStatus @ ${new Date().toISOString()}] After updateUIFromJobData. Current isFetching: ${isFetching}`);
-
         } catch (error) {
-            console.error(`[pollJobStatus @ ${new Date().toISOString()}] Error in pollJobStatus for ${jobId}:`, error);
-            // Consider how to update UI on such errors
-            updateUIFromJobData({ job_id: jobId, status: 'error', message: `Polling error: ${error.message}` });
-        } finally {
-            // REMOVED: Setting isPollingInProgress = false or isFetching = false here.
-            // isFetching is managed by updateUIFromJobData based on actual job status.
+            // console.error(`[pollJobStatus @ ${new Date().toISOString()}] Error in pollJobStatus for ${jobId}:`, error);
+            showYahooStatusAlert(`Polling error: ${error.message}`, 'error');
+            updateUIFromJobData({ job_id: jobId, status: 'error', message: `Polling error: ${error.message}`, last_triggered_time: activeYahooJobTriggerTime });
         }
-        // console.log(`[pollJobStatus EXIT @ ${new Date().toISOString()}] JobId: ${jobId}.`);
     }
 
     async function handleFileSelect(event) {
         const file = event.target.files[0];
-        if (!file) return;
-        if (!file.name.toLowerCase().endsWith('.txt')) {
-            showStatus('Please upload a .txt file.', 'error');
-            if(tickerSummaryDiv) tickerSummaryDiv.textContent = '';
-            if(fetchBtn) fetchBtn.disabled = true;
+        // const textSpan = dropZoneTextSpan || (dropZone.querySelector('.dropzone-text') || dropZone.querySelector('.status-text'));
+        // Use the module-scoped dropZoneTextSpan directly, ensured by initializeDOMElements
+
+        if (!file) {
+            if (dropZoneTextSpan) dropZoneTextSpan.innerHTML = "Drag & drop .txt file(s) or click to select"; // Use innerHTML for <br>
+            // if (tickerSummaryDiv) tickerSummaryDiv.textContent = ''; // showTickerSummary handles this
+            showTickerSummary([]); // Pass empty array to disable button
+            currentTickers = [];
             return;
         }
-        if(dropZone) dropZone.querySelector('.status-text').textContent = file.name;
+
+        if (!file.name.toLowerCase().endsWith('.txt')) {
+            showYahooStatusAlert('Invalid file: Please upload a .txt file.', 'error'); 
+            if (dropZoneTextSpan) dropZoneTextSpan.innerHTML = "Drag & drop .txt file(s) or click to select";
+            // if (tickerSummaryDiv) tickerSummaryDiv.textContent = '';
+            showTickerSummary([]); // Pass empty array to disable button
+            if (fileInput) fileInput.value = ''; // Clear the file input
+            currentTickers = [];
+            return;
+        }
+
+        if (dropZoneTextSpan) dropZoneTextSpan.innerHTML = `Selected file: ${file.name} <br> Processing file...`;
+        // if (fetchBtn) fetchBtn.disabled = true; // showTickerSummary will manage this based on results
+        // if (tickerSummaryDiv) tickerSummaryDiv.textContent = 'Processing file...'; // Handled in dropzone
+        currentTickers = []; // Reset before parsing
+        showTickerSummary(currentTickers); // Disable button while processing
+
         try {
             const text = await file.text();
-            const parsedTickers = text.split(/\r?\n|,|;/).map(t => t.trim().toUpperCase()).filter(Boolean);
-            currentTickers = Array.from(new Set(parsedTickers)).filter(Boolean);
-            showTickerSummary(currentTickers);
-        } catch (e) { /* ... */ }
+            const parsedTickers = text
+                .split(/[\n,;]+/)
+                .map(t => t.trim().toUpperCase())
+                .filter(t => t.length > 0);
+            currentTickers = [...new Set(parsedTickers)];
+            
+            let summaryMessage = `Selected file: ${file.name}<br>`;
+            if (currentTickers.length > 0) {
+                const exampleCount = Math.min(5, currentTickers.length);
+                const exampleTickers = currentTickers.slice(0, exampleCount).join(', ');
+                summaryMessage += `Tickers found: ${currentTickers.length}. Examples: ${exampleTickers}${currentTickers.length > exampleCount ? ', ...' : ''}`;
+            } else {
+                summaryMessage += 'No valid tickers found.';
+            }
+            if (dropZoneTextSpan) dropZoneTextSpan.innerHTML = summaryMessage;
+            showTickerSummary(currentTickers); // Update button state based on results
+
+        } catch (e) {
+            console.error("Error reading or parsing file:", e);
+            showYahooStatusAlert(`Error processing file: ${e.message}`, 'error'); 
+            if (dropZoneTextSpan) dropZoneTextSpan.innerHTML = `Selected file: ${file.name}<br>File processing error.`;
+            // if (tickerSummaryDiv) tickerSummaryDiv.textContent = 'File processing error.';
+            currentTickers = [];
+            showTickerSummary(currentTickers); // Ensure button is disabled on error
+        }
+        if (fileInput) fileInput.value = ''; 
     }
 
     // --- Initialize Event Listeners & DOM Elements ---
@@ -576,11 +777,20 @@
         dropZone.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', handleFileSelect);
 
-        dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.backgroundColor = 'var(--bs-primary-bg-subtle)'; });
-        dropZone.addEventListener('dragleave', e => { e.preventDefault(); dropZone.style.backgroundColor = 'var(--bs-tertiary-bg)'; });
+        dropZone.addEventListener('dragover', e => { 
+            e.preventDefault(); 
+            dropZone.classList.add('dragover'); 
+            // dropZone.style.backgroundColor = 'var(--bs-primary-bg-subtle)'; // Replaced by class
+        });
+        dropZone.addEventListener('dragleave', e => { 
+            e.preventDefault(); 
+            dropZone.classList.remove('dragover');
+            // dropZone.style.backgroundColor = 'var(--bs-tertiary-bg)'; // Replaced by class
+        });
         dropZone.addEventListener('drop', e => {
             e.preventDefault();
-            dropZone.style.backgroundColor = 'var(--bs-tertiary-bg)';
+            dropZone.classList.remove('dragover');
+            // dropZone.style.backgroundColor = 'var(--bs-tertiary-bg)'; // Replaced by class
             if (e.dataTransfer.files.length) {
                 fileInput.files = e.dataTransfer.files;
                 handleFileSelect({ target: { files: e.dataTransfer.files } });

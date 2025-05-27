@@ -5,6 +5,7 @@ let isFetchingFinviz = false;
 let finvizEventSource = null;
 const FINVIZ_JOB_API_BASE = '/api/v3/jobs/finviz';
 let selectedFinvizFile = null; // To store the selected file for upload
+let parsedFinvizTickers = []; // NEW: To store tickers parsed from the uploaded file
 
 // --- UI Element Variables (will be assigned in initializeFinvizMassFetchUI) ---
 let fetchBtnFinviz = null;
@@ -20,8 +21,30 @@ let finvizSourceHelpText = null; // For the help text below dropdown
 // NEW: Store the last_triggered_time of the job instance the UI is currently tracking
 let activeFinvizJobTriggerTime = null;
 
+// --- NEW HELPER FUNCTIONS (similar to Yahoo's) ---
+function formatDisplayTimestamp(dateInput) {
+    if (!dateInput) return new Date().toLocaleTimeString(); // Fallback
+    const date = new Date(dateInput);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0'); // Months are 0-indexed
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
+}
+
+function getIconForAlertType(type) {
+    switch (type) {
+        case 'success': return '<i class="bi bi-check-circle-fill me-2"></i>';
+        case 'error': return '<i class="bi bi-x-octagon-fill me-2"></i>';
+        case 'warning': return '<i class="bi bi-exclamation-triangle-fill me-2"></i>';
+        case 'info':
+        default: return '<i class="bi bi-info-circle-fill me-2"></i>';
+    }
+}
+
 // --- Helper Function to Show Status Messages (Finviz specific) ---
-function showFinvizStatus(message, type = 'info') {
+function showFinvizStatus(message, type = 'info', timestampSource = null) {
     // Ensure statusDivFinviz is available (it's assigned in initialize function)
     if (!statusDivFinviz) {
         console.warn("[showFinvizStatus] statusDivFinviz not initialized yet.");
@@ -32,10 +55,12 @@ function showFinvizStatus(message, type = 'info') {
     if (type === 'error') alertClass = 'alert-danger';
     if (type === 'warning') alertClass = 'alert-warning';
 
-    const timestamp = new Date().toLocaleTimeString();
+    const displayTimestamp = formatDisplayTimestamp(timestampSource || new Date());
+    const icon = getIconForAlertType(type);
+
     statusDivFinviz.innerHTML =
         `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">
-            [${timestamp}] ${message}
+            ${icon}[${displayTimestamp}] ${message}
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>`;
     console.log(`[Finviz Status @ ${new Date().toISOString()}] ${type.toUpperCase()}: ${message}`);
@@ -70,7 +95,8 @@ function updateFinvizUIFromJobData(data) {
     }
 
     const status = data.status || 'unknown';
-    const message = data.progress_message || data.message || data.last_run_summary || 'No message.';
+    const timestampForAlert = data.last_updated || data.job_end_time || data.last_triggered_time || new Date(); // Use timestamp from data
+
     // Ensure progressPercent is calculated safely
     let progressPercentCalc = 0;
     if (data.total_count && data.total_count > 0) {
@@ -78,27 +104,82 @@ function updateFinvizUIFromJobData(data) {
     }
     const progressPercent = data.progress_percent !== undefined && data.progress_percent !== null ? data.progress_percent : progressPercentCalc;
     const currentCount = data.current_count || 0;
-    const totalCount = data.total_count || 0;
+    const totalCount = data.total_count || 0; // Used for concise message and progress bar visibility check
 
-    // Show/Hide Progress Bar
-    if (status === 'running' || status === 'queued' || status === 'partial_failure' || (status === 'completed' && totalCount > 0)) {
-        progressBarContainerFinviz.style.display = 'block';
-    } else if (status === 'idle' || status === 'failed' || (status === 'completed' && totalCount === 0)) {
-        progressBarContainerFinviz.style.display = 'none';
+    // Manage Progress Bar Visibility & Styling
+    // Apply Bootstrap classes for consistent styling with Yahoo
+    if (progressBarContainerFinviz) {
+        progressBarContainerFinviz.classList.add('progress', 'mt-2');
+        progressBarContainerFinviz.style.height = '20px';
+    }
+    if (progressBarFinviz) {
+        progressBarFinviz.classList.add('progress-bar', 'progress-bar-striped', 'progress-bar-animated');
     }
 
-    // Update Progress Bar
-    const saneProgressPercent = Math.min(100, Math.max(0, isNaN(progressPercent) ? 0 : progressPercent));
-    progressBarFinviz.style.width = `${saneProgressPercent}%`;
-    progressBarFinviz.textContent = `${Math.round(saneProgressPercent)}%`;
-    progressBarFinviz.setAttribute('aria-valuenow', saneProgressPercent);
+    if (status === 'running' || status === 'queued') {
+        if (progressBarContainerFinviz) progressBarContainerFinviz.style.display = 'flex'; // Use flex
+    } else { // idle, failed, completed, partial_failure, interrupted
+        if (progressBarContainerFinviz) progressBarContainerFinviz.style.display = 'none';
+    }
 
-    // Display Status Message
+    // Update Progress Bar Visuals
+    const saneProgressPercent = Math.min(100, Math.max(0, isNaN(progressPercent) ? 0 : progressPercent));
+    if (progressBarFinviz) {
+        progressBarFinviz.style.width = `${saneProgressPercent}%`;
+        progressBarFinviz.textContent = `${Math.round(saneProgressPercent)}%`;
+        progressBarFinviz.setAttribute('aria-valuenow', saneProgressPercent);
+
+        // Conditional coloring similar to Yahoo
+        progressBarFinviz.classList.remove('bg-primary', 'bg-danger', 'bg-warning'); // Clear existing
+        if (status === 'partial_failure') {
+            progressBarFinviz.classList.add('bg-warning');
+        } else if (status === 'failed' || status === 'error') { // Assuming 'error' status might come
+            progressBarFinviz.classList.add('bg-danger');
+        } else if (status === 'completed') {
+            // No specific color for completed, or use 'bg-success' if preferred
+            // progressBarFinviz.classList.add('bg-success');
+        } else {
+            // progressBarFinviz.classList.add('bg-primary'); // Default Bootstrap blue often requires no class
+        }
+    }
+    
+    // Construct and Display Status Message
+    let composedMessage = '';
     let messageType = 'info';
-    if (status === 'completed') messageType = 'success';
-    else if (status === 'failed' || status === 'partial_failure') messageType = 'error';
-    else if (status === 'interrupted') messageType = 'warning';
-    showFinvizStatus(message, messageType);
+
+    if (status === 'completed' || status === 'failed' || status === 'error' || status === 'partial_failure' || status === 'interrupted') {
+        messageType = (status === 'completed') ? 'success' : 'error';
+        if (status === 'partial_failure' || status === 'interrupted') messageType = 'warning';
+
+        let statusText = `Status: ${status}.`;
+        let countsText = '';
+        
+        const tickersDisplayCount = data.total_count !== undefined ? data.total_count : 0;
+        countsText += ` Tickers: ${tickersDisplayCount}.`;
+        
+        const errorDisplayCount = data.failed_count !== undefined ? data.failed_count : 0;
+        countsText += ` Errors: ${errorDisplayCount}.`;
+
+        composedMessage = statusText + countsText;
+
+        if (errorDisplayCount > 0 && data.sample_error_tickers && data.sample_error_tickers.length > 0) {
+            const MAX_SAMPLE_ERRORS = 5;
+            const sampleTickers = data.sample_error_tickers.slice(0, MAX_SAMPLE_ERRORS).join(', ');
+            composedMessage += ` Errored tickers sample: ${sampleTickers}${data.sample_error_tickers.length > MAX_SAMPLE_ERRORS ? ', ...' : ''}.`;
+        }
+        // Ensure data.message or data.last_run_summary are NOT appended for terminal states to keep it concise.
+
+    } else if (status === 'running' && data.progress_message) {
+        composedMessage = data.progress_message;
+        messageType = 'info';
+    } else if (data.message) { // General message for other states (e.g. queued)
+        composedMessage = data.message;
+        messageType = 'info';
+    } else {
+        composedMessage = `Status: ${status}.`; // Default message
+        messageType = 'info';
+    }
+    showFinvizStatus(composedMessage, messageType, timestampForAlert);
 
     // Manage Fetch Button State and isFetchingFinviz flag
     if (status === 'running' || status === 'queued') {
@@ -225,48 +306,86 @@ function handleFinvizDataSourceChange() {
         return;
     }
     selectedFinvizFile = null; // Reset selected file on source change
+    parsedFinvizTickers = []; // Reset parsed tickers
+    const dropZoneText = finvizMfDropzone.querySelector('span.status-text'); // Cache selector
 
     const selectedSource = dataSourceSelectFinviz.value;
     if (selectedSource === 'upload_finviz_txt') {
-        finvizMfDropzone.style.display = 'block';
+        finvizMfDropzone.style.display = 'block'; // Or 'flex' if that's its default active display style
+        finvizMfDropzone.style.opacity = '1';
+        finvizMfDropzone.style.pointerEvents = 'auto';
+        finvizMfDropzone.style.backgroundColor = 'var(--bs-tertiary-bg)'; // Assuming this is the active background
         finvizSourceHelpText.textContent = "Upload a .txt file (one ticker per line).";
-        const dropZoneText = finvizMfDropzone.querySelector('span.status-text');
         if (dropZoneText) dropZoneText.textContent = "Drag & drop .txt file or click";
         setFinvizButtonState(false); // Disable button until file is selected
     } else { // finviz_screener
-        finvizMfDropzone.style.display = 'none';
+        finvizMfDropzone.style.display = 'block'; // Ensure it's visible to apply opacity etc.
+        finvizMfDropzone.style.opacity = '0.6';
+        finvizMfDropzone.style.pointerEvents = 'none';
+        finvizMfDropzone.style.backgroundColor = 'var(--bs-secondary-bg)'; // Visually disabled background
         finvizSourceHelpText.textContent = "Fetches all data from the main Finviz source.";
+        if (dropZoneText) dropZoneText.textContent = "File upload not applicable for this source.";
         setFinvizButtonState(true); // Enable button as no file is needed
     }
 }
 
 // --- Handle File Selection (for Finviz) ---
-function handleFinvizFileSelect(file) {
+async function handleFinvizFileSelect(file) { // Made async to handle await file.text()
+    const dropZoneText = finvizMfDropzone ? finvizMfDropzone.querySelector('span.status-text') : null;
+    selectedFinvizFile = null; // Reset first
+    parsedFinvizTickers = [];
+    setFinvizButtonState(false); // Disable button initially
+
+    if (!dropZoneText) {
+        console.warn("[handleFinvizFileSelect] Dropzone text element not found.");
+        return; // Should not happen if HTML is correct
+    }
+
     if (!file) {
-        selectedFinvizFile = null;
-        if(finvizMfDropzone) {
-            const dropZoneText = finvizMfDropzone.querySelector('span.status-text');
-            if (dropZoneText) dropZoneText.textContent = "Drag & drop .txt file or click";
-        }
-        setFinvizButtonState(false);
+        dropZoneText.innerHTML = "Drag & drop .txt file or click";
+        // setFinvizButtonState(false); // Already set
         return;
     }
+
     if (!file.name.endsWith('.txt')) {
         showFinvizStatus("Invalid file type. Please upload a .txt file.", "error");
-        selectedFinvizFile = null;
-        if(finvizMfDropzone) {
-            const dropZoneText = finvizMfDropzone.querySelector('span.status-text');
-            if (dropZoneText) dropZoneText.textContent = "Drag & drop .txt file or click";
-        }
-        setFinvizButtonState(false);
+        dropZoneText.innerHTML = "Drag & drop .txt file or click";
+        // setFinvizButtonState(false); // Already set
+        if (finvizMfFile) finvizMfFile.value = ''; // Clear the file input
         return;
     }
-    selectedFinvizFile = file;
-    if(finvizMfDropzone) {
-        const dropZoneText = finvizMfDropzone.querySelector('span.status-text');
-        if (dropZoneText) dropZoneText.textContent = `File selected: ${file.name}`;
+
+    selectedFinvizFile = file; // Store the File object itself
+    dropZoneText.innerHTML = `Selected file: ${file.name}<br>Processing file...`;
+
+    try {
+        const fileContent = await file.text();
+        const tickers = fileContent
+            .split('\n')
+            .map(t => t.trim().toUpperCase())
+            .filter(t => t.length > 0);
+        parsedFinvizTickers = [...new Set(tickers)]; // Store unique tickers
+
+        let summaryMessage = `Selected file: ${file.name}<br>`;
+        if (parsedFinvizTickers.length > 0) {
+            const exampleCount = Math.min(5, parsedFinvizTickers.length);
+            const exampleTickers = parsedFinvizTickers.slice(0, exampleCount).join(', ');
+            summaryMessage += `Tickers found: ${parsedFinvizTickers.length}. Examples: ${exampleTickers}${parsedFinvizTickers.length > exampleCount ? ', ...' : ''}`;
+            setFinvizButtonState(true); // Enable button if tickers found
+        } else {
+            summaryMessage += 'No valid tickers found.';
+            // setFinvizButtonState(false); // Already disabled or kept disabled
+        }
+        dropZoneText.innerHTML = summaryMessage;
+
+    } catch (error) {
+        console.error("[handleFinvizFileSelect] Error reading file:", error);
+        showFinvizStatus(`Error reading file: ${error.message}`, "error");
+        dropZoneText.innerHTML = `Selected file: ${file.name}<br>Error reading file.`;
+        parsedFinvizTickers = [];
+        // setFinvizButtonState(false); // Ensure button remains disabled
     }
-    setFinvizButtonState(true);
+    if (finvizMfFile) finvizMfFile.value = ''; // Clear the file input after processing
 }
 
 // --- Handle Finviz Fetch Button Click ---
@@ -282,38 +401,21 @@ async function handleFinvizFetch() {
     }
     
     const selectedSource = dataSourceSelectFinviz.value;
-    let tickersFromFile = [];
+    // let tickersFromFile = []; // Replaced by parsedFinvizTickers
 
     if (selectedSource === 'upload_finviz_txt') {
-        if (!selectedFinvizFile) {
-            showFinvizStatus("Please select a TXT file to upload.", "warning");
+        // File is now parsed in handleFinvizFileSelect. Use parsedFinvizTickers.
+        if (!parsedFinvizTickers || parsedFinvizTickers.length === 0) {
+            showFinvizStatus("No tickers loaded from file, or file not yet processed. Please select a valid TXT file.", "warning");
+            // Ensure button is in correct state if somehow submission happens without tickers
+            setFinvizButtonState(!!(parsedFinvizTickers && parsedFinvizTickers.length > 0)); 
             return;
         }
-        // Start file reading process
-        setFinvizButtonState(false, "Reading file...");
-        spinnerFinviz.style.display = 'inline-block';
-        try {
-            const fileContent = await selectedFinvizFile.text();
-            tickersFromFile = fileContent.split('\n').map(t => t.trim()).filter(t => t.length > 0);
-            if (tickersFromFile.length === 0) {
-                showFinvizStatus("The selected file is empty or contains no valid tickers.", "warning");
-                setFinvizButtonState(true, "Fetch Finviz Data"); // Re-enable button
-                spinnerFinviz.style.display = 'none';
-                isFetchingFinviz = false; // Reset fetching state
-                return;
-            }
-            console.log("[handleFinvizFetch] Tickers from file:", tickersFromFile);
-        } catch (error) {
-            console.error("[handleFinvizFetch] Error reading file:", error);
-            showFinvizStatus(`Error reading file: ${error.message}`, "error");
-            setFinvizButtonState(true, "Fetch Finviz Data"); // Re-enable button
-            spinnerFinviz.style.display = 'none';
-            isFetchingFinviz = false; // Reset fetching state
-            return;
-        }
+        console.log("[handleFinvizFetch] Using parsed tickers:", parsedFinvizTickers);
+        // No "Reading file..." state needed here as file is pre-processed
     }
 
-    console.log("[handleFinvizFetch] Clicked. Source:", selectedSource, "File Tickers:", tickersFromFile.length);
+    console.log("[handleFinvizFetch] Clicked. Source:", selectedSource, "Using Parsed File Tickers:", parsedFinvizTickers.length);
     isFetchingFinviz = true;
     setFinvizButtonState(false, "Starting...");
     spinnerFinviz.style.display = 'inline-block';
@@ -336,7 +438,7 @@ async function handleFinvizFetch() {
         bodyPayload.tickers = ['_DUMMY_FOR_VALIDATION_']; // Satisfy TickerListPayload min_items=1
     } else if (selectedSource === 'upload_finviz_txt') {
         apiUrl += '?source_type=upload_finviz_txt';
-        bodyPayload.tickers = tickersFromFile;
+        bodyPayload.tickers = parsedFinvizTickers; // Use the pre-parsed tickers
     } else {
         // Fallback or error for unknown source if necessary
         showFinvizStatus(`Unknown data source selected: ${selectedSource}`, "error");
