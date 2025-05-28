@@ -1211,6 +1211,28 @@ class SQLiteRepository:
             raise
     # --- End Method to Get All Finviz Raw Data ---
 
+    # --- NEW Method to Get Analytics Raw Data by Source ---
+    async def get_analytics_raw_data_by_source(self, source_filter: str) -> List[Dict[str, Any]]:
+        """Fetches all records from the analytics_raw table, filtered by a specific source."""
+        logger.info(f"[DB Analytics Raw] Fetching data from analytics_raw table for source: {source_filter}")
+        try:
+            async with self.engine.connect() as conn:
+                stmt = select(
+                    AnalyticsRawDataModel.ticker,
+                    AnalyticsRawDataModel.source,
+                    AnalyticsRawDataModel.raw_data,
+                    AnalyticsRawDataModel.last_fetched_at
+                ).where(AnalyticsRawDataModel.source == source_filter)
+                
+                result = await conn.execute(stmt)
+                rows = result.mappings().all() # Get results as dict-like rows
+                logger.info(f"[DB Analytics Raw] Fetched {len(rows)} records for source '{source_filter}'.")
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"[DB Analytics Raw] Error fetching from analytics_raw for source '{source_filter}': {e}", exc_info=True)
+            raise # Re-raise the exception after logging
+    # --- End Method to Get Analytics Raw Data by Source ---
+
     # --- NEW Method for Analytics Raw Data Save/Update ---
     async def save_or_update_analytics_raw_data(self, ticker: str, source: str, raw_data: str) -> None:
         """Saves or updates raw analytics data for a specific ticker and source."""

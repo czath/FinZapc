@@ -10,6 +10,9 @@ import json # <-- ADDED IMPORT FOR JSON PARSING IN REPOSITORY (though parsing ha
 
 # Assuming SQLiteRepository is defined here or imported correctly
 from .V3_database import SQLiteRepository # <-- ADDED IMPORT
+from . import V3_finviz_fetch # <-- ADD THIS IMPORT
+from .V3_finviz_fetch import parse_raw_data # <-- ADD THIS SPECIFIC IMPORT
+from . import V3_analytics # <-- ADD THIS IMPORT (Already seems to be used, but good to ensure it's explicit if not already)
 
 # Define the base URL for the API, can be moved to config later
 BASE_API_URL = "http://localhost:8000" # Adjust if your app runs on a different port
@@ -37,35 +40,72 @@ class AnalyticsDataProcessor:
         Filters for source='finviz' and expects the repository to parse the raw_data JSON.
         """
         logger.info("ADP: Loading Finviz data from analytics_raw table...")
-        finviz_data: List[Dict[str, Any]] = []
-        if progress_callback:
-            await progress_callback(task_name="load_finviz_data", status="started", progress=0, message="Querying database for Finviz data")
-        
+        processed_data: List[Dict[str, Any]] = []
         try:
-            # Call the repository method to get Finviz data
-            # Assumes get_analytics_raw_data_by_source handles JSON parsing
-            finviz_data = await self.db_repository.get_analytics_raw_data_by_source(source_filter='finviz')
-            logger.info(f"ADP: Successfully loaded {len(finviz_data)} Finviz records from DB.")
-            
-            # --- TEMPORARY DEBUG LOGGING ---
-            if finviz_data:
-                logger.debug(f"ADP DEBUG: _load_finviz_data - First 3 records (if available): {finviz_data[:3]}")
-            else:
-                logger.debug("ADP DEBUG: _load_finviz_data - No records returned from repository.")
-            logger.debug(f"ADP DEBUG: _load_finviz_data - Total records being returned: {len(finviz_data)}")
-            # --- END TEMPORARY DEBUG LOGGING ---
+            all_finviz_raw_entries = await self.db_repository.get_analytics_raw_data_by_source('finviz')
+            total_entries = len(all_finviz_raw_entries)
+            logger.info(f"ADP: Found {total_entries} raw Finviz entries.")
 
-            if progress_callback:
-                # Report completion after successful fetch
-                await progress_callback(task_name="load_finviz_data", status="completed", progress=100, count=len(finviz_data), message="Finviz data loaded from DB")
+            for i, entry in enumerate(all_finviz_raw_entries):
+                ticker = entry.get('ticker')
+                raw_data_str = entry.get('raw_data')
+                last_fetched_at = entry.get('last_fetched_at') # Get last_fetched_at
+
+                if not ticker or not raw_data_str:
+                    logger.warning(f"ADP Finviz: Skipping entry due to missing ticker or raw_data. Entry: {entry}")
+                    continue
+
+                logger.debug(f"ADP Finviz Processing Ticker: {ticker}")
+                # logger.debug(f"ADP Finviz raw_data_str from DB (first 200 chars): '{str(raw_data_str)[:200]}'") # Keep for debugging if needed
+
+                try:
+                    # Step 1: Parse the raw_data string
+                    parsed_finviz_fields = parse_raw_data(raw_data_str)
+                    # logger.debug(f"ADP Finviz Parsed fields for {ticker}: {parsed_finviz_fields}") # Keep for debugging
+
+                    # Step 2: Construct the processed_item with prefixed fields
+                    processed_item: Dict[str, Any] = {
+                        'ticker': ticker,
+                        'source': 'finviz', # Explicitly set source
+                        'last_fetched_at': last_fetched_at # Include last_fetched_at
+                    }
+
+                    # Add prefixed Finviz fields
+                    for key, value in parsed_finviz_fields.items():
+                        processed_item[f"fv_{key.replace('/', '_').replace(' ', '_').replace('-', '_').replace('.', '_')}"] = value
+                    
+                    # logger.debug(f"ADP Finviz Final processed_item for {ticker}: {processed_item}") # Keep for debugging
+
+                    processed_data.append(processed_item)
+
+                except Exception as e:
+                    logger.error(f"ADP Finviz: Error processing entry for ticker {ticker}. Error: {e}", exc_info=True)
+                    # Optionally, append a minimal record or skip
+                    processed_data.append({
+                        'ticker': ticker,
+                        'source': 'finviz',
+                        'last_fetched_at': last_fetched_at,
+                        'error_processing': str(e),
+                        'raw_data': raw_data_str # include raw_data if there was an error
+                    })
+
+                if progress_callback and callable(progress_callback):
+                    # Simulate progress update
+                    await asyncio.sleep(0.01) # Simulate async work
+                    progress_callback({
+                        "current": i + 1,
+                        "total": total_entries,
+                        "status": f"Processing Finviz: {ticker} ({i+1}/{total_entries})"
+                    })
+            
+            logger.info(f"ADP: Successfully processed {len(processed_data)} Finviz entries into structured format.")
 
         except Exception as e:
-            logger.error(f"ADP: Error loading Finviz data from database: {e}", exc_info=True)
-            if progress_callback:
-                await progress_callback(task_name="load_finviz_data", status="failed", progress=100, message=f"DB error: {e}")
-            finviz_data = [] # Ensure empty list on error
-       
-        return finviz_data
+            logger.error(f"ADP: Error loading/processing Finviz data from DB: {e}", exc_info=True)
+            # If there's a general error, we might return an empty list or re-raise
+            # For now, returning what has been processed so far or an empty list
+        
+        return processed_data
 
     async def _load_yahoo_data(self, progress_callback: Optional[Callable] = None) -> List[Dict[str, Any]]:
         """
