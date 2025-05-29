@@ -1,13 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from .V3_database import ScreenerModel, PositionModel, SQLiteRepository
 from .V3_web import get_db
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import uuid
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import logging
 from datetime import datetime
 
@@ -681,4 +681,30 @@ async def get_synthetic_fundamental_timeseries(
         # Consider returning a more specific HTTP error, e.g., 500 or 400 if input is bad.
         # For now, letting FastAPI handle the generic 500 for unhandled exceptions from the service.
         # If the service returns empty for unsupported, that will be handled by client or be an empty dict.
-        raise HTTPException(status_code=500, detail=f"An error occurred while calculating synthetic fundamental {fundamental_name}: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"An error occurred while calculating synthetic fundamental {fundamental_name}: {str(e)}")
+
+# --- ADDITION FOR NEW FEATURE ---
+@router.get("/api/yahoo/analyst_price_targets/{ticker_symbol}",
+            summary="Get latest analyst price targets for a ticker (New Feature)",
+            response_model=Optional[Dict[str, float]],
+            tags=["Yahoo Finance Data", "Analytics Additions"]) # New tag to distinguish
+async def get_analyst_price_targets_for_ticker_new( # New function name
+    ticker_symbol: str,
+    query_service: YahooDataQueryService = Depends(get_yahoo_query_service)
+):
+    """
+    (New Feature Endpoint)
+    Retrieves the latest analyst price target data (high, low, mean, median)
+    for a given ticker symbol.
+    Data is fetched from the 'ticker_data_items' table where item_type
+    is 'ANALYST_PRICE_TARGETS'. This endpoint is part of a new feature.
+    """
+    # logger.info(f"API (New Feature): Fetching analyst price targets for {ticker_symbol}") # Optional
+    analyst_targets = await query_service.get_latest_analyst_price_targets(ticker_symbol)
+    if analyst_targets:
+        return analyst_targets
+    return None
+# --- END ADDITION FOR NEW FEATURE ---
+
+# Ensure router is included in the main app if this is a separate file, e.g., app.include_router(router)
+# Or if V3_backend_api.py defines `router = APIRouter()`, ensure this router is used. 

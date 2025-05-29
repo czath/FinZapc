@@ -2,6 +2,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const LOG_PREFIX = "TimeseriesModule:";
     console.log(LOG_PREFIX, "DOMContentLoaded event fired.");
 
+    // --- NEW: Cache for Analyst Price Targets (New Feature) ---
+    const analystTargetsCache_new = {}; // Suffix _new to ensure it's a new variable
+    // --- END NEW ---
+
     // --- NEW: Define and Register Chart.js Crosshair Plugin ---
     const customCrosshairPlugin = {
         id: 'customCrosshair',
@@ -65,6 +69,184 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.error(LOG_PREFIX, "Chart object still not defined on DOMContentLoaded. customCrosshairPlugin will not work.");
             }
         });
+    }
+    // --- END NEW ---
+
+    // --- NEW: Function to Fetch Analyst Price Targets (New Feature) ---
+    async function fetchAnalystPriceTargets_new(ticker) {
+        const functionPrefix = LOG_PREFIX + "fetchAnalystPriceTargets_new:";
+        if (analystTargetsCache_new.hasOwnProperty(ticker)) {
+            console.log(functionPrefix, `Using cached analyst targets for ${ticker}:`, analystTargetsCache_new[ticker]);
+            return { data: analystTargetsCache_new[ticker], cacheHit: true };
+        }
+        try {
+            console.log(functionPrefix, `Fetching analyst targets for ${ticker} from API...`);
+            const response = await fetch(`/api/yahoo/analyst_price_targets/${ticker}`); // Uses the new API endpoint
+            if (response.ok) {
+                const data = await response.json();
+                analystTargetsCache_new[ticker] = data; // Cache result (can be data object or null if API returns that for not found)
+                if (data) {
+                    console.log(functionPrefix, `Successfully fetched and cached analyst targets for ${ticker}:`, data);
+                } else {
+                    console.log(functionPrefix, `No analyst targets data returned from API for ${ticker}, cached as null.`);
+                }
+                return { data: data, cacheHit: false };
+            } else {
+                console.warn(functionPrefix, `Failed to fetch analyst targets for ${ticker}. Status: ${response.status} ${response.statusText}`);
+                analystTargetsCache_new[ticker] = null; // Cache failure as null
+                return { data: null, cacheHit: false };
+            }
+        } catch (error) {
+            console.error(functionPrefix, `Error during fetch for analyst targets for ${ticker}:`, error);
+            analystTargetsCache_new[ticker] = null; // Cache error as null
+            return { data: null, cacheHit: false };
+        }
+    }
+    // --- END NEW ---
+
+    // --- NEW: Function to Add Analyst Target Annotations to an Existing Chart (New Feature) ---
+    async function addAnalystTargetAnnotations_new(chartInstance, ticker, chartType_param) {
+        const functionPrefix_new = LOG_PREFIX + "addAnalystTargetAnnotations_new:";
+        console.log(functionPrefix_new, `Attempting to add/update analyst target annotations for ${ticker} on existing chart (type: ${chartType_param}).`);
+
+        // Fetch data first to know if it was a cache hit
+        const { data: analystTargetsData, cacheHit } = await fetchAnalystPriceTargets_new(ticker); // Uses the function from Step 3, now returns object
+
+        // --- DETAILED LOGGING FOR RE-RENDER DECISION ---
+        // console.log(functionPrefix_new, "Re-render pre-check: ticker:", ticker, 
+        //             "analystTargetsData exists:", !!analystTargetsData, 
+        //             "analystTargetsData content (first 50 chars if string, else type):", analystTargetsData ? (typeof analystTargetsData === 'string' ? analystTargetsData.substring(0,50) : typeof analystTargetsData) : 'null',
+        //             "cacheHit:", cacheHit, 
+        //             "chartType_param:", chartType_param);
+        // --- END DETAILED LOGGING ---
+
+        if (!chartInstance || typeof chartInstance.update !== 'function') {
+            // If chartInstance is null, but we just fetched data (cacheHit is false) and it's for a non-line chart,
+            // a re-render might be pending or necessary. This path is tricky.
+            // The primary re-render logic for non-line/fresh-fetch is below if chartInstance *was* valid before becoming null.
+            // For now, if chartInstance is genuinely unusable here, log and exit.
+            if (!(analystTargetsData && !cacheHit && chartType_param !== 'line')) {
+                 console.error(functionPrefix_new, "Provided chartInstance is invalid or does not have an update method. Cannot proceed with dynamic update.");
+                 return;
+            }
+             // If it IS analystTargetsData && !cacheHit && chartType_param !== 'line', we might proceed to re-render logic below if chartInstance was initially valid.
+        }
+
+        // --- RE-RENDER LOGIC FOR NON-LINE CHARTS ON FRESH FETCH ---
+        if (analystTargetsData && typeof analystTargetsData === 'object' && Object.keys(analystTargetsData).length > 0 && 
+            !cacheHit && chartType_param !== 'line') {
+            console.log(functionPrefix_new, `>>> RE-RENDER BLOCK ENTERED for ${ticker}, type ${chartType_param} because cacheHit is false.`);
+            
+            // At this point, analystTargetsData is in the cache.
+            // We need to destroy the current chart and call handleRunPriceHistory to re-render it,
+            // so renderTimeseriesChart picks up the cached annotations during its options setup.
+            if (timeseriesChartInstance) { // Use the module-scoped instance for destruction
+                console.log(functionPrefix_new, "Destroying existing timeseriesChartInstance before re-render.");
+                timeseriesChartInstance.destroy();
+                timeseriesChartInstance = null; 
+            }
+            // Re-run the original handler. It will re-read all params and call renderTimeseriesChart.
+            // renderTimeseriesChart will now see the cached analyst data and build annotations into the initial config.
+            await handleRunPriceHistory(); 
+            console.log(functionPrefix_new, "Full chart re-render initiated by handleRunPriceHistory due to fresh non-line chart data.");
+            return; // Exit, as re-render handles everything.
+        }
+        // --- END RE-RENDER LOGIC ---
+
+        // Existing logic for dynamic updates (line charts, or if data was already cached for any type, or if clearing annotations)
+        // This part will also execute if chartInstance was initially null but the re-render condition wasn't met (e.g. cacheHit was true).
+
+        // Ensure chartInstance is still valid if we didn't re-render and return early
+        if (!chartInstance || typeof chartInstance.update !== 'function') {
+             console.error(functionPrefix_new, "ChartInstance became invalid or was null and re-render condition not met. Cannot proceed with dynamic update.");
+             return;
+        }
+
+        // Initialize annotations object in chart options if it doesn't exist
+        if (!chartInstance.options.plugins.annotation) {
+            chartInstance.options.plugins.annotation = {};
+        }
+        if (!chartInstance.options.plugins.annotation.annotations) {
+            chartInstance.options.plugins.annotation.annotations = {};
+        }
+
+        // --- TEST: Add a simple hardcoded annotation ---
+        // const aaplPriceDataVisibleRangeMin = 150; // Assuming AAPL price is above this
+        // const aaplPriceDataVisibleRangeMax = 250; // Assuming AAPL price is below this
+        // // Pick a value within an expected visible range for AAPL, e.g., its current price or a target.
+        // // The log showed AAPL close was ~200. Let's try a line at 190.
+        // const testYValue = (ticker === 'AAPL') ? 190 : (chartInstance.scales.y.min + chartInstance.scales.y.max) / 2; // Fallback if not AAPL
+        
+        // chartInstance.options.plugins.annotation.annotations['test_line_hardcoded'] = {
+        //     type: 'line',
+        //     yMin: testYValue, 
+        //     yMax: testYValue,
+        //     borderColor: 'lime', // Bright color
+        //     borderWidth: 4,
+        //     label: {
+        //          content: 'TEST LINE',
+        //          display: true,
+        //          position: 'start',
+        //          backgroundColor: 'lime',
+        //          color: 'black'
+        //     }
+        // };
+        // console.log(functionPrefix_new, "Added TEST hardcoded annotation at y=", testYValue, JSON.stringify(chartInstance.options.plugins.annotation.annotations));
+        // chartInstance.update();
+        // Temporarily return after test to isolate its effect
+        // Remove this return to proceed with dynamic annotations if test is successful
+        // // return; 
+        // --- END TEST ---
+
+        const targetAnnotations_new = {};
+        // Define colors for targets (consistent with renderPriceHistoryWithTargets_new if that was used)
+        const targetStyles_new = {
+            high: { color: 'rgba(75, 192, 75, 0.7)', label: 'High Target' },   // Greenish
+            low: { color: 'rgba(255, 99, 132, 0.7)', label: 'Low Target' },    // Reddish
+            mean: { color: 'rgba(54, 162, 235, 0.7)', label: 'Mean Target' },  // Blueish
+            median: { color: 'rgba(255, 206, 86, 0.7)', label: 'Median Target' } // Yellowish
+        };
+
+        for (const key of ['high', 'low', 'mean', 'median']) {
+            if (analystTargetsData.hasOwnProperty(key) && typeof analystTargetsData[key] === 'number') {
+                const value_new = analystTargetsData[key];
+                const style_new = targetStyles_new[key];
+                
+                // Use unique keys for these annotations to avoid conflicts if other annotations exist
+                targetAnnotations_new[`analyst_target_dynamic_${key}`] = {
+                    type: 'line',
+                    yMin: value_new,
+                    yMax: value_new,
+                    borderColor: style_new.color,
+                    borderWidth: 2,
+                    borderDash: [6, 6],
+                    label: {
+                        content: `${style_new.label}: ${value_new.toFixed(2)}`,
+                        display: true,
+                        position: 'end',
+                        backgroundColor: style_new.color,
+                        color: '#fff',
+                        font: { size: 10, weight: '600' },
+                        padding: { top: 2, bottom: 2, left: 4, right: 4 },
+                        borderRadius: 3,
+                        xAdjust: 3, 
+                        yAdjust: -8, // Minor y-offset for label
+                    }
+                };
+            }
+        }
+
+        // Merge new annotations with any existing ones (or clear old ones related to this feature if needed)
+        // For simplicity, this example adds/overwrites. If you need to clear only these specific annotations first:
+        // Object.keys(chartInstance.options.plugins.annotation.annotations).forEach(key => {
+        //     if (key.startsWith('analyst_target_dynamic_')) {
+        //         delete chartInstance.options.plugins.annotation.annotations[key];
+        //     }
+        // });
+        Object.assign(chartInstance.options.plugins.annotation.annotations, targetAnnotations_new);
+
+        console.log(functionPrefix_new, "Updating chart with analyst target annotations:", targetAnnotations_new);
+        chartInstance.update(); // Refresh the chart to show new annotations
     }
     // --- END NEW ---
 
@@ -341,19 +523,145 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Initialization ---
     function initializeTimeseriesModule() {
-        console.log(LOG_PREFIX, "Initializing base UI and event listeners (pre-data)...");
+        console.log(LOG_PREFIX, "Initializing Timeseries Module (New Feature Enhancement)...");
+
+        // --- NEW: Check CDN content for ChartAnnotation plugin ---
+        const annotationPluginUrl_cdn_check_new = 'https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js';
+        fetch(annotationPluginUrl_cdn_check_new)
+            .then(response => {
+                if (!response.ok) {
+                    console.error(LOG_PREFIX, `CDN Check: Failed to fetch ${annotationPluginUrl_cdn_check_new}. Status: ${response.status}`);
+                    return null;
+                }
+                return response.text();
+            })
+            .then(text => {
+                if (text) {
+                    console.log(LOG_PREFIX, `CDN Check: Successfully fetched ${annotationPluginUrl_cdn_check_new}. Length: ${text.length}. Starts with: ${text.substring(0, 100)}`);
+                    // You can add more checks here, e.g., if (text.includes('ChartAnnotation')) { ... }
+                } else {
+                    console.error(LOG_PREFIX, `CDN Check: No text content from ${annotationPluginUrl_cdn_check_new}.`);
+                }
+            })
+            .catch(error => {
+                console.error(LOG_PREFIX, `CDN Check: Error fetching ${annotationPluginUrl_cdn_check_new}:`, error);
+            });
+        // --- END NEW CDN Check ---
+
         if (!timeseriesTabPane) {
             console.error(LOG_PREFIX, "Timeseries tab pane not found!");
             return;
         }
         setupEventListeners();
-        // Initial call to handleStudySelectionChange to set initial pane visibility based on HTML
         if (document.getElementById('ts-study-selector')) {
             console.log(LOG_PREFIX, "Initial call to handleStudySelectionChange from initializeTimeseriesModule.");
             handleStudySelectionChange({ target: document.getElementById('ts-study-selector') });
         }
         console.log(LOG_PREFIX, "Base UI and event listeners initialized.");
+
+        // --- MODIFIED: Dynamically load ChartAnnotation and then register ---
+        const annotationPluginUrl_new = 'https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js';
+        
+        const tryRegisterAnnotationPlugin_new = (source) => {
+            if (typeof Chart !== 'undefined' && (typeof ChartAnnotation !== 'undefined' || typeof window.ChartAnnotation !== 'undefined')) {
+                try {
+                    const AnnotationPlugin = typeof ChartAnnotation !== 'undefined' ? ChartAnnotation : window.ChartAnnotation;
+                    Chart.register(AnnotationPlugin);
+                    console.log(LOG_PREFIX, `ChartAnnotation plugin registered successfully for new feature (via ${source}).`);
+                    return true;
+                } catch (e) {
+                    console.error(LOG_PREFIX, `Failed to register ChartAnnotation plugin for new feature (via ${source}):`, e);
+                    return false;
+                }
+            }
+            return false;
+        };
+
+        if (!tryRegisterAnnotationPlugin_new('initial_check')) {
+            console.log(LOG_PREFIX, "ChartAnnotation not immediately available. Attempting dynamic script load.");
+            const script_new = document.createElement('script');
+            script_new.src = annotationPluginUrl_new;
+            // script_new.async = true; // REMOVED async attribute
+            script_new.onload = () => {
+                console.log(LOG_PREFIX, "Dynamically loaded ChartAnnotation script finished loading.");
+                if (!tryRegisterAnnotationPlugin_new('script_onload')) {
+                    // Fallback to polling if onload fires but plugin still not ready
+                    let attempts_new = 0;
+                    const maxAttempts_new = 20; // Poll for 2 more seconds
+                    const intervalId_new = setInterval(() => {
+                        attempts_new++;
+                        if (tryRegisterAnnotationPlugin_new('polling_after_load')) {
+                            clearInterval(intervalId_new);
+                        } else if (attempts_new >= maxAttempts_new) {
+                            clearInterval(intervalId_new);
+                            console.warn(LOG_PREFIX, "ChartAnnotation global not found after dynamic load and polling. Annotations may not work.");
+                        }
+                    }, 100);
+                }
+            };
+            script_new.onerror = (error) => {
+                console.error(LOG_PREFIX, "Failed to load ChartAnnotation script dynamically:", error);
+                // Fallback to polling even on script error, in case it loaded but errored on an unrelated part
+                let attempts_new = 0;
+                const maxAttempts_new = 30; // Poll for 3 seconds total
+                const intervalId_new = setInterval(() => {
+                    attempts_new++;
+                    if (tryRegisterAnnotationPlugin_new('polling_after_error')) {
+                        clearInterval(intervalId_new);
+                    } else if (attempts_new >= maxAttempts_new) {
+                        clearInterval(intervalId_new);
+                        console.warn(LOG_PREFIX, "ChartAnnotation global not found after dynamic load error and polling. Annotations may not work.");
+                    }
+                }, 100);
+            };
+            document.head.appendChild(script_new);
+        }
+        // --- END MODIFIED ---
+
+        loadDateAdapterLibrary();
+        loadFinancialChartLibrary();
     }
+
+    // --- NEW: Orchestrator for Price History + Analyst Targets (New Feature) ---
+    async function runPriceHistoryAndAnnotate_new() {
+        const functionPrefix_new = LOG_PREFIX + "runPriceHistoryAndAnnotate_new:";
+        console.log(functionPrefix_new, "Starting Price History run with intention to annotate...");
+
+        // Call the original handler first to render the base price chart
+        // handleRunPriceHistory is already async and handles its own loading indicators.
+        const chartToAnnotate = await handleRunPriceHistory(); // <<< MODIFIED: Capture returned instance
+
+        console.log(functionPrefix_new, "Original handleRunPriceHistory completed. Returned chart instance:", chartToAnnotate ? chartToAnnotate.id : 'null/undefined');
+
+        // Now, attempt to add analyst target annotations
+        // REMOVED: setTimeout(async () => {
+        // MODIFIED: Use chartToAnnotate instead of currentChartInstance directly from global scope
+        if (chartToAnnotate && chartToAnnotate.canvas) { 
+            let tickerValue = '';
+            const manualTickerInput = document.getElementById('ts-ph-ticker-input'); 
+            const loadedTickerSelect = document.getElementById('ts-ph-ticker-select-loaded'); 
+            const tickerSourceManual = document.querySelector('input[name="tsPhTickerSource"][value="manual"]:checked');
+            const currentChartType = tsPhChartTypeSelect ? tsPhChartTypeSelect.value : 'line'; // Get current chart type
+
+            if (tickerSourceManual && manualTickerInput) {
+                tickerValue = manualTickerInput.value.trim().toUpperCase();
+            } else if (loadedTickerSelect) {
+                tickerValue = loadedTickerSelect.value;
+            }
+
+            if (tickerValue) {
+                console.log(functionPrefix_new, "Attempting to add analyst targets for ticker:", tickerValue, "to chart instance:", chartToAnnotate.id, "with chart type:", currentChartType);
+                // Ensure this is awaited if addAnalystTargetAnnotations_new is async, which it is.
+                await addAnalystTargetAnnotations_new(chartToAnnotate, tickerValue, currentChartType); // MODIFIED: Pass chartToAnnotate AND currentChartType
+            } else {
+                console.warn(functionPrefix_new, "Ticker not available for analyst targets after price history run.");
+            }
+        } else {
+            console.warn(functionPrefix_new, "Chart instance from handleRunPriceHistory is not available or invalid. Cannot add analyst targets.");
+        }
+        // REMOVED: }, 150); 
+    }
+    // --- END NEW ---
 
     // --- Event Listener Setup (for elements within the Timeseries tab) ---
     function setupEventListeners() {
@@ -361,9 +669,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const studySelector = document.getElementById('ts-study-selector');
 
         if (priceHistoryRunButton) {
-            priceHistoryRunButton.addEventListener('click', handleRunPriceHistory);
+            // MODIFIED: Call the new orchestrator function instead of directly calling handleRunPriceHistory
+            priceHistoryRunButton.addEventListener('click', runPriceHistoryAndAnnotate_new); 
+            console.log(LOG_PREFIX, "Price History Run Button listener attached to new orchestrator: runPriceHistoryAndAnnotate_new.");
         } else {
-            console.warn(LOG_PREFIX, "Run button (ts-ph-run-study-btn) not found.");
+            console.warn(LOG_PREFIX, "Run button (ts-ph-run-study-btn) for Price History not found.");
         }
 
         // --- Event Listeners for Price Performance Comparison (PPC) ---
@@ -699,7 +1009,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Event Handlers ---
     // --- NEW: Handler for Price History Study ---
     async function handleRunPriceHistory() {
-        console.log(LOG_PREFIX, "Run Price History clicked.");
+        const functionPrefix = LOG_PREFIX + "handleRunPriceHistory:";
+        console.log(functionPrefix, "'Run Price History' button clicked.");
         if (!priceHistoryRunButton || !priceHistoryIntervalSelect || !priceHistoryPeriodSelector || !priceHistoryTickerSourceRadios) {
             alert("Essential Price History UI elements are missing. Please refresh the page.");
             console.error(LOG_PREFIX, "Missing Price History UI elements.");
@@ -763,6 +1074,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // MODIFICATION START: Try to get data from cache first
         let apiData = null;
+        let chartInstanceToReturn = null; // NEW: Variable to hold the instance to be returned
+
         if (window.AnalyticsPriceCache) {
             console.log(LOG_PREFIX, `Attempting to fetch ${ticker} ${interval} for period '${period}' (${startDate}-${endDate}) from cache.`);
             apiData = window.AnalyticsPriceCache.getPriceData(ticker, interval, period, startDate, endDate);
@@ -776,7 +1089,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (apiData) { // If cache hit
-            renderTimeseriesChart(apiData, ticker, interval, { period, start: startDate, end: endDate }, chartType);
+            // renderTimeseriesChart(apiData, ticker, interval, { period, start: startDate, end: endDate }, chartType);
+            chartInstanceToReturn = await renderTimeseriesChart(apiData, ticker, interval, { period, start: startDate, end: endDate }, chartType); // Capture returned instance
             showLoadingIndicator(false);
             if (priceHistoryRunButton) priceHistoryRunButton.disabled = false;
         } else { // Cache miss or cache module not available, fetch from API
@@ -811,7 +1125,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         console.log(LOG_PREFIX, `Storing ${ticker} ${interval} (Period: '${period}', Start: '${startDate}', End: '${endDate}') in cache. Points: ${apiData.length}`);
                         window.AnalyticsPriceCache.storePriceData(ticker, interval, apiData, period, startDate, endDate);
                     }
-                    renderTimeseriesChart(apiData, ticker, interval, { period, start: startDate, end: endDate }, chartType);
+                    // renderTimeseriesChart(apiData, ticker, interval, { period, start: startDate, end: endDate }, chartType);
+                    chartInstanceToReturn = await renderTimeseriesChart(apiData, ticker, interval, { period, start: startDate, end: endDate }, chartType); // Capture returned instance
                 } else {
                     showPlaceholderWithMessage("No price data returned for the selected criteria.");
                 }
@@ -823,6 +1138,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (priceHistoryRunButton) priceHistoryRunButton.disabled = false;
             }
         } // END Cache miss logic
+        // return timeseriesChartInstance; // <<< OLD: Incorrect return point
+        return chartInstanceToReturn; // <<< NEW: Return the captured instance
     }
 
     // --- NEW: Handler for Price Performance Comparison Study ---
@@ -1674,7 +1991,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Charting ---
     // MODIFIED: renderTimeseriesChart to handle different chart types and dynamic library loading
-    function renderTimeseriesChart(apiData, ticker, interval, range, chartType) {
+    async function renderTimeseriesChart(apiData, ticker, interval, range, chartType) { // Added async
         console.log(LOG_PREFIX, "renderTimeseriesChart called for ticker:", ticker, "Data points:", apiData?.length, "Chart Type:", chartType);
 
         const chartCanvas = document.getElementById('ts-chart-canvas'); 
@@ -1756,7 +2073,12 @@ document.addEventListener('DOMContentLoaded', function() {
                             },
                             mode: 'xy'
                         }
+                    },
+                    // --- NEW: Initialize annotation plugin options ---
+                    annotation: {
+                        annotations: {}
                     }
+                    // --- END NEW ---
                 },
                 scales: {
                     y: {
@@ -1768,6 +2090,81 @@ document.addEventListener('DOMContentLoaded', function() {
 
             let specificTitlePart = "Price History";
 
+            // --- NEW: Apply analyst target annotations if data is cached (New Feature Enhancement) ---
+            if (analystTargetsCache_new.hasOwnProperty(ticker)) {
+                const analystTargetsData = analystTargetsCache_new[ticker];
+                // --- DETAILED LOGGING FOR CACHE CHECK IN RENDER ---
+                // console.log(LOG_PREFIX + "renderTimeseriesChart_cacheCheck:", 
+                //             `Ticker: ${ticker}, ChartType: ${chartType}, Found in analystTargetsCache_new: Yes.`, 
+                //             "Data from cache (first 50 chars if string, else type):", 
+                //             analystTargetsData ? (typeof analystTargetsData === 'string' ? analystTargetsData.substring(0,50) : typeof analystTargetsData) : 'null', 
+                //             "Is object with keys?", (analystTargetsData && typeof analystTargetsData === 'object' && Object.keys(analystTargetsData).length > 0));
+                // --- END DETAILED LOGGING ---
+
+                if (analystTargetsData && typeof analystTargetsData === 'object' && Object.keys(analystTargetsData).length > 0) {
+                    const functionPrefix_render = LOG_PREFIX + "renderTimeseriesChart_applyAnnotations:";
+                    console.log(functionPrefix_render, `Applying cached analyst targets for ${ticker} during chart (type: ${chartType}) render.`);
+            
+                    // Ensure annotations plugin structure exists in options
+                    if (!chartOptions.plugins.annotation) {
+                        chartOptions.plugins.annotation = {};
+                    }
+                    // Ensure the 'annotations' sub-object exists, initialize if not.
+                    // If it does exist, clear only our specific dynamic annotations to prevent buildup if options were somehow reused.
+                    if (!chartOptions.plugins.annotation.annotations) {
+                        chartOptions.plugins.annotation.annotations = {};
+                    } else {
+                        Object.keys(chartOptions.plugins.annotation.annotations).forEach(key => {
+                            if (key.startsWith('analyst_target_dynamic_')) { // Match prefix from addAnalystTargetAnnotations_new
+                                delete chartOptions.plugins.annotation.annotations[key];
+                            }
+                        });
+                    }
+                    
+                    const targetStyles_new = { // Duplicated from addAnalystTargetAnnotations_new for direct use here
+                        high: { color: 'rgba(75, 192, 75, 0.7)', label: 'High Target' },
+                        low: { color: 'rgba(255, 99, 132, 0.7)', label: 'Low Target' },
+                        mean: { color: 'rgba(54, 162, 235, 0.7)', label: 'Mean Target' },
+                        median: { color: 'rgba(255, 206, 86, 0.7)', label: 'Median Target' }
+                    };
+            
+                    for (const key of ['high', 'low', 'mean', 'median']) {
+                        if (analystTargetsData.hasOwnProperty(key) && typeof analystTargetsData[key] === 'number') {
+                            const value_new = analystTargetsData[key];
+                            const style_new = targetStyles_new[key];
+                            
+                            chartOptions.plugins.annotation.annotations[`analyst_target_dynamic_${key}`] = {
+                                type: 'line',
+                                yMin: value_new,
+                                yMax: value_new,
+                                borderColor: style_new.color,
+                                borderWidth: 2,
+                                borderDash: [6, 6],
+                                label: {
+                                    content: `${style_new.label}: ${value_new.toFixed(2)}`,
+                                    display: true,
+                                    position: 'end',
+                                    backgroundColor: style_new.color,
+                                    color: '#fff',
+                                    font: { size: 10, weight: '600' },
+                                    padding: { top: 2, bottom: 2, left: 4, right: 4 },
+                                    borderRadius: 3,
+                                    xAdjust: 3, 
+                                    yAdjust: -8, 
+                                }
+                            };
+                        }
+                    }
+                    console.log(functionPrefix_render, "Applied dynamic annotations from cache to chartOptions:", JSON.parse(JSON.stringify(chartOptions.plugins.annotation.annotations)));
+                }
+            } else {
+                 // --- DETAILED LOGGING FOR CACHE MISS IN RENDER ---
+                 // console.log(LOG_PREFIX + "renderTimeseriesChart_cacheCheck:", 
+                 //             `Ticker: ${ticker}, ChartType: ${chartType}, Found in analystTargetsCache_new: No.`);
+                 // --- END DETAILED LOGGING ---
+            }
+            // --- END NEW ---
+            
             if (chartType === 'candlestick' || chartType === 'ohlc') {
                 if (!window.Chart || !window.Chart.controllers || !(window.Chart.controllers.candlestick || window.Chart.controllers.ohlc)) {
                     const errorMsg = `${chartType === 'candlestick' ? 'Candlestick' : 'OHLC'} chart components not available.`;
@@ -1990,6 +2387,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 options: chartOptions
             });
             console.log(LOG_PREFIX, "Chart rendered successfully for", ticker, "as", chartJsType);
+            return timeseriesChartInstance; // Return instance from here
         };
 
         const isIntradayLine = chartType === 'line' && ['15m', '30m', '1h'].includes(interval);
@@ -2006,30 +2404,27 @@ document.addEventListener('DOMContentLoaded', function() {
         if (needsDateAdapter) {
             console.log(LOG_PREFIX, `Chart type ${chartType} (interval: ${interval}) requires date adapter.`);
             showLoadingIndicator(true);
-            loadDateAdapterLibrary()
-                .then(() => {
-                    if (needsFinancialLib) {
-                        console.log(LOG_PREFIX, `Chart type ${chartType} also requires financial library.`);
-                        return loadFinancialChartLibrary();
-                    }
-                    return Promise.resolve(); // Financial library not needed
-                })
-                .then(() => {
-                    console.log(LOG_PREFIX, "All required libraries loaded. Proceeding to create chart.");
-                    showLoadingIndicator(false);
-                    createChartLogic();
-                })
-                .catch(error => {
-                    showLoadingIndicator(false);
-                    const libType = needsFinancialLib ? 'financial and/or date adapter' : 'date adapter';
-                    const errorMsg = `Failed to load required ${libType} for ${chartType} chart: ${error.message}`;
-                    console.error(LOG_PREFIX, errorMsg, error);
-                    alert(errorMsg + " Please check the console for details.");
-                    showPlaceholderWithMessage(errorMsg);
-                    if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'none';
-                });
+            try {
+                await loadDateAdapterLibrary(); // await the promise
+                if (needsFinancialLib) {
+                    console.log(LOG_PREFIX, `Chart type ${chartType} also requires financial library.`);
+                    await loadFinancialChartLibrary(); // await the promise
+                }
+                console.log(LOG_PREFIX, "All required libraries loaded. Proceeding to create chart.");
+                showLoadingIndicator(false);
+                return createChartLogic(); // Call and return result
+            } catch (error) {
+                showLoadingIndicator(false);
+                const libType = needsFinancialLib ? 'financial and/or date adapter' : 'date adapter';
+                const errorMsg = `Failed to load required ${libType} for ${chartType} chart: ${error.message}`;
+                console.error(LOG_PREFIX, errorMsg, error);
+                alert(errorMsg + " Please check the console for details.");
+                showPlaceholderWithMessage(errorMsg);
+                if (tsResetZoomBtn) tsResetZoomBtn.style.display = 'none';
+                return null; // Return null on error
+            }
         } else {
-            createChartLogic(); // For line chart, no special library needed beyond core Chart.js
+            return createChartLogic(); // Call and return result for non-library cases
         }
     }
 
@@ -2351,4 +2746,173 @@ document.addEventListener('DOMContentLoaded', function() {
     // Listen for the main analytics module to signal data readiness
     console.log(LOG_PREFIX, "Adding event listener for 'AnalyticsTransformComplete' to WINDOW.");
     window.addEventListener('AnalyticsTransformComplete', handleAnalyticsTransformationComplete);
+
+    // --- NEW: Function to Render Price History with Analyst Targets (New Feature) ---
+    // This function is created specifically for the new feature to avoid modifying existing renderTimeseriesChart.
+    function renderPriceHistoryWithTargets_new(priceApiData, ticker, interval, range, chartType, analystTargetsData) {
+        const functionPrefix_new = LOG_PREFIX + "renderPriceHistoryWithTargets_new:";
+        console.log(functionPrefix_new, "Attempting to render chart for", ticker, "with targets:", analystTargetsData);
+
+        const chartContainer_new = document.getElementById('timeseriesChartContainer'); // Same container as existing
+        const placeholder_new = document.getElementById('chartPlaceholderTimeseries');    // Same placeholder
+
+        if (!chartContainer_new || !placeholder_new) {
+            console.error(functionPrefix_new, "Chart container or placeholder not found!");
+            return;
+        }
+
+        const determineTimeUnit_new_impl = (chartRange, chartInterval) => {
+            if (chartInterval && (chartInterval.includes('m') || chartInterval.includes('h'))) return 'minute';
+            if (chartRange) {
+                if (chartRange.endsWith('d') && parseInt(chartRange) <= 90) return 'day';
+                if (chartRange.endsWith('mo')) return 'month';
+                if (chartRange.endsWith('y')) return 'year';
+            }
+            return 'day';
+        };
+
+        const createChartLogic_new_impl = () => {
+            const ctx_new = document.getElementById('analyticsTimeseriesChart').getContext('2d'); 
+            const chartTypeToUse_new = (chartType === 'candlestick' || chartType === 'ohlc') && (typeof Chartist !== 'undefined' && Chartist.Candlestick)
+                                   ? chartType 
+                                   : 'line';
+            console.log(functionPrefix_new, "Using chartTypeToUse:", chartTypeToUse_new);
+
+            const datasets_new = [];
+            if (chartTypeToUse_new === 'line') {
+                datasets_new.push({
+                    label: `${ticker} Price (New Feature)`,
+                    data: priceApiData.map(item => ({ x: new Date(item.Date).valueOf(), y: item.Close })),
+                    borderColor: 'rgb(54, 162, 235)', 
+                    tension: 0.1,
+                    appDataType: 'raw' 
+                });
+            } else { 
+                 datasets_new.push({
+                    label: `${ticker} Price (New Feature)`,
+                    data: priceApiData.map(d => ({
+                        x: new Date(d.Date).valueOf(),
+                        o: d.Open,
+                        h: d.High,
+                        l: d.Low,
+                        c: d.Close
+                    })),
+                     appDataType: 'ohlc' 
+                });
+            }
+            console.log(functionPrefix_new, "Prepared datasets:", datasets_new);
+
+            const config_new = {
+                type: chartTypeToUse_new === 'line' ? 'line' : 'candlestick', 
+                data: { datasets: datasets_new },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: determineTimeUnit_new_impl(range, interval),
+                                tooltipFormat: 'll HH:mm',
+                                displayFormats: {
+                                    millisecond: 'HH:mm:ss.SSS', second: 'HH:mm:ss', minute: 'HH:mm', hour: 'HH:mm',
+                                    day: 'MMM dd', week: 'MMM dd yyyy', month: 'MMM yyyy', quarter: 'qqq yyyy', year: 'yyyy'
+                                }
+                            },
+                            title: { display: true, text: 'Date' }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            title: { display: true, text: 'Price' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: true },
+                        tooltip: { mode: 'index', intersect: false },
+                        zoom: { 
+                            pan: { enabled: true, mode: 'x', modifierKey: 'ctrl' },
+                            zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
+                        },
+                        crosshair: { 
+                            color: 'rgba(100,100,100,0.4)', 
+                            width: 1
+                        },
+                        lastValueIndicator: { 
+                             appChartType: chartTypeToUse_new 
+                        },
+                        annotation: { 
+                            annotations: {} 
+                        }
+                    }
+                }
+            };
+            
+            if (chartTypeToUse_new === 'candlestick' || chartTypeToUse_new === 'ohlc') {
+                config_new.options.scales.x.time.parser = 'MMM dd, yyyy'; 
+            }
+
+            if (analystTargetsData && typeof analystTargetsData === 'object' && Object.keys(analystTargetsData).length > 0) {
+                const targetAnnotations_new = {};
+                const targetStyles_new = {
+                    high: { color: 'rgba(75, 192, 75, 0.7)', label: 'High Target' },
+                    low: { color: 'rgba(255, 99, 132, 0.7)', label: 'Low Target' },
+                    mean: { color: 'rgba(54, 162, 235, 0.7)', label: 'Mean Target' },
+                    median: { color: 'rgba(255, 206, 86, 0.7)', label: 'Median Target' }
+                };
+
+                for (const key of ['high', 'low', 'mean', 'median']) {
+                    if (analystTargetsData.hasOwnProperty(key) && typeof analystTargetsData[key] === 'number') {
+                        const value_new = analystTargetsData[key];
+                        const style_new = targetStyles_new[key];
+                        
+                        targetAnnotations_new[`analyst_target_new_${key}`] = {
+                            type: 'line',
+                            yMin: value_new,
+                            yMax: value_new,
+                            borderColor: style_new.color,
+                            borderWidth: 2,
+                            borderDash: [6, 6],
+                            label: {
+                                content: `${style_new.label}: ${value_new.toFixed(2)}`,
+                                display: true,
+                                position: 'end',
+                                backgroundColor: style_new.color,
+                                color: '#fff',
+                                font: { size: 10, weight: '600' },
+                                padding: { top: 2, bottom: 2, left: 4, right: 4 },
+                                borderRadius: 3,
+                                xAdjust: 3, 
+                                yAdjust: -8,
+                            }
+                        };
+                    }
+                }
+                config_new.options.plugins.annotation.annotations = targetAnnotations_new;
+                console.log(functionPrefix_new, "Added analyst target annotations:", targetAnnotations_new);
+            } else {
+                console.log(functionPrefix_new, "No analyst target data to annotate or data is empty.");
+            }
+            
+            console.log(functionPrefix_new, "Final chart config for new feature:", JSON.parse(JSON.stringify(config_new)));
+            return new Chart(ctx_new, config_new);
+        };
+
+        if (typeof currentChartInstance !== 'undefined' && currentChartInstance) {
+            console.log(functionPrefix_new, "Destroying existing currentChartInstance.");
+            currentChartInstance.destroy();
+            currentChartInstance = null;
+        }
+        
+        chartContainer_new.style.display = 'block';
+        placeholder_new.style.display = 'none';
+        
+        try {
+            currentChartInstance = createChartLogic_new_impl(); 
+            console.log(functionPrefix_new, "New chart instance created and assigned.");
+        } catch (e) {
+            console.error(functionPrefix_new, "Error creating new chart instance:", e);
+            showPlaceholderWithMessage('Error rendering chart for new feature.');
+        }
+    }
+    // --- END NEW ---
 }); 
