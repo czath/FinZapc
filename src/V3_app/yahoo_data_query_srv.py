@@ -365,10 +365,14 @@ class YahooDataQueryService:
         field_identifier: str, # e.g., "yf_item_balance_sheet_annual_Total Assets"
         tickers: Union[str, List[str]],
         start_date_str: Optional[str] = None,
-        end_date_str: Optional[str] = None
-    ) -> Dict[str, List[Dict[str, Any]]]:
+        end_date_str: Optional[str] = None,
+        include_projection_metadata: bool = False  # NEW PARAMETER
+    ) -> Union[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]: # MODIFIED RETURN TYPE ANNOTATION
         
-        results_by_ticker: Dict[str, List[Dict[str, Any]]] = {}
+        # Adjust the type of results_by_ticker based on the flag later
+        # For now, let's prepare for the complex type and adapt at the end.
+        # Using a generic Dict initially, will cast/type correctly before return.
+        results_by_ticker: Dict[str, Any] = {}
         tickers_list = [tickers] if isinstance(tickers, str) else tickers
 
         # Cache for ticker master profiles to avoid re-fetching for currency info within this request
@@ -580,6 +584,8 @@ class YahooDataQueryService:
                 logger.error(f"Error processing historical data for ticker {ticker_symbol}, field {field_identifier}: {e}", exc_info=True)
             
             # --- NEW: Conditionally fetch and merge projections ---
+            processed_series_data: Union[List[Dict[str, Any]], Dict[str, Any]] = current_ticker_series # Default to historical
+
             if is_future_looking and db_item_type and db_item_coverage and actual_payload_lookup_key:
                 projectable_config_found: Optional[Dict[str, Any]] = None
                 for config_entry in PROJECTABLE_FIELD_DETAILS: # Accessing module-level constant
@@ -595,23 +601,52 @@ class YahooDataQueryService:
                 if projectable_config_found:
                     logger.info(f"[QuerySrv.get_specific_field_timeseries] Attempting to fetch and merge projections for {ticker_symbol}, field {actual_payload_lookup_key}.")
                     try:
-                        current_ticker_series = await self._fetch_and_merge_projections(
+                        # Result is now a dict: {"points": [...], "projectionStartDate": "YYYY-MM-DD" | None}
+                        projection_result = await self._fetch_and_merge_projections(
                             ticker_symbol=ticker_symbol,
                             historical_data_points=current_ticker_series, # Pass historicals collected so far
                             field_config=projectable_config_found,
-                            ticker_profiles_cache=ticker_profiles_cache # Pass the cache
+                            ticker_profiles_cache=ticker_profiles_cache
                         )
-                        logger.info(f"[QuerySrv.get_specific_field_timeseries] Successfully merged projections for {ticker_symbol}, field {actual_payload_lookup_key}. New series length: {len(current_ticker_series)}")
+                        processed_series_data = projection_result # Store the dict
+                        logger.info(f"[QuerySrv.get_specific_field_timeseries] Successfully merged projections for {ticker_symbol}, field {actual_payload_lookup_key}. New series length: {len(projection_result['points'])}")
                     except Exception as e:
                         logger.error(f"[QuerySrv.get_specific_field_timeseries] Error calling _fetch_and_merge_projections for {ticker_symbol}, field {actual_payload_lookup_key}: {e}", exc_info=True)
-                        # If merging fails, we retain the original current_ticker_series (historical data only)
+                        # If merging fails, processed_series_data remains the original current_ticker_series (historical only)
+                        # To be consistent with the new structure, wrap it if it's just a list
+                        if isinstance(processed_series_data, list):
+                             processed_series_data = {"points": processed_series_data, "projectionStartDate": None}
                 else:
                     logger.debug(f"[QuerySrv.get_specific_field_timeseries] No projectable config found for {ticker_symbol}, field {actual_payload_lookup_key} (DB Type: {db_item_type}, Coverage: {db_item_coverage}). No projections will be added.")
+                    if isinstance(processed_series_data, list): # Ensure structure consistency
+                        processed_series_data = {"points": processed_series_data, "projectionStartDate": None}
             else:
-                logger.debug(f"[QuerySrv.get_specific_field_timeseries] Not future looking or key fields (db_item_type, etc.) are None for {ticker_symbol}, field {field_identifier}. Skipping projection merge.")
+                logger.debug(f"[QuerySrv.get_specific_field_timeseries] Not future looking or key fields incomplete for {ticker_symbol}, field {field_identifier}. Skipping projection merge.")
+                # Ensure consistent structure even if no projection attempt is made
+                if isinstance(processed_series_data, list):
+                    processed_series_data = {"points": processed_series_data, "projectionStartDate": None}
 
-            results_by_ticker[ticker_symbol] = current_ticker_series
-            logger.info(f"Collected {len(current_ticker_series)} data points for {ticker_symbol} and field {field_identifier} (parsed as type='{db_item_type}', coverage='{db_item_coverage}', key='{actual_payload_lookup_key}').")
+            # MODIFIED: Conditional return structure
+            if include_projection_metadata:
+                results_by_ticker[ticker_symbol] = processed_series_data # This is Dict[str, Any] holding {"points": ..., "projectionStartDate": ...}
+            else:
+                # Ensure processed_series_data is a dict (it should be by this point)
+                if isinstance(processed_series_data, dict):
+                    results_by_ticker[ticker_symbol] = processed_series_data.get("points", [])
+                else: # Should not happen, but as a fallback
+                    results_by_ticker[ticker_symbol] = []
+
+
+            # Adjusted log to reflect the new structure for clarity
+            final_points_list = []
+            projection_start_date_for_log = None
+            if isinstance(processed_series_data, dict):
+                final_points_list = processed_series_data.get('points', [])
+                projection_start_date_for_log = processed_series_data.get('projectionStartDate')
+            elif isinstance(processed_series_data, list): # Should only happen if include_projection_metadata is False and logic above ran
+                final_points_list = processed_series_data
+            
+            logger.info(f"Collected {len(final_points_list)} data points for {ticker_symbol}, field {field_identifier} (key: {actual_payload_lookup_key}). Projection start: {projection_start_date_for_log}. Metadata included: {include_projection_metadata}")
 
         return results_by_ticker
 
@@ -1928,107 +1963,100 @@ class YahooDataQueryService:
         self,
         ticker_symbol: str,
         historical_data_points: List[Dict[str, Any]], # [{'date': 'YYYY-MM-DD', 'value': float}]
-        field_config: Dict[str, Any], # An entry from PROJECTABLE_FIELD_DETAILS
-        ticker_profiles_cache: Dict[str, Dict[str, Any]] # Pass the existing cache from the caller
-    ) -> List[Dict[str, Any]]:
+        field_config: Dict[str, Any],
+        ticker_profiles_cache: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, Any]:
         logger.debug(f"[QuerySrv._fetch_and_merge_projections] Ticker: {ticker_symbol}, Field: {field_config['payload_key']}, Historical points: {len(historical_data_points)}")
-
-        # Fetch forecast_summary payload using the class's own repository
-        forecast_items = await self.db_repo.get_data_items_by_criteria(
-            ticker=ticker_symbol,
-            item_type="FORECAST_SUMMARY",
-            item_time_coverage="CUMULATIVE",
-            order_by_key_date_desc=True,
-            limit=1
-        )
         
-        forecast_payload: Optional[Dict[str, Any]] = None
-        if forecast_items and isinstance(forecast_items[0].get('item_data_payload'), dict):
-            forecast_payload = forecast_items[0]['item_data_payload']
-        elif forecast_items and isinstance(forecast_items[0].get('item_data_payload'), str):
-            try:
-                forecast_payload = json.loads(forecast_items[0]['item_data_payload'])
-            except json.JSONDecodeError:
-                logger.error(f"[QuerySrv._fetch_and_merge_projections] Failed to decode JSON for forecast_summary for {ticker_symbol}")
-                forecast_payload = None
-                
+        effective_projection_start_marker_date: Optional[str] = None
+        merged_points = list(historical_data_points) # Start with a copy
+
+        if historical_data_points:
+            # Sort by date to reliably get the last point's date for the marker
+            # (Assuming dates are comparable strings like 'YYYY-MM-DD')
+            sorted_historical = sorted(merged_points, key=lambda p: p['date'])
+            effective_projection_start_marker_date = sorted_historical[-1]['date'] 
+            logger.info(f"[QuerySrv._fetch_and_merge_projections] Setting effective_projection_start_marker_date to last historical date: {effective_projection_start_marker_date} for {ticker_symbol}")
+
+        # forecast_payload = await self.db_repo.get_latest_forecast_summary_payload(ticker_symbol) # OLD LINE WITH ERROR
+        forecast_payload = await self.calculation_ratios_service.get_latest_forecast_summary(ticker_symbol) # CORRECTED LINE
+
         if not forecast_payload:
-            logger.warning(f"[QuerySrv._fetch_and_merge_projections] No forecast_summary payload found for {ticker_symbol}. Returning historical data only.")
-            return historical_data_points
+            logger.warning(f"[QuerySrv._fetch_and_merge_projections] No forecast_summary for {ticker_symbol}. Returning historical only.")
+            return {"points": merged_points, "projectionStartDate": effective_projection_start_marker_date}
+
+        conversion_info = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache)
+        rate, original_curr, target_curr = (conversion_info[2], conversion_info[1], conversion_info[0]) if conversion_info else (None, None, None)
 
         proj_current_raw = forecast_payload.get(field_config["proj_current_key"])
         proj_next_raw = forecast_payload.get(field_config["proj_next_key"])
-
-        logger.debug(f"[QuerySrv._fetch_and_merge_projections] {ticker_symbol}: Raw projections - Current: {proj_current_raw}, Next: {proj_next_raw}")
-
         proj_current_converted = proj_current_raw
         proj_next_converted = proj_next_raw
 
-        # Perform currency conversion if needed using class methods
-        conversion_info = await self._get_conversion_info_for_ticker(ticker_symbol, ticker_profiles_cache)
+        # Apply conversion only if rate is present and value is numeric (for relevant item types - assumed handled by caller or keys imply it)
+        if rate and isinstance(proj_current_raw, (int, float)):
+            proj_current_converted = proj_current_raw * rate
+        if rate and isinstance(proj_next_raw, (int, float)):
+            proj_next_converted = proj_next_raw * rate
 
-        if conversion_info:
-            trade_curr, original_financial_currency, rate = conversion_info
-            # Projections are typically for Income Statement fields which are convertible
-            CONVERTIBLE_ITEM_TYPES_FOR_PROJECTION = {"INCOME_STATEMENT"} 
-            if field_config["item_type"].upper() in CONVERTIBLE_ITEM_TYPES_FOR_PROJECTION:
-                # Simulate a minimal payload for conversion, as the _apply_currency_conversion_to_payload expects a dict
-                if isinstance(proj_current_raw, (int, float)) and not isinstance(proj_current_raw, bool):
-                    temp_payload_current = { "value": proj_current_raw } # Use a neutral key like "value"
-                    converted_temp_payload_c = await self._apply_currency_conversion_to_payload(
-                        temp_payload_current, rate, original_financial_currency, trade_curr, field_config["item_type"].upper()
-                    )
-                    proj_current_converted = converted_temp_payload_c.get("value")
-                    logger.debug(f"[QuerySrv._fetch_and_merge_projections] Converted current projection for {ticker_symbol}: {proj_current_raw} -> {proj_current_converted}")
-                
-                if isinstance(proj_next_raw, (int, float)) and not isinstance(proj_next_raw, bool):
-                    temp_payload_next = { "value": proj_next_raw } # Use a neutral key like "value"
-                    converted_temp_payload_n = await self._apply_currency_conversion_to_payload(
-                        temp_payload_next, rate, original_financial_currency, trade_curr, field_config["item_type"].upper()
-                    )
-                    proj_next_converted = converted_temp_payload_n.get("value")
-                    logger.debug(f"[QuerySrv._fetch_and_merge_projections] Converted next projection for {ticker_symbol}: {proj_next_raw} -> {proj_next_converted}")
-        else:
-            logger.debug(f"[QuerySrv._fetch_and_merge_projections] No conversion_info for {ticker_symbol}. Using raw projection values.")
-
-        merged_data_points = list(historical_data_points) # Create a copy
-
-        if not historical_data_points:
-            logger.warning(f"[QuerySrv._fetch_and_merge_projections] No historical data for {ticker_symbol} to base projection dates on. Cannot append projections.")
-            return historical_data_points # Return original empty or existing list
-
-        try:
-            # Ensure historical_data_points is not empty before accessing the last element
-            last_hist_date_str = historical_data_points[-1]['date']
-            last_hist_date_dt = datetime.strptime(last_hist_date_str, "%Y-%m-%d")
-        except (ValueError, IndexError, KeyError) as e:
-            logger.error(f"[QuerySrv._fetch_and_merge_projections] Error parsing last historical date for {ticker_symbol} (Date: '{historical_data_points[-1].get('date') if historical_data_points else 'N/A'}'). Error: {e}. Returning historical data.")
-            return historical_data_points
-
-        frequency = field_config["default_frequency"]
-        if len(historical_data_points) >= 2:
+        # --- Logic to determine dates for projected points ---
+        last_hist_date_dt: Optional[datetime] = None
+        if historical_data_points: # If there are historical points, base projection dates on the last one
             try:
-                second_last_hist_date_str = historical_data_points[-2]['date']
+                # Ensure historical_data_points is sorted to get the true last date
+                # The `merged_points` list (copy of historical) should be sorted if not already.
+                # If `effective_projection_start_marker_date` was set, it used the sorted list.
+                last_hist_date_str = effective_projection_start_marker_date # This is from sorted historical
+                last_hist_date_dt = datetime.strptime(last_hist_date_str, "%Y-%m-%d")
+            except (ValueError, TypeError) as e:
+                logger.error(f"[QuerySrv._fetch_and_merge_projections] Error parsing last_hist_date_str '{last_hist_date_str}': {e}")
+                # If parsing fails, can't reliably calculate future dates, so return historical + marker
+                return {"points": merged_points, "projectionStartDate": effective_projection_start_marker_date}
+        else: # No historical points, projections will start from roughly today + typical frequency for that data type
+            last_hist_date_dt = datetime.today() # Base off today if no historical data
+            # If no historical, the projection_start_marker_date will be the date of the first added projection point
+            effective_projection_start_marker_date = None # Reset, will be set to first projection date
+
+        frequency = field_config.get("default_frequency", timedelta(days=91)) # Default to quarterly if not specified
+        if len(historical_data_points) >= 2 and effective_projection_start_marker_date:
+            # Try to calculate frequency from the last two historical points if available
+            # `sorted_historical` was created if historical_data_points was not empty
+            try:
+                # effective_projection_start_marker_date is from sorted_historical[-1]
+                # so sorted_historical[-2] is the second to last.
+                sorted_historical_for_freq = sorted(historical_data_points, key=lambda p: p['date'])
+                second_last_hist_date_str = sorted_historical_for_freq[-2]['date']
                 second_last_hist_date_dt = datetime.strptime(second_last_hist_date_str, "%Y-%m-%d")
+                # last_hist_date_dt is already defined from effective_projection_start_marker_date
                 calculated_frequency = last_hist_date_dt - second_last_hist_date_dt
-                if calculated_frequency.days > 0: # Ensure frequency is positive and sensible
+                if calculated_frequency.days > 0: # Ensure frequency is positive
                     frequency = calculated_frequency
-            except (ValueError, IndexError, KeyError) as e:
-                logger.warning(f"[QuerySrv._fetch_and_merge_projections] Error calculating frequency for {ticker_symbol}. Using default. Error: {e}")
-                # Keep default frequency if error
+                    logger.debug(f"[QuerySrv._fetch_and_merge_projections] Calculated frequency: {frequency.days} days for {ticker_symbol}")
+            except (IndexError, ValueError, TypeError) as e:
+                logger.warning(f"[QuerySrv._fetch_and_merge_projections] Could not calculate frequency for {ticker_symbol}, using default {frequency.days} days. Error: {e}")
+        
+        current_proj_actual_date = last_hist_date_dt + frequency
+        next_proj_actual_date = current_proj_actual_date + frequency
 
-        current_proj_date = last_hist_date_dt + frequency
-        next_proj_date = current_proj_date + frequency
-
+        # Add projected points with their calculated future dates
         if proj_current_converted is not None:
-            merged_data_points.append({'date': current_proj_date.strftime("%Y-%m-%d"), 'value': proj_current_converted})
-            logger.debug(f"[QuerySrv._fetch_and_merge_projections] Appended current projection for {ticker_symbol}: Date {current_proj_date.strftime('%Y-%m-%d')}, Value {proj_current_converted}")
+            current_proj_date_str = current_proj_actual_date.strftime("%Y-%m-%d")
+            merged_points.append({'date': current_proj_date_str, 'value': proj_current_converted})
+            if effective_projection_start_marker_date is None: # If no historical, this is the first point
+                effective_projection_start_marker_date = current_proj_date_str
+            logger.debug(f"[QuerySrv._fetch_and_merge_projections] Appended current projection for {ticker_symbol}: Date {current_proj_date_str}, Value {proj_current_converted}")
 
         if proj_next_converted is not None:
-            merged_data_points.append({'date': next_proj_date.strftime("%Y-%m-%d"), 'value': proj_next_converted})
-            logger.debug(f"[QuerySrv._fetch_and_merge_projections] Appended next projection for {ticker_symbol}: Date {next_proj_date.strftime('%Y-%m-%d')}, Value {proj_next_converted}")
-            
-        logger.info(f"[QuerySrv._fetch_and_merge_projections] For {ticker_symbol}, field {field_config['payload_key']}, returned {len(merged_data_points)} points (historical + projections).")
-        return merged_data_points
+            next_proj_date_str = next_proj_actual_date.strftime("%Y-%m-%d")
+            merged_points.append({'date': next_proj_date_str, 'value': proj_next_converted})
+            if effective_projection_start_marker_date is None: # If no historical & no current proj, this is the first point
+                effective_projection_start_marker_date = next_proj_date_str
+            logger.debug(f"[QuerySrv._fetch_and_merge_projections] Appended next projection for {ticker_symbol}: Date {next_proj_date_str}, Value {proj_next_converted}")
+        
+        # Sort all points (historical + new projections) by date before returning
+        merged_points.sort(key=lambda p: p['date'])
+
+        logger.info(f"[QuerySrv._fetch_and_merge_projections] For {ticker_symbol}, field {field_config['payload_key']}, returning {len(merged_points)} points. Effective projection start marker: {effective_projection_start_marker_date}")
+        return {"points": merged_points, "projectionStartDate": effective_projection_start_marker_date}
 
 # End of YahooDataQueryService class (ensure this comment is placed correctly relative to other methods or class end)

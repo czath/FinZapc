@@ -255,190 +255,184 @@ document.addEventListener('DOMContentLoaded', function() {
         id: 'lastValueIndicator',
         afterDatasetsDraw(chart, args, pluginOptions) {
             const { ctx, chartArea: { right, top, bottom, left, width, height }, scales: { x: xScale, y: yScale } } = chart;
-            console.log(LOG_PREFIX, '[IndicatorPlugin] afterDatasetsDraw triggered. chartArea.right:', right);
+            // console.log(LOG_PREFIX, '[IndicatorPlugin] afterDatasetsDraw triggered. chartArea.right:', right);
 
             pluginOptions = pluginOptions || {}; 
-            const defaultFont = '10px Arial';
-            const defaultTextColor = '#333'; // Fallback, should be overridden by theme
-            const defaultXPadding = 5;
+            const defaultOptions = {
+                offsetX: 10,       // Horizontal offset from the right edge of the chart area
+                pillWidth: 60,     // Width of the pill
+                pillHeight: 20,    // Height of the pill
+                pillColor: 'grey', // Default pill color, can be overridden
+                textColor: 'white',// Default text color
+                font: '10px Arial',// Font for the text
+                cornerRadius: 5,   // Corner radius for the pill
+                valuePrecision: 2, // Number of decimal places for the displayed value
+                displayPercentageChange: false, // New option: whether to display % change
+                percentageChangePrecision: 2,   // Precision for % change
+                percentageChangeColorPositive: 'green',
+                percentageChangeColorNegative: 'red',
+                percentageChangeColorNeutral: 'grey',
+                showFullLabel: false // New option: whether to show full label or just value
+            };
+            const effectiveOptions = { ...defaultOptions, ...pluginOptions }; // Merge user options
+            
+            const pillHeight = effectiveOptions.pillHeight;
+            const pillPadding = effectiveOptions.pillPadding || 2; // Vertical padding between pills
+
+            ctx.font = effectiveOptions.font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
 
             chart.data.datasets.forEach((dataset, i) => {
-                console.log(LOG_PREFIX, `[IndicatorPlugin] Processing dataset ${i}: ${dataset.label}, Visible: ${chart.isDatasetVisible(i)}`);
-                if (!chart.isDatasetVisible(i) || !dataset.data || dataset.data.length === 0) {
-                    console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} skipped (not visible or no data).`);
+                if (!chart.isDatasetVisible(i)) {
+                    console.log(LOG_PREFIX, `[IndicatorPlugin] Pill Check: Dataset ${i} (${dataset.label}) is NOT VISIBLE (chart.isDatasetVisible). Skipping.`);
                     return; 
                 }
 
                 const meta = chart.getDatasetMeta(i);
-                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} meta.data length: ${meta.data ? meta.data.length : 'undefined'}`);
                 if (!meta.data || meta.data.length === 0) {
-                    console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} skipped (no meta.data).`);
+                    console.log(LOG_PREFIX, `[IndicatorPlugin] Pill Check: Dataset ${i} (${dataset.label}) has NO DATA (meta.data empty). Skipping.`);
                     return; 
                 }
 
-                const lastElement = meta.data[meta.data.length - 1];
-                const yPosition = lastElement ? lastElement.y : NaN; // Guard against lastElement being undefined
-                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} lastElement exists: ${!!lastElement}, yPosition: ${yPosition}`);
+                // MODIFIED: Find the actual last data point with a non-null y-value
+                let actualLastElement = null;
+                let actualRawLastDataPoint = null;
+                let actualLastDataIndex = -1;
 
+                for (let j = dataset.data.length - 1; j >= 0; j--) {
+                    if (dataset.data[j] !== null && typeof dataset.data[j] === 'object' && dataset.data[j].y !== null && typeof dataset.data[j].y !== 'undefined') {
+                        actualRawLastDataPoint = dataset.data[j];
+                        actualLastDataIndex = j;
+                        if (meta.data[j]) { // Ensure corresponding element exists in meta.data
+                            actualLastElement = meta.data[j];
+                        }
+                        break;
+                    }
+                }
+                
+                // Use the found actual last data point instead of the potentially null-padded one
+                const lastElement = actualLastElement; 
+                const rawLastDataPoint = actualRawLastDataPoint;
 
-                if (yPosition < top || yPosition > bottom) {
-                     // console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} yPosition ${yPosition} is outside chartArea (top: ${top}, bottom: ${bottom}). Skipping.`);
-                    // return; // Still keeping this commented to see if text appears anywhere if yPosition is odd.
+                // ADDED: Detailed per-dataset logging before the main drawing condition
+                console.log(LOG_PREFIX, `[IndicatorPlugin] Pill Check for Dataset ${i} (${dataset.label}):`);
+                console.log(LOG_PREFIX, `  - meta.visible: ${meta.visible}`);
+                console.log(LOG_PREFIX, `  - Found actualLastDataIndex: ${actualLastDataIndex}`);
+                console.log(LOG_PREFIX, `  - lastElement (actual) exists: ${!!lastElement}`);
+                if (lastElement) {
+                    console.log(LOG_PREFIX, `  - lastElement.y (actual): ${lastElement.y}`);
+                }
+                console.log(LOG_PREFIX, `  - rawLastDataPoint (actual) exists: ${!!rawLastDataPoint}`);
+                if (rawLastDataPoint) {
+                    console.log(LOG_PREFIX, `  - rawLastDataPoint.y (actual): ${rawLastDataPoint.y}`);
                 }
 
-                let textToDisplay = '';
-                let valueToFormat = NaN;
-                const appChartType = pluginOptions.appChartType || chart.config.type; 
-                const rawLastDataPoint = dataset.data[dataset.data.length - 1];
-                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} appChartType: ${appChartType}, rawLastDataPoint:`, rawLastDataPoint);
+                if (lastElement && meta.visible) { // Condition remains the same, but uses the actual last element
+                    console.log(LOG_PREFIX, `[IndicatorPlugin] Pill Draw EXECUTE: Dataset ${i} (${dataset.label}) is proceeding to draw pill with actual last point.`);
+                    const yPosition = lastElement.y;
+                    let finalYPosition = yPosition; // MODIFIED: Removed '+ (i * (pillHeight + pillPadding))'
+                    finalYPosition = Math.max(top, Math.min(bottom - pillHeight, finalYPosition)); // Clamp Y to be within chart top/bottom
 
+                    const xPosition = right + effectiveOptions.offsetX; // Position to the right of the chart area
+                    
+                    let valueToFormat = rawLastDataPoint ? rawLastDataPoint.y : null;
+                    
+                    // console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} appChartType: ${dataset.appChartType}, rawLastDataPoint: ${JSON.stringify(rawLastDataPoint)}`);
 
-                if (!rawLastDataPoint) {
-                    console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} skipped (no rawLastDataPoint).`);
-                    return;
-                }
+                    if (valueToFormat === null || typeof valueToFormat === 'undefined') {
+                        // console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} valueToFormat is null or undefined. Skipping pill.`);
+                        return; // Do not draw pill if value is null or undefined
+                    }
 
-                try { 
-                    if (appChartType === 'performance_comparison_line') {
-                        valueToFormat = rawLastDataPoint.y;
-                        textToDisplay = 'N/A';
-
-                        const isPercentChange = chart.data.datasets[i].appDataType === 'percent_change';
-                        const isRawOrDefault = chart.data.datasets[i].appDataType === 'raw' || typeof chart.data.datasets[i].appDataType === 'undefined';
-
-                        if (valueToFormat !== null && typeof valueToFormat !== 'undefined') {
-                            if (typeof valueToFormat === 'number') {
-                                let decimals = 2;
-                                const isRawAndSmall = isRawOrDefault &&
-                                                      Math.abs(valueToFormat) > 0 && 
-                                                      Math.abs(valueToFormat) < 0.01;
-
-                                if (isRawAndSmall) {
-                                     decimals = Math.max(2, -Math.floor(Math.log10(Math.abs(valueToFormat))) + 1); 
-                                }
-                                
-                                textToDisplay = valueToFormat.toFixed(decimals);
-
-                                if (isPercentChange) {
-                                    textToDisplay += '%';
-                                }
+                    let textToDisplay;
+                    // Ensure valueToFormat is a number before calling toFixed
+                    if (typeof valueToFormat === 'number') {
+                        textToDisplay = valueToFormat.toFixed(effectiveOptions.valuePrecision);
+                    } else if (typeof valueToFormat === 'string') {
+                        const numValue = parseFloat(valueToFormat);
+                        if (!isNaN(numValue)) {
+                            textToDisplay = numValue.toFixed(effectiveOptions.valuePrecision);
                             } else {
-                                textToDisplay = String(valueToFormat); 
-                                if (isPercentChange) {
-                                    textToDisplay += '%';
-                                }
+                            textToDisplay = valueToFormat; // Display as string if not parsable
                             }
                         } else {
-                            textToDisplay = 'N/A';
-                        }
-                    } else if (appChartType === 'pair_relative_price_line') {
-                        valueToFormat = rawLastDataPoint.y;
-                        textToDisplay = typeof valueToFormat === 'number' && isFinite(valueToFormat) ? valueToFormat.toFixed(4) : '';
-                    } else if (appChartType === 'candlestick' || appChartType === 'ohlc') {
-                        valueToFormat = rawLastDataPoint.c; // Close price for OHLC
-                        textToDisplay = typeof valueToFormat === 'number' && isFinite(valueToFormat) ? valueToFormat.toFixed(2) : '';
-                    } else if (appChartType === 'line') {
-                        if (typeof rawLastDataPoint === 'object' && rawLastDataPoint !== null && typeof rawLastDataPoint.y === 'number') {
-                            valueToFormat = rawLastDataPoint.y; // {x,y} format
-                        } else if (typeof rawLastDataPoint === 'number') { // THIS CASE IS UNLIKELY FOR LINE CHARTS NOW
-                            valueToFormat = rawLastDataPoint; 
-                        }
-                        // For line charts, data is now expected as {x, y} or array of numbers for non-time series.
-                        // For price history line (non-intraday), it's an array of Close prices.
-                        // For intraday line, it's {x, y} with y as Close.
-                        // The existing logic assumes rawLastDataPoint.y or rawLastDataPoint itself.
-                        // Let's ensure this covers the structure from renderTimeseriesChart's line chart processing.
-                        // If data for line chart is `apiData.map(d => d.Close)` (non-intraday)
-                        // then `rawLastDataPoint` is a number.
-                        // If data is `apiData.map(d => ({x: ..., y: d.Close}))` (intraday)
-                        // then `rawLastDataPoint` is an object with `y`.
-                         if (typeof rawLastDataPoint === 'object' && rawLastDataPoint !== null && rawLastDataPoint.hasOwnProperty('Close')) {
-                            // This case might be from an older configuration or if data structure is just {Close: val}
-                            // but current line chart prep uses 'y' or direct numbers.
-                            // Let's ensure we're robust. The plugin is getting raw data from dataset.data
-                            valueToFormat = rawLastDataPoint.Close;
-                         } else if (typeof rawLastDataPoint === 'object' && rawLastDataPoint !== null && typeof rawLastDataPoint.y === 'number') {
-                            valueToFormat = rawLastDataPoint.y;
-                         } else if (typeof rawLastDataPoint === 'number') {
-                            valueToFormat = rawLastDataPoint;
-                         }
-
-                        textToDisplay = typeof valueToFormat === 'number' && isFinite(valueToFormat) ? valueToFormat.toFixed(2) : '';
-                    } else {
-                        console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} unknown appChartType: ${appChartType}`);
-                        return; 
+                        textToDisplay = String(valueToFormat); // Fallback for other types
                     }
-                    console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} valueToFormat: ${valueToFormat}, textToDisplay: '${textToDisplay}'`);
-                } catch (e) {
-                    console.warn(LOG_PREFIX, '[IndicatorPlugin] Error processing data point for last value indicator:', e, rawLastDataPoint);
-                    return;
-                }
-                
-                if (textToDisplay === '' || isNaN(yPosition)) {
-                    console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} skipped (textToDisplay is empty or yPosition is NaN). text: '${textToDisplay}', y: ${yPosition}`);
-                    return;
-                }
+                    
+                    // console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} valueToFormat: ${valueToFormat}, textToDisplay: '${textToDisplay}'`);
 
-                ctx.save();
-                
-                ctx.font = pluginOptions.font || defaultFont;
-
-                let finalTextColor = pluginOptions.textColor || defaultTextColor; 
-                if (!pluginOptions.textColor && 
-                    typeof dataset.borderColor === 'string' && 
-                    !(appChartType === 'candlestick' || appChartType === 'ohlc')) {
-                    finalTextColor = dataset.borderColor;
-                }
-                ctx.fillStyle = finalTextColor;
-                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} finalTextColor: ${finalTextColor}`);
-                
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'middle';
-
-                const xPadding = pluginOptions.xPadding || defaultXPadding;
-                const xPosition = right + xPadding; // REVERTED: Draw to the right of the (new) chartArea.right
-                // const xPosition = right - 30; // TEMP: Draw further left for testing
-                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} Drawing at x: ${xPosition}, y: ${yPosition} (chartArea.right was ${right})`);
-
-                // Pill background
-                // Use pluginOptions.pillBackgroundColor if provided, otherwise use dataset.borderColor, else default.
-                let actualPillBackgroundColor = pluginOptions.pillBackgroundColor;
-                if (!actualPillBackgroundColor) {
-                    if (typeof dataset.borderColor === 'string') {
-                        actualPillBackgroundColor = dataset.borderColor;
+                    // Determine text color based on context (e.g., positive/negative change)
+                    let finalTextColor = effectiveOptions.textColor; // Default
+                    if (dataset.appChartType === 'candlestick' || dataset.appChartType === 'ohlc') {
+                        const open = rawLastDataPoint.o;
+                        const close = rawLastDataPoint.c;
+                        if (typeof open === 'number' && typeof close === 'number') {
+                            finalTextColor = close >= open ? effectiveOptions.percentageChangeColorPositive : effectiveOptions.percentageChangeColorNegative;
+                        }
+                    } else if (dataset.borderColor) { // MODIFIED: Check if borderColor exists
+                        // Logic to determine if a color is light or dark to set contrasting text color
+                        const color = dataset.borderColor;
+                        const isLight = (hexOrRgb) => {
+                            let r, g, b;
+                            if (typeof hexOrRgb !== 'string') { // ADDED: Ensure hexOrRgb is a string
+                                return true; // Default to light if not a string
+                            }
+                            if (hexOrRgb.startsWith('#')) {
+                                const hex = hexOrRgb.replace('#', '');
+                                r = parseInt(hex.substring(0,2), 16);
+                                g = parseInt(hex.substring(2,4), 16);
+                                b = parseInt(hex.substring(4,6), 16);
+                            } else if (hexOrRgb.startsWith('rgb')) {
+                                const matchResult = hexOrRgb.match(/\d+/g); // ADDED: Store match result
+                                if (matchResult) { // ADDED: Check if matchResult is not null
+                                    [r,g,b] = matchResult.map(Number);
                     } else {
-                        // Fallback for complex borderColor (like OHLC) or if not a string
-                        actualPillBackgroundColor = 'rgba(200, 200, 200, 0.7)'; // Neutral grey
+                                    return true; // Default to light if regex fails
+                                }
+                            } else { return true; } // Default to light if format unknown
+                            return (r*0.299 + g*0.587 + b*0.114) > 186;
+                        };
+                        finalTextColor = isLight(color) ? '#000000' : '#FFFFFF'; // Black text for light bg, White for dark
                     }
-                }
+                    // console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} finalTextColor: ${finalTextColor}`);
 
-                if (actualPillBackgroundColor) { // Check if we have a color to draw the pill
-                    const textMetrics = ctx.measureText(textToDisplay);
-                    const pillHPadding = pluginOptions.pillHPadding || 4;
-                    const pillVPadding = pluginOptions.pillVPadding || 2;
-                    const pillWidth = textMetrics.width + (pillHPadding * 2);
-                    const pillHeight = (textMetrics.actualBoundingBoxAscent || parseInt(ctx.font)) + (pillVPadding * 2);
-                    const pillRadius = pluginOptions.pillBorderRadius || 3;
 
-                    ctx.fillStyle = actualPillBackgroundColor;
+                    // Pill drawing
+                    ctx.fillStyle = dataset.borderColor || effectiveOptions.pillColor; // Use dataset's border color or default
+                    // console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} Drawing at x: ${xPosition + effectiveOptions.pillWidth / 2}, y: ${finalYPosition} (chartArea.right was ${right})`);
+
+                    // Rounded rectangle for pill
                     ctx.beginPath();
-                    ctx.roundRect(xPosition - pillHPadding, yPosition - pillHeight / 2, pillWidth, pillHeight, pillRadius);
+                    ctx.moveTo(xPosition + effectiveOptions.cornerRadius, finalYPosition);
+                    ctx.lineTo(xPosition + effectiveOptions.pillWidth - effectiveOptions.cornerRadius, finalYPosition);
+                    ctx.quadraticCurveTo(xPosition + effectiveOptions.pillWidth, finalYPosition, xPosition + effectiveOptions.pillWidth, finalYPosition + effectiveOptions.cornerRadius);
+                    ctx.lineTo(xPosition + effectiveOptions.pillWidth, finalYPosition + pillHeight - effectiveOptions.cornerRadius);
+                    ctx.quadraticCurveTo(xPosition + effectiveOptions.pillWidth, finalYPosition + pillHeight, xPosition + effectiveOptions.pillWidth - effectiveOptions.cornerRadius, finalYPosition + pillHeight);
+                    ctx.lineTo(xPosition + effectiveOptions.cornerRadius, finalYPosition + pillHeight);
+                    ctx.quadraticCurveTo(xPosition, finalYPosition + pillHeight, xPosition, finalYPosition + pillHeight - effectiveOptions.cornerRadius);
+                    ctx.lineTo(xPosition, finalYPosition + effectiveOptions.cornerRadius);
+                    ctx.quadraticCurveTo(xPosition, finalYPosition, xPosition + effectiveOptions.cornerRadius, finalYPosition);
+                    ctx.closePath();
                     ctx.fill();
                     
-                    // ctx.fillStyle = finalTextColor; // OLD: Reset fillStyle for text to theme-aware color
-                    ctx.fillStyle = '#000000'; // NEW: Set text color inside pill to black
-                    console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} Pill drawn with color: ${actualPillBackgroundColor}. Text color set to #000000.`);
-                } else {
-                    // If no pill is drawn, ensure the finalTextColor (theme-aware) is used for the text
-                    ctx.fillStyle = finalTextColor;
-                }
+                    // console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} Pill drawn with color: ${ctx.fillStyle}. Text color set to ${finalTextColor}.`);
 
-                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} Attempting ctx.fillText with text: '${textToDisplay}' using color ${ctx.fillStyle}`);
-                ctx.fillText(textToDisplay, xPosition, yPosition);
-                console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} ctx.fillText DONE.`);
-                ctx.restore();
+                    // Text drawing
+                    ctx.fillStyle = finalTextColor;
+                    const textOffsetX = effectiveOptions.pillWidth / 2;
+                    const textOffsetY = 0; // Adjusted by textBaseline = 'middle'
+
+                    // console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} Attempting ctx.fillText with text: '${textToDisplay}' using color ${finalTextColor}`);
+                    ctx.fillText(textToDisplay, xPosition + textOffsetX, finalYPosition + pillHeight / 2 + textOffsetY);
+                    // console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} Pill text drawn.`);
+                } else {
+                    // console.log(LOG_PREFIX, `[IndicatorPlugin] Dataset ${i} lastElement does not exist or meta not visible. Skipping pill.`);
+                    // MODIFIED: More specific log for skipping based on the detailed check
+                    console.log(LOG_PREFIX, `[IndicatorPlugin] Pill Draw SKIP: Dataset ${i} (${dataset.label}). Reason - lastElement: ${!!lastElement}, meta.visible: ${meta.visible}.`);
+                }
             });
-            console.log(LOG_PREFIX, '[IndicatorPlugin] afterDatasetsDraw finished.');
+            // console.log(LOG_PREFIX, '[IndicatorPlugin] afterDatasetsDraw finished.');
         }
     };
 

@@ -438,11 +438,7 @@
      * @param {string[]} selectedTickers - List of selected tickers
      * @param {string[]} selectedFields - List of selected fields
      */
-    function renderFundamentalsHistoryChart(apiData, chartType, selectedTickers, selectedFieldIdentifiers_FULL) { // Renamed to avoid conflict, will use this for type checking
-        // The fieldPayloadKeys are the actual keys in apiData[ticker], e.g., "Total Assets"
-        // We need to derive these or assume they are consistent with what's selected if only one field is chosen.
-        // For multiple fields, we must iterate over what's present in the data.
-
+    function renderFundamentalsHistoryChart(apiData, chartType, selectedTickers, selectedFieldIdentifiers_FULL) {
         const chartCanvas = document.getElementById('ts-chart-canvas');
         if (!chartCanvas) {
             console.error(LOG_PREFIX, "Chart canvas element (ts-chart-canvas) not found.");
@@ -465,10 +461,11 @@
         const allDates = new Set();
         selectedTickers.forEach(ticker => {
             if (apiData[ticker]) {
-                // Iterate over the keys present in the data for this ticker
-                Object.keys(apiData[ticker]).forEach(payloadKeyInData => { 
-                    if (apiData[ticker][payloadKeyInData]) {
-                        apiData[ticker][payloadKeyInData].forEach(point => allDates.add(point.date));
+                // apiData[ticker] is an object where keys are full field_identifiers
+                Object.keys(apiData[ticker]).forEach(fieldId => { 
+                    const fieldData = apiData[ticker][fieldId]; // This is now {"points": [...], "projectionStartDate": "..."}
+                    if (fieldData && fieldData.points && Array.isArray(fieldData.points)) {
+                        fieldData.points.forEach(point => allDates.add(point.date));
                     }
                 });
             }
@@ -478,45 +475,41 @@
 
         console.log(LOG_PREFIX, `Rendering ${chartType} chart. Tickers: ${selectedTickers.join(', ')}. Full Identifiers selected: ${selectedFieldIdentifiers_FULL.join(', ')}`);
 
-        // Create a map for easier lookup: Spaced Payload Key -> Full Identifier
-        const spacedKeyToFullIdentifierMap = {};
-        selectedFieldIdentifiers_FULL.forEach(fullId => {
-            const coreField = _getCoreFieldFromIdentifier(fullId);
-            const spacedKey = _convertCamelToSpacedHuman(coreField);
-            spacedKeyToFullIdentifierMap[spacedKey] = fullId;
-            // Also map the direct core field in case the spaced conversion isn't perfect or data key is direct
-            if (coreField !== spacedKey) {
-                spacedKeyToFullIdentifierMap[coreField] = fullId;
-            }
-        });
-        console.log(LOG_PREFIX, "Built SpacedKey to Full Identifier Map:", spacedKeyToFullIdentifierMap);
+        // The selectedFieldIdentifiers_FULL are the keys we expect in apiData[ticker]
+        // No need for spacedKeyToFullIdentifierMap if the API returns full field_ids as keys.
 
         selectedTickers.forEach(ticker => {
             if (apiData[ticker]) {
-                Object.keys(apiData[ticker]).forEach(payloadKeyInData => { // payloadKeyInData is like "Total Assets"
-                    if (apiData[ticker][payloadKeyInData] && apiData[ticker][payloadKeyInData].length > 0) {
-                        const timeseriesForField = apiData[ticker][payloadKeyInData];
-                        
-                        // Determine if this field is annual or quarterly
+                // Iterate over the field_identifiers that were requested and should be in the API response for this ticker
+                selectedFieldIdentifiers_FULL.forEach(fieldId => {
+                    const fieldDataObject = apiData[ticker][fieldId]; // This is {"points": [...], "projectionStartDate": "..."} or {"points": [], "projectionStartDate": null, "error": "..."}
+                    
+                    if (fieldDataObject && fieldDataObject.points && Array.isArray(fieldDataObject.points) && fieldDataObject.points.length > 0) {
+                        const timeseriesForField = fieldDataObject.points; // Array of {date, value}
+                        const projectionStartDate = fieldDataObject.projectionStartDate; // String "YYYY-MM-DD" or null
+
+                        // For logging/debugging the projection date
+                        if (projectionStartDate) {
+                            console.log(LOG_PREFIX, `Field ${fieldId} for ${ticker} has projection start date: ${projectionStartDate}`);
+                        }
+
+                        // Determine if this field is annual or quarterly (using fieldId which is the full identifier)
                         let isAnnual = false;
                         let isQuarterly = false;
-                        const fullIdentifierForThisPayloadKey = spacedKeyToFullIdentifierMap[payloadKeyInData] || 
-                                                                selectedFieldIdentifiers_FULL.find(id => _convertCamelToSpacedHuman(_getCoreFieldFromIdentifier(id)) === payloadKeyInData);
                         
-                        if (fullIdentifierForThisPayloadKey) {
-                            if (fullIdentifierForThisPayloadKey.includes('_annual_')) {
+                        if (fieldId) { // fieldId is the full identifier
+                            if (fieldId.includes('_annual_')) {
                                 isAnnual = true;
-                                console.log(LOG_PREFIX, `Field '${payloadKeyInData}' (from ${fullIdentifierForThisPayloadKey}) is ANNUAL.`);
-                            } else if (fullIdentifierForThisPayloadKey.includes('_quarterly_')) {
+                                // console.log(LOG_PREFIX, `Field '${fieldId}' is ANNUAL.`);
+                            } else if (fieldId.includes('_quarterly_')) {
                                 isQuarterly = true;
-                                console.log(LOG_PREFIX, `Field '${payloadKeyInData}' (from ${fullIdentifierForThisPayloadKey}) is QUARTERLY.`);
+                                // console.log(LOG_PREFIX, `Field '${fieldId}' is QUARTERLY.`);
                             }
-                        } else {
-                            // console.log(LOG_PREFIX, `Could not find fullIdentifier for payloadKey: '${payloadKeyInData}'. Map:`, spacedKeyToFullIdentifierMap);
                         }
 
                         let previousValue = null; // For annual % change
                         let previousQuarterValue = null; // For QoQ % change
+                        let yoyPercentChange = null; // Quarterly
 
                         const dataPoints = chartLabels.map(labelTimestamp => {
                             const point = timeseriesForField.find(p => new Date(p.date).valueOf() === labelTimestamp);
@@ -524,7 +517,6 @@
                             
                             let percentChange = null; // Annual
                             let qoqPercentChange = null; // Quarterly
-                            let yoyPercentChange = null; // Quarterly
 
                             if (isAnnual && currentValue !== null && previousValue !== null && previousValue !== 0) {
                                 percentChange = ((currentValue - previousValue) / previousValue) * 100;
@@ -583,18 +575,71 @@
                             return dataPoint;
                         });
 
-                        datasets.push({
-                            label: `${ticker} - ${payloadKeyInData}`,
+                        const dataset = {
+                            label: `${ticker} - ${_getCoreFieldFromIdentifier(fieldId)}`, // Use helper to shorten label
                             data: dataPoints,
                             borderColor: lineColors[colorIndex % lineColors.length],
-                            backgroundColor: chartType === 'bar' ? lineColors[colorIndex % lineColors.length] : lineColors[colorIndex % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.1)'),
-                            borderWidth: chartType === 'bar' ? 0 : 1.5, 
-                            fill: false,
-                            pointRadius: chartType === 'line' ? 2 : 0,
-                            tension: chartType === 'line' ? 0.1 : 0,
-                            spanGaps: chartType === 'line' 
-                        });
+                            backgroundColor: lineColors[colorIndex % lineColors.length].replace('rgb', 'rgba').replace(')', ',0.1)'), // For area under line
+                            tension: 0.1,
+                            fill: false, // MODIFIED: Hardcoded to false
+                            borderWidth: 2,
+                            pointRadius: selectedTickers.length * selectedFieldIdentifiers_FULL.length === 1 ? 3 : 1.5, // Smaller points if many lines
+                            pointHoverRadius: selectedTickers.length * selectedFieldIdentifiers_FULL.length === 1 ? 5 : 3,
+                            showLine: true, // ADDED: Explicitly show the line
+                            spanGaps: true // ADDED: Ensure lines are drawn across gaps/misaligned points
+                        };
+
+                        // Apply segment styling for projections
+                        // REMOVED: if (selectedTickers.length * selectedFieldIdentifiers_FULL.length === 1) {
+                        if (fieldDataObject.projectionStartDate) {
+                            try {
+                                // Ensure dates are parsed as UTC to avoid timezone issues during comparison
+                                const projStartDateObj = new Date(fieldDataObject.projectionStartDate + 'T00:00:00Z');
+                                
+                                if (isNaN(projStartDateObj.getTime())) {
+                                    console.warn(LOG_PREFIX, `Invalid projectionStartDate: ${fieldDataObject.projectionStartDate} for ${dataset.label}. Styling not applied.`);
+                                } else if (dataPoints.length > 0) {
+                                    const projStartTimestamp = projStartDateObj.getTime(); // Get timestamp once
+
+                                    const lastDataPointTimestamp = dataPoints[dataPoints.length - 1].x; // This is already a numeric timestamp
+
+                                    // Debugging logs:
+                                    console.log(LOG_PREFIX, `Debug Timestamps for ${dataset.label}:`);
+                                    console.log(LOG_PREFIX, `  dataPoints.length: ${dataPoints.length}`);
+                                    console.log(LOG_PREFIX, `  projectionStartDate (string): ${fieldDataObject.projectionStartDate}`);
+                                    console.log(LOG_PREFIX, `  projStartTimestamp: ${projStartTimestamp}`);
+                                    console.log(LOG_PREFIX, `  lastDataPointDateStr (from dataPoints[-1].x): ${dataPoints[dataPoints.length - 1].x}`); // Log the raw value
+                                    console.log(LOG_PREFIX, `  lastDataPointTimestamp (numeric): ${lastDataPointTimestamp}`);
+
+                                    // Condition to apply styling: projection must start on or before the last data point's date.
+                                    if (projStartTimestamp <= lastDataPointTimestamp) { 
+                                        dataset.segment = {
+                                            borderDash: ctx => {
+                                                const p0Timestamp = dataPoints[ctx.p0DataIndex].x; // Use timestamp directly
+                                                // Segments starting AT or AFTER projStartTimestamp should be dashed.
+                                                // This means if p0 (the start of the segment) is on or after projectionStartDate, it's dashed.
+                                                return p0Timestamp >= projStartTimestamp ? [5, 5] : undefined; 
+                                            }
+                                        };
+                                        console.log(LOG_PREFIX, `Projection styling (dashed line) will be applied for ${dataset.label} starting from/after ${fieldDataObject.projectionStartDate}.`);
+                                    } else {
+                                        console.warn(LOG_PREFIX, `Projection styling NOT applied for ${dataset.label}. Projection start date ${fieldDataObject.projectionStartDate} is after all data points (Last data point at ${new Date(lastDataPointTimestamp).toISOString().split('T')[0]}).`);
+                                    }
+                                } else {
+                                    console.warn(LOG_PREFIX, `No data points for ${dataset.label}. Projection styling not applied.`);
+                                }
+                            } catch (e) {
+                                console.error(LOG_PREFIX, "Error applying projection styling for " + dataset.label, e);
+                            }
+                        }
+                        // REMOVED: } // End of the single-series check
+
+                        datasets.push(dataset);
                         colorIndex++;
+                    } else if (fieldDataObject && fieldDataObject.error) {
+                        console.warn(LOG_PREFIX, `Error for field ${fieldId} for ticker ${ticker}: ${fieldDataObject.error}. Skipping chart series.`);
+                    } else {
+                        // console.log(LOG_PREFIX, `No data or empty points for field ${fieldId} for ticker ${ticker}. Skipping chart series.`);
                     }
                 });
             }
@@ -620,11 +665,11 @@
                     chartType: chartType, // 'line' or 'bar'
                     isTimeseries: true, // Indicate that x-axis is time
                     interaction: {
-                        mode: 'index',
+                        mode: 'x', // MODIFIED: Changed from 'nearest' to 'x'
                         intersect: false,
                     },
                     hover: {
-                        mode: 'index',
+                        mode: 'x', // MODIFIED: Changed from 'nearest' to 'x'
                         intersect: false,
                     },
                     plugins: {
@@ -947,7 +992,8 @@
                     // If not, we might need to match `returnedKey` back to the `selectedFundamentalFields` list.
                     // Example: `selectedFundamentalFields.some(selField => selField.includes(returnedKey.replace(/_/g, ' ')))`
 
-                    const seriesData = fundamentalDataRaw[selectedTicker][returnedKey];
+                    const fieldDataObject = fundamentalDataRaw[selectedTicker][returnedKey]; // This is an object like {points: [], projectionStartDate: ""}
+                    const seriesData = fieldDataObject.points; // MODIFIED: Access the .points array
                     const displayFieldName = returnedKey.replace(/_/g, ' '); // Use the returned key for display name
 
                     if (seriesData && seriesData.length > 0) {
@@ -996,11 +1042,11 @@
                     yAxesConfig: yAxesConfig,
                     rangeDetails: {start: startDate, end: endDate}, // For subtitle
                     interaction: {
-                        mode: 'index',
+                        mode: 'x', // MODIFIED: Changed from 'nearest' to 'x'
                         intersect: false,
                     },
                     hover: {
-                        mode: 'index',
+                        mode: 'x', // MODIFIED: Changed from 'nearest' to 'x'
                         intersect: false,
                     },
                     plugins: {
@@ -1441,11 +1487,11 @@
                     yAxesConfig: yAxesConfig, 
                     rangeDetails: {start: overallStartDateForDisplay, end: overallEndDateForDisplay},
                     interaction: {
-                        mode: 'index',
+                        mode: 'x', // MODIFIED: Changed from 'nearest' to 'x'
                         intersect: false,
                     },
                     hover: {
-                        mode: 'index',
+                        mode: 'x', // MODIFIED: Changed from 'nearest' to 'x'
                         intersect: false,
                     },
                     plugins: {
@@ -1638,14 +1684,16 @@
             // Assuming the API for a single field_identifier returns an object with one key,
             // which is the actual series name (e.g., "annual Inventory" or "quarterly Total Revenue")
             actualDataKey = Object.keys(rawFundamentalPayloadForField)[0];
-            if (rawFundamentalPayloadForField[actualDataKey] && Array.isArray(rawFundamentalPayloadForField[actualDataKey])) {
-                fundamentalPoints = rawFundamentalPayloadForField[actualDataKey].map(p => ({
+            const fieldDataObject = rawFundamentalPayloadForField[actualDataKey]; // MODIFIED: Get the object
+
+            if (fieldDataObject && fieldDataObject.points && Array.isArray(fieldDataObject.points)) { // MODIFIED: Check fieldDataObject.points
+                fundamentalPoints = fieldDataObject.points.map(p => ({ // MODIFIED: Use fieldDataObject.points
                     dateEpoch: new Date(p.date).valueOf(),
                     value: typeof p.value === 'string' ? parseFloat(p.value) : p.value
                 })).sort((a, b) => a.dateEpoch - b.dateEpoch);
                 console.log(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Successfully extracted ${fundamentalPoints.length} points using key '${actualDataKey}' for ${ticker} - ${originalFieldId}`);
             } else {
-                console.warn(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Key '${actualDataKey}' found, but its value is not an array or is missing in payload for ${ticker} - ${originalFieldId}.`);
+                console.warn(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Key '${actualDataKey}' found, but its value.points is not an array or is missing in payload for ${ticker} - ${originalFieldId}.`); // MODIFIED Log
             }
         } else {
             console.warn(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Payload object for ${ticker} - ${originalFieldId} is empty, not an object, or missing.`);
@@ -2021,11 +2069,11 @@
                     isTimeseries: true,
                     rangeDetails: {start: startDate, end: endDate},
                     interaction: {
-                        mode: 'index',
+                        mode: 'x', // MODIFIED: Changed from 'nearest' to 'x'
                         intersect: false,
                     },
                     hover: {
-                        mode: 'index',
+                        mode: 'x', // MODIFIED: Changed from 'nearest' to 'x'
                         intersect: false,
                     },
                     plugins: {
