@@ -34,6 +34,7 @@ class FundamentalsHistoryRequest(BaseModel):
     field_identifiers: List[str] # e.g., ["yf_item_balance_sheet_annual_Total Assets", "yf_item_income_statement_annual_Total Revenue"]
     start_date: Optional[str] = None # YYYY-MM-DD
     end_date: Optional[str] = None   # YYYY-MM-DD
+    include_projections: Optional[bool] = False # NEW: Flag to include projections, defaults to False
 
 # --- NEW: Allowed values for period and interval ---
 VALID_PERIODS = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
@@ -380,95 +381,87 @@ async def get_price_history(
 # --- NEW: Fundamentals History API Endpoint ---
 @router.post("/api/v3/timeseries/fundamentals_history", summary="Fetch historical data for multiple fundamental fields for multiple tickers")
 async def get_fundamentals_history_data(
-    request: FundamentalsHistoryRequest,
+    request_payload: FundamentalsHistoryRequest, # Renamed for clarity
     yahoo_data_query_service: YahooDataQueryService = Depends(get_yahoo_query_service)
 ):
     """
     Fetches historical data for specified fundamental fields for multiple tickers.
-    The output structure is:
-    {
-        "ticker1": {
-            "yf_item_income_statement_annual_Total Revenue": { // This is the actual_payload_lookup_key
-                "points": [{"date": "YYYY-MM-DD", "value": 123}, ...],
-                "projectionStartDate": "YYYY-MM-DD" // or null
-            },
-            "yf_item_balance_sheet_quarterly_Total Assets": {
-                "points": [{"date": "YYYY-MM-DD", "value": 456}, ...],
-                "projectionStartDate": null
-            }
-        },
-        "ticker2": { ... }
-    }
+    The output structure depends on the 'include_projections' flag in the request.
+    If True: { "ticker1": { "field_id1": {"points": [...], "projectionStartDate": "..."} } }
+    If False: { "ticker1": { "field_id1": [ /* list of data points */ ] } }
     """
-    # Initialize the main dictionary to hold results by ticker
-    # Each ticker will map to a dictionary of its field data
-    results_by_ticker: Dict[str, Dict[str, Any]] = {ticker: {} for ticker in request.tickers}
+    try:
+        logger.info(f"API: Received fundamentals history request: {request_payload.model_dump_json(exclude_none=True)}")
+    except Exception as log_exc:
+        logger.warning(f"API: Could not serialize request_payload for logging: {log_exc}")
 
-    # Helper to derive the payload key that will be used in the output JSON
-    # This key is the part of the field_identifier after "yf_item_<item_type>_<coverage>_"
-    # e.g., for "yf_item_income_statement_annual_Total Revenue", it's "Total Revenue"
-    # This needs to align with how get_specific_field_timeseries determines actual_payload_lookup_key
-    def get_output_payload_key(identifier: str) -> Optional[str]:
-        parts = identifier.split('_')
-        if len(parts) >= 4 and parts[0] == 'yf' and parts[1] == 'item':
-            # Assuming format yf_item_TYPE_COVERAGE_ActualKey
-            # Example: yf_item_income_statement_annual_TotalRevenue -> TotalRevenue
-            # We need to find the actual key used within get_specific_field_timeseries, which is actual_payload_lookup_key
-            # This requires parsing similar to how it's done there, or simplifying the key returned.
-            # For now, let's assume the 'actual_payload_lookup_key' is what we want as the key in the response.
-            # The 'get_specific_field_timeseries' returns data structured by this actual_payload_lookup_key
-            # if include_projection_metadata is FALSE.
-            # If TRUE, it returns Dict[str, Dict[str, Any]] -> Ticker -> FieldKey -> {"points": ..., "projectionStartDate": ...}
-            # The field_id itself is a good unique key for the response structure per ticker if we modify how we call.
 
-            # Let's reconsider the output structure. The `get_specific_field_timeseries` when `include_projection_metadata=True`
-            # will return a Dict for each ticker:
-            # { "ticker_symbol": {"points": [...], "projectionStartDate": "..."} }
-            # The API needs to return:
-            # { "ticker1": { "field_id1": {"points": [], "projectionStartDate": null}, "field_id2": ... }}
+    results_by_ticker: Dict[str, Dict[str, Any]] = {ticker: {} for ticker in request_payload.tickers}
 
-            # The field_identifier itself can be the key in the per-ticker dictionary.
-            return identifier # Using the full field_identifier as the key for simplicity and uniqueness.
-        return None
+    # Helper to derive the payload key - this was part of original code, keeping for context if needed, but not directly used in the core logic change.
+    # def get_output_payload_key(identifier: str) -> Optional[str]:
+    #     parts = identifier.split('_')
+    #     if len(parts) >= 4 and parts[0] == 'yf' and parts[1] == 'item':
+    #         return identifier 
+    #     return None
 
-    for ticker in request.tickers:
-        for field_id in request.field_identifiers:
+    for ticker in request_payload.tickers:
+        results_by_ticker[ticker] = {} # Ensure ticker key exists
+        for field_id in request_payload.field_identifiers:
             try:
-                logger.debug(f"API: Fetching data for ticker: {ticker}, field_id: {field_id} with projection metadata")
+                logger.debug(f"API: Fetching data for ticker: {ticker}, field_id: {field_id}, include_projections: {request_payload.include_projections}")
                 
-                # Call get_specific_field_timeseries with include_projection_metadata=True
-                # It returns: Dict[str, Dict[str, Any]] -> {actual_ticker: {"points": [...], "projectionStartDate": "..."}}
-                # when called with a single ticker.
-                timeseries_data_dict = await yahoo_data_query_service.get_specific_field_timeseries(
+                # Call get_specific_field_timeseries with the include_projections flag from the request.
+                # The service function returns: Dict[str, Union[List[Dict], Dict[str, Any]]]
+                # e.g., { "TICKER": data_for_ticker }
+                # where data_for_ticker is List[Dict] if include_projections is False,
+                # or Dict[str, Any] (with "points" and "projectionStartDate") if include_projections is True.
+                service_response_for_field = await yahoo_data_query_service.get_specific_field_timeseries(
                     field_identifier=field_id,
                     tickers=[ticker], # Pass single ticker as a list
-                    start_date_str=request.start_date,
-                    end_date_str=request.end_date,
-                    include_projection_metadata=True # NEW: Pass True
+                    start_date_str=request_payload.start_date,
+                    end_date_str=request_payload.end_date,
+                    include_projection_metadata=request_payload.include_projections # Pass the flag
                 )
                 
-                # The timeseries_data_dict should contain the ticker as a key if data was found.
-                # The value for that ticker should be the {"points": ..., "projectionStartDate": ...} dict.
-                if ticker in timeseries_data_dict and isinstance(timeseries_data_dict[ticker], dict):
-                    # Directly assign the {"points": ..., "projectionStartDate": ...} dict
-                    # using field_id as the key within the ticker's result dict.
-                    results_by_ticker[ticker][field_id] = timeseries_data_dict[ticker]
-                    logger.debug(f"API: Successfully processed {field_id} for {ticker}. Points: {len(timeseries_data_dict[ticker].get('points', []))}, ProjStart: {timeseries_data_dict[ticker].get('projectionStartDate')}")
+                if ticker in service_response_for_field:
+                    # The data for the ticker (service_response_for_field[ticker]) is already in the correct format
+                    # (either List or Dict) based on the include_projection_metadata flag passed to the service.
+                    results_by_ticker[ticker][field_id] = service_response_for_field[ticker]
+                    logger.debug(f"API: Successfully processed {field_id} for {ticker}. Data type: {type(service_response_for_field[ticker])}. Projections included: {request_payload.include_projections}")
                 else:
-                    # If no data or unexpected structure, store an empty dict with None projection start
-                    results_by_ticker[ticker][field_id] = {"points": [], "projectionStartDate": None}
-                    logger.warning(f"API: No data or unexpected structure for {field_id}, ticker {ticker}. timeseries_data_dict: {timeseries_data_dict}")
+                    # If ticker data is unexpectedly missing from service response
+                    logger.warning(f"API: No data returned from service for field {field_id}, ticker {ticker}. service_response_for_field: {service_response_for_field}")
+                    # Provide a default empty structure based on the request flag
+                    if request_payload.include_projections:
+                        results_by_ticker[ticker][field_id] = {"points": [], "projectionStartDate": None, "error": f"Data not found for {field_id}"}
+                    else:
+                        # For non-projection requests, other studies might expect a list or handle errors differently.
+                        # Returning an empty list for missing data, or an object with an error if preferred.
+                        # Let's use an object with error for consistency in signaling issues.
+                        results_by_ticker[ticker][field_id] = {"error": f"Data not found for {field_id}", "points": []}
+
 
             except Exception as e:
                 logger.error(f"API: Error fetching/processing {field_id} for ticker {ticker}: {e}", exc_info=True)
-                # Ensure the field_id key exists for the ticker with an error structure
+                # Ensure the field_id key exists for the ticker with an error structure.
+                # Default error structure can be the projection-inclusive one for consistency.
                 results_by_ticker[ticker][field_id] = {
                     "points": [], 
                     "projectionStartDate": None,
                     "error": str(e)
                 }
     
-    logger.info(f"API: Fundamentals history request processed. Returning data for tickers: {list(results_by_ticker.keys())}")
+    logger.info(f"API: Fundamentals history response processing complete for tickers: {list(results_by_ticker.keys())}")
+    try:
+        response_str_for_log = str(results_by_ticker)
+        max_log_len = 2000 # Max characters to log for the response object
+        if len(response_str_for_log) > max_log_len:
+            response_str_for_log = response_str_for_log[:max_log_len] + f"... (truncated, total tickers: {len(request_payload.tickers)}, fields per ticker approx: {len(request_payload.field_identifiers)})"
+        logger.debug(f"API: Sending fundamentals history response: {response_str_for_log}")
+    except Exception as log_exc:
+        logger.warning(f"API: Could not serialize response for logging: {log_exc}")
+        
     return results_by_ticker
 
 # --- END NEW: Timeseries Price History API Endpoint --- 

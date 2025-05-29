@@ -389,6 +389,7 @@
             field_identifiers: selectedFieldIdentifiers,
             start_date: startDate || null, 
             end_date: endDate || null,     
+            include_projections: true // CHANGED KEY to match backend
         };
 
         console.log(LOG_PREFIX, "Request Payload:", JSON.stringify(requestPayload, null, 2));
@@ -992,8 +993,7 @@
                     // If not, we might need to match `returnedKey` back to the `selectedFundamentalFields` list.
                     // Example: `selectedFundamentalFields.some(selField => selField.includes(returnedKey.replace(/_/g, ' ')))`
 
-                    const fieldDataObject = fundamentalDataRaw[selectedTicker][returnedKey]; // This is an object like {points: [], projectionStartDate: ""}
-                    const seriesData = fieldDataObject.points; // MODIFIED: Access the .points array
+                    const seriesData = fundamentalDataRaw[selectedTicker][returnedKey]; // REVERTED: Now expects a direct list of points
                     const displayFieldName = returnedKey.replace(/_/g, ' '); // Use the returned key for display name
 
                     if (seriesData && seriesData.length > 0) {
@@ -1684,16 +1684,16 @@
             // Assuming the API for a single field_identifier returns an object with one key,
             // which is the actual series name (e.g., "annual Inventory" or "quarterly Total Revenue")
             actualDataKey = Object.keys(rawFundamentalPayloadForField)[0];
-            const fieldDataObject = rawFundamentalPayloadForField[actualDataKey]; // MODIFIED: Get the object
+            // const fieldDataObject = rawFundamentalPayloadForField[actualDataKey]; // MODIFIED: Get the object (This line is REMOVED/REVERTED)
 
-            if (fieldDataObject && fieldDataObject.points && Array.isArray(fieldDataObject.points)) { // MODIFIED: Check fieldDataObject.points
-                fundamentalPoints = fieldDataObject.points.map(p => ({ // MODIFIED: Use fieldDataObject.points
+            if (rawFundamentalPayloadForField[actualDataKey] && Array.isArray(rawFundamentalPayloadForField[actualDataKey])) { // REVERTED: Check rawFundamentalPayloadForField[actualDataKey] directly
+                fundamentalPoints = rawFundamentalPayloadForField[actualDataKey].map(p => ({ // REVERTED: Use rawFundamentalPayloadForField[actualDataKey]
                     dateEpoch: new Date(p.date).valueOf(),
                     value: typeof p.value === 'string' ? parseFloat(p.value) : p.value
                 })).sort((a, b) => a.dateEpoch - b.dateEpoch);
                 console.log(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Successfully extracted ${fundamentalPoints.length} points using key '${actualDataKey}' for ${ticker} - ${originalFieldId}`);
             } else {
-                console.warn(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Key '${actualDataKey}' found, but its value.points is not an array or is missing in payload for ${ticker} - ${originalFieldId}.`); // MODIFIED Log
+                console.warn(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Key '${actualDataKey}' found, but its value is not an array or is missing in payload for ${ticker} - ${originalFieldId}.`); // REVERTED Log
             }
         } else {
             console.warn(LOG_PREFIX, `PFR.generateDailyFundamentalSeries: Payload object for ${ticker} - ${originalFieldId} is empty, not an object, or missing.`);

@@ -583,10 +583,8 @@ class YahooDataQueryService:
             except Exception as e:
                 logger.error(f"Error processing historical data for ticker {ticker_symbol}, field {field_identifier}: {e}", exc_info=True)
             
-            # --- NEW: Conditionally fetch and merge projections ---
-            processed_series_data: Union[List[Dict[str, Any]], Dict[str, Any]] = current_ticker_series # Default to historical
-
-            if is_future_looking and db_item_type and db_item_coverage and actual_payload_lookup_key:
+            # --- REVISED: Conditionally fetch and merge projections ---
+            if include_projection_metadata and is_future_looking and db_item_type and db_item_coverage and actual_payload_lookup_key:
                 projectable_config_found: Optional[Dict[str, Any]] = None
                 for config_entry in PROJECTABLE_FIELD_DETAILS: # Accessing module-level constant
                     if (
@@ -599,7 +597,7 @@ class YahooDataQueryService:
                         break
                 
                 if projectable_config_found:
-                    logger.info(f"[QuerySrv.get_specific_field_timeseries] Attempting to fetch and merge projections for {ticker_symbol}, field {actual_payload_lookup_key}.")
+                    logger.info(f"[QuerySrv.get_specific_field_timeseries] Attempting to fetch and merge projections for {ticker_symbol}, field {actual_payload_lookup_key} (include_projection_metadata is True).")
                     try:
                         # Result is now a dict: {"points": [...], "projectionStartDate": "YYYY-MM-DD" | None}
                         projection_result = await self._fetch_and_merge_projections(
@@ -608,45 +606,40 @@ class YahooDataQueryService:
                             field_config=projectable_config_found,
                             ticker_profiles_cache=ticker_profiles_cache
                         )
-                        processed_series_data = projection_result # Store the dict
+                        results_by_ticker[ticker_symbol] = projection_result # Store the dict with potentially merged points
                         logger.info(f"[QuerySrv.get_specific_field_timeseries] Successfully merged projections for {ticker_symbol}, field {actual_payload_lookup_key}. New series length: {len(projection_result['points'])}")
                     except Exception as e:
                         logger.error(f"[QuerySrv.get_specific_field_timeseries] Error calling _fetch_and_merge_projections for {ticker_symbol}, field {actual_payload_lookup_key}: {e}", exc_info=True)
-                        # If merging fails, processed_series_data remains the original current_ticker_series (historical only)
-                        # To be consistent with the new structure, wrap it if it's just a list
-                        if isinstance(processed_series_data, list):
-                             processed_series_data = {"points": processed_series_data, "projectionStartDate": None}
-                else:
-                    logger.debug(f"[QuerySrv.get_specific_field_timeseries] No projectable config found for {ticker_symbol}, field {actual_payload_lookup_key} (DB Type: {db_item_type}, Coverage: {db_item_coverage}). No projections will be added.")
-                    if isinstance(processed_series_data, list): # Ensure structure consistency
-                        processed_series_data = {"points": processed_series_data, "projectionStartDate": None}
-            else:
-                logger.debug(f"[QuerySrv.get_specific_field_timeseries] Not future looking or key fields incomplete for {ticker_symbol}, field {field_identifier}. Skipping projection merge.")
-                # Ensure consistent structure even if no projection attempt is made
-                if isinstance(processed_series_data, list):
-                    processed_series_data = {"points": processed_series_data, "projectionStartDate": None}
-
-            # MODIFIED: Conditional return structure
-            if include_projection_metadata:
-                results_by_ticker[ticker_symbol] = processed_series_data # This is Dict[str, Any] holding {"points": ..., "projectionStartDate": ...}
-            else:
-                # Ensure processed_series_data is a dict (it should be by this point)
-                if isinstance(processed_series_data, dict):
-                    results_by_ticker[ticker_symbol] = processed_series_data.get("points", [])
-                else: # Should not happen, but as a fallback
-                    results_by_ticker[ticker_symbol] = []
+                        # Fallback to historical data in the expected object structure for projections
+                        results_by_ticker[ticker_symbol] = {"points": current_ticker_series, "projectionStartDate": None, "error": str(e)}
+                else: # projectable_config_found is None, but include_projection_metadata was True
+                    logger.debug(f"[QuerySrv.get_specific_field_timeseries] No projectable config found for {ticker_symbol}, field {actual_payload_lookup_key} (DB Type: {db_item_type}, Coverage: {db_item_coverage}). Returning historicals in projection format as include_projection_metadata is True.")
+                    results_by_ticker[ticker_symbol] = {"points": current_ticker_series, "projectionStartDate": None}
+            
+            elif not include_projection_metadata: # Explicitly handle include_projection_metadata is False
+                logger.debug(f"[QuerySrv.get_specific_field_timeseries] include_projection_metadata is False for {ticker_symbol}, field {field_identifier}. Returning only historical points as a list.")
+                results_by_ticker[ticker_symbol] = current_ticker_series # Return list of historical points
+            
+            else: # include_projection_metadata was True, but conditions like is_future_looking were False
+                logger.debug(f"[QuerySrv.get_specific_field_timeseries] Conditions for projection not fully met (e.g., not future_looking, or missing key fields) for {ticker_symbol}, field {field_identifier}, even though include_projection_metadata was True. Returning historicals in projection format.")
+                results_by_ticker[ticker_symbol] = {"points": current_ticker_series, "projectionStartDate": None}
 
 
-            # Adjusted log to reflect the new structure for clarity
+            # --- Logging the final state for the current ticker/field ---
+            # This part of the logging needs to correctly interpret what's in results_by_ticker[ticker_symbol]
+            
+            final_data_for_ticker_field = results_by_ticker.get(ticker_symbol)
             final_points_list = []
             projection_start_date_for_log = None
-            if isinstance(processed_series_data, dict):
-                final_points_list = processed_series_data.get('points', [])
-                projection_start_date_for_log = processed_series_data.get('projectionStartDate')
-            elif isinstance(processed_series_data, list): # Should only happen if include_projection_metadata is False and logic above ran
-                final_points_list = processed_series_data
             
-            logger.info(f"Collected {len(final_points_list)} data points for {ticker_symbol}, field {field_identifier} (key: {actual_payload_lookup_key}). Projection start: {projection_start_date_for_log}. Metadata included: {include_projection_metadata}")
+            if isinstance(final_data_for_ticker_field, dict): # This is the case if include_projection_metadata was True (or error)
+                final_points_list = final_data_for_ticker_field.get('points', [])
+                projection_start_date_for_log = final_data_for_ticker_field.get('projectionStartDate')
+            elif isinstance(final_data_for_ticker_field, list): # This is the case if include_projection_metadata was False
+                final_points_list = final_data_for_ticker_field
+            # Else: should not happen if logic above is correct, results_by_ticker[ticker_symbol] should be set.
+
+            logger.info(f"Collected {len(final_points_list)} data points for {ticker_symbol}, field {field_identifier} (key: {actual_payload_lookup_key}). Projection start: {projection_start_date_for_log}. include_projection_metadata flag was: {include_projection_metadata}. Actual structure returned for field: {'dict (with points/projectionDate)' if isinstance(final_data_for_ticker_field, dict) else 'list'}")
 
         return results_by_ticker
 
