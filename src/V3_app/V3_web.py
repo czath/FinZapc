@@ -2772,8 +2772,13 @@ def create_app():
         async def get_add_ticker_page(request: Request):
             """Serves the page for adding new tickers/instruments."""
             logger.info("Rendering add_ticker page")
-            # Basic context, can add more if needed (e.g., initial form values)
-            context = {"request": request}
+            identifier_from_query = request.query_params.get("identifier")
+            from_pill_flag = request.query_params.get("from_positions_pill", "false").lower() == "true"
+            context = {
+                "request": request, 
+                "identifier_from_query": identifier_from_query,
+                "set_status_to_portfolio": from_pill_flag
+            }
             return request.app.state.templates.TemplateResponse(
                 "add_ticker.html", context
             )

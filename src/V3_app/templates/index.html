@@ -268,7 +268,9 @@
                                         data-mkt-value-eur-raw="{{ pos.mkt_value_eur_raw }}">
                                         <td>
                                             {% if pos.is_untracked_portfolio_item %}
-                                                <span class="badge bg-warning text-dark rounded-pill me-1" title="This ticker is in your portfolio but not yet in the screener.">+</span>
+                                                <a href="{{ url_for('get_add_ticker_page') }}?identifier={{ pos.name }}&from_positions_pill=true" title="Add {{ pos.name }} to screener portfolio">
+                                                    <span class="badge bg-warning text-dark rounded-pill me-1">+</span>
+                                                </a>
                                             {% endif %}
                                             <strong>{{ pos.name }}</strong>
                                         </td>

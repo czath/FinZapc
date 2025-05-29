@@ -443,6 +443,24 @@
                 identifierField.addEventListener('input', clearConidAndHideAddButton);
             }
 
+            // --- Pre-fill identifier if passed from query parameter ---
+            const identifierFromQuery = {{ identifier_from_query | default('', true) | tojson }};
+            const setStatusToPortfolio = {{ set_status_to_portfolio | default(false, true) | tojson }};
+
+            if (identifierFromQuery && identifierField) {
+                identifierField.value = identifierFromQuery;
+                console.log(`Pre-filled identifier field with: ${identifierFromQuery}`);
+            }
+
+            if (setStatusToPortfolio && statusSelect) {
+                statusSelect.value = 'portfolio';
+                console.log('Set status dropdown to Portfolio due to from_positions_pill flag.');
+                // Trigger change event to ensure any dependent logic (like disabling fields) runs
+                const event = new Event('change');
+                statusSelect.dispatchEvent(event);
+            }
+            // --- End pre-fill ---
+
         }); // End DOMContentLoaded
     </script>
 {% endblock %} 
