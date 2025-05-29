@@ -524,29 +524,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Initialization ---
     function initializeTimeseriesModule() {
         console.log(LOG_PREFIX, "Initializing Timeseries Module (New Feature Enhancement)...");
-
-        // --- NEW: Check CDN content for ChartAnnotation plugin ---
-        const annotationPluginUrl_cdn_check_new = 'https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js';
-        fetch(annotationPluginUrl_cdn_check_new)
-            .then(response => {
-                if (!response.ok) {
-                    console.error(LOG_PREFIX, `CDN Check: Failed to fetch ${annotationPluginUrl_cdn_check_new}. Status: ${response.status}`);
-                    return null;
-                }
-                return response.text();
-            })
-            .then(text => {
-                if (text) {
-                    console.log(LOG_PREFIX, `CDN Check: Successfully fetched ${annotationPluginUrl_cdn_check_new}. Length: ${text.length}. Starts with: ${text.substring(0, 100)}`);
-                    // You can add more checks here, e.g., if (text.includes('ChartAnnotation')) { ... }
-                } else {
-                    console.error(LOG_PREFIX, `CDN Check: No text content from ${annotationPluginUrl_cdn_check_new}.`);
-                }
-            })
-            .catch(error => {
-                console.error(LOG_PREFIX, `CDN Check: Error fetching ${annotationPluginUrl_cdn_check_new}:`, error);
-            });
-        // --- END NEW CDN Check ---
+        const LOG_PREFIX_INIT = LOG_PREFIX + "[InitializeTimeseriesModule] ";
 
         if (!timeseriesTabPane) {
             console.error(LOG_PREFIX, "Timeseries tab pane not found!");
@@ -559,64 +537,40 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         console.log(LOG_PREFIX, "Base UI and event listeners initialized.");
 
-        // --- MODIFIED: Dynamically load ChartAnnotation and then register ---
-        const annotationPluginUrl_new = 'https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js';
-        
-        const tryRegisterAnnotationPlugin_new = (source) => {
-            if (typeof Chart !== 'undefined' && (typeof ChartAnnotation !== 'undefined' || typeof window.ChartAnnotation !== 'undefined')) {
-                try {
-                    const AnnotationPlugin = typeof ChartAnnotation !== 'undefined' ? ChartAnnotation : window.ChartAnnotation;
-                    Chart.register(AnnotationPlugin);
-                    console.log(LOG_PREFIX, `ChartAnnotation plugin registered successfully for new feature (via ${source}).`);
-                    return true;
-                } catch (e) {
-                    console.error(LOG_PREFIX, `Failed to register ChartAnnotation plugin for new feature (via ${source}):`, e);
-                    return false;
-                }
+        // --- NEW: Direct attempt to register ChartAnnotation (assuming static script include) ---
+        // MODIFIED: Check for window['chartjs-plugin-annotation']
+        if (typeof Chart !== 'undefined' && typeof window['chartjs-plugin-annotation'] !== 'undefined') {
+            try {
+                Chart.register(window['chartjs-plugin-annotation']); // MODIFIED
+                console.log(LOG_PREFIX_INIT, "ChartAnnotation plugin registered successfully (direct attempt).");
+            } catch (e) {
+                console.error(LOG_PREFIX_INIT, "Failed to register ChartAnnotation (direct attempt):", e);
             }
-            return false;
-        };
-
-        if (!tryRegisterAnnotationPlugin_new('initial_check')) {
-            console.log(LOG_PREFIX, "ChartAnnotation not immediately available. Attempting dynamic script load.");
-            const script_new = document.createElement('script');
-            script_new.src = annotationPluginUrl_new;
-            // script_new.async = true; // REMOVED async attribute
-            script_new.onload = () => {
-                console.log(LOG_PREFIX, "Dynamically loaded ChartAnnotation script finished loading.");
-                if (!tryRegisterAnnotationPlugin_new('script_onload')) {
-                    // Fallback to polling if onload fires but plugin still not ready
-                    let attempts_new = 0;
-                    const maxAttempts_new = 20; // Poll for 2 more seconds
-                    const intervalId_new = setInterval(() => {
-                        attempts_new++;
-                        if (tryRegisterAnnotationPlugin_new('polling_after_load')) {
-                            clearInterval(intervalId_new);
-                        } else if (attempts_new >= maxAttempts_new) {
-                            clearInterval(intervalId_new);
-                            console.warn(LOG_PREFIX, "ChartAnnotation global not found after dynamic load and polling. Annotations may not work.");
-                        }
-                    }, 100);
-                }
-            };
-            script_new.onerror = (error) => {
-                console.error(LOG_PREFIX, "Failed to load ChartAnnotation script dynamically:", error);
-                // Fallback to polling even on script error, in case it loaded but errored on an unrelated part
-                let attempts_new = 0;
-                const maxAttempts_new = 30; // Poll for 3 seconds total
-                const intervalId_new = setInterval(() => {
-                    attempts_new++;
-                    if (tryRegisterAnnotationPlugin_new('polling_after_error')) {
+        } else {
+            // MODIFIED: Update log message to reflect new check
+            console.warn(LOG_PREFIX_INIT, "Chart or window['chartjs-plugin-annotation'] not immediately available. Setting up fallback polling.");
+            let attempts_new = 0;
+            const maxAttempts_new = 20; // Poll for ~2 seconds (20 * 100ms)
+            const intervalId_new = setInterval(() => {
+                attempts_new++;
+                // MODIFIED: Check for window['chartjs-plugin-annotation']
+                if (typeof Chart !== 'undefined' && typeof window['chartjs-plugin-annotation'] !== 'undefined') {
+                    try {
+                        Chart.register(window['chartjs-plugin-annotation']); // MODIFIED
                         clearInterval(intervalId_new);
-                    } else if (attempts_new >= maxAttempts_new) {
-                        clearInterval(intervalId_new);
-                        console.warn(LOG_PREFIX, "ChartAnnotation global not found after dynamic load error and polling. Annotations may not work.");
+                        console.log(LOG_PREFIX_INIT, `ChartAnnotation plugin registered successfully via polling (attempt ${attempts_new}).`);
+                    } catch (e) {
+                        clearInterval(intervalId_new); // Stop polling on error during registration
+                        console.error(LOG_PREFIX_INIT, `Failed to register ChartAnnotation via polling (attempt ${attempts_new}):`, e);
                     }
-                }, 100);
-            };
-            document.head.appendChild(script_new);
+                } else if (attempts_new >= maxAttempts_new) {
+                    clearInterval(intervalId_new);
+                    // MODIFIED: Update log message
+                    console.error(LOG_PREFIX_INIT, `window['chartjs-plugin-annotation'] not found after ${maxAttempts_new} polling attempts. Annotations may not work.`);
+                }
+            }, 100);
         }
-        // --- END MODIFIED ---
+        // --- END NEW ---
 
         loadDateAdapterLibrary();
         loadFinancialChartLibrary();

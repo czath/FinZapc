@@ -90,8 +90,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- Element References ---
     // Import Tab
-    const finvizButton = document.getElementById('run-finviz-btn');
-    // const finvizStatus = document.getElementById('finviz-status'); // REMOVE COMMENT, will be moved lower
+    // const finvizButton = document.getElementById('run-finviz-btn'); // REMOVED
     const dropZone = document.getElementById('drop-zone');
     const tickerFileInput = document.getElementById('ticker-file-input');
     const runFinvizUploadBtn = document.getElementById('run-finviz-upload-btn');
@@ -231,123 +230,123 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- Button Listeners (Import Tab) ---
     // 1. Fetch for Screened Tickers
-    if (finvizButton) { // Simplified check, only button needed
+    // if (finvizButton) { // Simplified check, only button needed
         // <<< Declare finvizStatus HERE >>>
-        const finvizStatus = document.getElementById('finviz-status');
-        if (!finvizStatus) {
-            console.error("Could not find finviz-status element (#finviz-status). Listener not attached."); // Updated message
-        } else {
-            finvizButton.addEventListener('click', async function() {
-                // Disable both buttons and show spinner on the clicked one
-                showSpinner(finvizButton, runFinvizUploadBtn);
-                finvizStatus.textContent = 'Starting fetch job...';
-                finvizStatus.className = 'ms-2 text-info';
-                let eventSource = null; // Variable to hold EventSource connection
+        // const finvizStatus = document.getElementById('finviz-status');
+        // if (!finvizStatus) {
+        //     console.error("Could not find finviz-status element (#finviz-status). Listener not attached."); // Updated message
+        // } else {
+        //     finvizButton.addEventListener('click', async function() {
+        //         // Disable both buttons and show spinner on the clicked one
+        //         showSpinner(finvizButton, runFinvizUploadBtn);
+        //         finvizStatus.textContent = 'Starting fetch job...';
+        //         finvizStatus.className = 'ms-2 text-info';
+        //         let eventSource = null; // Variable to hold EventSource connection
 
-                try {
-                    console.log("Calling /api/analytics/start-finviz-fetch-screener endpoint...");
-                    const response = await fetch('/api/analytics/start-finviz-fetch-screener', {
-                        method: 'POST',
-                        headers: { 'Accept': 'application/json' }
-                    });
-                    const result = await response.json();
+        //         try {
+        //             console.log("Calling /api/analytics/start-finviz-fetch-screener endpoint...");
+        //             const response = await fetch('/api/analytics/start-finviz-fetch-screener', {
+        //                 method: 'POST',
+        //                 headers: { 'Accept': 'application/json' }
+        //             });
+        //             const result = await response.json();
 
-                    if (!response.ok) {
-                        const errorDetail = result.detail || `Fetch trigger failed with status ${response.status} - ${response.statusText}`;
-                        console.error("Error response from start-finviz-fetch-screener:", result);
-                        throw new Error(errorDetail);
-                    }
+        //             if (!response.ok) {
+        //                 const errorDetail = result.detail || `Fetch trigger failed with status ${response.status} - ${response.statusText}`;
+        //                 console.error("Error response from start-finviz-fetch-screener:", result);
+        //                 throw new Error(errorDetail);
+        //             }
 
-                    console.log("Fetch job triggered:", result);
+        //             console.log("Fetch job triggered:", result);
 
-                    // --- SSE Integration --- 
-                    if (result.job_id) {
-                        console.log(`Received job_id: ${result.job_id}. Establishing SSE connection.`);
-                        finvizStatus.textContent = `${result.message || 'Fetch job triggered.'} Waiting for completion...`;
-                        finvizStatus.className = 'ms-2 text-info';
+        //             // --- SSE Integration --- 
+        //             if (result.job_id) {
+        //                 console.log(`Received job_id: ${result.job_id}. Establishing SSE connection.`);
+        //                 finvizStatus.textContent = `${result.message || 'Fetch job triggered.'} Waiting for completion...`;
+        //                 finvizStatus.className = 'ms-2 text-info';
 
-                        eventSource = new EventSource(`/api/analytics/stream-job-status/${result.job_id}`);
+        //                 eventSource = new EventSource(`/api/analytics/stream-job-status/${result.job_id}`);
 
-                        eventSource.onmessage = function(event) {
-                            console.log("SSE message received:", event.data);
-                            try {
-                                const data = JSON.parse(event.data);
-                                let isFinalStatus = false; // Flag to check if it's a terminal state
+        //                 eventSource.onmessage = function(event) {
+        //                     console.log("SSE message received:", event.data);
+        //                     try {
+        //                         const data = JSON.parse(event.data);
+        //                         let isFinalStatus = false; // Flag to check if it's a terminal state
 
-                                if (data.status === 'completed') {
-                                    finvizStatus.textContent = data.message || 'Job completed successfully.';
-                                    finvizStatus.className = 'ms-2 text-success';
-                                    console.log("Job completed via SSE.");
-                                    isFinalStatus = true;
-                                } else if (data.status === 'failed') {
-                                    finvizStatus.textContent = `Error: ${data.message || 'Job failed.'}`;
-                                    finvizStatus.className = 'ms-2 text-danger';
-                                    console.error("Job failed via SSE:", data.message);
-                                    isFinalStatus = true;
-                                } else if (data.status === 'partial_failure') { // <<< ADD HANDLING FOR PARTIAL FAILURE
-                                    finvizStatus.textContent = data.message || 'Job completed with some failures.';
-                                    finvizStatus.className = 'ms-2 text-warning'; // Use warning color
-                                    console.warn("Job completed with partial failure via SSE:", data.message);
-                                    isFinalStatus = true;
-                                } else {
-                                    // Handle intermediate statuses if backend sends them
-                                    finvizStatus.textContent = data.message || 'Job in progress...';
-                                    finvizStatus.className = 'ms-2 text-info';
-                                }
-                                // Close connection and re-enable button on final status
-                                if (isFinalStatus) { // <<< Check the flag
-                                    eventSource.close();
-                                    console.log("SSE connection closed.");
-                                    // Re-enable both buttons (conditionally for upload button)
-                                    hideSpinner(finvizButton, runFinvizUploadBtn);
-                                }
-                            } catch (e) {
-                                console.error("Error parsing SSE message:", e);
-                                finvizStatus.textContent = 'Error processing status update.';
-                                finvizStatus.className = 'ms-2 text-warning';
-                                if (eventSource) eventSource.close(); // Close on parsing error
-                                hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
-                            }
-                        };
+        //                         if (data.status === 'completed') {
+        //                             finvizStatus.textContent = data.message || 'Job completed successfully.';
+        //                             finvizStatus.className = 'ms-2 text-success';
+        //                             console.log("Job completed via SSE.");
+        //                             isFinalStatus = true;
+        //                         } else if (data.status === 'failed') {
+        //                             finvizStatus.textContent = `Error: ${data.message || 'Job failed.'}`;
+        //                             finvizStatus.className = 'ms-2 text-danger';
+        //                             console.error("Job failed via SSE:", data.message);
+        //                             isFinalStatus = true;
+        //                         } else if (data.status === 'partial_failure') { // <<< ADD HANDLING FOR PARTIAL FAILURE
+        //                             finvizStatus.textContent = data.message || 'Job completed with some failures.';
+        //                             finvizStatus.className = 'ms-2 text-warning'; // Use warning color
+        //                             console.warn("Job completed with partial failure via SSE:", data.message);
+        //                             isFinalStatus = true;
+        //                         } else {
+        //                             // Handle intermediate statuses if backend sends them
+        //                             finvizStatus.textContent = data.message || 'Job in progress...';
+        //                             finvizStatus.className = 'ms-2 text-info';
+        //                         }
+        //                         // Close connection and re-enable button on final status
+        //                         if (isFinalStatus) { // <<< Check the flag
+        //                             eventSource.close();
+        //                             console.log("SSE connection closed.");
+        //                             // Re-enable both buttons (conditionally for upload button)
+        //                             hideSpinner(finvizButton, runFinvizUploadBtn);
+        //                         }
+        //                     } catch (e) {
+        //                         console.error("Error parsing SSE message:", e);
+        //                         finvizStatus.textContent = 'Error processing status update.';
+        //                         finvizStatus.className = 'ms-2 text-warning';
+        //                         if (eventSource) eventSource.close(); // Close on parsing error
+        //                         hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
+        //                     }
+        //                 };
 
-                        eventSource.onerror = function(error) {
-                            console.error("SSE connection error:", error);
-                            // Update status only if it hasn't already shown completion/failure
-                            if (!finvizStatus.classList.contains('text-success') && !finvizStatus.classList.contains('text-danger')) {
-                                 finvizStatus.textContent = 'Error receiving status updates. Check console.';
-                                 finvizStatus.className = 'ms-2 text-warning';
-                            }
-                            if (eventSource) eventSource.close(); // Ensure connection is closed
-                            hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
-                        };
+        //                 eventSource.onerror = function(error) {
+        //                     console.error("SSE connection error:", error);
+        //                     // Update status only if it hasn't already shown completion/failure
+        //                     if (!finvizStatus.classList.contains('text-success') && !finvizStatus.classList.contains('text-danger')) {
+        //                          finvizStatus.textContent = 'Error receiving status updates. Check console.';
+        //                          finvizStatus.className = 'ms-2 text-warning';
+        //                     }
+        //                     if (eventSource) eventSource.close(); // Ensure connection is closed
+        //                     hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
+        //                 };
 
-                    } else {
-                        // If no job_id received, handle as before (show initial message)
-                        console.warn("No job_id received in response. Cannot track completion status.");
-                        finvizStatus.textContent = result.message || 'Fetch job triggered successfully.';
-                        finvizStatus.className = 'ms-2 text-success';
-                        hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
-                    }
-                    // --- End SSE Integration ---
+        //             } else {
+        //                 // If no job_id received, handle as before (show initial message)
+        //                 console.warn("No job_id received in response. Cannot track completion status.");
+        //                 finvizStatus.textContent = result.message || 'Fetch job triggered successfully.';
+        //                 finvizStatus.className = 'ms-2 text-success';
+        //                 hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
+        //             }
+        //             // --- End SSE Integration ---
 
-                } catch (error) {
-                    console.error('Error triggering Finviz fetch for screened tickers:', error);
-                    finvizStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
-                    finvizStatus.className = 'ms-2 text-danger';
-                    if (eventSource) eventSource.close(); // Close SSE if open
-                    hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
-                } // No finally block needed as button re-enabled within logic
-            });
-        } // <<< Closing brace for 'else' associated with 'if (!finvizStatus)'
-    } else {
+        //         } catch (error) {
+        //             console.error('Error triggering Finviz fetch for screened tickers:', error);
+        //             finvizStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
+        //             finvizStatus.className = 'ms-2 text-danger';
+        //             if (eventSource) eventSource.close(); // Close SSE if open
+        //             hideSpinner(finvizButton, runFinvizUploadBtn); // Re-enable both
+        //         } // No finally block needed as button re-enabled within logic
+        //     });
+        // } // <<< Closing brace for 'else' associated with 'if (!finvizStatus)'
+    // } else {
         // This else corresponds to if (finvizButton)
-        console.error("Could not find finvizButton element (#run-finviz-btn). Listener not attached."); 
-    }
+        // console.error("Could not find finvizButton element (#run-finviz-btn). Listener not attached."); 
+    // }
 
     // 2. Fetch for Uploaded Tickers
     if (runFinvizUploadBtn) { // Simplified check
         // <<< Declare finvizUploadStatus HERE >>>
-        const finvizUploadStatus = document.getElementById('finviz-upload-status');
+        // const finvizUploadStatus = document.getElementById('finviz-upload-status');
         if (!finvizUploadStatus) {
             console.error("Could not find finviz-upload-status element.");
         } else {
