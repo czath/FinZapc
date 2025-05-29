@@ -403,7 +403,7 @@
         if (!sourceSelect) return;
         const source = sourceSelect.value;
         const userDefinedContainer = document.getElementById('user-defined-tickers-container');
-        const userDefinedInput = document.getElementById('user-defined-tickers');
+        let userDefinedInput = document.getElementById('user-defined-tickers');
 
         // Update help text based on selected source
         if (yahooSourceHelpText) {
