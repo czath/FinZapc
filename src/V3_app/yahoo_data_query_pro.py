@@ -114,7 +114,7 @@ class YahooDataQueryProService:
                 debt_map = await fetch_bs_field("TotalDebt")
                 minint_map = await fetch_bs_field("MinorityInterest")
                 pref_map = await fetch_bs_field("PreferredStock") 
-                cash_map = await fetch_bs_field("CashAndCashEquivalents")
+                cash_map = await fetch_bs_field("CashCashEquivalentsAndShortTermInvestments")
 
                 # 6. Fetch FCF (quarterly and annual) for TTM, using expanded window
                 quarterly_cf_items_raw = await self.db_repo.get_data_items_by_criteria(
@@ -344,7 +344,7 @@ class YahooDataQueryProService:
                 minint_map = await fetch_bs_field("MinorityInterest")
                 # Corrected field name for preferred stock based on previous discussion
                 pref_map = await fetch_bs_field("PreferredStock") 
-                cash_map = await fetch_bs_field("CashAndCashEquivalents")
+                cash_map = await fetch_bs_field("CashCashEquivalentsAndShortTermInvestments")
 
                 # 6. Fetch Sales ("Total Revenue") (quarterly and annual) for TTM, using expanded window
                 quarterly_is_items_raw = await self.db_repo.get_data_items_by_criteria(
@@ -572,7 +572,7 @@ class YahooDataQueryProService:
                 debt_map = await fetch_bs_field("TotalDebt")
                 minint_map = await fetch_bs_field("MinorityInterest")
                 pref_map = await fetch_bs_field("PreferredStock") 
-                cash_map = await fetch_bs_field("CashAndCashEquivalents")
+                cash_map = await fetch_bs_field("CashCashEquivalentsAndShortTermInvestments")
 
                 # 6. Fetch EBITDA (quarterly and annual) for TTM, using expanded window
                 quarterly_is_items_raw = await self.db_repo.get_data_items_by_criteria(
