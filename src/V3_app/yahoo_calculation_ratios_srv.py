@@ -14,7 +14,7 @@ import yfinance as yf  # Add this import at the top
 
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)  # Set to DEBUG level for this module
+# logger.setLevel(logging.DEBUG)  # Set to DEBUG level for this module
 
 # This new mapping is based on:
 # 1. The `output_key` (3rd element) from `TARGET_ITEM_TYPES` in `V3_backend_api.py`, which forms

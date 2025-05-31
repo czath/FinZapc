@@ -26,7 +26,7 @@ class AnalyticsDataProcessor:
         Dependencies like HTTP clients or pointers to other services can be injected here if needed.
         """
         logger.info("AnalyticsDataProcessor initialized.")
-        self.http_client = httpx.AsyncClient(base_url=BASE_API_URL, timeout=30.0) # <-- INITIALIZE HTTPX CLIENT with timeout
+        self.http_client = httpx.AsyncClient(base_url=BASE_API_URL, timeout=1800.0) # <-- INCREASED TIMEOUT
         self.db_repository = db_repository # <-- STORE REPOSITORY INSTANCE
 
     async def close_http_client(self):

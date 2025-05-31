@@ -16,7 +16,7 @@ import yfinance as yf  # Add this import at the top
 
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)  # Set to DEBUG level for this module
+# logger.setLevel(logging.DEBUG)  # Set to DEBUG level for this module
 
 # Configuration for fields that can have projections merged
 PROJECTABLE_FIELD_DETAILS = [
