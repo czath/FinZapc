@@ -10,6 +10,7 @@ import asyncio
 from typing import List, Dict, Any, Optional, Union
 import logging
 from datetime import datetime
+import json
 
 # Import your Yahoo fetch logic (adjust import as needed)
 from .V3_yahoo_fetch import mass_load_yahoo_data_from_file, YahooDataRepository, fetch_daily_historical_data
@@ -261,54 +262,160 @@ async def get_analytics_yahoo_combined_data(
 
 # --- New API Route for AnalyticsDataProcessor ---
 @router.get("/api/v3/analytics/processed_data",
-            summary="Process and retrieve analytics data (Finviz, Yahoo, or Both)",
-            response_model=Dict[str, Any], # Expecting {"originalData": [], "metaData": {}}
+            summary="Process and retrieve analytics data (Finviz, Yahoo, or Both) - NOW SERVES FROM CACHE",
+            response_model=Dict[str, Any], 
             tags=["Analytics Data V3"])
 async def get_processed_analytics_data(
-    data_source_selection: str, # Query param: "finviz_only", "yahoo_only", "both"
-    request: Request, # To be used by dependency injection for repository
+    data_source_selection: str, # Query param: "finviz_only", "yahoo_only", "both" - NOW IGNORED by new cache logic
+    request: Request, 
     sqlite_repo: SQLiteRepository = Depends(get_sqlite_repository) 
 ):
-    logger.info(f"Received request for /api/v3/analytics/processed_data with selection: {data_source_selection}")
+    logger.info(f"API: Request for /api/v3/analytics/processed_data. CACHE IMPLEMENTATION. data_source_selection '{data_source_selection}' is now ignored.")
 
-    valid_selections = ["finviz_only", "yahoo_only", "both"]
-    if data_source_selection not in valid_selections:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Invalid data_source_selection. Must be one of {valid_selections}"
-        )
-
-    processor = None  # Initialize processor to None for the finally block
     try:
-        # Initialize the AnalyticsDataProcessor with the repository
-        processor = AnalyticsDataProcessor(db_repository=sqlite_repo) 
+        data_json_tuple = await sqlite_repo.get_cached_analytics_data()
+        metadata_json_tuple = await sqlite_repo.get_cached_analytics_metadata()
 
-        # For debugging:
-        raw_result = await processor.process_data_for_analytics(data_source_selection)
-        logger.info(f"Raw result from ADP: type={type(raw_result)}, value={str(raw_result)[:1000]}") # Log type and part of value, increased length
-        if isinstance(raw_result, tuple) or isinstance(raw_result, list):
-            logger.info(f"Length of raw_result: {len(raw_result)}")
+        if data_json_tuple and metadata_json_tuple:
+            data_json, data_generated_at = data_json_tuple
+            metadata_json, metadata_generated_at = metadata_json_tuple
+
+            logger.info(f"API: Serving analytics data from cache. Data generated at: {data_generated_at}, Metadata generated at: {metadata_generated_at}")
+            
+            try:
+                cached_data = json.loads(data_json)
+                cached_metadata = json.loads(metadata_json)
+            except json.JSONDecodeError as e_json:
+                logger.error(f"API: JSONDecodeError when loading analytics from cache: {e_json}", exc_info=True)
+                raise HTTPException(status_code=500, detail="Error decoding cached analytics data.")
+
+            return {"originalData": cached_data, "metaData": cached_metadata, "message": "Served from cache."}
         else:
-            logger.warning(f"Raw result from ADP is not a tuple or list, it's a {type(raw_result)}")
+            missing_parts = []
+            if not data_json_tuple: missing_parts.append("data")
+            if not metadata_json_tuple: missing_parts.append("metadata")
+            logger.warning(f"API: Analytics cache miss for: {', '.join(missing_parts)}. Please trigger a refresh if this persists.")
+            return {
+                "originalData": [], 
+                "metaData": {},
+                "message": f"Analytics cache ({', '.join(missing_parts)}) is not yet available or is being generated. Please try again later or trigger a manual refresh via config page.",
+                "cache_status": "unavailable"
+            }
 
-        data, metadata = raw_result # Unpack after logging
-        
-        logger.info(f"Successfully processed data for selection '{data_source_selection}'. Returning {len(data)} records.")
-        return {"originalData": data, "metaData": metadata}
-
-    except HTTPException as http_exc: # Re-raise HTTPExceptions directly
-        logger.warning(f"HTTPException during analytics processing for '{data_source_selection}': {http_exc.detail}")
-        raise http_exc
     except Exception as e:
-        logger.error(f"Error in get_processed_analytics_data endpoint for selection '{data_source_selection}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error processing analytics data: {str(e)}")
+        logger.error(f"API: Error in get_processed_analytics_data while attempting to serve from cache: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error accessing analytics cache: {str(e)}")
+
+    # === OLD ON-THE-FLY GENERATION LOGIC (COMMENTED OUT - Superseded by Caching Mechanism) ===
+    # logger.info(f"Received request for /api/v3/analytics/processed_data with selection: {data_source_selection}")
+    #
+    # valid_selections = ["finviz_only", "yahoo_only", "both"]
+    # if data_source_selection not in valid_selections:
+    #     raise HTTPException(
+    #         status_code=400, 
+    #         detail=f"Invalid data_source_selection. Must be one of {valid_selections}"
+    #     )
+    #
+    # processor = None  # Initialize processor to None for the finally block
+    # try:
+    #     # Initialize the AnalyticsDataProcessor with the repository
+    #     processor = AnalyticsDataProcessor(db_repository=sqlite_repo) 
+    #
+    #     # For debugging:
+    #     raw_result = await processor.process_data_for_analytics(data_source_selection)
+    #     logger.info(f"Raw result from ADP: type={type(raw_result)}, value={str(raw_result)[:1000]}") # Log type and part of value, increased length
+    #     if isinstance(raw_result, tuple) or isinstance(raw_result, list):
+    #         logger.info(f"Length of raw_result: {len(raw_result)}")
+    #     else:
+    #         logger.warning(f"Raw result from ADP is not a tuple or list, it's a {type(raw_result)}")
+    #
+    #     data, metadata = raw_result # Unpack after logging
+    #     
+    #     logger.info(f"Successfully processed data for selection '{data_source_selection}'. Returning {len(data)} records.")
+    #     return {"originalData": data, "metaData": metadata}
+    #
+    # except HTTPException as http_exc: # Re-raise HTTPExceptions directly
+    #     logger.warning(f"HTTPException during analytics processing for '{data_source_selection}': {http_exc.detail}")
+    #     raise http_exc
+    # except Exception as e:
+    #     logger.error(f"Error in get_processed_analytics_data endpoint for selection '{data_source_selection}': {e}", exc_info=True)
+    #     raise HTTPException(status_code=500, detail=f"Internal server error processing analytics data: {str(e)}")
+    # finally:
+    #     if processor and hasattr(processor, 'close_http_client'):
+    #         try:
+    #             await processor.close_http_client()
+    #             logger.info("ADP HTTP client closed successfully after analytics processing.")
+    #         except Exception as e_close:
+    #             logger.error(f"Error closing ADP HTTP client: {e_close}", exc_info=True)
+    # === END OF OLD ON-THE-FLY GENERATION LOGIC ===
+
+# --- NEW: Analytics Cache Refresh Endpoints ---
+
+async def _run_data_cache_refresh(processor: AnalyticsDataProcessor):
+    """Helper async function to run data cache refresh and ensure client is closed."""
+    try:
+        logger.info("Background task started: Force refreshing analytics data cache.")
+        await processor.force_refresh_data_cache()
+        logger.info("Background task completed: Analytics data cache refresh finished.")
+    except Exception as e:
+        logger.error(f"Background task error during data cache refresh: {e}", exc_info=True)
     finally:
-        if processor and hasattr(processor, 'close_http_client'):
+        if hasattr(processor, 'close_http_client'):
             try:
                 await processor.close_http_client()
-                logger.info("ADP HTTP client closed successfully after analytics processing.")
+                logger.info("ADP HTTP client closed successfully after data cache refresh task.")
             except Exception as e_close:
-                logger.error(f"Error closing ADP HTTP client: {e_close}", exc_info=True)
+                logger.error(f"Error closing ADP HTTP client after data cache refresh task: {e_close}", exc_info=True)
+
+@router.post("/api/analytics/cache/refresh_data",
+             summary="Manually trigger a refresh of the analytics data cache",
+             status_code=status.HTTP_202_ACCEPTED,
+             tags=["Analytics Data V3", "Cache Management"])
+async def trigger_analytics_data_cache_refresh(
+    background_tasks: BackgroundTasks,
+    sqlite_repo: SQLiteRepository = Depends(get_sqlite_repository)
+):
+    logger.info("API: Received request to manually refresh analytics data cache.")
+    try:
+        processor = AnalyticsDataProcessor(db_repository=sqlite_repo)
+        background_tasks.add_task(_run_data_cache_refresh, processor)
+        return {"message": "Analytics data cache refresh initiated. This is an asynchronous process."}
+    except Exception as e:
+        logger.error(f"API: Error initiating data cache refresh: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to initiate analytics data cache refresh.")
+
+async def _run_metadata_cache_refresh(processor: AnalyticsDataProcessor):
+    """Helper async function to run metadata cache refresh and ensure client is closed."""
+    try:
+        logger.info("Background task started: Force refreshing analytics metadata cache.")
+        await processor.force_refresh_metadata_cache()
+        logger.info("Background task completed: Analytics metadata cache refresh finished.")
+    except Exception as e:
+        logger.error(f"Background task error during metadata cache refresh: {e}", exc_info=True)
+    finally:
+        if hasattr(processor, 'close_http_client'):
+            try:
+                await processor.close_http_client()
+                logger.info("ADP HTTP client closed successfully after metadata cache refresh task.")
+            except Exception as e_close:
+                logger.error(f"Error closing ADP HTTP client after metadata cache refresh task: {e_close}", exc_info=True)
+
+@router.post("/api/analytics/cache/refresh_metadata",
+             summary="Manually trigger a refresh of the analytics metadata cache",
+             status_code=status.HTTP_202_ACCEPTED,
+             tags=["Analytics Data V3", "Cache Management"])
+async def trigger_analytics_metadata_cache_refresh(
+    background_tasks: BackgroundTasks,
+    sqlite_repo: SQLiteRepository = Depends(get_sqlite_repository)
+):
+    logger.info("API: Received request to manually refresh analytics metadata cache.")
+    try:
+        processor = AnalyticsDataProcessor(db_repository=sqlite_repo)
+        background_tasks.add_task(_run_metadata_cache_refresh, processor)
+        return {"message": "Analytics metadata cache refresh initiated. This is an asynchronous process."}
+    except Exception as e:
+        logger.error(f"API: Error initiating metadata cache refresh: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to initiate analytics metadata cache refresh.")
 
 @router.get("/api/yahoo/ticker_currencies/{ticker_symbol}", 
             summary="Get trade and financial currencies for a ticker",

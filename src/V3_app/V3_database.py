@@ -9,20 +9,19 @@ Key features:
 """
 
 import logging
-from datetime import datetime
-from typing import Dict, Any, List, Optional, Set, Union, Tuple
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, create_engine, delete, MetaData, Table, insert, update, and_, distinct, Text, Boolean, text, func
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional, Set, Union, Tuple, AsyncGenerator
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, create_engine, delete, MetaData, Table, insert, update, and_, distinct, Text, Boolean, text, func, UniqueConstraint, Index, event, inspect
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker, relationship, Session
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.orm import relationship, declarative_base, sessionmaker, Session
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.future import select
 import os
 import json
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import sqlite3
 import aiosqlite
+import asyncio
 
 # Remove the temporary Pydantic import and definitions here
 # from pydantic import BaseModel
@@ -168,6 +167,20 @@ class ScreenerModel(Base):
     daychange = Column(Float, nullable=True)
     # --- END daychange Field ---
 
+    # --- Finviz Raw Data Foreign Key ---
+    # finviz_data = relationship("FinvizRawDataModel", back_populates="screener_entry", uselist=False, cascade="all, delete-orphan") # OLD
+    # finviz_data = relationship("FinvizRawDataModel", back_populates="screener_ticker_entry", uselist=False, cascade="all, delete-orphan")
+    # Re-evaluating relationship - FinvizRawDataModel.ticker is FK to ScreenerModel.ticker
+    # A ScreenerModel entry can have one FinvizRawDataModel entry.
+
+    # --- Analytics Raw Data Relationship ---
+    # analytics_entries = relationship("AnalyticsRawDataModel", back_populates="screener_ticker_entry")
+    # Re-evaluating relationship - AnalyticsRawDataModel.ticker is not directly FK to ScreenerModel.
+    # No direct ORM relationship needed here based on current schema for AnalyticsRawDataModel.
+
+    def __repr__(self):
+        return f"<ScreenerModel(ticker='{self.ticker}', status='{self.status}', company='{self.Company}')>"
+
 class PortfolioRuleModel(Base):
     __tablename__ = 'portfolio_rules'
 
@@ -193,7 +206,18 @@ class FinvizRawDataModel(Base):
     # Store all fetched fields as a single comma-delimited string for now
     raw_data = Column(Text, nullable=True)
     last_fetched_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
-# --- End Finviz Raw Data Model ---
+
+    # screener_ticker_entry = relationship("ScreenerModel", back_populates="finviz_data") # OLD
+
+    def __repr__(self):
+        return f"<FinvizRawDataModel(ticker='{self.ticker}', last_fetched_at='{self.last_fetched_at}')>"
+    
+    def to_dict(self):
+        return {
+            "ticker": self.ticker,
+            "raw_data": self.raw_data,
+            "last_fetched_at": self.last_fetched_at.isoformat() if self.last_fetched_at else None
+        }
 
 # --- NEW Analytics Raw Data Model ---
 class AnalyticsRawDataModel(Base):
@@ -222,6 +246,38 @@ exchange_rates = Table(
     Column('rate', Float, nullable=False),
     Column('conid', String, nullable=True) # ADDED conid column
 )
+
+class CachedAnalyticsDataModel(Base):
+    __tablename__ = 'cached_analytics_data'
+    
+    # id = Column(Integer, primary_key=True, default=1, unique=True) # As per plan, PK implies unique. default=1 helps ensure only ID 1 is used.
+    id = Column(Integer, primary_key=True) # Simpler: PK means unique. Repo logic will ensure id=1.
+    data_json = Column(Text, nullable=False)
+    generated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('id', name='uq_cached_analytics_data_id'), # Enforce id is 1 via repo. This ensures the column is unique.
+    )
+
+    def __repr__(self):
+        ts = self.generated_at.isoformat() if self.generated_at else "None"
+        return f"<CachedAnalyticsDataModel(id={self.id}, generated_at='{ts}')>"
+
+class CachedAnalyticsMetadataModel(Base):
+    __tablename__ = 'cached_analytics_metadata'
+
+    # id = Column(Integer, primary_key=True, default=1, unique=True) # As per plan
+    id = Column(Integer, primary_key=True)
+    metadata_json = Column(Text, nullable=False)
+    generated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('id', name='uq_cached_analytics_metadata_id'),
+    )
+    
+    def __repr__(self):
+        ts = self.generated_at.isoformat() if self.generated_at else "None"
+        return f"<CachedAnalyticsMetadataModel(id={self.id}, generated_at='{ts}')>"
 
 class SQLiteRepository:
     """Repository for SQLite database operations."""
@@ -1555,7 +1611,126 @@ class SQLiteRepository:
             logger.error(f"Error retrieving persistent job state for job_id {job_id}: {e}", exc_info=True)
             return None
 
-# Method to fetch exchange rates
+    # <<< START NEW CACHE METHODS >>>
+
+    async def update_cached_analytics_data(self, data_json: str) -> None:
+        """
+        Updates or inserts the cached analytics data.
+        The cache is designed to hold a single entry with id=1.
+        """
+        cache_id = 1
+        try:
+            async with self.async_session_factory() as session: # MODIFIED
+                async with session.begin():
+                    # Try to get existing cache entry
+                    stmt_select = select(CachedAnalyticsDataModel).filter_by(id=cache_id)
+                    result = await session.execute(stmt_select)
+                    cache_entry = result.scalar_one_or_none()
+
+                    current_time = datetime.now()
+                    if cache_entry:
+                        # Update existing entry
+                        cache_entry.data_json = data_json
+                        cache_entry.generated_at = current_time # Explicitly set, though onupdate should also work
+                        logging.info(f"Updating cached analytics data (id={cache_id}).")
+                    else:
+                        # Insert new entry
+                        cache_entry = CachedAnalyticsDataModel(
+                            id=cache_id,
+                            data_json=data_json,
+                            generated_at=current_time
+                        )
+                        session.add(cache_entry)
+                        logging.info(f"Inserting new cached analytics data (id={cache_id}).")
+                    await session.commit()
+        except IntegrityError as e: # Should not happen if logic ensures id=1 and UniqueConstraint is on id
+            logging.error(f"Integrity error updating cached analytics data (id={cache_id}): {e}. This might indicate a race condition or schema issue if multiple entries are attempted for id 1.")
+            # Depending on how strict, might re-raise or just log.
+        except Exception as e:
+            logging.error(f"Error updating cached analytics data (id={cache_id}): {e}")
+            # Consider re-raising if the operation is critical and failure should halt process
+            # raise # Re-raise the exception if needed
+
+    async def get_cached_analytics_data(self) -> Optional[Tuple[str, datetime]]:
+        """
+        Retrieves the cached analytics data (id=1).
+        Returns a tuple of (data_json, generated_at) or None if not found.
+        """
+        cache_id = 1
+        try:
+            async with self.async_session_factory() as session: # MODIFIED
+                async with session.begin(): # begin_nested might be an option if part of larger transaction
+                    stmt = select(CachedAnalyticsDataModel.data_json, CachedAnalyticsDataModel.generated_at).filter_by(id=cache_id)
+                    result = await session.execute(stmt)
+                    row = result.one_or_none()
+                    if row:
+                        logging.debug(f"Retrieved cached analytics data (id={cache_id}) generated at {row.generated_at.isoformat()}.")
+                        return row.data_json, row.generated_at
+                    else:
+                        logging.info(f"No cached analytics data found for id={cache_id}.")
+                        return None
+        except Exception as e:
+            logging.error(f"Error getting cached analytics data (id={cache_id}): {e}")
+            return None # Or re-raise based on error handling strategy
+
+    async def update_cached_analytics_metadata(self, metadata_json: str) -> None:
+        """
+        Updates or inserts the cached analytics metadata.
+        The cache is designed to hold a single entry with id=1.
+        """
+        cache_id = 1
+        try:
+            async with self.async_session_factory() as session: # MODIFIED
+                async with session.begin():
+                    stmt_select = select(CachedAnalyticsMetadataModel).filter_by(id=cache_id)
+                    result = await session.execute(stmt_select)
+                    cache_entry = result.scalar_one_or_none()
+
+                    current_time = datetime.now()
+                    if cache_entry:
+                        cache_entry.metadata_json = metadata_json
+                        cache_entry.generated_at = current_time
+                        logging.info(f"Updating cached analytics metadata (id={cache_id}).")
+                    else:
+                        cache_entry = CachedAnalyticsMetadataModel(
+                            id=cache_id,
+                            metadata_json=metadata_json,
+                            generated_at=current_time
+                        )
+                        session.add(cache_entry)
+                        logging.info(f"Inserting new cached analytics metadata (id={cache_id}).")
+                    await session.commit()
+        except IntegrityError as e:
+             logging.error(f"Integrity error updating cached analytics metadata (id={cache_id}): {e}.")
+        except Exception as e:
+            logging.error(f"Error updating cached analytics metadata (id={cache_id}): {e}")
+            # raise
+
+    async def get_cached_analytics_metadata(self) -> Optional[Tuple[str, datetime]]:
+        """
+        Retrieves the cached analytics metadata (id=1).
+        Returns a tuple of (metadata_json, generated_at) or None if not found.
+        """
+        cache_id = 1
+        try:
+            async with self.async_session_factory() as session: # MODIFIED
+                async with session.begin():
+                    stmt = select(CachedAnalyticsMetadataModel.metadata_json, CachedAnalyticsMetadataModel.generated_at).filter_by(id=cache_id)
+                    result = await session.execute(stmt)
+                    row = result.one_or_none()
+                    if row:
+                        logging.debug(f"Retrieved cached analytics metadata (id={cache_id}) generated at {row.generated_at.isoformat()}.")
+                        return row.metadata_json, row.generated_at
+                    else:
+                        logging.info(f"No cached analytics metadata found for id={cache_id}.")
+                        return None
+        except Exception as e:
+            logging.error(f"Error getting cached analytics metadata (id={cache_id}): {e}")
+            return None
+            
+    # <<< END NEW CACHE METHODS >>>
+
+# --- Database Initialization and Utility Functions ---
 async def get_exchange_rates(session):
     try:
         result = await session.execute(exchange_rates.select())

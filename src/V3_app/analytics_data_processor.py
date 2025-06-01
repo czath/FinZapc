@@ -4,7 +4,7 @@ Handles loading, merging, and filtering of analytics data from various sources.
 """
 import logging
 import asyncio
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Union, Tuple
 import httpx # <-- ADDED IMPORT
 import json # <-- ADDED IMPORT FOR JSON PARSING IN REPOSITORY (though parsing happens there now)
 
@@ -18,6 +18,118 @@ from . import V3_analytics # <-- ADD THIS IMPORT (Already seems to be used, but 
 BASE_API_URL = "http://localhost:8000" # Adjust if your app runs on a different port
 
 logger = logging.getLogger(__name__)
+
+# +++ NEW MODULE-LEVEL HELPER FUNCTIONS (COPIED AND ADAPTED) +++
+
+def _adp_parse_finviz_value(value_str: Optional[str]) -> Union[float, int, str, None]:
+    """
+    Copied and adapted from V3_analytics._parse_finviz_value.
+    Attempts to parse a Finviz string value into a float, int, or handles
+    common suffixes (K, M, B, T, %) and missing values ('-', 'N/A', '').
+    If parsing fails, the original string is returned.
+    """
+    if value_str is None or not isinstance(value_str, str):
+        return None
+
+    original_value_str = value_str 
+    processed_value_str = value_str.strip()
+
+    if processed_value_str in ('-', 'N/A', ''):
+        return None
+
+    try:
+        if processed_value_str.endswith('%'):
+            return float(processed_value_str[:-1])
+
+        value_to_convert = processed_value_str
+        multiplier = 1
+        if processed_value_str.endswith('K'):
+            multiplier = 1_000
+            value_to_convert = processed_value_str[:-1]
+        elif processed_value_str.endswith('M'):
+            multiplier = 1_000_000
+            value_to_convert = processed_value_str[:-1]
+        elif processed_value_str.endswith('B'):
+            multiplier = 1_000_000_000
+            value_to_convert = processed_value_str[:-1]
+        elif processed_value_str.endswith('T'):
+             multiplier = 1_000_000_000_000
+             value_to_convert = processed_value_str[:-1]
+
+        try:
+            num_val = float(value_to_convert) * multiplier
+            if num_val == int(num_val):
+                return int(num_val)
+            return num_val
+        except ValueError:
+            logger.debug(f"ADP: Could not convert '{value_to_convert}' (from '{original_value_str}') to float. Returning original string.")
+            return original_value_str
+
+    except Exception as e:
+        logger.warning(f"ADP: Could not parse value '{original_value_str}': {e}")
+        return original_value_str
+
+def _adp_preprocess_raw_entries(raw_analytics_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Copied and adapted from V3_analytics.preprocess_raw_analytics_data.
+    Preprocesses raw analytics data strings (e.g., from Finviz, potentially others)
+    from the database into structured dictionaries.
+    Input format assumes: [{'ticker': str, 'source': str, 'raw_data': str}, ...]
+    Raw data format assumes: "key1=value1,key2=value2,key3=value3,..."
+    """
+    processed_list = []
+    for entry in raw_analytics_entries:
+        ticker = entry.get('ticker')
+        source = entry.get('source')
+        raw_data_str = entry.get('raw_data') 
+        
+        processed_entry = {'ticker': ticker, 'source': source, 'processed_data': {}, 'error': None}
+
+        if not ticker:
+            logger.warning(f"ADP: Skipping entry with missing ticker (source: {source}).")
+            processed_entry['error'] = "Missing ticker"
+            processed_list.append(processed_entry)
+            continue
+        
+        if not source:
+             logger.warning(f"ADP: Processing entry with missing source (ticker: {ticker}).")
+
+        if not raw_data_str or not isinstance(raw_data_str, str):
+            logger.warning(f"ADP: Skipping entry for ticker {ticker} (source: {source}) due to missing or invalid raw_data.")
+            processed_entry['error'] = "Missing or invalid raw_data"
+            processed_list.append(processed_entry)
+            continue
+
+        try:
+            processed_fields = {}
+            kv_pairs = raw_data_str.split(',')
+
+            for kv_pair_string in kv_pairs:
+                kv_pair_string = kv_pair_string.strip()
+                if not kv_pair_string:
+                    continue
+
+                parts = kv_pair_string.split('=', 1)
+                key = parts[0].strip()
+
+                if not key:
+                    logger.debug(f"ADP: Empty key found for ticker {ticker} (source: {source}) in pair '{kv_pair_string}'")
+                    continue
+                
+                value_str_inner = parts[1].strip() if len(parts) > 1 else ''
+                parsed_value = _adp_parse_finviz_value(value_str_inner) 
+                processed_fields[key] = parsed_value
+
+            processed_entry['processed_data'] = processed_fields
+
+        except Exception as e:
+            logger.error(f"ADP: Error processing raw data for ticker {ticker} (source: {source}): {e}", exc_info=True)
+            processed_entry['error'] = f"Parsing failed: {e}"
+
+        processed_list.append(processed_entry)
+    return processed_list
+
+# --- END OF NEW MODULE-LEVEL HELPERS ---
 
 class AnalyticsDataProcessor:
     def __init__(self, db_repository: SQLiteRepository): # <-- MODIFIED: Accept repository
@@ -115,84 +227,178 @@ class AnalyticsDataProcessor:
         yahoo_data: List[Dict[str, Any]] = []
         endpoint_url = "/api/analytics/data/yahoo_combined"
 
-        if progress_callback:
-            await progress_callback(task_name="load_yahoo_data", status="started", progress=0, message=f"Fetching from {endpoint_url}")
+        # Determine if progress_callback is async or sync
+        is_async_callback = asyncio.iscoroutinefunction(progress_callback)
 
+        async def do_progress_update_async(task_name, status, progress, message, count=None):
+            payload = {"task_name": task_name, "status": status, "progress": progress, "message": message}
+            if count is not None: payload["count"] = count
+            if progress_callback: await progress_callback(payload)
+
+        def do_progress_update_sync(task_name, status, progress, message, count=None):
+            payload = {"task_name": task_name, "status": status, "progress": progress, "message": message}
+            if count is not None: payload["count"] = count
+            if progress_callback: progress_callback(payload)
+
+        do_progress_update = do_progress_update_async if is_async_callback else do_progress_update_sync
+        
         try:
+            if is_async_callback:
+                await do_progress_update("load_yahoo_data", "started", 0, f"Fetching from {endpoint_url}")
+            else:
+                do_progress_update("load_yahoo_data", "started", 0, f"Fetching from {endpoint_url}")
             logger.debug(f"ADP: Calling Yahoo data endpoint: {self.http_client.base_url}{endpoint_url}")
             response = await self.http_client.get(endpoint_url)
-            response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
-            yahoo_data = response.json()
+            response.raise_for_status() 
+
+            try:
+                yahoo_data = response.json()
+                if not isinstance(yahoo_data, list):
+                    logger.error(f"ADP: Yahoo combined endpoint did not return a list. Received: {type(yahoo_data)}. Response text: {response.text[:200]}")
+                    yahoo_data = [] 
+            except json.JSONDecodeError:
+                logger.error(f"ADP: Failed to decode JSON from Yahoo combined endpoint. Response text: {response.text[:500]}", exc_info=True)
+                yahoo_data = []
+
             logger.info(f"ADP: Successfully fetched {len(yahoo_data)} records from Yahoo combined endpoint.")
-            if progress_callback:
-                # Simulate some progress during fetching if the call is long, 
-                # or just report completion. For now, direct completion.
-                await progress_callback(task_name="load_yahoo_data", status="parsing", progress=50, message="Parsing Yahoo data")
+            if is_async_callback:
+                await do_progress_update("load_yahoo_data", "parsing", 50, "Parsing Yahoo data")
+            else:
+                do_progress_update("load_yahoo_data", "parsing", 50, "Parsing Yahoo data")
 
         except httpx.HTTPStatusError as e:
             logger.error(f"ADP: HTTP error loading Yahoo data from {e.request.url}: {e.response.status_code} - {e.response.text}", exc_info=True)
-            if progress_callback:
-                await progress_callback(task_name="load_yahoo_data", status="failed", progress=100, message=f"HTTP error: {e.response.status_code}")
+            if is_async_callback:
+                await do_progress_update("load_yahoo_data", "failed", 100, f"HTTP error: {e.response.status_code}")
+            else:
+                do_progress_update("load_yahoo_data", "failed", 100, f"HTTP error: {e.response.status_code}")
             yahoo_data = []
         except httpx.RequestError as e:
             logger.error(f"ADP: Request error loading Yahoo data from {e.request.url}: {e}", exc_info=True)
-            if progress_callback:
-                await progress_callback(task_name="load_yahoo_data", status="failed", progress=100, message=f"Request error: {e}")
+            if is_async_callback:
+                await do_progress_update("load_yahoo_data", "failed", 100, f"Request error: {e}")
+            else:
+                do_progress_update("load_yahoo_data", "failed", 100, f"Request error: {e}")
             yahoo_data = []
         except Exception as e:
-            logger.error(f"ADP: Generic error loading Yahoo data: {e}", exc_info=True)
-            if progress_callback:
-                await progress_callback(task_name="load_yahoo_data", status="failed", progress=100, message=f"Generic error: {e}")
+            logger.error(f"ADP: Unexpected error loading Yahoo data: {e}", exc_info=True)
+            if is_async_callback:
+                await do_progress_update("load_yahoo_data", "failed", 100, f"Unexpected error: {e}")
+            else:
+                do_progress_update("load_yahoo_data", "failed", 100, f"Unexpected error: {e}")
             yahoo_data = []
         
-        # --- FLATTEN THE YAHOO DATA ---
-        flattened_yahoo_data = []
-        if yahoo_data: # Only process if data was successfully fetched
-            logger.info(f"ADP: Flattening {len(yahoo_data)} Yahoo records...")
-            for item in yahoo_data:
-                if not isinstance(item, dict):
-                    logger.warning(f"ADP: Skipping non-dict item in yahoo_data: {item}")
-                    continue
+        final_progress_message = f"Finished fetching Yahoo data ({len(yahoo_data)} records)."
+        if is_async_callback:
+            await do_progress_update("load_yahoo_data", "completed", 100, final_progress_message, count=len(yahoo_data))
+        else:
+            do_progress_update("load_yahoo_data", "completed", 100, final_progress_message, count=len(yahoo_data))
+        return yahoo_data
 
-                flattened_item = {}
-                # 1. Copy ticker directly
-                if 'ticker' in item:
-                    flattened_item['ticker'] = item['ticker']
-                else:
-                    logger.warning(f"ADP: Skipping item due to missing 'ticker': {item.get('master_data', {}).get('shortName', 'N/A')}")
-                    continue # Skip if no ticker, essential for merging and identification
+    # +++ NEW METHOD: _transform_raw_yahoo_data +++
+    def _transform_raw_yahoo_data(self, raw_yahoo_data_list: List[Dict[str, Any]], progress_callback: Optional[Callable] = None) -> List[Dict[str, Any]]:
+        """
+        Transforms the raw, structured data from _load_yahoo_data into a flat list
+        of dictionaries, with fields prefixed (e.g., yf_tm_shortName, yf_item_income_statement_ttm_totalRevenue).
+        This is the format expected by _merge_data.
+        """
+        logger.info(f"ADP: Transforming {len(raw_yahoo_data_list)} raw Yahoo records...")
+        
+        is_async_callback = asyncio.iscoroutinefunction(progress_callback)
 
-                # 2. Process master_data
-                master_data = item.get('master_data')
-                if isinstance(master_data, dict):
-                    for key, value in master_data.items():
-                        if key != 'ticker': # Avoid duplicating/overwriting the main ticker
-                            flattened_item[f"yf_tm_{key}"] = value
-                
-                # 3. Process financial_items
-                financial_items_container = item.get('financial_items')
-                if isinstance(financial_items_container, dict):
-                    for item_type_key, payload_dict in financial_items_container.items():
-                        if isinstance(payload_dict, dict):
-                            for sub_key, sub_value in payload_dict.items():
-                                flattened_item[f"yf_item_{item_type_key}_{sub_key}"] = sub_value
-                        elif payload_dict is not None: # Handle cases where a financial item might not be a dict (e.g. a direct value)
-                            flattened_item[f"yf_item_{item_type_key}"] = payload_dict
+        async def do_progress_update_async(task_name, status, progress, message, count=None):
+            payload = {"task_name": task_name, "status": status, "progress": progress, "message": message}
+            if count is not None: payload["count"] = count
+            if progress_callback: await progress_callback(payload)
+            await asyncio.sleep(0) # Yield control
 
+        def do_progress_update_sync(task_name, status, progress, message, count=None):
+            payload = {"task_name": task_name, "status": status, "progress": progress, "message": message}
+            if count is not None: payload["count"] = count
+            if progress_callback: progress_callback(payload)
 
-                flattened_yahoo_data.append(flattened_item)
-            logger.info(f"ADP: Flattening complete. Produced {len(flattened_yahoo_data)} flattened Yahoo records.")
-        # --- END FLATTENING ---
+        # Since this method is synchronous, we should use the sync helper or ensure the async one is called appropriately
+        # For simplicity in a sync method, we'll just call the sync version. If callback is async, it will be wrapped.
+        # However, the progress_callback itself might be async and expect to be awaited.
+        # The outer _prepare_analytics_components manages awaiting the overall progress callback.
+        # Here, we'll call the appropriate helper based on inspection.
+        
+        _do_progress_update_for_transform = do_progress_update_async if is_async_callback else do_progress_update_sync
+        
+        # If the method itself is sync, but the callback is async, we might need to run the callback in an event loop.
+        # This gets complex. Let's assume the caller (_prepare_analytics_components) handles the async nature of the callback.
+        # For now, we'll make the _do_progress_update_for_transform an async def and await it if the callback is async.
+        # This requires making _transform_raw_yahoo_data async if progress_callback is async.
+        # Simpler: Assume _transform_raw_yahoo_data remains sync, and progress_callback is called without await if it's sync.
+        # If it's async, it will be scheduled by the caller's event loop.
 
         if progress_callback:
-            await progress_callback(task_name="load_yahoo_data", status="completed", progress=100, count=len(flattened_yahoo_data)) # Use count of flattened data
+            if is_async_callback:
+                asyncio.create_task(progress_callback({"task_name":"transform_yahoo_data", "status":"started", "progress":0, "message":"Starting Yahoo data transformation"}))
+            else:
+                progress_callback({"task_name":"transform_yahoo_data", "status":"started", "progress":0, "message":"Starting Yahoo data transformation"})
+
+
+        transformed_data_list: List[Dict[str, Any]] = []
+        total_records = len(raw_yahoo_data_list)
+
+        for index, raw_ticker_data in enumerate(raw_yahoo_data_list):
+            ticker = raw_ticker_data.get("ticker")
+            if not ticker:
+                logger.warning("ADP Transform Yahoo: Skipping record due to missing ticker.")
+                continue
+
+            flat_ticker_data: Dict[str, Any] = {"ticker": ticker, "source": "yahoo"}
+
+            master_data = raw_ticker_data.get("master_data", {})
+            if isinstance(master_data, dict):
+                for key, value in master_data.items():
+                    if key not in ["ticker", "id", "yahoo_uid", "created_at", "updated_at"]: 
+                        flat_ticker_data[f"yf_tm_{key}"] = value
+            else:
+                logger.warning(f"ADP Transform Yahoo ({ticker}): master_data is not a dict or is missing. Skipping master_data fields.")
+            
+            financial_items = raw_ticker_data.get("financial_items", {})
+            if isinstance(financial_items, dict):
+                for item_key, item_payload in financial_items.items():
+                    if isinstance(item_payload, dict):
+                        for field_name, field_value in item_payload.items():
+                            flat_ticker_data[f"yf_item_{item_key}_{field_name}"] = field_value
+                    else:
+                        logger.warning(f"ADP Transform Yahoo ({ticker}): Payload for financial item '{item_key}' is not a dict. Skipping this item. Payload: {str(item_payload)[:100]}")
+            else:
+                logger.warning(f"ADP Transform Yahoo ({ticker}): financial_items is not a dict or is missing. Skipping financial_items fields.")
+            
+            transformed_data_list.append(flat_ticker_data)
+
+            if progress_callback and (index + 1) % 20 == 0: # Update more frequently
+                progress = int(((index + 1) / total_records) * 100)
+                msg = f"Transforming Yahoo: {ticker} ({index+1}/{total_records})"
+                payload_update = {"task_name":"transform_yahoo_data", "status":"processing", "progress":progress, "message":msg}
+                if is_async_callback:
+                    asyncio.create_task(progress_callback(payload_update))
+                else:
+                    progress_callback(payload_update)
         
-        return flattened_yahoo_data # Return the flattened data
+        logger.info(f"ADP: Successfully transformed {len(transformed_data_list)} Yahoo records.")
+        if progress_callback:
+            final_msg = "Yahoo data transformation complete."
+            final_payload = {"task_name":"transform_yahoo_data", "status":"completed", "progress":100, "count":len(transformed_data_list), "message":final_msg}
+            if is_async_callback:
+                 asyncio.create_task(progress_callback(final_payload))
+            else:
+                progress_callback(final_payload)
+        return transformed_data_list
+    # --- END NEW METHOD ---
 
     def _merge_data(self, finviz_data: List[Dict[str, Any]], yahoo_data: List[Dict[str, Any]], progress_callback: Optional[Callable] = None) -> List[Dict[str, Any]]:
         logger.info(f"ADP: Merging {len(finviz_data)} Finviz records (expecting 'fv_' prefix) and {len(yahoo_data)} Yahoo records (expecting 'yf_' prefixes)...")
         if progress_callback:
-            asyncio.create_task(progress_callback(task_name="merge_data", status="started", progress=0, message="Starting data merge"))
+            # Using asyncio.create_task for potentially async callback
+            if asyncio.iscoroutinefunction(progress_callback):
+                asyncio.create_task(progress_callback(task_name="merge_data", status="started", progress=0, message="Starting data merge"))
+            else:
+                progress_callback(task_name="merge_data", status="started", progress=0, message="Starting data merge")
 
         merged_data_dict: Dict[str, Dict[str, Any]] = {}
         
@@ -218,10 +424,14 @@ class AnalyticsDataProcessor:
 
         if progress_callback:
             # Using create_task for potentially async callback
-            asyncio.create_task(progress_callback(task_name="merge_data", status="processing", progress=33, message="Finviz data processed, starting Yahoo merge."))
+            if asyncio.iscoroutinefunction(progress_callback):
+                asyncio.create_task(progress_callback(task_name="merge_data", status="processing", progress=33, message="Finviz data processed, starting Yahoo merge."))
+            else:
+                progress_callback(task_name="merge_data", status="processing", progress=33, message="Finviz data processed, starting Yahoo merge.")
 
         # 2. Process Yahoo data: Merge with existing items or add new ones
-        # Yahoo fields are already prefixed (e.g., yf_tm_shortName) from _load_yahoo_data
+        # Yahoo fields are now expected to be prefixed (e.g., yf_tm_shortName, yf_item_income_statement_ttm_totalRevenue)
+        # by the _transform_raw_yahoo_data method BEFORE this _merge_data method is called.
         for y_item in yahoo_data:
             ticker = y_item.get('ticker')
             if not ticker:
@@ -239,7 +449,11 @@ class AnalyticsDataProcessor:
                 merged_data_dict[ticker] = {**y_item}
         
         if progress_callback:
-             asyncio.create_task(progress_callback(task_name="merge_data", status="processing", progress=66, message="Yahoo data merged."))
+            # Using create_task for potentially async callback
+            if asyncio.iscoroutinefunction(progress_callback):
+                asyncio.create_task(progress_callback(task_name="merge_data", status="processing", progress=66, message="Yahoo data merged.")) # Corrected progress message
+            else:
+                progress_callback(task_name="merge_data", status="processing", progress=66, message="Yahoo data merged.") # Corrected progress message
 
         # --- TEST LOGGING: Log merged records for test tickers ---
         for test_ticker in test_tickers_to_log:
@@ -251,7 +465,11 @@ class AnalyticsDataProcessor:
         
         logger.info(f"ADP Merge: Merged data contains {len(merged_data_dict)} unique records.")
         if progress_callback:
-            asyncio.create_task(progress_callback(task_name="merge_data", status="completed", progress=100, count=len(merged_data_dict), message="Merge complete."))
+            # Using create_task for potentially async callback
+            if asyncio.iscoroutinefunction(progress_callback):
+                asyncio.create_task(progress_callback(task_name="merge_data", status="completed", progress=100, count=len(merged_data_dict), message="Merge complete."))
+            else:
+                progress_callback(task_name="merge_data", status="completed", progress=100, count=len(merged_data_dict), message="Merge complete.")
         
         return list(merged_data_dict.values())
 
@@ -410,6 +628,156 @@ class AnalyticsDataProcessor:
 
         return final_metadata
 
+    # +++ NEW HELPER METHOD +++
+    def _calculate_median(self, numeric_values: List[Union[int, float]]) -> Optional[Union[int, float]]:
+        """Helper to calculate median for a list of numeric values."""
+        if not numeric_values:
+            return None
+        sorted_values = sorted(numeric_values)
+        n = len(sorted_values)
+        mid = n // 2
+        if n % 2 == 0: # Even number of values
+            # Ensure a float is returned if the average of two integers is not an integer
+            median_val = (sorted_values[mid - 1] + sorted_values[mid]) / 2.0
+            return median_val
+        else: # Odd number of values
+            return sorted_values[mid]
+    # +++ END OF NEW HELPER METHOD +++
+
+    # +++ NEW CORE ORCHESTRATION METHOD FOR CACHING PIPELINE +++
+    async def _prepare_analytics_components(self, 
+                                           create_original_data: bool, 
+                                           create_metadata: bool,
+                                           progress_callback: Optional[Callable] = None
+                                           ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[Dict[str, Dict[str, Any]]]]:
+        """
+        Core internal method to prepare analytics data (originalData) and/or metadata (fieldMetadata).
+        This method now correctly sources Finviz data from the DB and Yahoo data via an API call,
+        then processes and merges them.
+        """
+        logger.info(f"ADP _prepare_analytics_components: create_original_data={create_original_data}, create_metadata={create_metadata}")
+        
+        original_data_output: Optional[List[Dict[str, Any]]] = None
+        metadata_output: Optional[Dict[str, Dict[str, Any]]] = None
+        
+        is_async_outer_callback = asyncio.iscoroutinefunction(progress_callback)
+
+        async def _do_overall_progress_callback(message_content: str):
+            if progress_callback:
+                current_task_name = "prepare_analytics_components"
+                stage_progress = 0 
+                if "Finviz data preparation" in message_content: stage_progress = 5
+                elif "Finviz data loaded" in message_content: stage_progress = 25 # After _load_finviz_data finishes
+                elif "Yahoo data loading" in message_content: stage_progress = 30
+                elif "Raw Yahoo data loaded" in message_content: stage_progress = 50 # After _load_yahoo_data finishes
+                elif "Yahoo data transformation" in message_content: stage_progress = 55 
+                elif "Yahoo data transformed" in message_content: stage_progress = 75 # After _transform_raw_yahoo_data finishes
+                elif "Merging" in message_content: stage_progress = 80
+                elif "Data merged" in message_content: stage_progress = 90 # After _merge_data finishes
+                elif "Metadata generation" in message_content: stage_progress = 95
+                elif "Metadata generated" in message_content: stage_progress = 98
+                elif "Completed" in message_content: stage_progress = 100
+                
+                update_payload = {"task_name": current_task_name, "status": "running", "progress": stage_progress, "message": message_content}
+                if is_async_outer_callback:
+                    await progress_callback(update_payload)
+                else:
+                    progress_callback(update_payload)
+                await asyncio.sleep(0) # Yield control
+
+        all_finviz_processed: List[Dict[str, Any]] = []
+        all_yahoo_transformed: List[Dict[str, Any]] = []
+
+        try:
+            # --- 1. Fetch and Process Finviz Data ---
+            await _do_overall_progress_callback("Starting Finviz data preparation...")
+            if create_original_data or create_metadata:
+                try:
+                    all_finviz_processed = await self._load_finviz_data(progress_callback=progress_callback) # Pass original callback through
+                    logger.info(f"ADP: Finviz data loaded. Count: {len(all_finviz_processed)}")
+                    await _do_overall_progress_callback(f"Finviz data loaded ({len(all_finviz_processed)} records).")
+                except Exception as e_finviz_load:
+                    logger.error(f"ADP: Error during Finviz data loading: {e_finviz_load}", exc_info=True)
+                    await _do_overall_progress_callback(f"Error loading Finviz data: {e_finviz_load}")
+                    all_finviz_processed = [] 
+
+            # --- 2. Fetch and Process Yahoo Data ---
+            await _do_overall_progress_callback("Starting Yahoo data loading...")
+            if create_original_data or create_metadata: 
+                try:
+                    raw_yahoo_data = await self._load_yahoo_data(progress_callback=progress_callback) # Pass original callback
+                    logger.info(f"ADP: Raw Yahoo data loaded. Count: {len(raw_yahoo_data)}")
+                    await _do_overall_progress_callback(f"Raw Yahoo data loaded ({len(raw_yahoo_data)} records).")
+
+                    await _do_overall_progress_callback("Starting Yahoo data transformation...")
+                    if raw_yahoo_data:
+                        # _transform_raw_yahoo_data is SYNC but can take an ASYNC callback that it schedules with create_task
+                        all_yahoo_transformed = self._transform_raw_yahoo_data(raw_yahoo_data, progress_callback=progress_callback) # Pass original callback
+                        logger.info(f"ADP: Yahoo data transformed. Count: {len(all_yahoo_transformed)}")
+                        await _do_overall_progress_callback(f"Yahoo data transformed ({len(all_yahoo_transformed)} records).")
+                    else:
+                        logger.info("ADP: No raw Yahoo data to transform.")
+                        await _do_overall_progress_callback("No raw Yahoo data to transform.")
+                        all_yahoo_transformed = []
+                except Exception as e_yahoo_prep:
+                    logger.error(f"ADP: Error during Yahoo data preparation: {e_yahoo_prep}", exc_info=True)
+                    await _do_overall_progress_callback(f"Error preparing Yahoo data: {e_yahoo_prep}")
+                    all_yahoo_transformed = []
+
+            # --- 3. Merge Data (if creating originalData) ---
+            merged_data: List[Dict[str, Any]] = []
+            if create_original_data:
+                await _do_overall_progress_callback("Starting data merging (Finviz & Yahoo)...")
+                try:
+                    # _merge_data is SYNC but can take an ASYNC callback
+                    merged_data = self._merge_data(all_finviz_processed, all_yahoo_transformed, progress_callback=progress_callback) # Pass original callback
+                    logger.info(f"ADP: Data merged. Total records: {len(merged_data)}")
+                    await _do_overall_progress_callback(f"Data merged ({len(merged_data)} records).")
+                    original_data_output = merged_data
+                except Exception as e_merge:
+                    logger.error(f"ADP: Error during data merging: {e_merge}", exc_info=True)
+                    await _do_overall_progress_callback(f"Error merging data: {e_merge}")
+                    original_data_output = [] 
+            
+            # --- 4. Generate Metadata (if creating metadata) ---
+            if create_metadata:
+                await _do_overall_progress_callback("Starting metadata generation...")
+                try:
+                    data_for_metadata_generation: List[Dict[str, Any]] = []
+                    if original_data_output is not None: 
+                        data_for_metadata_generation = original_data_output
+                        logger.info(f"ADP: Generating metadata from recently merged original_data_output ({len(data_for_metadata_generation)} records).")
+                    elif create_original_data is False and (all_finviz_processed or all_yahoo_transformed):
+                        logger.info("ADP: Metadata requested without prior originalData creation. Merging Finviz/Yahoo for metadata generation.")
+                        data_for_metadata_generation = self._merge_data(all_finviz_processed, all_yahoo_transformed, progress_callback=progress_callback)
+                        await _do_overall_progress_callback(f"Data re-merged for metadata ({len(data_for_metadata_generation)} records).")
+                    else:
+                         logger.warning("ADP: Metadata generation requested, but no data available.")
+                         await _do_overall_progress_callback("No data available for metadata generation.")
+
+                    if data_for_metadata_generation:
+                        # _generate_field_metadata is SYNC
+                        metadata_output = self._generate_field_metadata(data_for_metadata_generation) 
+                        logger.info(f"ADP: Metadata generated. Number of fields: {len(metadata_output)}")
+                        await _do_overall_progress_callback(f"Metadata generated ({len(metadata_output)} fields).")
+                    else:
+                        logger.warning("ADP: No data for _generate_field_metadata. Metadata will be empty.")
+                        metadata_output = {}
+                        await _do_overall_progress_callback("Metadata generation skipped (no data).")     
+                except Exception as e_meta:
+                    logger.error(f"ADP: Error during metadata generation: {e_meta}", exc_info=True)
+                    await _do_overall_progress_callback(f"Error generating metadata: {e_meta}")
+                    metadata_output = {} 
+
+            await _do_overall_progress_callback("Completed analytics components preparation.")
+            return original_data_output, metadata_output
+
+        except Exception as e_main:
+            logger.error(f"ADP: Critical error in _prepare_analytics_components: {e_main}", exc_info=True)
+            await _do_overall_progress_callback(f"Critical error in preparation: {e_main}")
+            return None if original_data_output is None else original_data_output, \
+                   None if metadata_output is None else metadata_output
+
     async def process_data_for_analytics(self, data_source_selection: str, progress_callback=None):
         # Simulate progress updates if a callback is provided
         def _update_progress(message):
@@ -494,6 +862,156 @@ class AnalyticsDataProcessor:
         # Return a tuple (data, metadata) as expected by the calling endpoint
         logger.info(f"ADP returning {len(original_data)} records and metadata for {data_source_selection}. Message: {message}")
         return original_data, final_meta_data
+
+    # +++ NEW PUBLIC CACHE REFRESH METHODS +++
+    async def force_refresh_data_cache(self, progress_callback: Optional[Callable] = None) -> None:
+        """
+        Forces a refresh of the analytics data cache.
+        It generates the original data and stores it in the dedicated cache table.
+        Metadata might be generated internally by _prepare_analytics_components if its create_metadata is True,
+        but only data is explicitly saved here.
+        """
+        logger.info("ADP: Forcing refresh of DATA cache...")
+        if progress_callback:
+            progress_callback({"type":"status", "message": "Starting data cache refresh..."})
+        
+        try:
+            # Call _prepare_analytics_components to get the original_data.
+            # Metadata generation is not strictly needed for data-only cache, but if the underlying
+            # _prepare_analytics_components generates it as a byproduct when create_original_data=True,
+            # we simply ignore the metadata part for this specific cache update.
+            # To be more efficient for data-only, _prepare_analytics_components is called with create_metadata=False.
+            original_data, _ = await self._prepare_analytics_components(
+                create_original_data=True, 
+                create_metadata=False, # We don't need to force metadata generation for data cache
+                progress_callback=progress_callback
+            )
+
+            if original_data is not None:
+                logger.info(f"ADP: Data generated for cache ({len(original_data)} records). Saving to DB...")
+                try:
+                    # Ensure datetime objects are handled if any; typically they should be strings or numbers by now.
+                    # Using default=str for json.dumps is a common fallback for non-serializable types.
+                    data_json = json.dumps(original_data, default=str) 
+                except TypeError as te_json:
+                    logger.error(f"ADP: JSON TypeError during data cache serialization: {te_json}", exc_info=True)
+                    if progress_callback: progress_callback({"type":"error", "message": f"Data cache: JSON serialization error: {te_json}"})
+                    return # Stop if serialization fails
+                
+                await self.db_repository.update_cached_analytics_data(data_json=data_json)
+                logger.info("ADP: Data cache updated successfully.")
+                if progress_callback: progress_callback({"type":"status", "message": "Data cache refresh completed successfully."})
+            else:
+                logger.warning("ADP: No data was generated by _prepare_analytics_components for data cache refresh.")
+                if progress_callback: progress_callback({"type":"warning", "message": "Data cache: No data generated to refresh."})
+        
+        except Exception as e:
+            logger.error(f"ADP: Error during data cache refresh: {e}", exc_info=True)
+            if progress_callback: progress_callback({"type":"error", "message": f"Data cache refresh failed: {e}"})
+
+    async def force_refresh_metadata_cache(self, progress_callback: Optional[Callable] = None) -> None:
+        """
+        Forces a refresh of the analytics metadata cache.
+        It attempts to use existing cached data if available and valid.
+        Otherwise, it generates fresh original data and then metadata,
+        then stores the metadata in its dedicated cache table.
+        """
+        logger.info("ADP: Forcing refresh of METADATA cache...")
+        if progress_callback:
+            asyncio.create_task(progress_callback({"type":"status", "message": "Starting metadata cache refresh..."})) # Assuming callback can handle being called like this
+
+        original_data_for_metadata: Optional[List[Dict[str, Any]]] = None
+        metadata_output: Optional[Dict[str, Any]] = None
+        source_of_data = "unknown" # To log whether data came from cache or was freshly generated
+
+        try:
+            # Step 1: Try to load originalData from the data cache
+            logger.info("ADP Metadata Refresh: Attempting to load data from existing data cache...")
+            if progress_callback:
+                asyncio.create_task(progress_callback({"type":"status", "message": "Checking data cache..."}))
+
+            cached_data_tuple = await self.db_repository.get_cached_analytics_data()
+
+            if cached_data_tuple:
+                data_json_from_cache, generated_at = cached_data_tuple
+                logger.info(f"ADP Metadata Refresh: Data cache found (generated at {generated_at}). Deserializing...")
+                if progress_callback:
+                    asyncio.create_task(progress_callback({"type":"status", "message": f"Data cache found (generated {generated_at}), deserializing..."}))
+                try:
+                    original_data_for_metadata = json.loads(data_json_from_cache)
+                    if not isinstance(original_data_for_metadata, list):
+                        logger.warning("ADP Metadata Refresh: Cached data is not a list after deserialization. Fallback to fresh generation.")
+                        original_data_for_metadata = None # Force fallback
+                        if progress_callback:
+                            asyncio.create_task(progress_callback({"type":"warning", "message": "Cached data format error. Will generate fresh data."}))
+                    else:
+                        logger.info(f"ADP Metadata Refresh: Successfully deserialized {len(original_data_for_metadata)} records from data cache.")
+                        source_of_data = f"data_cache (generated_at: {generated_at})"
+                except json.JSONDecodeError as e_json:
+                    logger.warning(f"ADP Metadata Refresh: JSONDecodeError for cached data: {e_json}. Fallback to fresh generation.")
+                    original_data_for_metadata = None # Force fallback
+                    if progress_callback:
+                         asyncio.create_task(progress_callback({"type":"warning", "message": f"Data cache JSON error: {e_json}. Will generate fresh data."}))
+            else:
+                logger.info("ADP Metadata Refresh: Data cache is empty. Will generate fresh data.")
+                if progress_callback:
+                    asyncio.create_task(progress_callback({"type":"status", "message": "Data cache empty. Generating fresh data for metadata."}))
+
+            # Step 2: If data wasn't loaded from cache, generate it freshly
+            if original_data_for_metadata is None:
+                logger.info("ADP Metadata Refresh: Proceeding to generate fresh data and metadata via _prepare_analytics_components...")
+                # Metadata generation requires original_data, so both must be true for _prepare_analytics_components.
+                # The 'original_data' part of the tuple will be discarded if we only needed metadata from fresh pull,
+                # but it's necessary for the _generate_field_metadata call.
+                fresh_original_data, fresh_metadata = await self._prepare_analytics_components(
+                    create_original_data=True,
+                    create_metadata=True, # Ensure metadata is also generated by _prepare_analytics_components
+                    progress_callback=progress_callback
+                )
+                # Use the metadata directly from _prepare_analytics_components if it was generated fresh
+                metadata_output = fresh_metadata
+                # We also need original_data if metadata was generated this way to ensure consistency if _generate_field_metadata is called again
+                original_data_for_metadata = fresh_original_data 
+                source_of_data = "freshly_generated"
+                logger.info(f"ADP Metadata Refresh: Fresh data and metadata generated. Original data records: {len(fresh_original_data if fresh_original_data else [])}, Metadata fields: {len(fresh_metadata if fresh_metadata else [])}")
+
+            # Step 3: Generate metadata if not already generated by _prepare_analytics_components (i.e., if data came from cache)
+            if metadata_output is None and original_data_for_metadata is not None:
+                logger.info(f"ADP Metadata Refresh: Generating metadata from {source_of_data} ({len(original_data_for_metadata)} records)...")
+                if progress_callback:
+                    asyncio.create_task(progress_callback({"type":"status", "message": f"Generating metadata from {len(original_data_for_metadata)} records from {source_of_data}..."}))
+                
+                metadata_output = self._generate_field_metadata(original_data_for_metadata)
+                logger.info(f"ADP Metadata Refresh: Metadata generated from {source_of_data}. Number of fields: {len(metadata_output if metadata_output else [])}")
+                if progress_callback:
+                    asyncio.create_task(progress_callback({"type":"status", "message": f"Metadata generated ({len(metadata_output if metadata_output else [])} fields)."}))
+            elif metadata_output is not None:
+                 logger.info(f"ADP Metadata Refresh: Using metadata directly generated by _prepare_analytics_components (source: {source_of_data}).")
+
+
+            # Step 4: Save the metadata to cache
+            if metadata_output is not None:
+                logger.info(f"ADP Metadata Refresh: Metadata (from {source_of_data}) contains {len(metadata_output)} fields. Saving to DB...")
+                if progress_callback:
+                    asyncio.create_task(progress_callback({"type":"status", "message": f"Saving {len(metadata_output)} metadata fields to cache..."}))
+                try:
+                    metadata_json = json.dumps(metadata_output, default=str)
+                except TypeError as te_json:
+                    logger.error(f"ADP: JSON TypeError during metadata cache serialization: {te_json}", exc_info=True)
+                    if progress_callback: asyncio.create_task(progress_callback({"type":"error", "message": f"Metadata cache: JSON serialization error: {te_json}"}))
+                    return # Stop if serialization fails
+
+                await self.db_repository.update_cached_analytics_metadata(metadata_json=metadata_json)
+                logger.info(f"ADP: Metadata cache updated successfully (source of data for generation: {source_of_data}).")
+                if progress_callback: asyncio.create_task(progress_callback({"type":"status", "message": "Metadata cache refresh completed successfully."}))
+            else:
+                logger.warning(f"ADP Metadata Refresh: No metadata was generated (source attempt: {source_of_data}). Metadata cache not updated.")
+                if progress_callback: asyncio.create_task(progress_callback({"type":"warning", "message": "Metadata cache: No metadata generated to refresh."}))
+
+        except Exception as e:
+            logger.error(f"ADP: Error during metadata cache refresh: {e}", exc_info=True)
+            if progress_callback: asyncio.create_task(progress_callback({"type":"error", "message": f"Metadata cache refresh failed: {e}"}))
+    # +++ END OF NEW PUBLIC CACHE REFRESH METHODS +++
 
 # Example usage (for testing, would not be here in production)
 async def example_progress_reporter(status_update: Dict[str, Any]):
