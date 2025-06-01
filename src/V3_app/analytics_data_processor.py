@@ -254,7 +254,7 @@ class AnalyticsDataProcessor:
             response.raise_for_status() 
 
             try:
-            yahoo_data = response.json()
+                yahoo_data = response.json()
                 if not isinstance(yahoo_data, list):
                     logger.error(f"ADP: Yahoo combined endpoint did not return a list. Received: {type(yahoo_data)}. Response text: {response.text[:200]}")
                     yahoo_data = [] 
@@ -293,7 +293,7 @@ class AnalyticsDataProcessor:
         final_progress_message = f"Finished fetching Yahoo data ({len(yahoo_data)} records)."
         if is_async_callback:
             await do_progress_update("load_yahoo_data", "completed", 100, final_progress_message, count=len(yahoo_data))
-                else:
+        else:
             do_progress_update("load_yahoo_data", "completed", 100, final_progress_message, count=len(yahoo_data))
         return yahoo_data
 
@@ -398,7 +398,7 @@ class AnalyticsDataProcessor:
         if progress_callback:
             # Using asyncio.create_task for potentially async callback
             if asyncio.iscoroutinefunction(progress_callback):
-            asyncio.create_task(progress_callback(task_name="merge_data", status="started", progress=0, message="Starting data merge"))
+                asyncio.create_task(progress_callback(task_name="merge_data", status="started", progress=0, message="Starting data merge"))
             else:
                 progress_callback(task_name="merge_data", status="started", progress=0, message="Starting data merge")
 
@@ -427,7 +427,7 @@ class AnalyticsDataProcessor:
         if progress_callback:
             # Using create_task for potentially async callback
             if asyncio.iscoroutinefunction(progress_callback):
-            asyncio.create_task(progress_callback(task_name="merge_data", status="processing", progress=33, message="Finviz data processed, starting Yahoo merge."))
+                asyncio.create_task(progress_callback(task_name="merge_data", status="processing", progress=33, message="Finviz data processed, starting Yahoo merge."))
             else:
                 progress_callback(task_name="merge_data", status="processing", progress=33, message="Finviz data processed, starting Yahoo merge.")
 
@@ -469,7 +469,7 @@ class AnalyticsDataProcessor:
         if progress_callback:
             # Using create_task for potentially async callback
             if asyncio.iscoroutinefunction(progress_callback):
-            asyncio.create_task(progress_callback(task_name="merge_data", status="completed", progress=100, count=len(merged_data_dict), message="Merge complete."))
+                asyncio.create_task(progress_callback(task_name="merge_data", status="completed", progress=100, count=len(merged_data_dict), message="Merge complete."))
             else:
                 progress_callback(task_name="merge_data", status="completed", progress=100, count=len(merged_data_dict), message="Merge complete.")
         
