@@ -291,7 +291,7 @@ async def get_processed_analytics_data(
 
             return {
                 "originalData": cached_data, 
-                "metaData": cached_metadata, 
+                "metaData": {"field_metadata": cached_metadata},
                 "message": "Served from cache.",
                 "data_cached_at": data_generated_at.isoformat() if data_generated_at else None,
                 "metadata_cached_at": metadata_generated_at.isoformat() if metadata_generated_at else None

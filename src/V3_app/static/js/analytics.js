@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() { // No longer needs to be async
-    console.log("Analytics.js: DOMContentLoaded event fired. Script execution started."); // Keep script load log
+    // console.log("Analytics.js: DOMContentLoaded event fired. Script execution started."); // Keep script load log
     // --- Global variables ---
     let fullProcessedData = [];
     let currentFilters = [];
@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- NEW: STUB for missing function ---
     function handleBatchFieldToggle(event) {
-        console.warn("handleBatchFieldToggle STUB called. Prefixes:", event.target.dataset.prefix, "Enable:", event.target.dataset.enable);
+        // console.warn("handleBatchFieldToggle STUB called. Prefixes:", event.target.dataset.prefix, "Enable:", event.target.dataset.enable);
         // TODO: Implement actual batch toggle logic later if needed
     }
     // --- END STUB ---
@@ -54,10 +54,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         const prefix = button.dataset.prefix;
         const enable = button.dataset.enable === 'true'; // Convert string to boolean
 
-        console.log(`Batch toggle: Prefix='${prefix}', Enable=${enable}`);
+        // console.log(`Batch toggle: Prefix='${prefix}', Enable=${enable}`);
 
         if (prefix === undefined || typeof enable !== 'boolean') {
-            console.error("handleBatchFieldToggle: Missing prefix or invalid enable value.", button.dataset);
+            // console.error("handleBatchFieldToggle: Missing prefix or invalid enable value.", button.dataset);
             return;
         }
 
@@ -77,13 +77,13 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         });
 
         if (changedCount > 0) {
-            console.log(`Batch toggled ${changedCount} fields matching prefix '${prefix}' to ${enable}.`);
+            // console.log(`Batch toggled ${changedCount} fields matching prefix '${prefix}' to ${enable}.`);
             saveEnabledStatusToStorage();
             renderFieldConfigUI(); // Re-render the field config table
             renderFilterUI();      // Re-render filters as available fields might change for them
             applyFilters();        // Re-apply filters to update output table
         } else {
-            console.log(`No fields changed state for prefix '${prefix}' and enable=${enable}.`);
+            // console.log(`No fields changed state for prefix '${prefix}' and enable=${enable}.`);
         }
     }
     // --- END MODIFICATION ---
@@ -179,7 +179,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     }
                     
                     // finvizUploadStatus.textContent = '';
-                    // console.log("Tickers from file:", uploadedTickers); // Remove detail log
+                    // // console.log("Tickers from file:", uploadedTickers); // Remove detail log
                 } else {
                     textSpan.textContent = `File: ${file.name} - No valid tickers found.`; // Use textContent
                     iconSpan.className = 'status-icon bi bi-exclamation-triangle-fill me-2 align-middle text-warning'; // Warning icon + color
@@ -189,7 +189,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
             }
         };
         reader.onerror = function(event) {
-            console.error("File reading error:", event);
+            // console.error("File reading error:", event);
             if (dropZoneP && iconSpan && textSpan) {
                 textSpan.textContent = `Error reading file: ${file.name}`; // Use textContent
                 iconSpan.className = 'status-icon bi bi-shield-exclamation me-2 align-middle text-danger'; // Error icon + color
@@ -247,7 +247,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         //         let eventSource = null; // Variable to hold EventSource connection
 
         //         try {
-        //             console.log("Calling /api/analytics/start-finviz-fetch-screener endpoint...");
+        //             // console.log("Calling /api/analytics/start-finviz-fetch-screener endpoint...");
         //             const response = await fetch('/api/analytics/start-finviz-fetch-screener', {
         //                 method: 'POST',
         //                 headers: { 'Accept': 'application/json' }
@@ -567,7 +567,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- NEW: Storage for Numeric Formats ---
     function loadNumericFormatsFromStorage() {
-        console.log("Loading numeric formats from localStorage...");
+        //console.log("Loading numeric formats from localStorage...");
         const savedFormats = localStorage.getItem(FIELD_NUMERIC_FORMAT_STORAGE_KEY);
         if (savedFormats) {
             try {
@@ -575,7 +575,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                 if (typeof fieldNumericFormats !== 'object' || fieldNumericFormats === null || Array.isArray(fieldNumericFormats)) {
                     fieldNumericFormats = {}; // Reset if not valid object
                 }
-                console.log("Loaded numeric formats:", fieldNumericFormats);
+               //console.log("Loaded numeric formats:", fieldNumericFormats);
             } catch (e) {
                 console.error("Error parsing saved numeric formats:", e);
                 fieldNumericFormats = {};
@@ -588,7 +588,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     }
 
     function saveNumericFormatsToStorage() {
-        console.log("Saving numeric formats to localStorage:", fieldNumericFormats);
+        //console.log("Saving numeric formats to localStorage:", fieldNumericFormats);
         try {
             localStorage.setItem(FIELD_NUMERIC_FORMAT_STORAGE_KEY, JSON.stringify(fieldNumericFormats));
         } catch (e) {
@@ -661,12 +661,12 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // --- NEW: Helper Function to Format Numeric Values ---
     function formatNumericValue(rawValue, format = 'default') {
         // <<< ADD DEBUG LOGGING START >>>
-        console.log(`[formatNumericValue] START - rawValue: ${rawValue} (type: ${typeof rawValue}), format: ${format}`);
+       // console.log(`[formatNumericValue] START - rawValue: ${rawValue} (type: ${typeof rawValue}), format: ${format}`);
         // <<< ADD DEBUG LOGGING END >>>
 
         if (rawValue === null || rawValue === undefined || String(rawValue).trim() === '' || String(rawValue).trim() === '-') {
             // <<< ADD DEBUG LOGGING START >>>
-            console.log(`[formatNumericValue] Condition met (null/undefined/empty/'N/A'): Returning 'N/A'`);
+            //console.log(`[formatNumericValue] Condition met (null/undefined/empty/'N/A'): Returning 'N/A'`);
             // <<< ADD DEBUG LOGGING END >>>
             return 'N/A'; // Or return rawValue if preferred for N/A cases
         }
@@ -674,7 +674,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         const num = Number(rawValue);
         if (isNaN(num)) {
             // <<< ADD DEBUG LOGGING START >>>
-            console.log(`[formatNumericValue] Condition met (isNaN): Returning original rawValue: ${rawValue}`);
+            //console.log(`[formatNumericValue] Condition met (isNaN): Returning original rawValue: ${rawValue}`);
             // <<< ADD DEBUG LOGGING END >>>
             return String(rawValue); // Return original if not a number
         }
@@ -705,7 +705,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         }
 
         // <<< ADD DEBUG LOGGING START >>>
-        console.log(`[formatNumericValue] END - Returning formattedValue: ${formattedValue}`);
+        //console.log(`[formatNumericValue] END - Returning formattedValue: ${formattedValue}`);
         // <<< ADD DEBUG LOGGING END >>>
         return formattedValue;
     }
@@ -776,12 +776,12 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     function updateValueInputUI(index, fieldName, inputWrapper, hintSpan) {
         const metadata = fieldMetadata[fieldName];
         // <<< ADD LOG: Check if metadata exists >>>
-        console.log(`[updateValueInputUI] Checking metadata for field '${fieldName}':`, metadata ? 'Found' : 'NOT FOUND');
+        //console.log(`[updateValueInputUI] Checking metadata for field '${fieldName}':`, metadata ? 'Found' : 'NOT FOUND');
         
         inputWrapper.innerHTML = ''; // Clear previous input/select
         // <<< ADD LOG: Log the filter value being used >>>
         const filterValueForUI = currentFilters[index]?.value;
-        console.log(`[updateValueInputUI] Rendering value for filter index ${index} (Field: ${fieldName}). Loaded Value:`, filterValueForUI);
+        //console.log(`[updateValueInputUI] Rendering value for filter index ${index} (Field: ${fieldName}). Loaded Value:`, filterValueForUI);
         
         // --- Update hint text using the new descriptor function (which now includes formatting) --- 
         let hintText = fieldName ? getFieldDescriptor(fieldName) : '';
@@ -916,9 +916,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- Render UI Functions (Preparation Tab) ---
     function renderFilterUI() {
-        console.log("Rendering filter UI...");
+        //console.log("Rendering filter UI...");
         // <<< ADD LOG: Show currentFilters state before rendering >>>
-        console.log("[renderFilterUI] State of currentFilters at START of function:", JSON.parse(JSON.stringify(currentFilters)));
+        //console.log("[renderFilterUI] State of currentFilters at START of function:", JSON.parse(JSON.stringify(currentFilters)));
         // console.log("[renderFilterUI] State of currentFilters before rendering loop:", JSON.parse(JSON.stringify(currentFilters))); // Keep this one too?
 
         if (!filterControlsContainer) return; // Check if container exists
@@ -986,7 +986,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
         currentFilters.forEach((filter, index) => {
             // <<< ADD LOG: Show filter being rendered >>>
-            console.log(`[renderFilterUI] Rendering row for filter index ${index}:`, JSON.parse(JSON.stringify(filter)));
+            //console.log(`[renderFilterUI] Rendering row for filter index ${index}:`, JSON.parse(JSON.stringify(filter)));
 
             const filterId = filter.id;
             const row = document.createElement('div');
@@ -1257,24 +1257,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         }
         console.log("[DEBUG analytics.js] renderFieldDataRows - fieldsToRender (first 150 for brevity):", fieldsToRender.slice(0, 150));
 
-        // Log metadata for a known Finviz field, e.g., 'P/E' and a known Yahoo field for comparison
-        const testFinvizField = 'P/E';
-        const testYahooField = 'yf_tm_sector'; // A field that was visible
 
-        if (fieldsToRender.includes(testFinvizField)) {
-            console.log(`[DEBUG analytics.js] renderFieldDataRows - Metadata for Finviz field '${testFinvizField}':`, 
-                        fieldMetadata[testFinvizField] ? JSON.parse(JSON.stringify(fieldMetadata[testFinvizField])) : 'NOT FOUND IN METADATA');
-            } else {
-            console.log(`[DEBUG analytics.js] renderFieldDataRows - Finviz field '${testFinvizField}' NOT IN fieldsToRender.`);
-        }
-
-        if (fieldsToRender.includes(testYahooField)) {
-            console.log(`[DEBUG analytics.js] renderFieldDataRows - Metadata for Yahoo field '${testYahooField}':`, 
-                        fieldMetadata[testYahooField] ? JSON.parse(JSON.stringify(fieldMetadata[testYahooField])) : 'NOT FOUND IN METADATA');
-        } else {
-            console.log(`[DEBUG analytics.js] renderFieldDataRows - Yahoo field '${testYahooField}' NOT IN fieldsToRender.`);
-        }
-        // --- END DETAILED DEBUG LOGGING ---
 
         const tbody = fieldConfigContainer.querySelector('tbody');
         if (!tbody) {
@@ -1371,7 +1354,7 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                     const updatedDescriptorText = getFieldDescriptor(field);
                     descriptorTd.textContent = updatedDescriptorText;
                     
-                    console.log(`Format for field '${field}' changed to '${newFormat}'. Descriptor updated. Triggering filter UI refresh.`);
+                    //console.log(`Format for field '${field}' changed to '${newFormat}'. Descriptor updated. Triggering filter UI refresh.`);
                     renderFilterUI(); // <<< ADDED THIS LINE
                     
                     // <<< Explicitly re-attach modification listeners >>>
@@ -2917,52 +2900,32 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- Data Loading & State Update (Preparation Tab) ---
      function processLoadedDataAndUpdateState(dataFromApi, sourceMetaData) {
-        console.log("[DEBUG analytics.js] processLoadedDataAndUpdateState called.");
-        console.log("[DEBUG analytics.js] Data from API (first 5):", dataFromApi ? dataFromApi.slice(0, 5) : "No data");
-        // console.log("[DEBUG analytics.js] sourceMetaData received:", JSON.parse(JSON.stringify(sourceMetaData))); // Deep copy for logging
+        console.log("processLoadedDataAndUpdateState called.");
+        console.log("Data from API (first 5):", dataFromApi.slice(0, 5));
+        // console.log("Source MetaData:", sourceMetaData);
 
-        // Clear previous states
-        fullProcessedData = [];
-        filteredData = [];
-        // fieldMetadata = {}; // Don't clear here, let the logic below populate it
-        // availableFields = []; // Will be set from metadata or inferred
-        // finvizFields = []; // Will be set based on metadata source if available
-        // yahooFields = []; // Will be set based on metadata source if available
-
-        // --- MODIFIED CONDITION AND ASSIGNMENT FOR METADATA ---
-        // The API now returns the field metadata collection directly as sourceMetaData
-        if (sourceMetaData && Object.keys(sourceMetaData).length > 0 && !sourceMetaData.hasOwnProperty('message')) { // Check if it's not an error/status message obj
-            console.log(" Rich metadata found, processing..."); // Changed from logger.info
-            fieldMetadata = JSON.parse(JSON.stringify(sourceMetaData)); // It IS the field_metadata collection
-            
-            // The 'source_selection' might not be present anymore in the direct metadata object from cache.
-            // This was used to categorize fields. For now, we'll derive availableFields directly.
-            // If specific source categorization is still needed, it must be handled differently,
-            // perhaps by having ADP add a 'source_origin' property to each field's metadata.
-            // const sourceSelection = sourceMetaData.source_selection; // This would be undefined now.
-            // console.log(` Source selection from metadata: ${sourceSelection}`); 
-
-            // if (!sourceSelection) {
-            //     console.warn(" Source selection missing from metaData when loading from cache.");
-            // }
-
+        fullProcessedData = dataFromApi || [];
+        fieldMetadata = (sourceMetaData && sourceMetaData.field_metadata) ? sourceMetaData.field_metadata : {};
+        
+        // Extract all field names from the metadata if available, otherwise from data
+        if (Object.keys(fieldMetadata).length > 0) {
             availableFields = Object.keys(fieldMetadata).sort();
-            // Field categorization into finvizFields/yahooFields based on prefixes or a potential future 'source_origin' in meta
-            finvizFields = availableFields.filter(f => f.startsWith('fv_') || (!f.startsWith('yf_') && f !== 'ticker' && f !== 'source' && f !== 'last_fetched_at'));
-            yahooFields = availableFields.filter(f => f.startsWith('yf_'));
-            if (availableFields.includes('ticker') && !finvizFields.includes('ticker') && !yahooFields.includes('ticker')) {
-                 // If ticker exists but not categorized, add to finviz as a default common field
-                finvizFields.unshift('ticker');
-            }
-
-            console.log("[processLoadedDataAndUpdateState] Global fieldMetadata updated from API metaData.");
-            console.log(`[processLoadedDataAndUpdateState] Available fields derived from metadata keys: ${availableFields.length}`);
-
-        } else {
-            // Fallback path: Infer basic types if rich metadata is missing or if it was an error message from API
-            console.log(" Metadata was missing, empty, or an API status message. Attempting to infer basic field types from data.");
-            fieldMetadata = {};
-            // ... existing code ...
+        } else if (fullProcessedData.length > 0) {
+            // Fallback: Get fields from the first data item if metadata is empty
+            availableFields = Object.keys(fullProcessedData[0]).sort();
+            // Attempt to generate basic metadata if missing (type inference)
+            console.warn("Metadata was missing or empty, attempting to infer basic field types.");
+            fieldMetadata = {}; // Ensure it's an empty object
+            availableFields.forEach(field => {
+                let type = 'unknown';
+                let sampleValue = fullProcessedData[0][field];
+                if (typeof sampleValue === 'number') type = 'numeric';
+                else if (typeof sampleValue === 'boolean') type = 'boolean';
+                else if (typeof sampleValue === 'string') type = 'text';
+                fieldMetadata[field] = { name: field, type: type, count: fullProcessedData.length }; // Basic meta
+            });
+                     } else {
+            availableFields = [];
         }
         
         console.log("Available fields after processing:", availableFields);
