@@ -97,9 +97,12 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
     // const finvizUploadStatus = document.getElementById('finviz-upload-status'); // REMOVE COMMENT, will be moved lower
 
     // Preparation Tab
-    const processButton = document.getElementById('process-analytics-data-btn');
-    // const processStatus = document.getElementById('process-analytics-status'); // <<< MOVE DECLARATION LOWER
-    const outputArea = document.getElementById('processed-analytics-output'); // <<< Keep for now? applyFilters checks output-table
+    const loadAnalyticsDataBtn = document.getElementById('load-analytics-data-btn'); // UPDATED ID
+    const analyticsLoadMessage = document.getElementById('analytics-load-message'); // For general messages and record count
+    const dataCacheTimestampEl = document.getElementById('data-cache-timestamp');
+    const metadataCacheTimestampEl = document.getElementById('metadata-cache-timestamp');
+    // const processStatus = document.getElementById('process-analytics-status'); // <<< This ID was associated with old button, use analyticsLoadMessage
+    const outputArea = document.getElementById('processed-analytics-output'); 
     const filterControlsContainer = document.getElementById('filter-controls-container');
     const addFilterBtn = document.getElementById('add-filter-btn');
     const applyFiltersBtn = document.getElementById('apply-filters-btn');
@@ -657,12 +660,22 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- NEW: Helper Function to Format Numeric Values ---
     function formatNumericValue(rawValue, format = 'default') {
+        // <<< ADD DEBUG LOGGING START >>>
+        console.log(`[formatNumericValue] START - rawValue: ${rawValue} (type: ${typeof rawValue}), format: ${format}`);
+        // <<< ADD DEBUG LOGGING END >>>
+
         if (rawValue === null || rawValue === undefined || String(rawValue).trim() === '' || String(rawValue).trim() === '-') {
+            // <<< ADD DEBUG LOGGING START >>>
+            console.log(`[formatNumericValue] Condition met (null/undefined/empty/'N/A'): Returning 'N/A'`);
+            // <<< ADD DEBUG LOGGING END >>>
             return 'N/A'; // Or return rawValue if preferred for N/A cases
         }
 
         const num = Number(rawValue);
         if (isNaN(num)) {
+            // <<< ADD DEBUG LOGGING START >>>
+            console.log(`[formatNumericValue] Condition met (isNaN): Returning original rawValue: ${rawValue}`);
+            // <<< ADD DEBUG LOGGING END >>>
             return String(rawValue); // Return original if not a number
         }
 
@@ -691,6 +704,9 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
                 break;
         }
 
+        // <<< ADD DEBUG LOGGING START >>>
+        console.log(`[formatNumericValue] END - Returning formattedValue: ${formattedValue}`);
+        // <<< ADD DEBUG LOGGING END >>>
         return formattedValue;
     }
     // --- END NEW Formatting Helper ---
@@ -2901,127 +2917,91 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
 
     // --- Data Loading & State Update (Preparation Tab) ---
      function processLoadedDataAndUpdateState(dataFromApi, sourceMetaData) {
-        console.log("[processLoadedDataAndUpdateState] Received dataFromApi count:", dataFromApi ? dataFromApi.length : 0);
-        console.log("[processLoadedDataAndUpdateState] Received sourceMetaData:", sourceMetaData);
+        console.log("[DEBUG analytics.js] processLoadedDataAndUpdateState called.");
+        console.log("[DEBUG analytics.js] Data from API (first 5):", dataFromApi ? dataFromApi.slice(0, 5) : "No data");
+        // console.log("[DEBUG analytics.js] sourceMetaData received:", JSON.parse(JSON.stringify(sourceMetaData))); // Deep copy for logging
 
-        fullProcessedData = dataFromApi || [];
-        // filteredData = [...fullProcessedData]; // <<< NOTE: filteredData is updated by applyFilters(), not directly here.
+        // Clear previous states
+        fullProcessedData = [];
+        filteredData = [];
+        // fieldMetadata = {}; // Don't clear here, let the logic below populate it
+        // availableFields = []; // Will be set from metadata or inferred
+        // finvizFields = []; // Will be set based on metadata source if available
+        // yahooFields = []; // Will be set based on metadata source if available
 
-        if (sourceMetaData && sourceMetaData.field_metadata) {
-            // Update the global fieldMetadata with the rich metadata from ADP.
-            // This replaces any prior fieldMetadata.
-            fieldMetadata = JSON.parse(JSON.stringify(sourceMetaData.field_metadata));
-            console.log("[processLoadedDataAndUpdateState] Global fieldMetadata updated from ADP:", JSON.parse(JSON.stringify(fieldMetadata)));
+        // --- MODIFIED CONDITION AND ASSIGNMENT FOR METADATA ---
+        // The API now returns the field metadata collection directly as sourceMetaData
+        if (sourceMetaData && Object.keys(sourceMetaData).length > 0 && !sourceMetaData.hasOwnProperty('message')) { // Check if it's not an error/status message obj
+            console.log(" Rich metadata found, processing..."); // Changed from logger.info
+            fieldMetadata = JSON.parse(JSON.stringify(sourceMetaData)); // It IS the field_metadata collection
+            
+            // The 'source_selection' might not be present anymore in the direct metadata object from cache.
+            // This was used to categorize fields. For now, we'll derive availableFields directly.
+            // If specific source categorization is still needed, it must be handled differently,
+            // perhaps by having ADP add a 'source_origin' property to each field's metadata.
+            // const sourceSelection = sourceMetaData.source_selection; // This would be undefined now.
+            // console.log(` Source selection from metadata: ${sourceSelection}`); 
 
-            availableFields = Object.keys(fieldMetadata).sort(); // <<< UPDATE: Use global availableFields
-            console.log("[processLoadedDataAndUpdateState] availableFields derived from ADP metadata:", availableFields); // <<< UPDATE: Use global availableFields
+            // if (!sourceSelection) {
+            //     console.warn(" Source selection missing from metaData when loading from cache.");
+            // }
 
-            // Attempt to categorize fields based on source_selection and prefixes
-             finvizFields = [];
-            yahooFields = [];
-            const sourceSelection = sourceMetaData.source_selection;
-
-            availableFields.forEach(field => { // <<< UPDATE: Use global availableFields
-                // Default assumption: if not 'yf_', it could be Finviz or a common field like 'ticker'
-                // If ADP adds a 'source' property to each field's metadata, that would be more robust.
-                const isYahooOrigin = field.startsWith('yf_') || (fieldMetadata[field] && fieldMetadata[field].source === 'yahoo'); // Hypothetical
-                const isFinvizOrigin = !field.startsWith('yf_') && (fieldMetadata[field] && fieldMetadata[field].source === 'finviz'); // Hypothetical
-
-                if (sourceSelection === 'finviz_only') {
-                    finvizFields.push(field);
-                } else if (sourceSelection === 'yahoo_only') {
-                    if (isYahooOrigin || field === 'ticker') { // Assume ticker can come from Yahoo context
-                        yahooFields.push(field);
-                    }
-                } else if (sourceSelection === 'both') {
-                    if (isYahooOrigin) {
-                        yahooFields.push(field);
-                    } else { // Assumes non-Yahoo are Finviz or common in 'both' mode
-                        finvizFields.push(field);
-                    }
-                } else { // Fallback if source_selection is unexpected, categorize by prefix
-                    if (isYahooOrigin) {
-                        yahooFields.push(field);
-                     } else {
-                        finvizFields.push(field);
-                     }
-                 }
-             });
-            // Ensure 'ticker' is in one of the lists if available, prioritize Finviz for 'both'
-            if (availableFields.includes('ticker')) { // <<< UPDATE: Use global availableFields
-                if (sourceSelection === 'both' && !finvizFields.includes('ticker')) {
-                    finvizFields.unshift('ticker');
-                    yahooFields = yahooFields.filter(f => f !== 'ticker');
-                } else if (sourceSelection === 'yahoo_only' && !yahooFields.includes('ticker')) {
-                     yahooFields.unshift('ticker');
-                } else if (sourceSelection === 'finviz_only' && !finvizFields.includes('ticker')) {
-                     finvizFields.unshift('ticker');
-                }
+            availableFields = Object.keys(fieldMetadata).sort();
+            // Field categorization into finvizFields/yahooFields based on prefixes or a potential future 'source_origin' in meta
+            finvizFields = availableFields.filter(f => f.startsWith('fv_') || (!f.startsWith('yf_') && f !== 'ticker' && f !== 'source' && f !== 'last_fetched_at'));
+            yahooFields = availableFields.filter(f => f.startsWith('yf_'));
+            if (availableFields.includes('ticker') && !finvizFields.includes('ticker') && !yahooFields.includes('ticker')) {
+                 // If ticker exists but not categorized, add to finviz as a default common field
+                finvizFields.unshift('ticker');
             }
-            finvizFields = [...new Set(finvizFields)].sort(); // Deduplicate and sort
-            yahooFields = [...new Set(yahooFields)].sort();   // Deduplicate and sort
 
+            console.log("[processLoadedDataAndUpdateState] Global fieldMetadata updated from API metaData.");
+            console.log(`[processLoadedDataAndUpdateState] Available fields derived from metadata keys: ${availableFields.length}`);
 
-                     } else {
-            console.warn("[processLoadedDataAndUpdateState] No field_metadata found in sourceMetaData. Field lists may be incomplete.");
-            if (fullProcessedData.length > 0) {
-                let discoveredFields = new Set();
-                fullProcessedData.forEach(item => {
-                    // Ensure item itself and item.processed_data are checked for keys
-                    if (item) {
-                        Object.keys(item).forEach(key => {
-                            if (key !== 'processed_data') discoveredFields.add(key);
-                        });
-                        if (item.processed_data && typeof item.processed_data === 'object') {
-                            Object.keys(item.processed_data).forEach(key => discoveredFields.add(key));
-                     }
-                 }
-             });
-                availableFields = Array.from(discoveredFields).sort(); // <<< UPDATE: Use global availableFields
-                fieldMetadata = {}; // Clear it to reflect lack of rich metadata
-             } else {
-                availableFields = []; // <<< UPDATE: Use global availableFields
-                fieldMetadata = {};
-            }
-            // Update finvizFields and yahooFields based on the new global availableFields
-            const sourceSelection = sourceMetaData ? sourceMetaData.source_selection : 'unknown';
-            finvizFields = sourceSelection === 'finviz_only' ? [...availableFields] : [];
-            yahooFields = sourceSelection === 'yahoo_only' ? [...availableFields] : [];
-             if (sourceSelection === 'both' || sourceSelection === 'unknown') { // Basic split for 'both' or if no metadata
-                finvizFields = availableFields.filter(f => !f.startsWith('yf_'));
-                yahooFields = availableFields.filter(f => f.startsWith('yf_'));
-            }
+        } else {
+            // Fallback path: Infer basic types if rich metadata is missing or if it was an error message from API
+            console.log(" Metadata was missing, empty, or an API status message. Attempting to infer basic field types from data.");
+            fieldMetadata = {};
+            // ... existing code ...
         }
         
-        // Initialize fieldEnabledStatus and fieldNumericFormats for newly available fields
-        availableFields.forEach(field => { // <<< UPDATE: Use global availableFields
-            if (fieldEnabledStatus[field] === undefined) {
-                // Default new fields to true, unless they are known to be problematic or rarely used
-                // For now, default all to true for simplicity during ADP integration.
-                fieldEnabledStatus[field] = true; 
-            }
-            if (fieldNumericFormats[field] === undefined) {
-                // Use the type from the new rich metadata if available
-                const fieldType = fieldMetadata[field] ? fieldMetadata[field].type : 'text'; // fieldMetadata is now global
-                // Use 'raw' as the default format for numeric fields from ADP initially.
-                fieldNumericFormats[field] = (fieldType === 'numeric') ? 'raw' : 'default';
+        console.log("Available fields after processing:", availableFields);
+        // console.log("Field metadata after processing:", fieldMetadata);
+
+        // Initialize field enabled status (load from storage or default to true)
+        loadEnabledStatusFromStorage(); // This will also default new fields to true
+        // Prune fieldEnabledStatus: remove entries for fields that no longer exist
+        Object.keys(fieldEnabledStatus).forEach(field => {
+            if (!availableFields.includes(field)) {
+                delete fieldEnabledStatus[field];
             }
         });
-        // saveFieldPreferences(); // This will be called by saveEnabledStatusToStorage / saveNumericFormatsToStorage if needed
+        saveEnabledStatusToStorage(); // Save potentially pruned list
 
-        console.log("[processLoadedDataAndUpdateState] availableFields (global):", availableFields); // <<< UPDATE: Use global availableFields
-        console.log("[processLoadedDataAndUpdateState] Finviz fields for UI:", finvizFields);
-        console.log("[processLoadedDataAndUpdateState] Yahoo fields for UI:", yahooFields);
-        console.log("[processLoadedDataAndUpdateState] Updated fieldMetadata (global):", JSON.parse(JSON.stringify(fieldMetadata)));
-        console.log("[processLoadedDataAndUpdateState] Updated fieldEnabledStatus (global):", JSON.parse(JSON.stringify(fieldEnabledStatus)));
-        console.log("[processLoadedDataAndUpdateState] Updated fieldNumericFormats (global):", JSON.parse(JSON.stringify(fieldNumericFormats)));
+        loadNumericFormatsFromStorage(); // Initialize numeric formats
+        Object.keys(fieldNumericFormats).forEach(field => {
+            if (!availableFields.includes(field)) {
+                delete fieldNumericFormats[field];
+            }
+        });
+        saveNumericFormatsToStorage();
 
+        loadInfoTipsFromStorage();
+        Object.keys(fieldInfoTips).forEach(field => {
+            if (!availableFields.includes(field)) {
+                delete fieldInfoTips[field];
+            }
+        });
+        saveInfoTipsToStorage();
+        
+        // Clear existing filters if the data source/structure might have changed significantly
+        // currentFilters = []; // Consider if this is too aggressive or good for a fresh start
+        // saveFiltersToStorage();
+        loadFiltersFromStorage(); // Load filters, they might still be relevant if fields overlap
 
-        // updateRecordCount(filteredData.length, fullProcessedData.length); // updateRecordCount is not defined, filterResultsCount is updated in applyFilters
-        // renderFieldConfigUI(); // These UI updates will be handled by updateAnalyticsUI called by the caller
-        // renderFilterUI();      
-        // updateTableAndCharts(filteredData); 
-        // updateTransformationRulesUI(); 
+        // --- Update UI components ---
+        updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: true });
+        console.log("processLoadedDataAndUpdateState completed. UI update triggered.");
      }
 
     // --- Button Listeners (Preparation Tab) ---
@@ -3060,137 +3040,6 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         });
     }
 
-    // Process Data Button (Load from DB)
-    console.log("Locating processButton element..."); // Updated log
-    // Use processButton declared earlier
-    console.log("processButton element:", processButton);
-
-    // Check if the button element exists before proceeding
-    if (processButton) {
-        // <<< MOVE processStatus declaration HERE >>>
-        const processStatus = document.getElementById('process-analytics-status');
-        const dataSourceSelector = document.getElementById('data-source-pipe-selector'); // <<< ADDED: Get selector
-        
-        console.log("Locating processStatus element just before adding listener:", processStatus); // <<< ADD LOG
-        console.log("Locating dataSourceSelector element:", dataSourceSelector); // <<< ADDED: Log selector
-        
-        // Check if status element was found before adding listener
-        if (processStatus && dataSourceSelector) { // <<< ADDED: Check selector too
-            console.log("Adding event listener to processButton."); 
-            processButton.addEventListener('click', async function() {
-                console.log("processButton clicked!"); 
-                
-                const selectedDataSource = dataSourceSelector.value; // <<< ADDED: Get selected value
-                console.log("Selected Data Source Pipe:", selectedDataSource); // <<< ADDED: Log selected value
-
-                // <<< Show spinner and disable button >>>
-                if (typeof window.showSpinner === 'function') {
-                    window.showSpinner(processButton);
-                } else {
-                    console.error("Global showSpinner function not found!");
-                    processButton.disabled = true; // Fallback
-                }
-                // Use the processStatus variable captured just above
-                processStatus.textContent = `Loading ${selectedDataSource.replace('_', ' ')} data via ADP...`; //  <-- MODIFIED TEXT
-                processStatus.className = 'ms-2 text-info';
-                if(filterResultsCount) filterResultsCount.textContent = ''; // Clear count
-
-                try {
-                    // Step 1: Call the NEW ADP endpoint
-                    const endpointUrl = `/api/v3/analytics/processed_data?data_source_selection=${selectedDataSource}`; // <<< MODIFIED: Use selectedDataSource
-                    console.log(`Calling ${endpointUrl} endpoint...`);
-
-                    const response = await fetch(endpointUrl, {
-                        method: 'GET', // ADP endpoint is GET
-                        headers: { 'Accept': 'application/json' }
-                    });
-
-                    const result = await response.json();
-
-                    if (!response.ok) {
-                        const errorDetail = result.detail || `ADP data fetch failed with status ${response.status} - ${response.statusText}`;
-                        console.error(`Error response from ${endpointUrl}:`, result);
-                        throw new Error(errorDetail);
-                    }
-
-                    console.log("ADP request successful:", result);
-                    processStatus.textContent = result.message || 'Data loaded successfully via ADP.';
-                    processStatus.className = 'ms-2 text-success';
-
-                    // Step 2: Update frontend state with data from ADP
-                    if (result && result.originalData) {
-                        fullProcessedData = result.originalData;
-                        const recordCount = fullProcessedData.length;
-                        console.log(`Successfully fetched ${recordCount} records from ADP.`);
-                        // Update status message to include record count
-                        processStatus.textContent = result.message || `Successfully loaded ${recordCount} records via ADP.`;
-                        // metaData from ADP (result.metaData) includes 'fields' and 'source_selection'.
-                        // We'll still primarily rely on processLoadedDataAndUpdateState to derive detailed metadata like min/max, types etc.
-                        // However, we can log what ADP provided:
-                        console.log("Metadata from ADP:", result.metaData);
-                    } else {
-                        console.warn("ADP response did not contain originalData. Setting to empty array.");
-                        fullProcessedData = [];
-                    }
-
-                    // Step 3: Process loaded data (extract fields, init weights/status)
-                    console.log("Processing loaded data and updating PRE-transform state...");
-                    processLoadedDataAndUpdateState(result.originalData, result.metaData); // <<< CORRECTED ARGUMENTS
- 
-                    // Step 3.5: Initialize FINAL state based on loaded data
-                    console.log("Initializing final state based on loaded data...");
-                    finalDataForAnalysis = [...fullProcessedData]; // Initialize final data
-                    updateFinalFieldsAndMetadata(finalDataForAnalysis); // Calculate POST-transform state
- 
-                    // Step 4: Apply initial filters (updates Prep table and filteredDataForChart)
-                    console.log("Applying initial filters...");
-                    applyFilters(); 
- 
-                    // Step 5: Update ALL UI components now that both states are populated
-                    console.log("Rendering initial UI...");
-                    updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: true });
-
-                    const initialPivotStatus = document.getElementById('pivot-table-status');
-                    if (initialPivotStatus) {
-                        initialPivotStatus.textContent = `Initial data processed. Pivot table library integration needed to display ${finalDataForAnalysis.length} records.`;
-                    }
-
-                    if (finalDataForAnalysis && finalDataForAnalysis.length > 0) {
-                        window.dispatchEvent(new Event('AnalyticsDataReady'));
-                    } else {
-                        console.warn("Not dispatching AnalyticsDataReady event: finalDataForAnalysis is empty.");
-                    }
-
-                } catch (error) {
-                    console.error('Error during ADP data processing/fetching (Finviz only test):', error);
-                    processStatus.textContent = `Error: ${error.message || 'An unknown error occurred.'}`;
-                    processStatus.className = 'ms-2 text-danger';
-                    fullProcessedData = []; 
-                    availableFields = [];
-                    fieldMetadata = {};
-                    finalAvailableFields = []; 
-                    finalFieldMetadata = {};
-                    finalDataForAnalysis = []; 
-                    
-                    applyFilters(); 
-                    updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: true }); 
-                } finally {
-                     processButton.disabled = false;
-                     console.log(`ADP Processing/fetching for ${selectedDataSource} finished.`); // <<< MODIFIED: Log correct source
-                     if (typeof window.hideSpinner === 'function') {
-                         window.hideSpinner(processButton);
-                     } else {
-                         console.error("Global hideSpinner function not found!");
-                         processButton.disabled = false; // Fallback
-                     }
-                 }
-             });
-        } else {
-             console.error("Could not find processStatus element (#process-analytics-status). Listener not attached."); // Specific error message
-        }
-    } else {
-        console.error("Could not find processButton element (#process-analytics-data-btn). Listener not attached."); 
-    }
 
     // --- Helper functions to toggle button spinner/text --- 
     function showSpinner(button, otherButton) {
@@ -4315,4 +4164,72 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         }
     }
     // --- END NEW: Storage for Global Filter Logic ---
+
+    // --- Listener for "Load/Refresh Cached Data" button (Preparation Tab / Load Data Sub-tab) ---
+    if (loadAnalyticsDataBtn) {
+        loadAnalyticsDataBtn.addEventListener('click', async function() {
+            showSpinner(loadAnalyticsDataBtn);
+            analyticsLoadMessage.textContent = 'Loading cached data...';
+            analyticsLoadMessage.className = 'text-info';
+            dataCacheTimestampEl.textContent = '';
+            metadataCacheTimestampEl.textContent = '';
+
+            try {
+                // The data_source_selection query parameter is now ignored by the backend if cache exists,
+                // so we can simplify the call or pass a default like "both".
+                // For clarity, we'll remove it from the direct fetch call here as the backend 
+                // is designed to serve from cache by default for this endpoint.
+                const response = await fetch('/api/v3/analytics/processed_data?data_source_selection=both');
+                
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.detail || `HTTP error ${response.status}`);
+                }
+
+                analyticsLoadMessage.textContent = result.message || 'Data processed.';
+                analyticsLoadMessage.className = result.originalData && result.originalData.length > 0 ? 'text-success' : 'text-warning';
+                
+                if (result.data_cached_at) {
+                    dataCacheTimestampEl.textContent = `Data cached: ${new Date(result.data_cached_at).toLocaleString()}`;
+                } else {
+                    dataCacheTimestampEl.textContent = 'Data cache timestamp: N/A';
+                }
+
+                if (result.metadata_cached_at) {
+                    metadataCacheTimestampEl.textContent = `Metadata cached: ${new Date(result.metadata_cached_at).toLocaleString()}`;
+                } else {
+                    metadataCacheTimestampEl.textContent = 'Metadata cache timestamp: N/A';
+                }
+
+                if (result.originalData && result.metaData) {
+                    // Use a default source_selection or handle if it's missing from response
+                    const sourceMetaData = result.metaData;
+                    if (!sourceMetaData.source_selection) {
+                        // If the backend doesn't always return it when serving from cache,
+                        // we can infer or set a default. For now, let's log if missing.
+                        console.warn("Source selection missing from metaData when loading from cache.");
+                    }
+                    processLoadedDataAndUpdateState(result.originalData, sourceMetaData);
+                    filterResultsCount.textContent = `Showing ${result.originalData.length} records.`;
+                } else {
+                    // Handle case where data might be missing but response was ok (e.g. cache empty message)
+                    fullProcessedData = [];
+                    availableFields = [];
+                    fieldMetadata = {};
+                    updateAnalyticsUI({ updatePrepUI: true, updateAnalyzeUI: true }); // Ensure UI reflects empty state
+                    filterResultsCount.textContent = 'No data loaded.';
+                }
+
+            } catch (error) {
+                console.error('Error loading analytics data:', error);
+                analyticsLoadMessage.textContent = `Error: ${error.message}`;
+                analyticsLoadMessage.className = 'text-danger';
+                dataCacheTimestampEl.textContent = '';
+                metadataCacheTimestampEl.textContent = '';
+                filterResultsCount.textContent = 'Error loading data.';
+            }
+            hideSpinner(loadAnalyticsDataBtn);
+        });
+    }
 }); 

@@ -19,6 +19,8 @@ BASE_API_URL = "http://localhost:8000" # Adjust if your app runs on a different 
 
 logger = logging.getLogger(__name__)
 
+MAX_UNIQUE_TEXT_SAMPLE_SIZE = 10 # Define the constant for text sample size
+
 # +++ NEW MODULE-LEVEL HELPER FUNCTIONS (COPIED AND ADAPTED) +++
 
 def _adp_parse_finviz_value(value_str: Optional[str]) -> Union[float, int, str, None]:
@@ -252,7 +254,7 @@ class AnalyticsDataProcessor:
             response.raise_for_status() 
 
             try:
-                yahoo_data = response.json()
+            yahoo_data = response.json()
                 if not isinstance(yahoo_data, list):
                     logger.error(f"ADP: Yahoo combined endpoint did not return a list. Received: {type(yahoo_data)}. Response text: {response.text[:200]}")
                     yahoo_data = [] 
@@ -291,7 +293,7 @@ class AnalyticsDataProcessor:
         final_progress_message = f"Finished fetching Yahoo data ({len(yahoo_data)} records)."
         if is_async_callback:
             await do_progress_update("load_yahoo_data", "completed", 100, final_progress_message, count=len(yahoo_data))
-        else:
+                else:
             do_progress_update("load_yahoo_data", "completed", 100, final_progress_message, count=len(yahoo_data))
         return yahoo_data
 
@@ -396,7 +398,7 @@ class AnalyticsDataProcessor:
         if progress_callback:
             # Using asyncio.create_task for potentially async callback
             if asyncio.iscoroutinefunction(progress_callback):
-                asyncio.create_task(progress_callback(task_name="merge_data", status="started", progress=0, message="Starting data merge"))
+            asyncio.create_task(progress_callback(task_name="merge_data", status="started", progress=0, message="Starting data merge"))
             else:
                 progress_callback(task_name="merge_data", status="started", progress=0, message="Starting data merge")
 
@@ -425,7 +427,7 @@ class AnalyticsDataProcessor:
         if progress_callback:
             # Using create_task for potentially async callback
             if asyncio.iscoroutinefunction(progress_callback):
-                asyncio.create_task(progress_callback(task_name="merge_data", status="processing", progress=33, message="Finviz data processed, starting Yahoo merge."))
+            asyncio.create_task(progress_callback(task_name="merge_data", status="processing", progress=33, message="Finviz data processed, starting Yahoo merge."))
             else:
                 progress_callback(task_name="merge_data", status="processing", progress=33, message="Finviz data processed, starting Yahoo merge.")
 
@@ -467,7 +469,7 @@ class AnalyticsDataProcessor:
         if progress_callback:
             # Using create_task for potentially async callback
             if asyncio.iscoroutinefunction(progress_callback):
-                asyncio.create_task(progress_callback(task_name="merge_data", status="completed", progress=100, count=len(merged_data_dict), message="Merge complete."))
+            asyncio.create_task(progress_callback(task_name="merge_data", status="completed", progress=100, count=len(merged_data_dict), message="Merge complete."))
             else:
                 progress_callback(task_name="merge_data", status="completed", progress=100, count=len(merged_data_dict), message="Merge complete.")
         
@@ -590,7 +592,10 @@ class AnalyticsDataProcessor:
 
         # Third pass: finalize stats (calculate averages, medians, determine type)
         final_metadata = {}
-        for field_name, stats in field_stats.items():
+        # Sort field_stats by field_name (the key) before creating final_metadata
+        sorted_field_stats_items = sorted(field_stats.items())
+
+        for field_name, stats in sorted_field_stats_items: # Iterate over sorted items
             meta_entry: Dict[str, Any] = {"name": field_name, "count": stats["count"]}
 
             if stats["all_null_or_empty"]:
@@ -622,7 +627,12 @@ class AnalyticsDataProcessor:
                         meta_entry["median_value"] = num_values[mid]
 
                 # Convert text_values set to list for JSON serialization if needed by frontend
-                meta_entry["unique_values_sample"] = list(stats["text_values"])
+                # Limit the sample size
+                unique_sample_list = list(stats["text_values"])
+                if len(unique_sample_list) > MAX_UNIQUE_TEXT_SAMPLE_SIZE:
+                    meta_entry["unique_values_sample"] = unique_sample_list[:MAX_UNIQUE_TEXT_SAMPLE_SIZE]
+                else:
+                    meta_entry["unique_values_sample"] = unique_sample_list
 
             final_metadata[field_name] = meta_entry
 

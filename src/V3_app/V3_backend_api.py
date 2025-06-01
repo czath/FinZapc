@@ -289,7 +289,13 @@ async def get_processed_analytics_data(
                 logger.error(f"API: JSONDecodeError when loading analytics from cache: {e_json}", exc_info=True)
                 raise HTTPException(status_code=500, detail="Error decoding cached analytics data.")
 
-            return {"originalData": cached_data, "metaData": cached_metadata, "message": "Served from cache."}
+            return {
+                "originalData": cached_data, 
+                "metaData": cached_metadata, 
+                "message": "Served from cache.",
+                "data_cached_at": data_generated_at.isoformat() if data_generated_at else None,
+                "metadata_cached_at": metadata_generated_at.isoformat() if metadata_generated_at else None
+            }
         else:
             missing_parts = []
             if not data_json_tuple: missing_parts.append("data")
