@@ -69,6 +69,7 @@ from .V3_analytics import preprocess_raw_analytics_data # CORRECTED Import
 # --- Import Utilities Router --- 
 from .routers import utilities_router
 # --- End Import Utilities Router ---
+from .routers import edgar_router # <<< ADD THIS IMPORT
 from .routers.yahoo_job_router import router as yahoo_job_api_router
 from . import yahoo_job_manager
 
@@ -882,8 +883,8 @@ def create_app():
         app.include_router(backend_router)
 
         # --- Include Routers (Consolidated) ---
-        # Assuming utilities_router is for general utility endpoints
         app.include_router(utilities_router.router, prefix="/api/v3/utilities", tags=["Utilities"])
+        app.include_router(edgar_router.router, prefix="/api/v3", tags=["EDGAR"]) # MODIFIED THIS LINE
         app.include_router(yahoo_job_api_router, prefix="/api/v3/jobs", tags=["Jobs - Yahoo"])
         app.include_router(finviz_job_api_router, prefix="/api/v3/jobs", tags=["Jobs - Finviz"]) # NEW: Include Finviz job router
         # --- End Include Routers ---
@@ -3084,6 +3085,7 @@ def create_app():
         # --- Include Routers ---
         app.include_router(backend_router) # Existing router
         app.include_router(utilities_router.router) # Add utilities router
+        app.include_router(edgar_router.router) # <<< ADD THIS LINE
         logger.info("Included backend_router and utilities_router.")
         # --- End Include Routers ---
 
@@ -3100,6 +3102,7 @@ def create_app():
 
         # --- Include Routers ---
         app.include_router(utilities_router.router) # Include the utilities router
+        app.include_router(edgar_router.router) # <<< ADD THIS LINE
         app.include_router(yahoo_job_api_router, prefix="/api/v3/jobs", tags=["Jobs - Yahoo"]) # Existing Yahoo job router
         app.include_router(finviz_job_api_router, prefix="/api/v3/jobs", tags=["Jobs - Finviz"]) # NEW: Include Finviz job router
         # --- End Include Routers ---
