@@ -1,12 +1,17 @@
 import requests
 import logging
 from typing import Dict, Any, Optional
+import json
 
 logger = logging.getLogger(__name__)
 
 # IMPORTANT: Replace with your actual application name and contact email.
 # SEC requires a descriptive User-Agent.
 USER_AGENT = "YourAppName/1.0 (your.email@example.com)"
+
+# Define constants for router usage
+EDGAR_HEADERS = {"User-Agent": USER_AGENT}
+REQUEST_TIMEOUT = 15  # Default timeout in seconds
 
 
 class EdgarServiceError(Exception):
@@ -24,9 +29,8 @@ def get_company_tickers_data() -> Optional[Dict[str, Any]]:
                                     and values are dictionaries containing 'cik_str', 'ticker', 'title'.
     """
     url = "https://www.sec.gov/files/company_tickers.json"
-    headers = {"User-Agent": USER_AGENT}
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=EDGAR_HEADERS, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()  # Raises an HTTPError for bad responses (4XX or 5XX)
         logger.info(f"Successfully fetched company_tickers.json from SEC. Status: {response.status_code}")
         return response.json()
@@ -57,9 +61,8 @@ def get_company_facts_data(cik: str) -> Optional[Dict[str, Any]]:
         raise EdgarServiceError(f"Invalid CIK format: {cik}")
 
     url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{formatted_cik}.json"
-    headers = {"User-Agent": USER_AGENT}
     try:
-        response = requests.get(url, headers=headers, timeout=15) # Longer timeout for potentially larger data
+        response = requests.get(url, headers=EDGAR_HEADERS, timeout=REQUEST_TIMEOUT) 
         response.raise_for_status()
         logger.info(f"Successfully fetched company facts for CIK {formatted_cik}. Status: {response.status_code}")
         return response.json()

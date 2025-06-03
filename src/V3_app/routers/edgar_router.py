@@ -1,12 +1,16 @@
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Path
 from typing import Dict, Any, Optional, List
 import logging
 from pydantic import BaseModel
+import httpx
+import json
 
 from ..services.edgar_service import (
     get_company_tickers_data,
     get_company_facts_data,
-    EdgarServiceError
+    EdgarServiceError,
+    REQUEST_TIMEOUT,
+    EDGAR_HEADERS
 )
 
 logger = logging.getLogger(__name__)
@@ -83,4 +87,59 @@ async def get_company_facts_endpoint(cik_str: str):
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
     except Exception as e:
         logger.error(f"Unexpected error fetching company facts for CIK {cik_str}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.") 
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+
+@router.get("/company-concept/{cik}/{taxonomy}/{concept_name}", 
+            summary="Fetch specific concept data for a company from SEC EDGAR", 
+            tags=["EDGAR"], 
+            response_model=Dict[str, Any])
+async def get_company_concept_data(
+    cik: str = Path(..., description="Company CIK (Central Index Key), 10 digits zero-padded if needed"),
+    taxonomy: str = Path(..., description="Taxonomy, e.g., us-gaap, ifrs-full, dei"),
+    concept_name: str = Path(..., description="Concept name, e.g., Assets, RevenueFromContractWithCustomerExcludingAssessedTax")
+):
+    """
+    Fetches data for a specific XBRL concept for a given company CIK from the SEC EDGAR API.
+    Example: /company-concept/0000320193/us-gaap/Assets
+    """
+    # SEC API expects CIK without leading zeros for this specific endpoint, but tests show it works with them too.
+    # However, data.sec.gov documentation for companyfacts implies CIK needs to be 10 digits. 
+    # Let's ensure CIK is handled as the SEC expects based on their API structure.
+    # The companyconcept API seems flexible, so we might not need to strip leading zeros from CIK.
+
+    # Ensure CIK is zero-padded to 10 digits
+    cik_padded = cik.zfill(10)
+
+    # Clean the concept_name, it might contain characters that need to be URL-encoded,
+    # although path parameters are typically handled by FastAPI/Starlette.
+    # For safety, ensure it's a valid part of a URL path, though usually this is not an issue here.
+
+    api_url = f"https://data.sec.gov/api/xbrl/companyconcept/CIK{cik_padded}/{taxonomy}/{concept_name}.json"
+    logger.info(f"Fetching specific concept data from SEC EDGAR: {api_url}")
+
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        try:
+            response = await client.get(api_url, headers=EDGAR_HEADERS)
+            response.raise_for_status() # Raises an exception for 4XX/5XX responses
+            concept_data = response.json()
+            logger.info(f"Successfully fetched concept data for CIK {cik}, Taxonomy {taxonomy}, Concept {concept_name}")
+            return concept_data
+        except httpx.RequestError as e:
+            logger.error(f"RequestError fetching concept data for CIK {cik}, Tax {taxonomy}, Concept {concept_name}: {e}")
+            raise HTTPException(status_code=503, detail=f"Error connecting to SEC EDGAR for concept: {str(e)}")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTPStatusError for CIK {cik}, Tax {taxonomy}, Concept {concept_name}: Code {e.response.status_code} - {e.response.text}")
+            if e.response.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"Concept data not found for CIK {cik}, Taxonomy {taxonomy}, Concept {concept_name}.")
+            if e.response.status_code == 400: # Bad request, often due to invalid CIK/taxonomy/concept combination
+                 raise HTTPException(status_code=400, detail=f"Invalid request for CIK {cik}, Taxonomy {taxonomy}, Concept {concept_name}. Check parameters. SEC: {e.response.text}")
+            raise HTTPException(status_code=e.response.status_code, detail=f"SEC EDGAR API error for concept: {e.response.text}")
+        except json.JSONDecodeError as e:
+            logger.error(f"JSONDecodeError parsing concept data for CIK {cik}, Tax {taxonomy}, Concept {concept_name}: {e}. Response text: {response.text[:500]}")
+            raise HTTPException(status_code=500, detail=f"Failed to parse concept data from SEC EDGAR. Response was not valid JSON.")
+        except Exception as e:
+            logger.error(f"Unexpected error fetching concept data for CIK {cik}, Tax {taxonomy}, Concept {concept_name}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error processing EDGAR concept data.")
+
+# Ensure V3_web.py includes this router correctly.
+# If this router is already included in V3_web.py, no changes needed there for this new endpoint. 

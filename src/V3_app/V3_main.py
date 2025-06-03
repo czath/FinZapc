@@ -27,6 +27,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Explicitly set log level for edgar_router to ensure its INFO messages are shown
+logging.getLogger("src.V3_app.routers.edgar_router").setLevel(logging.INFO)
+
 def main():
     """Main entry point."""
     try:
