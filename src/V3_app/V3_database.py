@@ -279,6 +279,18 @@ class CachedAnalyticsMetadataModel(Base):
         ts = self.generated_at.isoformat() if self.generated_at else "None"
         return f"<CachedAnalyticsMetadataModel(id={self.id}, generated_at='{ts}')>"
 
+class NotificationSettingModel(Base):
+    __tablename__ = 'notification_settings'
+
+    id = Column(Integer, primary_key=True, index=True)
+    service_name = Column(String, unique=True, index=True, nullable=False) # e.g., "telegram", "email"
+    settings_json = Column(Text, nullable=False) # Stores JSON string of settings
+    is_active = Column(Boolean, default=False, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return f"<NotificationSettingModel(service_name='{self.service_name}', is_active={self.is_active})>"
+
 class SQLiteRepository:
     """Repository for SQLite database operations."""
     print("--- SQLiteRepository class definition loaded ---") # <--- ADD THIS LINE
@@ -1729,6 +1741,121 @@ class SQLiteRepository:
             return None
             
     # <<< END NEW CACHE METHODS >>>
+
+    # --- NEW DATABASE STATUS METHODS ---
+    async def get_db_size(self) -> Optional[str]:
+        """Gets the size of the SQLite database file and returns it as a human-readable string."""
+        try:
+            db_path = await self.get_db_path()
+            if os.path.exists(db_path):
+                size_bytes = os.path.getsize(db_path)
+                # Convert to human-readable format
+                if size_bytes < 1024:
+                    return f"{size_bytes} B"
+                elif size_bytes < 1024**2:
+                    return f"{size_bytes/1024:.2f} KB"
+                elif size_bytes < 1024**3:
+                    return f"{size_bytes/(1024**2):.2f} MB"
+                else:
+                    return f"{size_bytes/(1024**3):.2f} GB"
+            else:
+                logger.warning(f"[DB Status] Database file not found at path: {db_path}")
+                return None
+        except Exception as e:
+            logger.error(f"[DB Status] Error getting database size: {e}", exc_info=True)
+            return None
+
+    async def get_table_row_count(self, table_name: str) -> Optional[int]:
+        """Gets the total number of rows in the specified table."""
+        logger.debug(f"[DB Status] Getting row count for table: {table_name}")
+        try:
+            async with self.async_session_factory() as session:
+                # Use text() for raw SQL count query for flexibility with table names
+                stmt = text(f"SELECT COUNT(*) FROM {table_name}")
+                result = await session.execute(stmt)
+                count = result.scalar_one_or_none()
+                logger.debug(f"[DB Status] Row count for table '{table_name}': {count}")
+                return count
+        except Exception as e:
+            logger.error(f"[DB Status] Error getting row count for table {table_name}: {e}", exc_info=True)
+            return None
+    # --- END DATABASE STATUS METHODS ---
+
+    # --- START NOTIFICATION SETTINGS METHODS ---
+    async def save_notification_settings(self, service_name: str, settings: Dict[str, Any], is_active: bool) -> None:
+        """Saves or updates notification settings for a service."""
+        logger.info(f"[DB Notifications] Saving settings for service: {service_name}")
+        settings_json = json.dumps(settings)
+        now = datetime.now()
+        try:
+            async with self.async_session_factory() as session:
+                async with session.begin():
+                    stmt_select = select(NotificationSettingModel).filter_by(service_name=service_name)
+                    result = await session.execute(stmt_select)
+                    existing_setting = result.scalar_one_or_none()
+
+                    if existing_setting:
+                        existing_setting.settings_json = settings_json
+                        existing_setting.is_active = is_active
+                        existing_setting.updated_at = now
+                        logger.info(f"[DB Notifications] Updated settings for {service_name}.")
+                    else:
+                        new_setting = NotificationSettingModel(
+                            service_name=service_name,
+                            settings_json=settings_json,
+                            is_active=is_active,
+                            updated_at=now
+                        )
+                        session.add(new_setting)
+                        logger.info(f"[DB Notifications] Inserted new settings for {service_name}.")
+                    await session.commit()
+        except Exception as e:
+            logger.error(f"[DB Notifications] Error saving settings for {service_name}: {e}", exc_info=True)
+            raise
+
+    async def get_notification_settings(self, service_name: str) -> Optional[Dict[str, Any]]:
+        """Retrieves notification settings for a service. Returns a dict with 'settings' and 'is_active'."""
+        logger.debug(f"[DB Notifications] Getting settings for service: {service_name}")
+        try:
+            async with self.async_session_factory() as session:
+                stmt = select(NotificationSettingModel.settings_json, NotificationSettingModel.is_active).filter_by(service_name=service_name)
+                result = await session.execute(stmt)
+                row = result.one_or_none()
+                if row:
+                    settings_dict = json.loads(row.settings_json)
+                    logger.debug(f"[DB Notifications] Found settings for {service_name}.")
+                    return {"settings": settings_dict, "is_active": row.is_active}
+                else:
+                    logger.info(f"[DB Notifications] No settings found for service: {service_name}.")
+                    return None
+        except Exception as e:
+            logger.error(f"[DB Notifications] Error getting settings for {service_name}: {e}", exc_info=True)
+            return None
+
+    async def update_notification_service_status(self, service_name: str, is_active: bool) -> bool:
+        """Updates the is_active status for a notification service. Returns True on success."""
+        logger.info(f"[DB Notifications] Updating active status for {service_name} to {is_active}")
+        try:
+            async with self.async_session_factory() as session:
+                async with session.begin():
+                    stmt = update(NotificationSettingModel).\
+                        where(NotificationSettingModel.service_name == service_name).\
+                        values(is_active=is_active, updated_at=datetime.now())
+                    
+                    result = await session.execute(stmt)
+                    if result.rowcount > 0:
+                        await session.commit()
+                        logger.info(f"[DB Notifications] Successfully updated active status for {service_name}.")
+                        return True
+                    else:
+                        # If the service doesn't exist, we might want to insert it with default settings
+                        # For now, just log and return False if no update occurred.
+                        logger.warning(f"[DB Notifications] Service {service_name} not found for status update. No update performed.")
+                        return False
+        except Exception as e:
+            logger.error(f"[DB Notifications] Error updating active status for {service_name}: {e}", exc_info=True)
+            raise # Re-raise to indicate failure
+    # --- END NOTIFICATION SETTINGS METHODS ---
 
 # --- Database Initialization and Utility Functions ---
 async def get_exchange_rates(session):

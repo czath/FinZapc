@@ -59,6 +59,9 @@
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="rules-tab" data-bs-toggle="tab" data-bs-target="#rules-pane" type="button" role="tab" aria-controls="rules-pane" aria-selected="false">Portfolio Rules</button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="notifications-tab" data-bs-toggle="tab" data-bs-target="#notifications-pane" type="button" role="tab" aria-controls="notifications-pane" aria-selected="false">Notifications</button>
+            </li>
         </ul>
 
         <!-- Tab Content -->
@@ -394,6 +397,81 @@
                 </div>
             </div>
 
+            <!-- Notifications Pane -->
+            <div class="tab-pane fade" id="notifications-pane" role="tabpanel" aria-labelledby="notifications-tab" tabindex="0">
+                <!-- Email Notifications Card -->
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Email Notifications</span>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="email-notifications-active-switch" data-bs-toggle="tooltip" data-bs-placement="top" title="Enable/Disable Email Notifications">
+                            <label class="form-check-label" for="email-notifications-active-switch"><small>Active</small></label>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text"><small>Configure SMTP settings for sending email notifications after scheduled tasks.</small></p>
+                        <form id="emailConfigForm">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="smtpServer" class="form-label">SMTP Server</label>
+                                    <input type="text" class="form-control" id="smtpServer" name="smtp_server" placeholder="smtp.example.com">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="smtpPort" class="form-label">SMTP Port</label>
+                                    <input type="number" class="form-control" id="smtpPort" name="smtp_port" placeholder="587">
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="smtpUser" class="form-label">SMTP Username</label>
+                                    <input type="text" class="form-control" id="smtpUser" name="smtp_user" placeholder="your_email@example.com">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="smtpPassword" class="form-label">SMTP Password</label>
+                                    <input type="password" class="form-control" id="smtpPassword" name="smtp_password" placeholder="your_password">
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="senderEmail" class="form-label">Sender Email</label>
+                                <input type="email" class="form-control" id="senderEmail" name="sender_email" placeholder="notifications@example.com">
+                            </div>
+                            <div class="mb-3">
+                                <label for="recipientEmails" class="form-label">Recipient Email(s)</label>
+                                <textarea class="form-control" id="recipientEmails" name="recipient_emails" rows="2" placeholder="email1@example.com, email2@example.com"></textarea>
+                                <small class="text-muted">Comma-separated list of email addresses.</small>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save Email Settings</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Telegram Notifications Card -->
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Telegram Notifications</span>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="telegram-notifications-active-switch" data-bs-toggle="tooltip" data-bs-placement="top" title="Enable/Disable Telegram Notifications">
+                            <label class="form-check-label" for="telegram-notifications-active-switch"><small>Active</small></label>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text"><small>Configure Telegram Bot settings for sending notifications.</small></p>
+                        <form id="telegramConfigForm">
+                            <div class="mb-3">
+                                <label for="telegramBotToken" class="form-label">Bot Token</label>
+                                <input type="password" class="form-control" id="telegramBotToken" name="telegram_bot_token" placeholder="Your Telegram Bot Token">
+                            </div>
+                            <div class="mb-3">
+                                <label for="telegramChatId" class="form-label">Chat ID</label>
+                                <input type="text" class="form-control" id="telegramChatId" name="telegram_chat_id" placeholder="Your Telegram Chat ID">
+                            </div>
+                            <button type="submit" class="btn btn-primary me-2">Save Telegram Settings</button>
+                            <button type="button" class="btn btn-info" id="sendTestTelegramBtn">Send Test Notification</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
         </div> <!-- End Tab Content -->
 
     </div>
@@ -614,6 +692,25 @@
                 document.querySelector('#rulesTable')?.classList.add('table-dark');
             }
             // --- End Theme Change Listener --- 
+
+            // --- Load initial notification settings ---
+            loadTelegramSettings(); 
+            // --- End Load initial notification settings ---
+
+            // --- Attach listeners for notification forms/buttons ---
+            const telegramConfigForm = document.getElementById('telegramConfigForm');
+            if (telegramConfigForm) {
+                telegramConfigForm.addEventListener('submit', handleTelegramConfigSave);
+            }
+            const sendTestTelegramBtn = document.getElementById('sendTestTelegramBtn');
+            if (sendTestTelegramBtn) {
+                sendTestTelegramBtn.addEventListener('click', sendTestTelegramNotification);
+            }
+            const telegramNotificationsActiveSwitch = document.getElementById('telegram-notifications-active-switch');
+            if (telegramNotificationsActiveSwitch) {
+                telegramNotificationsActiveSwitch.addEventListener('change', handleTelegramActiveToggle);
+            }
+            // --- End Notification Listeners ---
 
             console.log("[DEBUG Config] DOMContentLoaded listeners set up.");
         }); // --- End DOMContentLoaded ---
@@ -1062,8 +1159,7 @@
 
              // Create ONLY buttons HTML string here - REMOVE TEXT, ADD TOOLTIPS
              // Add data-rule-id attribute for easier identification if needed, although we get it from the row now
-             const buttonsHtml = `
-                 <button class="btn btn-primary btn-sm btn-edit"
+             const buttonsHtml = `                 <button class="btn btn-primary btn-sm btn-edit"
                          data-rule-id="${rule.id}"
                          title="Edit Rule">
                      <i class="bi bi-pencil-square"></i>
@@ -1265,6 +1361,105 @@
         }
         // --- END: runJobNow Function ---
 
+        // --- START TELEGRAM NOTIFICATION FUNCTIONS ---
+        async function loadTelegramSettings() {
+            try {
+                const response = await fetch('/api/notifications/telegram/settings');
+                if (!response.ok) {
+                    if (response.status === 404) { // Settings not found is ok, just means not configured
+                        console.info('Telegram settings not found. Forms will be empty.');
+                        document.getElementById('telegramBotToken').value = '';
+                        document.getElementById('telegramChatId').value = '';
+                        document.getElementById('telegram-notifications-active-switch').checked = false;
+                        return;
+                    }
+                    throw new Error(`Failed to load Telegram settings: ${response.status}`);
+                }
+                const data = await response.json();
+                if (data && data.settings) {
+                    document.getElementById('telegramBotToken').value = data.settings.bot_token || '';
+                    document.getElementById('telegramChatId').value = data.settings.chat_id || '';
+                }
+                document.getElementById('telegram-notifications-active-switch').checked = data.is_active || false;
+
+            } catch (error) {
+                console.error('Error loading Telegram settings:', error);
+                showAlert('Could not load Telegram settings.', 'danger');
+            }
+        }
+
+        async function handleTelegramConfigSave(event) {
+            event.preventDefault();
+            const botToken = document.getElementById('telegramBotToken').value;
+            const chatId = document.getElementById('telegramChatId').value;
+            const isActive = document.getElementById('telegram-notifications-active-switch').checked;
+
+            if (!botToken || !chatId) {
+                showAlert('Bot Token and Chat ID are required to save Telegram settings.', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/notifications/telegram/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ bot_token: botToken, chat_id: chatId, is_active: isActive })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || 'Failed to save settings');
+                showAlert(result.message || 'Telegram settings saved successfully!', 'success');
+            } catch (error) {
+                console.error('Error saving Telegram settings:', error);
+                showAlert(`Error: ${error.message}`, 'danger');
+            }
+        }
+
+        async function handleTelegramActiveToggle(event) {
+            const isActive = event.target.checked;
+            try {
+                const response = await fetch('/api/notifications/telegram/status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ is_active: isActive })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || 'Failed to update status');
+                showAlert(result.message || `Telegram notifications ${isActive ? 'activated' : 'deactivated'}.`, 'success');
+                 // If activating and form was empty, it might be good to reflect that settings are now "initialized"
+                 // This is handled by the save endpoint if called explicitly, or by the status endpoint now.
+                 // Refresh settings to ensure UI is consistent if backend initializes empty settings on activate.
+                 if (isActive) {
+                    loadTelegramSettings(); // Refresh to get potentially initialized (empty) settings if backend does this
+                 }
+            } catch (error) {
+                console.error('Error updating Telegram active status:', error);
+                showAlert(`Error: ${error.message}`, 'danger');
+                event.target.checked = !isActive; // Revert toggle on error
+            }
+        }
+
+        async function sendTestTelegramNotification() {
+            const button = document.getElementById('sendTestTelegramBtn');
+            const originalButtonText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Sending...';
+
+            try {
+                const response = await fetch('/api/notifications/telegram/test', { method: 'POST', headers: { 'Accept': 'application/json' } });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || 'Failed to send test message');
+                showAlert(result.message || 'Test notification sent successfully!', 'success');
+            } catch (error) {
+                console.error('Error sending test Telegram notification:', error);
+                showAlert(`Error: ${error.message}`, 'danger');
+            } finally {
+                button.disabled = false;
+                button.innerHTML = originalButtonText;
+            }
+        }
+        // --- END TELEGRAM NOTIFICATION FUNCTIONS ---
+
     </script>
     {% endraw %}
 {% endblock %} {# End Scripts Block #}
+

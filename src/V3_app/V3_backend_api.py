@@ -905,5 +905,33 @@ async def get_analyst_price_targets_for_ticker_new( # New function name
     return None
 # --- END ADDITION FOR NEW FEATURE ---
 
+# --- NEW Database Status Endpoint ---
+@router.get("/api/v3/database/status",
+            summary="Get database status information",
+            tags=["Database Utilities"], # Add a new tag for organization
+            response_model=Dict[str, Optional[Union[str, int]]])
+async def get_database_status(
+    sqlite_repo: SQLiteRepository = Depends(get_sqlite_repository)
+):
+    """Retrieves database size and row counts for key tables."""
+    logger.info("API: Request for /api/v3/database/status")
+    try:
+        db_size = await sqlite_repo.get_db_size()
+        yahoo_master_count = await sqlite_repo.get_table_row_count('ticker_master')
+        yahoo_items_count = await sqlite_repo.get_table_row_count('ticker_data_items')
+        analytics_raw_count = await sqlite_repo.get_table_row_count('analytics_raw')
+
+        return {
+            "db_size": db_size,
+            "yahoo_master_count": yahoo_master_count,
+            "yahoo_items_count": yahoo_items_count,
+            "analytics_raw_count": analytics_raw_count,
+        }
+    except Exception as e:
+        logger.error(f"API: Error in get_database_status: {e}", exc_info=True)
+        # Return a 500 error with a generic message for internal errors
+        raise HTTPException(status_code=500, detail="Internal server error fetching database status.")
+# --- END Database Status Endpoint ---
+
 # Ensure router is included in the main app if this is a separate file, e.g., app.include_router(router)
 # Or if V3_backend_api.py defines `router = APIRouter()`, ensure this router is used. 

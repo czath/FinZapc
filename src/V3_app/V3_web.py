@@ -71,6 +71,7 @@ from .V3_analytics import preprocess_raw_analytics_data # CORRECTED Import
 from .routers import utilities_router
 # --- End Import Utilities Router ---
 from .routers import edgar_router # <<< ADD THIS IMPORT
+from .routers import notification_routes # <<< ADD THIS IMPORT
 from .routers.yahoo_job_router import router as yahoo_job_api_router
 from . import yahoo_job_manager
 
@@ -3163,6 +3164,7 @@ def create_app():
         app.include_router(edgar_router.router) # <<< ADD THIS LINE
         app.include_router(yahoo_job_api_router, prefix="/api/v3/jobs", tags=["Jobs - Yahoo"]) # Existing Yahoo job router
         app.include_router(finviz_job_api_router, prefix="/api/v3/jobs", tags=["Jobs - Finviz"]) # NEW: Include Finviz job router
+        app.include_router(notification_routes.router, prefix="/api/notifications", tags=["Notifications"]) # Added notification router
         # --- End Include Routers ---
 
         logger.info("FastAPI app instance created and configured successfully with Yahoo Job module.")
