@@ -12,9 +12,11 @@ import logging
 from datetime import datetime
 import json
 
+# Import for ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
+
 # Import your Yahoo fetch logic (adjust import as needed)
 from .V3_yahoo_fetch import mass_load_yahoo_data_from_file, YahooDataRepository, fetch_daily_historical_data
-from .dependencies import get_db # Assuming you have a get_db dependency provider
 from .yahoo_data_query_srv import YahooDataQueryService
 from .analytics_data_processor import AnalyticsDataProcessor
 from .yahoo_data_query_adv import YahooDataQueryAdvService
@@ -260,7 +262,7 @@ async def get_analytics_yahoo_combined_data(
         logger.error(f"Error in get_analytics_yahoo_combined_data endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error fetching combined Yahoo data")
 
-# --- New API Route for AnalyticsDataProcessor ---
+# --- NEW API Route for AnalyticsDataProcessor ---
 @router.get("/api/v3/analytics/processed_data",
             summary="Process and retrieve analytics data (Finviz, Yahoo, or Both) - NOW SERVES FROM CACHE",
             response_model=Dict[str, Any], 
@@ -357,70 +359,144 @@ async def get_processed_analytics_data(
 
 # --- NEW: Analytics Cache Refresh Endpoints ---
 
-async def _run_data_cache_refresh(processor: AnalyticsDataProcessor):
-    """Helper async function to run data cache refresh and ensure client is closed."""
+# --- Top-level worker function for ProcessPoolExecutor (Analytics Data Cache) ---
+def process_analytics_data_cache_in_process(db_url: str) -> bool:
+    # This function runs in a SEPARATE PROCESS
     try:
-        logger.info("Background task started: Force refreshing analytics data cache.")
-        await processor.force_refresh_data_cache()
-        logger.info("Background task completed: Analytics data cache refresh finished.")
+        # Re-initialize logger for the new process if necessary, or configure root logger
+        # For simplicity, assuming top-level logger config applies or is inherited.
+        process_logger = logging.getLogger(__name__ + ".ProcessPoolWorker_Data")
+        process_logger.info(f"ProcessPoolWorker (DataCache): Initializing repository with DB URL: {db_url}")
+        
+        # Ensure SQLiteRepository can be initialized just with db_url
+        temp_sqlite_repo = SQLiteRepository(database_url=db_url)
+        
+        process_logger.info("ProcessPoolWorker (DataCache): Initializing AnalyticsDataProcessor.")
+        processor = AnalyticsDataProcessor(db_repository=temp_sqlite_repo)
+        
+        process_logger.info("ProcessPoolWorker (DataCache): Calling force_refresh_data_cache.")
+        
+        async def do_refresh():
+            # No progress callback passed from here as it's hard to share across processes directly
+            await processor.force_refresh_data_cache(progress_callback=None) 
+            await processor.close_http_client()
+
+        asyncio.run(do_refresh()) # Runs the async function in a new event loop in this process
+        process_logger.info("ProcessPoolWorker (DataCache): force_refresh_data_cache completed.")
+        return True
     except Exception as e:
-        logger.error(f"Background task error during data cache refresh: {e}", exc_info=True)
-    finally:
-        if hasattr(processor, 'close_http_client'):
-            try:
-                await processor.close_http_client()
-                logger.info("ADP HTTP client closed successfully after data cache refresh task.")
-            except Exception as e_close:
-                logger.error(f"Error closing ADP HTTP client after data cache refresh task: {e_close}", exc_info=True)
+        # Use a logger specific to this worker context if defined, or the main one
+        logger_to_use = logging.getLogger(__name__ + ".ProcessPoolWorker_Data") if logging.getLogger(__name__ + ".ProcessPoolWorker_Data").hasHandlers() else logger
+        logger_to_use.error(f"ProcessPoolWorker (DataCache): Error during data cache refresh: {e}", exc_info=True)
+        return False
+
+# --- Top-level worker function for ProcessPoolExecutor (Analytics Metadata Cache) ---
+def process_analytics_metadata_cache_in_process(db_url: str) -> bool:
+    # This function runs in a SEPARATE PROCESS
+    try:
+        process_logger = logging.getLogger(__name__ + ".ProcessPoolWorker_Metadata")
+        process_logger.info(f"ProcessPoolWorker (MetadataCache): Initializing repository with DB URL: {db_url}")
+        
+        temp_sqlite_repo = SQLiteRepository(database_url=db_url)
+        
+        process_logger.info("ProcessPoolWorker (MetadataCache): Initializing AnalyticsDataProcessor.")
+        processor = AnalyticsDataProcessor(db_repository=temp_sqlite_repo)
+        
+        process_logger.info("ProcessPoolWorker (MetadataCache): Calling force_refresh_metadata_cache.")
+        
+        async def do_refresh():
+            await processor.force_refresh_metadata_cache(progress_callback=None)
+            await processor.close_http_client()
+
+        asyncio.run(do_refresh())
+        process_logger.info("ProcessPoolWorker (MetadataCache): force_refresh_metadata_cache completed.")
+        return True
+    except Exception as e:
+        logger_to_use = logging.getLogger(__name__ + ".ProcessPoolWorker_Metadata") if logging.getLogger(__name__ + ".ProcessPoolWorker_Metadata").hasHandlers() else logger
+        logger_to_use.error(f"ProcessPoolWorker (MetadataCache): Error during metadata cache refresh: {e}", exc_info=True)
+        return False
+
+
+# Global ProcessPoolExecutor (initialize once, or manage its lifecycle with app startup/shutdown)
+# For simplicity here, we'll create it on demand, but this is not ideal for production.
+# A better approach is to have one executor instance managed by the app's lifespan.
+# process_pool_executor = ProcessPoolExecutor(max_workers=1) # Example: Max 1 worker to serialize these heavy tasks
+
+async def submit_to_process_pool(worker_func, db_url: str, loop: asyncio.AbstractEventLoop):
+    logger.info(f"Submitting task ({worker_func.__name__}) to process pool with DB URL: {db_url}")
+    try:
+        # Using a context manager for the executor ensures it's shutdown if created on demand.
+        # If using a global executor, don't use 'with' here.
+        with ProcessPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(worker_func, db_url)
+            # Run the blocking future.result() in a thread to not block the main asyncio event loop
+            success = await loop.run_in_executor(None, future.result) 
+        
+        if success:
+            logger.info(f"Process pool task ({worker_func.__name__}) completed successfully.")
+        else:
+            logger.warning(f"Process pool task ({worker_func.__name__}) encountered an error or returned False.")
+    except Exception as e:
+        logger.error(f"Error submitting/executing task in process pool ({worker_func.__name__}): {e}", exc_info=True)
 
 @router.post("/api/analytics/cache/refresh_data",
-             summary="Manually trigger a refresh of the analytics data cache",
+             summary="Manually trigger a refresh of the analytics data cache (via Process Pool)",
              status_code=status.HTTP_202_ACCEPTED,
              tags=["Analytics Data V3", "Cache Management"])
 async def trigger_analytics_data_cache_refresh(
-    background_tasks: BackgroundTasks,
-    sqlite_repo: SQLiteRepository = Depends(get_sqlite_repository)
+    # background_tasks: BackgroundTasks, # No longer using FastAPI's BackgroundTasks for this
+    request: Request, 
+    sqlite_repo: SQLiteRepository = Depends(get_sqlite_repository) # Keep for getting db_url
 ):
-    logger.info("API: Received request to manually refresh analytics data cache.")
+    logger.info("API: Received request to manually refresh analytics data cache (using Process Pool).")
     try:
-        processor = AnalyticsDataProcessor(db_repository=sqlite_repo)
-        background_tasks.add_task(_run_data_cache_refresh, processor)
-        return {"message": "Analytics data cache refresh initiated. This is an asynchronous process."}
+        db_url = sqlite_repo.database_url
+        app_loop = asyncio.get_running_loop()
+
+        # Create an asyncio task that will manage the ProcessPoolExecutor interaction
+        asyncio.create_task(submit_to_process_pool(process_analytics_data_cache_in_process, db_url, app_loop))
+        
+        return {"message": "Analytics data cache refresh submitted to background process. Check logs for completion."}
     except Exception as e:
-        logger.error(f"API: Error initiating data cache refresh: {e}", exc_info=True)
+        logger.error(f"API: Error initiating data cache refresh (Process Pool): {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to initiate analytics data cache refresh.")
 
-async def _run_metadata_cache_refresh(processor: AnalyticsDataProcessor):
-    """Helper async function to run metadata cache refresh and ensure client is closed."""
-    try:
-        logger.info("Background task started: Force refreshing analytics metadata cache.")
-        await processor.force_refresh_metadata_cache()
-        logger.info("Background task completed: Analytics metadata cache refresh finished.")
-    except Exception as e:
-        logger.error(f"Background task error during metadata cache refresh: {e}", exc_info=True)
-    finally:
-        if hasattr(processor, 'close_http_client'):
-            try:
-                await processor.close_http_client()
-                logger.info("ADP HTTP client closed successfully after metadata cache refresh task.")
-            except Exception as e_close:
-                logger.error(f"Error closing ADP HTTP client after metadata cache refresh task: {e_close}", exc_info=True)
+# OLD _run_metadata_cache_refresh (REMOVE or COMMENT OUT)
+# async def _run_metadata_cache_refresh(processor: AnalyticsDataProcessor):
+#     """Helper async function to run metadata cache refresh and ensure client is closed."""
+#     try:
+#         logger.info("Background task started: Force refreshing analytics metadata cache.")
+#         await processor.force_refresh_metadata_cache()
+#         logger.info("Background task completed: Analytics metadata cache refresh finished.")
+#     except Exception as e:
+#         logger.error(f"Background task error during metadata cache refresh: {e}", exc_info=True)
+#     finally:
+#         if hasattr(processor, 'close_http_client'):
+#             try:
+#                 await processor.close_http_client()
+#                 logger.info("ADP HTTP client closed successfully after metadata cache refresh task.")
+#             except Exception as e_close:
+#                 logger.error(f"Error closing ADP HTTP client after metadata cache refresh task: {e_close}", exc_info=True)
 
 @router.post("/api/analytics/cache/refresh_metadata",
-             summary="Manually trigger a refresh of the analytics metadata cache",
+             summary="Manually trigger a refresh of the analytics metadata cache (via Process Pool)",
              status_code=status.HTTP_202_ACCEPTED,
              tags=["Analytics Data V3", "Cache Management"])
 async def trigger_analytics_metadata_cache_refresh(
-    background_tasks: BackgroundTasks,
-    sqlite_repo: SQLiteRepository = Depends(get_sqlite_repository)
+    # background_tasks: BackgroundTasks, # No longer using FastAPI's BackgroundTasks for this
+    request: Request,
+    sqlite_repo: SQLiteRepository = Depends(get_sqlite_repository) # Keep for getting db_url
 ):
-    logger.info("API: Received request to manually refresh analytics metadata cache.")
+    logger.info("API: Received request to manually refresh analytics metadata cache (using Process Pool).")
     try:
-        processor = AnalyticsDataProcessor(db_repository=sqlite_repo)
-        background_tasks.add_task(_run_metadata_cache_refresh, processor)
-        return {"message": "Analytics metadata cache refresh initiated. This is an asynchronous process."}
+        db_url = sqlite_repo.database_url
+        app_loop = asyncio.get_running_loop()
+
+        asyncio.create_task(submit_to_process_pool(process_analytics_metadata_cache_in_process, db_url, app_loop))
+        
+        return {"message": "Analytics metadata cache refresh submitted to background process. Check logs for completion."}
     except Exception as e:
-        logger.error(f"API: Error initiating metadata cache refresh: {e}", exc_info=True)
+        logger.error(f"API: Error initiating metadata cache refresh (Process Pool): {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to initiate analytics metadata cache refresh.")
 
 @router.get("/api/yahoo/ticker_currencies/{ticker_symbol}", 

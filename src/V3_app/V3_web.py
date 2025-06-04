@@ -39,6 +39,7 @@ from asyncio import AbstractEventLoop # Specific import for type hint
 import threading # Import threading for current_thread()
 import uuid # <<< ADD THIS IMPORT
 from datetime import datetime # <<< ADD THIS IMPORT
+import httpx # ADDED: For making HTTP requests in scheduled jobs
 # --- Add CORS Middleware Import --- 
 from fastapi.middleware.cors import CORSMiddleware
 # --- End Import --- 
@@ -1362,21 +1363,27 @@ def create_app():
                 loop = asyncio.get_running_loop()
                 manager: ConnectionManager = app.state.manager
                  
-                job_ids_to_configure = ["ibkr_fetch", "finviz_data_fetch", "yahoo_data_fetch", "ibkr_sync_snapshot"]
+                job_ids_to_configure = ["ibkr_fetch", "finviz_data_fetch", "yahoo_data_fetch", "ibkr_sync_snapshot", "analytics_data_cache_refresh", "analytics_metadata_cache_refresh"]
                 default_cron_schedules = {
                     "ibkr_fetch": "0 * * * *",  # Default: every hour
                     "finviz_data_fetch": "0 */2 * * *", # Default: every 2 hours
                     "yahoo_data_fetch": "*/15 * * * *", # Default: every 15 minutes (example, adjust as needed)
-                    "ibkr_sync_snapshot": "*/10 * * * *" # Default: every 10 minutes
+                    "ibkr_sync_snapshot": "*/10 * * * *", # Default: every 10 minutes
+                    "analytics_data_cache_refresh": "0 */6 * * *", # Default: every 6 hours
+                    "analytics_metadata_cache_refresh": "0 */6 * * *" # Default: every 6 hours
                 }
                 job_functions = {
                     "ibkr_fetch": scheduled_fetch_job,
                     "finviz_data_fetch": scheduled_finviz_job,
                     "yahoo_data_fetch": scheduled_yahoo_job,
-                    "ibkr_sync_snapshot": run_sync_ibkr_snapshot_job
+                    "ibkr_sync_snapshot": run_sync_ibkr_snapshot_job,
+                    "analytics_data_cache_refresh": scheduled_analytics_data_cache_refresh_job, # Placeholder
+                    "analytics_metadata_cache_refresh": scheduled_analytics_metadata_cache_refresh_job # Placeholder
                 }
                 job_args = {
-                    "ibkr_sync_snapshot": lambda: [app.state.repository, loop, manager, os.environ.get("IBKR_BASE_URL", "https://localhost:5000/v1/api/")]
+                    "ibkr_sync_snapshot": lambda: [app.state.repository, loop, manager, os.environ.get("IBKR_BASE_URL", "https://localhost:5000/v1/api/")],
+                    "analytics_data_cache_refresh": lambda: [app.state.repository, os.environ.get("APP_BASE_URL", "http://localhost:8000")],
+                    "analytics_metadata_cache_refresh": lambda: [app.state.repository, os.environ.get("APP_BASE_URL", "http://localhost:8000")]
                 }
 
                 for job_id in job_ids_to_configure:
@@ -1527,7 +1534,7 @@ def create_app():
 
             # In startup_event, after scheduler/repository are ready, add:
             # await catch_up_yahoo_job(repository, scheduled_yahoo_job) # OLD WAY
-            asyncio.create_task(catch_up_yahoo_job(repository, scheduled_yahoo_job)) # NEW WAY: Run in background
+            # asyncio.create_task(catch_up_yahoo_job(repository, scheduled_yahoo_job)) # NEW WAY: Run in background - COMMENTED OUT TO PREVENT STARTUP RUN
 
             logger.info("Application startup: Initializing Yahoo Mass Fetch job status...")
             try:
@@ -1915,12 +1922,16 @@ def create_app():
                 ibkr_snapshot_schedule_cron = await _get_cron_from_db_config('ibkr_sync_snapshot')
                 finviz_schedule_cron = await _get_cron_from_db_config('finviz_data_fetch')
                 yahoo_schedule_cron = await _get_cron_from_db_config('yahoo_data_fetch')
+                analytics_data_cache_schedule_cron = await _get_cron_from_db_config('analytics_data_cache_refresh') # ADDED
+                analytics_metadata_cache_schedule_cron = await _get_cron_from_db_config('analytics_metadata_cache_refresh') # ADDED
                                 
                 # Fetch is_active statuses for all jobs
                 ibkr_fetch_is_active = await repository.get_job_is_active('ibkr_fetch')
                 ibkr_snapshot_is_active = await repository.get_job_is_active('ibkr_sync_snapshot')
                 finviz_is_active = await repository.get_job_is_active('finviz_data_fetch')
                 yahoo_is_active = await repository.get_job_is_active('yahoo_data_fetch')
+                analytics_data_cache_is_active = await repository.get_job_is_active('analytics_data_cache_refresh') # ADDED
+                analytics_metadata_cache_is_active = await repository.get_job_is_active('analytics_metadata_cache_refresh') # ADDED
                                 
                 # Fetch other necessary data
                 exchange_rates = await get_exchange_rates(request.state.db_session) 
@@ -1938,12 +1949,16 @@ def create_app():
                     "ibkr_snapshot_schedule_cron": ibkr_snapshot_schedule_cron,
                     "finviz_schedule_cron": finviz_schedule_cron,
                     "yahoo_schedule_cron": yahoo_schedule_cron,
+                    "analytics_data_cache_refresh_schedule_cron": analytics_data_cache_schedule_cron, # ADDED
+                    "analytics_metadata_cache_refresh_schedule_cron": analytics_metadata_cache_schedule_cron, # ADDED
                     
                     # Active Statuses for the template
                     "ibkr_fetch_is_active": ibkr_fetch_is_active,
                     "ibkr_snapshot_is_active": ibkr_snapshot_is_active,
                     "finviz_is_active": finviz_is_active,
                     "yahoo_is_active": yahoo_is_active,
+                    "analytics_data_cache_refresh_is_active": analytics_data_cache_is_active, # ADDED
+                    "analytics_metadata_cache_refresh_is_active": analytics_metadata_cache_is_active, # ADDED
                     
                     # Other data (unrelated to scheduler intervals)
                     "exchange_rates": exchange_rates,
@@ -1964,11 +1979,15 @@ def create_app():
                     "ibkr_snapshot_schedule_cron": default_crons["ibkr_sync_snapshot"],
                     "finviz_schedule_cron": default_crons["finviz_data_fetch"],
                     "yahoo_schedule_cron": default_crons["yahoo_data_fetch"],
+                    "analytics_data_cache_refresh_schedule_cron": default_crons.get("analytics_data_cache_refresh", "0 */6 * * *"), # ADDED
+                    "analytics_metadata_cache_refresh_schedule_cron": default_crons.get("analytics_metadata_cache_refresh", "0 */6 * * *"), # ADDED
                     
                     "ibkr_fetch_is_active": True, 
                     "ibkr_snapshot_is_active": True,
                     "finviz_is_active": True,
                     "yahoo_is_active": True,
+                    "analytics_data_cache_refresh_is_active": True, # ADDED
+                    "analytics_metadata_cache_refresh_is_active": True, # ADDED
                     
                     "exchange_rates": {},
                     "portfolio_rules": [], 
@@ -2027,7 +2046,7 @@ def create_app():
             """Update schedule for a given job_id using a CRON expression."""
             repository: SQLiteRepository = request.app.state.repository
             # Consider making valid_job_ids dynamically fetched or managed elsewhere if it grows
-            valid_job_ids = ['yahoo_data_fetch', 'finviz_data_fetch', 'ibkr_fetch', 'ibkr_sync_snapshot'] 
+            valid_job_ids = ['yahoo_data_fetch', 'finviz_data_fetch', 'ibkr_fetch', 'ibkr_sync_snapshot', 'analytics_data_cache_refresh', 'analytics_metadata_cache_refresh'] 
             job_id = payload.job_id
             cron_expression = payload.schedule.strip()
             logger.info(f"Received generic schedule update for {job_id}: CRON '{cron_expression}'")
@@ -3114,6 +3133,156 @@ def create_app():
     except Exception as e: # <-- This except block is for the main create_app try
         logger.critical(f"CRITICAL ERROR DURING APP CREATION in create_app(): {e}", exc_info=True)
         raise # Re-raise the exception so the main script knows it failed
+        
+# --- Add WebSocket Endpoint Definition --- 
+# Note: This needs to be defined *outside* create_app if app is global,
+# or ideally, create_app returns the app and this is defined after calling create_app.
+# Assuming app is created and then routes are added:
+# app = create_app() # If create_app is called first
+
+# We need access to the `app` instance created in `create_app`.
+# Since `create_app` returns the app, we should define this endpoint
+# *after* the `create_app` function definition, assuming the main script
+# calls `create_app` and then uses the returned app object.
+# However, to keep it within this file for now, we need a way to access
+# the app or its manager. Let's define it assuming `app` is accessible 
+# globally *after* `create_app` is called, or adjust if needed.
+
+# A placeholder function assuming we will get the app instance later
+def add_websocket_route(app_instance: FastAPI):
+    manager: ConnectionManager = app_instance.state.manager # Get manager from app state
+    @app_instance.websocket("/ws/status")
+    async def websocket_endpoint(websocket: WebSocket):
+        await manager.connect(websocket)
+        try:
+            while True:
+                # Keep connection alive, wait for disconnect
+                data = await websocket.receive_text() 
+                # Optionally handle messages from client here if needed
+                logger.debug(f"WebSocket received message: {data}") 
+        except WebSocketDisconnect:
+            manager.disconnect(websocket)
+            logger.info(f"WebSocket client disconnected: {websocket.client}")
+        except Exception as e:
+            logger.error(f"WebSocket error: {e}", exc_info=True)
+            manager.disconnect(websocket) # Ensure disconnect on error
+
+# The main script (e.g., V3_main.py) should do:
+# from V3_web import create_app, add_websocket_route
+# app = create_app()
+# add_websocket_route(app) 
+
+# Add this helper function near the catch_up_yahoo_job definition
+from datetime import timedelta
+
+def get_prev_fire_time(trigger, now, lookback_days=14):
+    # Start from now - lookback_days, walk forward to now
+    start = now - timedelta(days=lookback_days)
+    fire_time = trigger.get_next_fire_time(None, start)
+    prev = None
+    while fire_time and fire_time < now:
+        prev = fire_time
+        fire_time = trigger.get_next_fire_time(fire_time, now)
+    return prev
+
+# In catch_up_yahoo_job, replace:
+# prev_run_time = trigger.get_prev_fire_time(None, now)
+# with:
+# prev_run_time = get_prev_fire_time(trigger, now)
+
+# --- NEW Analytics Data Cache Refresh Scheduled Job ---
+async def scheduled_analytics_data_cache_refresh_job(repository: SQLiteRepository, app_base_url: str):
+    job_id = "analytics_data_cache_refresh"
+    logger.info(f"Scheduler executing {job_id}...")
+
+    try:
+        is_active = await repository.get_job_is_active(job_id)
+        if not is_active:
+            logger.info(f"Job '{job_id}' is inactive in DB. Skipping execution.")
+            return
+    except Exception as check_err:
+        logger.error(f"Error checking active status for {job_id}: {check_err}. Skipping execution.", exc_info=True)
+        return
+
+    job_lock: asyncio.Lock = app.state.job_execution_lock # Assuming a global lock for simplicity
+    if job_lock.locked():
+        logger.warning(f"Skipping {job_id}: Another critical job might be running or lock improperly held.")
+        return
+
+    await job_lock.acquire()
+    try:
+        # Ensure app_base_url is sensible, e.g., from app.state if available and correctly set during startup
+        # For now, assuming app_base_url is passed correctly by the scheduler setup.
+        api_url = f"{app_base_url}/api/analytics/cache/refresh_data"
+        logger.info(f"Job '{job_id}' is active. Triggering POST request to {api_url}")
+        async with httpx.AsyncClient(timeout=300.0) as client: # 5 min timeout for the request
+            response = await client.post(api_url)
+        
+        if response.status_code == status.HTTP_202_ACCEPTED:
+            logger.info(f"Successfully triggered {job_id}. API Response: {response.status_code}")
+        else:
+            logger.error(f"Failed to trigger {job_id}. API Response: {response.status_code} - {response.text}")
+        
+        # Update last_run time in DB
+        now = datetime.now()
+        await repository.update_job_config(job_id, {'last_run': now})
+        logger.info(f"Updated last_run for job '{job_id}' to {now}")
+
+    except httpx.RequestError as req_err:
+        logger.error(f"HTTP RequestError during {job_id} execution: {req_err}", exc_info=True)
+    except Exception as e:
+        logger.error(f"Error during scheduled {job_id} execution: {e}", exc_info=True)
+    finally:
+        if job_lock.locked(): # Check if this instance of the job actually acquired the lock
+            job_lock.release()
+        logger.debug(f"Job lock released by {job_id}")
+
+# --- NEW Analytics Metadata Cache Refresh Scheduled Job ---
+async def scheduled_analytics_metadata_cache_refresh_job(repository: SQLiteRepository, app_base_url: str):
+    job_id = "analytics_metadata_cache_refresh"
+    logger.info(f"Scheduler executing {job_id}...")
+
+    try:
+        is_active = await repository.get_job_is_active(job_id)
+        if not is_active:
+            logger.info(f"Job '{job_id}' is inactive in DB. Skipping execution.")
+            return
+    except Exception as check_err:
+        logger.error(f"Error checking active status for {job_id}: {check_err}. Skipping execution.", exc_info=True)
+        return
+
+    job_lock: asyncio.Lock = app.state.job_execution_lock # Assuming a global lock
+    if job_lock.locked():
+        logger.warning(f"Skipping {job_id}: Another critical job might be running or lock improperly held.")
+        return
+    
+    await job_lock.acquire()
+    try:
+        api_url = f"{app_base_url}/api/analytics/cache/refresh_metadata"
+        logger.info(f"Job '{job_id}' is active. Triggering POST request to {api_url}")
+        async with httpx.AsyncClient(timeout=300.0) as client: # 5 min timeout
+            response = await client.post(api_url)
+
+        if response.status_code == status.HTTP_202_ACCEPTED:
+            logger.info(f"Successfully triggered {job_id}. API Response: {response.status_code}")
+        else:
+            logger.error(f"Failed to trigger {job_id}. API Response: {response.status_code} - {response.text}")
+
+        # Update last_run time in DB
+        now = datetime.now()
+        await repository.update_job_config(job_id, {'last_run': now})
+        logger.info(f"Updated last_run for job '{job_id}' to {now}")
+
+    except httpx.RequestError as req_err:
+        logger.error(f"HTTP RequestError during {job_id} execution: {req_err}", exc_info=True)
+    except Exception as e:
+        logger.error(f"Error during scheduled {job_id} execution: {e}", exc_info=True)
+    finally:
+        if job_lock.locked():
+            job_lock.release()
+        logger.debug(f"Job lock released by {job_id}")
+
+
         
 # --- Add WebSocket Endpoint Definition --- 
 # Note: This needs to be defined *outside* create_app if app is global,

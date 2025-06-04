@@ -227,6 +227,98 @@
                 </div>
                 {# --- End Harmonized Yahoo Card --- #}
                 
+                {# --- NEW Analytics Data Cache Refresh Card --- #}
+                <div class="mb-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>Analytics Data Cache Refresh</span>
+                             <div class="form-check form-switch">
+                                <input class="form-check-input job-active-toggle" type="checkbox" role="switch" 
+                                       id="analytics-data-cache-active-switch"
+                                       data-job-id="analytics_data_cache_refresh" 
+                                       {% if analytics_data_cache_refresh_is_active %}checked{% endif %} 
+                                       data-bs-toggle="tooltip" data-bs-placement="top" 
+                                       title="Enable/Disable scheduled analytics data cache refresh">
+                                <label class="form-check-label" for="analytics-data-cache-active-switch"><small>Active</small></label>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                <small>Set the schedule for refreshing the analytics data cache (processes Finviz & Yahoo) using CRON syntax.</small>
+                            </p>
+                            <div class="input-group mb-3">
+                                <input type="text" class="form-control cron-input-hover-description" 
+                                       id="analytics-data-cache-schedule-input" 
+                                       placeholder="e.g., 0 */6 * * * (every 6 hours)" 
+                                       aria-label="Analytics data cache refresh schedule"
+                                       value="{{ analytics_data_cache_refresh_schedule_cron | default('0 */6 * * *') }}">
+                                <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
+                                        data-job-id="analytics_data_cache_refresh" 
+                                        data-input-id="analytics-data-cache-schedule-input"
+                                        data-bs-toggle="tooltip" data-bs-placement="top" 
+                                        title="Update Analytics Data Cache Refresh schedule">
+                                    Update
+                                </button>
+                                <button class="btn btn-info ms-2" type="button"
+                                        onclick="runJobNow('/api/analytics/cache/refresh_data', 'Analytics Data Cache Refresh', this)"
+                                        data-bs-toggle="tooltip" data-bs-placement="top"
+                                        title="Trigger an immediate refresh of the analytics data cache.">
+                                    Run Now
+                                </button>
+                            </div>
+                            <small class="text-muted">Current schedule: <span id="current-analytics_data_cache_refresh-schedule">{{ analytics_data_cache_refresh_schedule_cron | default('0 */6 * * *') }}</span></small>
+                             <small class="text-muted d-block">Use standard 5-field cron syntax. <a href="https://crontab.guru/" target="_blank">Help</a></small>
+                        </div>
+                    </div>
+                </div>
+                {# --- End Analytics Data Cache Refresh Card --- #}
+
+                {# --- NEW Analytics Metadata Cache Refresh Card --- #}
+                <div class="mb-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>Analytics Metadata Cache Refresh</span>
+                             <div class="form-check form-switch">
+                                <input class="form-check-input job-active-toggle" type="checkbox" role="switch" 
+                                       id="analytics-metadata-cache-active-switch"
+                                       data-job-id="analytics_metadata_cache_refresh" 
+                                       {% if analytics_metadata_cache_refresh_is_active %}checked{% endif %} 
+                                       data-bs-toggle="tooltip" data-bs-placement="top" 
+                                       title="Enable/Disable scheduled analytics metadata cache refresh">
+                                <label class="form-check-label" for="analytics-metadata-cache-active-switch"><small>Active</small></label>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                <small>Set the schedule for refreshing the analytics metadata cache (analyzes processed data) using CRON syntax.</small>
+                            </p>
+                            <div class="input-group mb-3">
+                                <input type="text" class="form-control cron-input-hover-description" 
+                                       id="analytics-metadata-cache-schedule-input" 
+                                       placeholder="e.g., 0 */6 * * * (every 6 hours)" 
+                                       aria-label="Analytics metadata cache refresh schedule"
+                                       value="{{ analytics_metadata_cache_refresh_schedule_cron | default('0 */6 * * *') }}">
+                                <button class="btn btn-outline-secondary schedule-update-btn" type="button" 
+                                        data-job-id="analytics_metadata_cache_refresh" 
+                                        data-input-id="analytics-metadata-cache-schedule-input"
+                                        data-bs-toggle="tooltip" data-bs-placement="top" 
+                                        title="Update Analytics Metadata Cache Refresh schedule">
+                                    Update
+                                </button>
+                                <button class="btn btn-info ms-2" type="button"
+                                        onclick="runJobNow('/api/analytics/cache/refresh_metadata', 'Analytics Metadata Cache Refresh', this)"
+                                        data-bs-toggle="tooltip" data-bs-placement="top"
+                                        title="Trigger an immediate refresh of the analytics metadata cache.">
+                                    Run Now
+                                </button>
+                            </div>
+                            <small class="text-muted">Current schedule: <span id="current-analytics_metadata_cache_refresh-schedule">{{ analytics_metadata_cache_refresh_schedule_cron | default('0 */6 * * *') }}</span></small>
+                             <small class="text-muted d-block">Use standard 5-field cron syntax. <a href="https://crontab.guru/" target="_blank">Help</a></small>
+                        </div>
+                    </div>
+                </div>
+                {# --- End Analytics Metadata Cache Refresh Card --- #}
+                
             </div>
 
             <!-- Exchange Rates Pane -->
@@ -1130,6 +1222,48 @@
             }
         }
         // --- End NEW Function ---
+
+        // --- NEW: runJobNow Function ---
+        async function runJobNow(apiUrl, jobName, buttonElement) {
+            if (!confirm(`Are you sure you want to run the job '${jobName}' now?`)) {
+                return;
+            }
+
+            const originalButtonText = buttonElement.innerHTML;
+            buttonElement.disabled = true;
+            buttonElement.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Running...';
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        // No 'Content-Type' needed for an empty POST body if your backend handles it.
+                        // If your backend expects 'application/json' even for empty body, add:
+                        // 'Content-Type': 'application/json',
+                    }
+                    // body: JSON.stringify({}), // If your POST endpoint expects a JSON body, even an empty one.
+                });
+
+                const result = await response.json(); // Assuming backend returns JSON
+
+                if (!response.ok) {
+                    // Try to get detail from FastAPI's HTTPException, or a generic message
+                    const errorMessage = result.detail || result.message || `Request failed with status ${response.status}`;
+                    throw new Error(errorMessage);
+                }
+
+                showAlert(`${jobName} triggered successfully. Status: ${response.status}. Message: ${result.message || 'OK'}`, 'success');
+
+            } catch (error) {
+                console.error(`Error running job ${jobName}:`, error);
+                showAlert(`Failed to trigger ${jobName}: ${error.message || 'Unknown error'}`, 'danger');
+            } finally {
+                buttonElement.disabled = false;
+                buttonElement.innerHTML = originalButtonText;
+            }
+        }
+        // --- END: runJobNow Function ---
 
     </script>
     {% endraw %}
