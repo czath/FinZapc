@@ -44,7 +44,7 @@ function getIconForAlertType(type) {
 }
 
 // --- Helper Function to Show Status Messages (Finviz specific) ---
-function showFinvizStatus(message, type = 'info', timestampSource = null) {
+function showFinvizStatus(message, type = 'info', timestampSource = null, jobId = null) {
     // Ensure statusDivFinviz is available (it's assigned in initialize function)
     if (!statusDivFinviz) {
         console.warn("[showFinvizStatus] statusDivFinviz not initialized yet.");
@@ -58,12 +58,152 @@ function showFinvizStatus(message, type = 'info', timestampSource = null) {
     const displayTimestamp = formatDisplayTimestamp(timestampSource || new Date());
     const icon = getIconForAlertType(type);
 
-    statusDivFinviz.innerHTML =
-        `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">
-            ${icon}[${displayTimestamp}] ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>`;
+    // Create the alert div element to attach listener later
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert ${alertClass} alert-dismissible fade show`; // Base classes
+    alertDiv.setAttribute('role', 'alert');
+
+    if (jobId) { // Only make it clickable if jobId is provided
+        alertDiv.classList.add('clickable-job-summary');
+        alertDiv.setAttribute('data-job-id', jobId); // Use the passed jobId
+        alertDiv.style.cursor = 'pointer';
+        // Add click listener (ensure handleFinvizSummaryClick is defined correctly)
+        alertDiv.addEventListener('click', handleFinvizSummaryClick);
+    } else {
+        console.warn("[showFinvizStatus] No jobId provided for Finviz status, summary will not be clickable.");
+    }
+
+    alertDiv.innerHTML = `
+        ${icon}[${displayTimestamp}] ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+
+    // Clear previous status and append new one
+    statusDivFinviz.innerHTML = ''; 
+    statusDivFinviz.appendChild(alertDiv);
+
     console.log(`[Finviz Status @ ${new Date().toISOString()}] ${type.toUpperCase()}: ${message}`);
+}
+
+// --- NEW: Click handler for the summary message ---
+function handleFinvizSummaryClick() {
+    const jobId = this.dataset.jobId;
+    if (!jobId) {
+        console.error("Finviz Job ID not found on clicked summary element.");
+        displayFinvizJobDetailModal("Error: Could not retrieve Job ID for Finviz detailed log.");
+        return;
+    }
+    fetchAndShowDetailedFinvizLog(jobId);
+}
+
+// --- NEW: Fetch and display detailed log for Finviz ---
+async function fetchAndShowDetailedFinvizLog(jobId) {
+    displayFinvizJobDetailModal("Loading Finviz job details...", true);
+    try {
+        const response = await fetch(`/api/jobs/${jobId}/detailed_log`);
+        if (!response.ok) {
+            let errorDetail = `Failed to fetch details. Status: ${response.status}`;
+            try {
+                const errorData = await response.json();
+                errorDetail = errorData.detail || errorDetail;
+            } catch (e) { /* Ignore if parsing error response body fails */ }
+            throw new Error(errorDetail);
+        }
+        const result = await response.json();
+        if (result.detailed_log) {
+            displayFinvizJobDetailModal(result.detailed_log);
+        } else if (result.error) {
+            displayFinvizJobDetailModal(`Error: ${result.error}`);
+        } else {
+            displayFinvizJobDetailModal("No detailed log available or an unexpected error occurred.");
+        }
+    } catch (error) {
+        console.error("Failed to fetch Finviz job details:", error);
+        displayFinvizJobDetailModal(`Failed to load Finviz job details: ${error.message}`);
+    }
+}
+
+// --- Helper function to get theme preference from cookie ---
+function getThemePreferenceCookie() {
+    const name = "theme_preference=";
+    const decodedCookie = decodeURIComponent(document.cookie);
+    const ca = decodedCookie.split(';');
+    for(let i = 0; i <ca.length; i++) {
+        let c = ca[i];
+        while (c.charAt(0) === ' ') {
+            c = c.substring(1);
+        }
+        if (c.indexOf(name) === 0) {
+            return c.substring(name.length, c.length);
+        }
+    }
+    return "light"; // Default if not found or cookie is not set
+}
+
+// --- NEW: Modal display function for Finviz Job Details ---
+function displayFinvizJobDetailModal(content, isLoading = false) {
+    let modal = document.getElementById('finvizJobDetailModal');
+    const currentTheme = getThemePreferenceCookie();
+
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'finvizJobDetailModal';
+        modal.style.position = 'fixed';
+        modal.style.left = '50%';
+        modal.style.top = '50%';
+        modal.style.transform = 'translate(-50%, -50%)';
+        // modal.style.backgroundColor = 'white'; // Theme dependent
+        modal.style.padding = '20px';
+        // modal.style.border = '1px solid #ccc'; // Theme dependent
+        modal.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+        modal.style.zIndex = '10001';
+        modal.style.minWidth = '300px';
+        modal.style.maxWidth = '80%';
+        modal.style.maxHeight = '70vh';
+        modal.style.overflowY = 'auto';
+
+        const contentArea = document.createElement('pre');
+        contentArea.id = 'finvizJobDetailModalContent';
+        contentArea.style.whiteSpace = 'pre-wrap';
+        contentArea.style.wordBreak = 'break-word';
+        // Text color will be theme dependent
+
+        const closeButton = document.createElement('button');
+        closeButton.textContent = 'Close';
+        // Basic Bootstrap classes, will adjust further if needed based on theme
+        closeButton.className = 'btn btn-sm btn-secondary mt-3'; 
+        closeButton.style.display = 'block';
+        closeButton.onclick = function() {
+            modal.style.display = 'none';
+        };
+
+        modal.appendChild(contentArea);
+        modal.appendChild(closeButton);
+        document.body.appendChild(modal);
+    }
+
+    const contentArea = document.getElementById('finvizJobDetailModalContent');
+
+    // Apply theme-specific styles
+    if (currentTheme === 'dark') {
+        modal.style.backgroundColor = '#2b2b2b'; // Dark background for modal
+        modal.style.border = '1px solid #555';
+        contentArea.style.color = '#f0f0f0'; // Light text for content area
+        // For the button, Bootstrap's btn-secondary might be okay on dark, 
+        // or you might need to adjust its text/background too if it looks bad.
+        // Example: closeButton might need specific styling if default btn-secondary is not good.
+    } else {
+        modal.style.backgroundColor = 'white'; // Light background for modal
+        modal.style.border = '1px solid #ccc';
+        contentArea.style.color = '#333'; // Dark text for content area
+    }
+
+    if (isLoading) {
+        contentArea.textContent = "Loading...";
+    } else {
+        contentArea.textContent = content;
+    }
+    modal.style.display = 'block';
 }
 
 // --- Helper to Enable/Disable Fetch Button (Finviz specific) ---
@@ -93,9 +233,13 @@ function updateFinvizUIFromJobData(data) {
         console.warn(`[updateFinvizUIFromJobData @ ${new Date().toISOString()}] Required Finviz UI elements not yet available/initialized.`);
         return;
     }
+    
+    // MODIFIED: Extract currentJobId to pass to showFinvizStatus
+    const currentJobId = data.job_id; // Assuming job_id is always present in job data from backend
 
     const status = data.status || 'unknown';
-    const timestampForAlert = data.last_updated || data.job_end_time || data.last_triggered_time || new Date(); // Use timestamp from data
+    // MODIFIED: Changed timestampForAlert to use data.timestamp (as per backend structure) or fallback
+    const timestampForAlert = data.timestamp || data.last_completion_time || data.last_started_time || new Date();
 
     // Ensure progressPercent is calculated safely
     let progressPercentCalc = 0;
@@ -179,7 +323,8 @@ function updateFinvizUIFromJobData(data) {
         composedMessage = `Status: ${status}.`; // Default message
         messageType = 'info';
     }
-    showFinvizStatus(composedMessage, messageType, timestampForAlert);
+    // MODIFIED: Pass currentJobId to showFinvizStatus
+    showFinvizStatus(composedMessage, messageType, timestampForAlert, currentJobId);
 
     // Manage Fetch Button State and isFetchingFinviz flag
     if (status === 'running' || status === 'queued') {

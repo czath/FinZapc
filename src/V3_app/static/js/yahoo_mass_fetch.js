@@ -207,7 +207,7 @@
         }
     }
 
-    function showYahooStatusAlert(message, type = 'info', timestampSource = null) {
+    function showYahooStatusAlert(message, type = 'info', timestampSource = null, jobId = null) {
         if (!statusDiv) {
             console.warn("[showYahooStatusAlert] statusDiv not initialized.");
             return;
@@ -220,11 +220,29 @@
         const displayTimestamp = formatDisplayTimestamp(timestampSource || new Date());
         const icon = getIconForAlertType(type);
 
-        statusDiv.innerHTML = 
-            `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">
-                ${icon}[${displayTimestamp}] ${message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>`;
+        // Create the alert div element to attach listener later
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert ${alertClass} alert-dismissible fade show`;
+        alertDiv.setAttribute('role', 'alert');
+
+        if (jobId) { // Only make it clickable if jobId is provided
+            alertDiv.classList.add('clickable-job-summary');
+            alertDiv.setAttribute('data-job-id', jobId);
+            alertDiv.style.cursor = 'pointer';
+            alertDiv.addEventListener('click', handleYahooSummaryClick);
+        } else {
+            console.warn("[showYahooStatusAlert] No jobId provided, summary will not be clickable.");
+        }
+
+        alertDiv.innerHTML = `
+            ${icon}[${displayTimestamp}] ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        
+        // Clear previous status and append new one
+        statusDiv.innerHTML = ''; 
+        statusDiv.appendChild(alertDiv);
+
         console.log(`[Yahoo Status Alert @ ${new Date().toISOString()}] ${type.toUpperCase()}: ${message}`);
     }
     
@@ -245,6 +263,9 @@
             console.warn(`[updateUIFromJobData @ ${new Date().toISOString()}] Required UI elements not yet available. Cannot update UI.`);
             return;
         }
+
+        // Extract job ID from data for clickability
+        const currentJobId = data.job_id; // Assuming job_id is always present in the data from backend
 
         // --- Universal Progress Bar Update (before deciding to hide it) ---
         // Update progress bar visuals if the data is available, regardless of current job status.
@@ -338,9 +359,126 @@
                 jobPollIntervalId = null;
             }
         }
-        showYahooStatusAlert(displayMessage, msgType, timestampForAlert);
+        showYahooStatusAlert(displayMessage, msgType, timestampForAlert, currentJobId);
         const uiUpdateExitTime = new Date().toISOString();
         console.log(`[updateUIFromJobData EXIT @ ${uiUpdateExitTime}] Finished. isFetching after update: ${isFetching}`);
+    }
+
+    // --- NEW: Click handler for the Yahoo summary message ---
+    function handleYahooSummaryClick() {
+        const jobId = this.dataset.jobId;
+        if (!jobId) {
+            console.error("Yahoo Job ID not found on clicked summary element.");
+            displayYahooJobDetailModal("Error: Could not retrieve Job ID for Yahoo detailed log.");
+            return;
+        }
+        fetchAndShowDetailedYahooLog(jobId);
+    }
+
+    // --- NEW: Fetch and display detailed log for Yahoo ---
+    async function fetchAndShowDetailedYahooLog(jobId) {
+        displayYahooJobDetailModal("Loading Yahoo job details...", true);
+        try {
+            const response = await fetch(`/api/jobs/${jobId}/detailed_log`);
+            if (!response.ok) {
+                let errorDetail = `Failed to fetch details. Status: ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorDetail = errorData.detail || errorDetail;
+                } catch (e) { /* Ignore if parsing error response body fails */ }
+                throw new Error(errorDetail);
+            }
+            const result = await response.json();
+            if (result.detailed_log) {
+                displayYahooJobDetailModal(result.detailed_log);
+            } else if (result.error) {
+                displayYahooJobDetailModal(`Error: ${result.error}`);
+            } else {
+                displayYahooJobDetailModal("No detailed log available or an unexpected error occurred.");
+            }
+        } catch (error) {
+            console.error("Failed to fetch Yahoo job details:", error);
+            displayYahooJobDetailModal(`Failed to load Yahoo job details: ${error.message}`);
+        }
+    }
+
+    // --- Helper function to get theme preference from cookie (can be shared) ---
+    function getThemePreferenceCookie() {
+        const name = "theme_preference=";
+        const decodedCookie = decodeURIComponent(document.cookie);
+        const ca = decodedCookie.split(';');
+        for(let i = 0; i <ca.length; i++) {
+            let c = ca[i];
+            while (c.charAt(0) === ' ') {
+                c = c.substring(1);
+            }
+            if (c.indexOf(name) === 0) {
+                return c.substring(name.length, c.length);
+            }
+        }
+        return "light"; // Default if not found
+    }
+
+    // --- NEW: Modal display function for Yahoo Job Details ---
+    function displayYahooJobDetailModal(content, isLoading = false) {
+        let modal = document.getElementById('yahooJobDetailModal');
+        const currentTheme = getThemePreferenceCookie();
+
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'yahooJobDetailModal';
+            modal.style.position = 'fixed';
+            modal.style.left = '50%';
+            modal.style.top = '50%';
+            modal.style.transform = 'translate(-50%, -50%)';
+            // modal.style.backgroundColor = 'white'; // Theme dependent
+            modal.style.padding = '20px';
+            // modal.style.border = '1px solid #ccc'; // Theme dependent
+            modal.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+            modal.style.zIndex = '10002'; 
+            modal.style.minWidth = '300px';
+            modal.style.maxWidth = '80vw'; 
+            modal.style.maxHeight = '70vh';
+            modal.style.overflowY = 'auto';
+
+            const contentArea = document.createElement('pre');
+            contentArea.id = 'yahooJobDetailModalContent';
+            contentArea.style.whiteSpace = 'pre-wrap';
+            contentArea.style.wordBreak = 'break-word';
+            // Text color will be theme dependent
+
+            const closeButton = document.createElement('button');
+            closeButton.textContent = 'Close';
+            closeButton.className = 'btn btn-sm btn-secondary mt-3'; 
+            closeButton.style.display = 'block';
+            closeButton.onclick = function() {
+                modal.style.display = 'none';
+            };
+
+            modal.appendChild(contentArea);
+            modal.appendChild(closeButton);
+            document.body.appendChild(modal);
+        }
+
+        const contentArea = document.getElementById('yahooJobDetailModalContent');
+
+        // Apply theme-specific styles
+        if (currentTheme === 'dark') {
+            modal.style.backgroundColor = '#2b2b2b';
+            modal.style.border = '1px solid #555';
+            contentArea.style.color = '#f0f0f0';
+        } else {
+            modal.style.backgroundColor = 'white';
+            modal.style.border = '1px solid #ccc';
+            contentArea.style.color = '#333';
+        }
+
+        if (isLoading) {
+            contentArea.textContent = "Loading...";
+        } else {
+            contentArea.textContent = content;
+        }
+        modal.style.display = 'block';
     }
 
     // --- NEW: Helper to reset UI for a new fetch (MOVED INSIDE IIFE) ---

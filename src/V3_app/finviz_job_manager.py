@@ -103,14 +103,14 @@ async def _run_finviz_mass_fetch_background_internal(tickers: List[str], reposit
     await asyncio.sleep(0.01) # Initial yield
 
     total_tickers = len(tickers)
-    job_start_iso = datetime.now().isoformat() 
+    job_start_datetime = datetime.now() # Explicit datetime object for start
+    job_start_iso = job_start_datetime.isoformat()
     logger.info(f"[Finviz BG Task - {FINVIZ_MASS_FETCH_JOB_ID} @ {job_start_iso}] STARTING. Tickers: {total_tickers}. Repo DB URL: {repository.database_url}")
 
-    start_time = datetime.now()
     await _update_job_status_internal({
         "status": "running",
         "progress_message": f"Initializing Finviz mass fetch for {total_tickers} tickers...",
-        "last_started_time": start_time,
+        "last_started_time": job_start_datetime, # Use the datetime object
         "current_count": 0, 
         "successful_count": 0,
         "failed_count": 0,
@@ -118,7 +118,7 @@ async def _run_finviz_mass_fetch_background_internal(tickers: List[str], reposit
         "total_count": total_tickers,
         "job_type": "finviz_mass_fetch" 
     }, repository)
-    logger.info(f"[Finviz BG Task - {FINVIZ_MASS_FETCH_JOB_ID} @ {start_time.isoformat()}] INITIALIZING: Status updated to 'running/initializing'.")
+    logger.info(f"[Finviz BG Task - {FINVIZ_MASS_FETCH_JOB_ID} @ {job_start_datetime.isoformat()}] INITIALIZING: Status updated to 'running/initializing'.")
     await asyncio.sleep(0.01)
 
     async def _job_progress_callback(current_idx: int, total_items: int, last_ticker_processed: str, ticker_had_errors: bool):
@@ -140,6 +140,8 @@ async def _run_finviz_mass_fetch_background_internal(tickers: List[str], reposit
     try:
         logger.info(f"[Finviz BG Task - {FINVIZ_MASS_FETCH_JOB_ID} @ {job_start_iso}] PRE-CALL to fetch_and_store_analytics_finviz for {total_tickers} tickers.")
         
+        errored_tickers_list_from_callback = [] # Initialize list to store errored tickers
+
         fetch_results = await fetch_and_store_analytics_finviz(
             repository=repository, 
             tickers=tickers, 
@@ -151,6 +153,9 @@ async def _run_finviz_mass_fetch_background_internal(tickers: List[str], reposit
         successful_items_count = fetch_results.get('success_count', 0)
         failed_items_list_details = fetch_results.get('errors', []) 
         failed_items_count = fetch_results.get('failed_count', len(failed_items_list_details))
+        
+        # Populate errored_tickers_list from the results
+        errored_tickers_list_for_summary = [item.get('ticker', 'UNKNOWN_TICKER') for item in failed_items_list_details]
 
     except Exception as e_mass_load:
         logger.error(f"[Finviz BG Task - {FINVIZ_MASS_FETCH_JOB_ID} @ {job_start_iso}] Critical error during fetch_and_store_analytics_finviz: {e_mass_load}", exc_info=True)
@@ -158,49 +163,71 @@ async def _run_finviz_mass_fetch_background_internal(tickers: List[str], reposit
         successful_items_count = 0
         failed_items_list_details = [{"ticker": t, "error": "Critical wrapper failure"} for t in tickers]
         failed_items_count = total_tickers
+        errored_tickers_list_for_summary = tickers[:] # All tickers are considered errored
 
-    completion_time = datetime.now()
-    completion_time_formatted = completion_time.strftime("%d/%m/%Y %H:%M")
+    job_end_datetime = datetime.now() # Explicit datetime object for end
+
+    # New detailed summary format
+    start_time_str = job_start_datetime.strftime('%d/%m/%Y %H:%M:%S')
+    end_time_str = job_end_datetime.strftime('%d/%m/%Y %H:%M:%S')
+    
+    errored_tickers_str = ', '.join(errored_tickers_list_for_summary) if errored_tickers_list_for_summary else 'None'
+    
+    detailed_run_summary = (
+        f"Job started at: {start_time_str}, Job ended at: {end_time_str}. "
+        f"Processed: {total_tickers}, Successful: {successful_items_count}, Errors: {failed_items_count}. "
+        f"Errored tickers: {errored_tickers_str}."
+    )
     
     final_status_str = "completed"
-    summary_msg = f"Job completed at: {completion_time_formatted}. Processed: {total_tickers}, Successful: {successful_items_count}, Errors: {failed_items_count}."
+    # summary_msg = f"Job completed at: {completion_time_formatted}. Processed: {total_tickers}, Successful: {successful_items_count}, Errors: {failed_items_count}." # Old summary_msg
 
-    error_details_for_status = None
+    # The UI will still show a more concise message, but the detailed_run_summary goes to the DB.
+    # For the 'message' field that might be shown in brief UI updates (like SSE), keep it concise.
+    concise_summary_msg = f"Status: {final_status_str}. Tickers: {total_tickers}. Errors: {failed_items_count}."
+
+    error_details_for_status = None # This was for a different field, keeping related logic
     if failed_items_count > 0:
         final_status_str = "partial_failure" if successful_items_count > 0 else "failed"
-        # Extract just ticker symbols for a concise error detail summary
-        errored_tickers_only = [item.get('ticker', 'UNKNOWN') for item in failed_items_list_details[:10]]
-        error_ticker_list_str = ", ".join(errored_tickers_only)
-        if len(failed_items_list_details) > 10:
-            error_ticker_list_str += "..."
-        summary_msg += f" Errored tickers sample: {error_ticker_list_str}."
-        error_details_for_status = f"Errored tickers: {', '.join([item.get('ticker', 'N/A') for item in failed_items_list_details])}" # Full list for job details
+        # Update concise_summary_msg based on new final_status_str
+        concise_summary_msg = f"Status: {final_status_str}. Tickers: {total_tickers}. Errors: {failed_items_count}."
+        # The detailed_run_summary already contains the full error list.
+        # error_details_for_status can remain as it was if used by other parts of the system,
+        # or be deprecated if detailed_run_summary covers its needs.
+        # For now, let's assume it might still be used for the _job_status internal dict's "last_error_details"
+        error_details_for_status = f"Errored tickers: {errored_tickers_str}"
+
     elif successful_items_count == total_tickers and total_tickers > 0:
-        summary_msg = f"Job completed at: {completion_time_formatted}. All {total_tickers} tickers processed successfully for Finviz."
+        concise_summary_msg = f"All {total_tickers} tickers processed successfully."
     elif total_tickers == 0:
-        summary_msg = f"Job completed at: {completion_time_formatted}. No tickers were provided to process."
-        final_status_str = "completed" # Or "idle"? depends on desired state for 0 tickers.
+        concise_summary_msg = "No tickers were provided to process."
+        final_status_str = "completed" 
     
     if fetch_results is None: # Critical failure in the fetch function itself
         final_status_str = "failed"
-        summary_msg = f"Finviz mass load process critically failed at {completion_time_formatted}. Assumed {total_tickers} failures. Check logs."
+        concise_summary_msg = f"Process critically failed. Assumed {total_tickers} failures. Check logs."
         error_details_for_status = "Mass load function encountered a critical failure."
+        # Update detailed_run_summary for this case too
+        detailed_run_summary = (
+            f"Job started at: {start_time_str}, Job ended at: {end_time_str}. "
+            f"CRITICAL FAILURE. Processed: {total_tickers}, Assumed Errors: {total_tickers}. "
+            f"Errored tickers: All provided tickers (or check logs if list is too long)."
+        )
 
     final_updates = {
         "status": final_status_str,
-        "message": summary_msg,
+        "message": concise_summary_msg, # Use the concise message for general status updates
         "progress_message": "Processing finished.",
         "current_count": total_tickers, 
         "successful_count": successful_items_count,
         "failed_count": failed_items_count,
         "progress_percent": 100,
-        "last_completion_time": completion_time,
-        "last_run_summary": summary_msg,
-        "last_error_details": error_details_for_status
+        "last_completion_time": job_end_datetime, # Use datetime object
+        "last_run_summary": detailed_run_summary, # Store the NEW detailed summary here
+        "last_error_details": error_details_for_status 
     }
-    logger.info(f"[Finviz BG Task - {FINVIZ_MASS_FETCH_JOB_ID} @ {job_start_iso}] PRE-FINAL-UPDATE. Final updates: {final_updates}")
+    logger.info(f"[Finviz BG Task - {FINVIZ_MASS_FETCH_JOB_ID} @ {job_end_datetime.isoformat()}] COMPLETED. Final status: {final_status_str}. Full Summary: {detailed_run_summary}")
     await _update_job_status_internal(final_updates, repository)
-    logger.info(f"[Finviz BG Task - {FINVIZ_MASS_FETCH_JOB_ID} @ {job_start_iso}] FINISHED. Summary: {summary_msg}")
 
 async def trigger_finviz_mass_fetch_job(
     request_payload: TickerListPayload, # Original payload

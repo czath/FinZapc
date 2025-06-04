@@ -100,16 +100,15 @@ async def _run_yahoo_mass_fetch_background_internal(tickers: List[str], reposito
 
     total_tickers = len(tickers)
 
-    # --- Existing "Initializing..." Status Update ---
     yahoo_specific_repo = YahooDataRepository(repository.database_url) 
-    job_start_iso = datetime.now().isoformat() 
+    job_start_datetime = datetime.now() # Explicit datetime object for start
+    job_start_iso = job_start_datetime.isoformat()
     logger.info(f"[Yahoo BG Task - {YAHOO_MASS_FETCH_JOB_ID} @ {job_start_iso}] STARTING FORMAL INIT. Tickers: {total_tickers}. Repo DB URL: {repository.database_url}")
 
-    start_time = datetime.now() 
     await _update_job_status_internal({
         "status": "running",
         "progress_message": f"Initializing Yahoo mass fetch for {total_tickers} tickers...",
-        "last_started_time": start_time,
+        "last_started_time": job_start_datetime, # Use datetime object
         "current_count": 0, 
         "successful_count": 0,
         "failed_count": 0,
@@ -117,7 +116,7 @@ async def _run_yahoo_mass_fetch_background_internal(tickers: List[str], reposito
         "total_count": total_tickers,
         "job_type": "yahoo_mass_fetch" 
     }, repository)
-    logger.info(f"[Yahoo BG Task - {YAHOO_MASS_FETCH_JOB_ID} @ {start_time.isoformat()}] INITIALIZING: Status updated to 'running/initializing'.")
+    logger.info(f"[Yahoo BG Task - {YAHOO_MASS_FETCH_JOB_ID} @ {job_start_datetime.isoformat()}] INITIALIZING: Status updated to 'running/initializing'.")
     await asyncio.sleep(0.01) # REDUCE this sleep back to 0.01
 
     async def _job_progress_callback(current_idx: int, total_items: int, last_ticker_processed: str, ticker_had_errors: bool):
@@ -139,6 +138,8 @@ async def _run_yahoo_mass_fetch_background_internal(tickers: List[str], reposito
         logger.info(f"[Yahoo BG Task - {YAHOO_MASS_FETCH_JOB_ID} @ {job_start_iso}] PRE-CALL to mass_load_yahoo_data_from_file for {total_tickers} tickers. Using repo: {yahoo_specific_repo}")
         
         async def wrapper_progress_callback(idx, total, ticker_symbol, had_error):
+            # This wrapper can be enhanced if individual error tickers need to be collected live
+            # For now, mass_load_yahoo_data_from_file returns a summary of errors.
             await _job_progress_callback(idx, total, ticker_symbol, had_error)
 
         fetch_results = await mass_load_yahoo_data_from_file(
@@ -150,52 +151,76 @@ async def _run_yahoo_mass_fetch_background_internal(tickers: List[str], reposito
         logger.info(f"[Yahoo BG Task - {YAHOO_MASS_FETCH_JOB_ID} @ {job_start_iso}] POST-CALL mass_load_yahoo_data_from_file completed. Results: {fetch_results}")
 
         successful_items_count = fetch_results.get('success_count', 0)
-        failed_items_list_tickers = fetch_results.get('errors', []) 
-        failed_items_count = len(failed_items_list_tickers) 
+        # failed_items_list_tickers directly contains the list of errored ticker symbols
+        errored_tickers_list_for_summary = fetch_results.get('errors', []) 
+        failed_items_count = len(errored_tickers_list_for_summary) 
 
     except Exception as e_mass_load:
         logger.error(f"[Yahoo BG Task - {YAHOO_MASS_FETCH_JOB_ID} @ {job_start_iso}] Critical error during mass_load_yahoo_data_from_file: {e_mass_load}", exc_info=True)
         fetch_results = None 
         successful_items_count = 0
-        failed_items_list_tickers = tickers 
+        errored_tickers_list_for_summary = tickers[:] # All tickers are considered errored in a critical failure
         failed_items_count = total_tickers
 
-    completion_time = datetime.now()
-    completion_time_formatted = completion_time.strftime("%d/%m/%Y %H:%M")
-    final_status_str = "completed"
+    job_end_datetime = datetime.now() # Explicit datetime object for end
+    # completion_time_formatted = completion_time.strftime("%d/%m/%Y %H:%M") # Old formatting
+
+    # New detailed summary format
+    start_time_str = job_start_datetime.strftime('%d/%m/%Y %H:%M:%S')
+    end_time_str = job_end_datetime.strftime('%d/%m/%Y %H:%M:%S')
     
-    summary_msg = f"Job completed at: {completion_time_formatted}, Processed: {total_tickers}, Successful: {successful_items_count}, Errors: {failed_items_count}."
+    errored_tickers_str = ', '.join(errored_tickers_list_for_summary) if errored_tickers_list_for_summary else 'None'
+    
+    detailed_run_summary = (
+        f"Job started at: {start_time_str}, Job ended at: {end_time_str}. "
+        f"Processed: {total_tickers}, Successful: {successful_items_count}, Errors: {failed_items_count}. "
+        f"Errored tickers: {errored_tickers_str}."
+    )
+
+    final_status_str = "completed"
+    # The UI will still show a more concise message, but the detailed_run_summary goes to the DB.
+    concise_summary_msg = f"Status: {final_status_str}. Tickers: {total_tickers}. Errors: {failed_items_count}."
 
     if failed_items_count > 0:
         final_status_str = "partial_failure" if successful_items_count > 0 else "failed"
-        error_ticker_list_str = ", ".join(failed_items_list_tickers[:10])
-        if len(failed_items_list_tickers) > 10:
-            error_ticker_list_str += "..."
-        summary_msg += f" Errored tickers: {error_ticker_list_str}."
-    elif successful_items_count == total_tickers:
-        summary_msg = f"Job completed at: {completion_time_formatted}. All {total_tickers} tickers processed successfully."
-    else: # Should not happen if logic is correct, but as a fallback
-        summary_msg = f"Job finished at: {completion_time_formatted}. Processed: {total_tickers}, Successful: {successful_items_count}, Errors: {failed_items_count}."
+        concise_summary_msg = f"Status: {final_status_str}. Tickers: {total_tickers}. Errors: {failed_items_count}."
+        # detailed_run_summary already contains the full error list.
+    elif successful_items_count == total_tickers and total_tickers > 0:
+        concise_summary_msg = f"All {total_tickers} tickers processed successfully."
+    elif total_tickers == 0:
+        concise_summary_msg = "No tickers were provided to process."
+        final_status_str = "completed"
 
     if fetch_results is None: # This means the whole mass_load call failed critically
         final_status_str = "failed"
-        summary_msg = f"Mass load process critically failed at {completion_time_formatted}. Assumed {total_tickers} failures. Check logs."
+        concise_summary_msg = f"Process critically failed. Assumed {total_tickers} failures. Check logs."
+        # Update detailed_run_summary for this case too
+        detailed_run_summary = (
+            f"Job started at: {start_time_str}, Job ended at: {end_time_str}. "
+            f"CRITICAL FAILURE. Processed: {total_tickers}, Assumed Errors: {total_tickers}. "
+            f"Errored tickers: All provided tickers (or check logs if list is too long)."
+        )
+
+    # The last_error_details can be made more consistent if needed, or removed if detailed_run_summary suffices
+    last_error_details_content = f"Errored tickers: {errored_tickers_str}" if errored_tickers_list_for_summary else None
+    if fetch_results is None:
+        last_error_details_content = "Mass load function encountered a critical failure."
 
     final_updates = {
         "status": final_status_str,
-        "message": summary_msg, # This will be the main message shown
+        "message": concise_summary_msg, # Concise message for general status updates
         "progress_message": "Processing finished.",
         "current_count": total_tickers, 
         "successful_count": successful_items_count,
         "failed_count": failed_items_count,
         "progress_percent": 100,
-        "last_completion_time": completion_time,
-        "last_run_summary": summary_msg,
-        "last_error_details": f"Errored tickers: {', '.join(failed_items_list_tickers)}" if failed_items_list_tickers else None
+        "last_completion_time": job_end_datetime, # Use datetime object
+        "last_run_summary": detailed_run_summary, # Store the NEW detailed summary here
+        "last_error_details": last_error_details_content
     }
-    logger.info(f"[Yahoo BG Task - {YAHOO_MASS_FETCH_JOB_ID} @ {job_start_iso}] PRE-FINAL-UPDATE. Final updates to be sent: {final_updates}")
+    logger.info(f"[Yahoo BG Task - {YAHOO_MASS_FETCH_JOB_ID} @ {job_end_datetime.isoformat()}] COMPLETED. Final status: {final_status_str}. Full Summary: {detailed_run_summary}")
     await _update_job_status_internal(final_updates, repository)
-    logger.info(f"[Yahoo BG Task - {YAHOO_MASS_FETCH_JOB_ID} @ {job_start_iso}] Finished. Summary: {summary_msg}")
+    # logger.info(f"[Yahoo BG Task - {YAHOO_MASS_FETCH_JOB_ID} @ {job_start_iso}] Finished. Summary: {concise_summary_msg}") # Log concise or detailed based on preference
 
 async def trigger_yahoo_mass_fetch_job(
     tickers_payload: TickerListPayload,

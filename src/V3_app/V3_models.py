@@ -27,4 +27,9 @@ class JobDetailsResponse(BaseModel):
     last_error_details: Optional[str] = None
     timestamp: Optional[str] = None # ISO string
 
+class JobDetailedLogResponse(BaseModel):
+    job_id: str
+    detailed_log: Optional[str] = None
+    error: Optional[str] = None
+
 # You might have other shared models here in the future 

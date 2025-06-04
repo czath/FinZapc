@@ -103,6 +103,7 @@ from .finviz_job_manager import (
 #     # ... other relevant fields
 # Ensure these models are correctly imported or defined globally if needed.
 from .V3_models import TickerListPayload, JobDetailsResponse # This should already be there for Yahoo jobs
+from .V3_models import JobDetailedLogResponse # <<< ADD IMPORT FOR NEW MODEL
 
 # --- NEW Dependency Function ---
 def get_repository(request: Request) -> SQLiteRepository:
@@ -118,6 +119,43 @@ def get_repository(request: Request) -> SQLiteRepository:
 # --- End Dependency Function ---
 # --- NEW: Finviz Job API Router ---
 finviz_job_api_router = APIRouter() # MODIFIED: Changed from FastAPI() to APIRouter()
+
+# --- NEW: Generic Jobs API Router ---
+jobs_api_router = APIRouter(prefix="/api", tags=["Jobs"]) # Using /api prefix for consistency
+
+@jobs_api_router.get("/jobs/{job_id}/detailed_log", 
+                     response_model=JobDetailedLogResponse, 
+                     summary="Get Detailed Run Log for a Job")
+async def get_job_detailed_run_log(
+    job_id: str,
+    repository: SQLiteRepository = Depends(get_repository)
+):
+    try:
+        logger.debug(f"[API GET JOB DETAILED LOG] Request for job_id: {job_id}")
+        job_state = await repository.get_persistent_job_state(job_id)
+        if not job_state:
+            logger.warning(f"[API GET JOB DETAILED LOG] Job state not found for job_id: {job_id}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job state not found.")
+        
+        summary = job_state.get("last_run_summary")
+        if summary is None:
+            logger.info(f"[API GET JOB DETAILED LOG] No detailed summary available for job_id: {job_id}")
+            # Return a message indicating no summary, rather than an error, if the key exists but is None
+            return JobDetailedLogResponse(job_id=job_id, detailed_log="No detailed summary available for this job yet.")
+
+        logger.debug(f"[API GET JOB DETAILED LOG] Found summary for job_id: {job_id}: {summary[:100]}...") # Log a snippet
+        return JobDetailedLogResponse(job_id=job_id, detailed_log=summary)
+    
+    except HTTPException as http_exc: # Re-raise HTTPExceptions directly
+        raise http_exc
+    except Exception as e:
+        logger.error(f"[API GET JOB DETAILED LOG] Error getting detailed log for job_id {job_id}: {e}", exc_info=True)
+        # Return a consistent error response model for unexpected errors
+        # If we want to send an error in the response body with 500, 
+        # we can return JobDetailedLogResponse(job_id=job_id, error=f"Internal server error: {str(e)}") 
+        # but FastAPI typically handles this with a default JSON error response for HTTP 500.
+        # For now, let client handle generic 500 or specific 404 from above.
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to get detailed job log: {str(e)}")
 
 @finviz_job_api_router.post("/finviz/trigger", response_model=JobDetailsResponse, summary="Trigger Finviz Mass Fetch Job")
 async def trigger_finviz_job(
@@ -888,6 +926,7 @@ def create_app():
         app.include_router(edgar_router.router, prefix="/api/v3", tags=["EDGAR"]) # MODIFIED THIS LINE
         app.include_router(yahoo_job_api_router, prefix="/api/v3/jobs", tags=["Jobs - Yahoo"])
         app.include_router(finviz_job_api_router, prefix="/api/v3/jobs", tags=["Jobs - Finviz"]) # NEW: Include Finviz job router
+        app.include_router(jobs_api_router) # <<< ADD THE NEW GENERIC JOBS ROUTER
         # --- End Include Routers ---
 
         # Revert: Put back static files setup?
