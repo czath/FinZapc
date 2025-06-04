@@ -49,6 +49,16 @@
 
   /* Styles for table sorting indicators */
   /* DataTables will handle its own sort indicators. */
+
+  /* Reduce font size for EDGAR concept list items */
+  #edgarConceptList .list-group-item {
+    /* Base styling for the list item itself, if any needed beyond Bootstrap defaults */
+    /* For example, you might adjust padding or margins here if necessary */
+  }
+  #edgarConceptList .form-check-label {
+    font-size: 0.875rem; /* Apply desired font size directly to the label */
+    font-weight: normal; /* Ensure label text is not bold */
+  }
 </style>
 {% endblock %}
 
@@ -95,11 +105,15 @@
         </div>
         <div class="card-body">
             <form id="edgarDataForm">
-                <div class="mb-3">
-                    <label for="edgarTickerInput" class="form-label">Ticker Symbol</label>
-                    <input type="text" class="form-control" id="edgarTickerInput" placeholder="Enter ticker (e.g., AAPL)" required>
+                <div class="row align-items-end">
+                    <div class="col-md-9 mb-3">
+                        <label for="edgarTickerInput" class="form-label">Ticker Symbol</label>
+                        <input type="text" class="form-control" id="edgarTickerInput" placeholder="Enter ticker (e.g., AAPL)" required>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <button type="submit" class="btn btn-primary w-100">Search EDGAR</button>
+                    </div>
                 </div>
-                <button type="submit" class="btn btn-primary">Search EDGAR</button>
             </form>
             <div id="edgarStatusDiv" class="mt-3" role="alert" style="display: none;"></div>
             <div id="edgarResultsDiv" class="mt-3" style="display: none;">
@@ -111,6 +125,10 @@
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <h4><span id="edgarConceptListHeaderSpan">Available Data Concepts</span></h4>
                             <div class="d-flex align-items-center">
+                                <div class="form-check form-switch me-3">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="edgarShowDeprecatedToggle">
+                                    <label class="form-check-label" for="edgarShowDeprecatedToggle" style="font-size: 0.8rem; white-space: nowrap;">Show Deprecated</label>
+                                </div>
                                 <input type="text" id="edgarConceptSearchInput" class="form-control form-control-sm ms-3" placeholder="Search concepts..." style="max-width: 200px;">
                                 <button id="clearEdgarConceptSelectionsBtn" class="btn btn-sm btn-outline-secondary ms-2" type="button" title="Clear all concept selections">Clear</button>
                             </div>
@@ -124,14 +142,14 @@
                     <!-- Fiscal Year Input and New Fetch Button -->
                     <div id="edgarMultiFetchControls" class="mt-3" style="display: none;"> 
                         <div class="row align-items-end">
-                            <div class="col-md-8 mb-3"> <!-- Adjusted width -->
+                            <div class="col-md-8 mb-3"> 
                                 <label for="edgarFyInput" class="form-label">Fiscal Year(s)</label>
-                                <input type="text" class="form-control" id="edgarFyInput" placeholder="e.g., 2023, 2022 (current if empty)">
-                                <small class="form-text text-muted">Enter fiscal years, comma-separated. Defaults to current year if blank.</small>
+                                <input type="text" class="form-control" id="edgarFyInput" placeholder="Enter fiscal years e.g. 2023,2024 or 2023-2025. Leave empty for current year">
                             </div>
-                            <!-- Toggle was here, now moved -->
+                            <div class="col-md-4 mb-3">
+                                <button id="fetchSelectedEdgarDataBtn" class="btn btn-info w-100">Retrieve Dataset</button>
+                            </div>
                         </div>
-                        <button id="fetchSelectedEdgarDataBtn" class="btn btn-info">Retrieve Dataset</button>
                     </div>
                     <button id="exportEdgarCustomTableBtn" class="btn btn-sm btn-success mt-2 mb-2" style="display: none;">Export Table to XLS</button>
 

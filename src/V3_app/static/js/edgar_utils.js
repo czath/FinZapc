@@ -410,12 +410,20 @@ document.addEventListener('DOMContentLoaded', function () {
                     for (const conceptName in taxonomyFacts) {
                         if (Object.hasOwnProperty.call(taxonomyFacts, conceptName)) {
                             const concept = taxonomyFacts[conceptName];
+                            // Log the concept object for inspection, especially for deprecated items
+                            console.log(`Inspecting Concept for deprecation: ${conceptName}`, JSON.parse(JSON.stringify(concept))); // Log a clone
+
+                            // Check if the label contains "(Deprecated"
+                            const isDeprecated = concept.label && typeof concept.label === 'string' && concept.label.includes('(Deprecated');
+                            console.log(`Concept: ${conceptName}, Label: "${concept.label}", Calculated isDeprecated: ${isDeprecated}`);
+
                             if (concept.label && concept.description) {
                                 conceptsWithDetails.push({
                                     label: concept.label,
                                     description: concept.description,
                                     conceptName: conceptName, 
-                                    taxonomy: taxonomy 
+                                    taxonomy: taxonomy, 
+                                    isDeprecated: !!isDeprecated // Store deprecated status as boolean
                                 });
                             }
                         }
@@ -499,19 +507,18 @@ document.addEventListener('DOMContentLoaded', function () {
             checkbox.dataset.conceptName = conceptDetail.conceptName;
             checkbox.dataset.label = conceptDetail.label;
             checkbox.dataset.description = conceptDetail.description;
+            // Add data attribute for deprecated status
+            if (conceptDetail.isDeprecated) {
+                listItem.dataset.isDeprecated = 'true';
+            }
             
             const labelElement = document.createElement('label');
             labelElement.className = 'form-check-label';
             labelElement.style.cursor = 'pointer';
+            labelElement.setAttribute('title', conceptDetail.description);
 
-            const strong = document.createElement('strong');
-            strong.textContent = conceptDetail.label;
-            labelElement.appendChild(strong);
-            
-            const small = document.createElement('small');
-            small.className = 'd-block text-muted';
-            small.textContent = `(${conceptDetail.taxonomy} - ${conceptDetail.conceptName}): ${conceptDetail.description}`;
-            labelElement.appendChild(small);
+            // Display only the label, not in bold
+            labelElement.textContent = conceptDetail.label; 
 
             listItem.appendChild(checkbox);
             listItem.appendChild(labelElement);
@@ -537,38 +544,54 @@ document.addEventListener('DOMContentLoaded', function () {
 
             conceptListUl.appendChild(listItem);
         });
+
+        // Apply initial filtering based on default toggle state and empty search
+        filterConceptListDisplay();
     }
 
-    // Event listener for the concept search input
-    if (edgarConceptSearchInput) {
-        edgarConceptSearchInput.addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase().trim();
-            const conceptListUl = document.getElementById('edgarConceptList');
-            if (!conceptListUl) return;
+    // New function to handle filtering of the concept list
+    function filterConceptListDisplay() {
+        const searchTerm = document.getElementById('edgarConceptSearchInput').value.toLowerCase().trim();
+        const showDeprecated = document.getElementById('edgarShowDeprecatedToggle').checked;
+        const conceptListUl = document.getElementById('edgarConceptList');
+        if (!conceptListUl) return;
 
-            const listItems = conceptListUl.getElementsByTagName('li');
-            Array.from(listItems).forEach(item => {
-                const checkbox = item.querySelector('input[type="checkbox"]');
-                let textToSearch = '';
-                if (checkbox) {
-                    // Use data attributes for a more robust search source
-                    const label = checkbox.dataset.label || '';
-                    const conceptName = checkbox.dataset.conceptName || '';
-                    const description = checkbox.dataset.description || '';
-                    const taxonomy = checkbox.dataset.taxonomy || '';
-                    textToSearch = `${label} ${conceptName} ${description} ${taxonomy}`.toLowerCase();
-                } else {
-                    // Fallback to item text content if somehow checkbox or data attributes are missing
-                    textToSearch = item.textContent.toLowerCase();
-                }
-                
-                if (textToSearch.includes(searchTerm)) {
-                    item.style.display = ''; // Show item
-                } else {
-                    item.style.display = 'none'; // Hide item
-                }
-            });
+        const listItems = conceptListUl.getElementsByTagName('li');
+        Array.from(listItems).forEach(item => {
+            const checkbox = item.querySelector('input[type="checkbox"]');
+            let textToSearch = '';
+            let conceptLabelForLog = 'N/A'; // For logging
+
+            if (checkbox) {
+                const label = checkbox.dataset.label || '';
+                conceptLabelForLog = label; // Get label for logging
+                textToSearch = `${label}`.toLowerCase(); 
+            }
+
+            const isDeprecatedAttribute = item.dataset.isDeprecated === 'true';
+            const matchesSearch = textToSearch.includes(searchTerm);
+            const shouldBeVisible = matchesSearch && (showDeprecated || !isDeprecatedAttribute);
+
+            // Logging for filter decision
+            console.log(`Filtering item: ${conceptLabelForLog}, Search Term: "${searchTerm}", Matches Search: ${matchesSearch}, ShowDeprecated Toggle: ${showDeprecated}, Item isDeprecated: ${isDeprecatedAttribute}, ShouldBeVisible: ${shouldBeVisible}`);
+
+            if (shouldBeVisible) {
+                item.style.display = ''; // Show item
+            } else {
+                item.style.display = 'none'; // Hide item
+            }
         });
+    }
+
+    // Event listener for the concept search input (modified to call the new filter function)
+    if (edgarConceptSearchInput) {
+        edgarConceptSearchInput.addEventListener('input', filterConceptListDisplay);
+    }
+
+    // Event listener for the new "Show Deprecated" toggle
+    const edgarShowDeprecatedToggle = document.getElementById('edgarShowDeprecatedToggle');
+    if (edgarShowDeprecatedToggle) {
+        edgarShowDeprecatedToggle.addEventListener('change', filterConceptListDisplay);
     }
 
     async function fetchAndDisplaySingleConceptJson(cik, taxonomy, conceptName, conceptLabel) {
