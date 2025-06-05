@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const edgarCleanupToggle = document.getElementById('edgarCleanupToggle');
     const edgarConceptSearchInput = document.getElementById('edgarConceptSearchInput'); // Get search input
     let edgarDataTableInstance = null; // For DataTables
+    const edgar10qFillerToggle = document.getElementById('edgar10qFillerToggle'); // Added: Get 10-Q Filler Toggle
 
     // Helper function to escape regex special characters
     function escapeRegex(string) {
@@ -55,7 +56,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         displayData = tempDiv.textContent || tempDiv.innerText || "";
                     }
                      // Format numbers for value column explicitly for export
-                    if (colIdx === 7 && typeof cellData !== 'undefined') { // Value column
+                    if (colIdx === 8 && typeof cellData !== 'undefined') { // Value column (index adjusted from 7 to 8)
                         const numericVal = parseFloat(cellData);
                         if (!isNaN(numericVal)) {
                             displayData = numericVal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 });
@@ -63,7 +64,12 @@ document.addEventListener('DOMContentLoaded', function () {
                             displayData = cellData;
                         }
                     }
-                    tr.insertCell().textContent = displayData !== undefined ? displayData : '';
+                    const td = tr.insertCell();
+                    // Date columns: Date of Filing (4), Start Date (6), End Date (7)
+                    if ([4, 6, 7].includes(colIdx)) {
+                        td.style.msoNumberFormat = '\\@'; // Force text format for date columns
+                    }
+                    td.textContent = displayData !== undefined ? displayData : '';
                 });
             });
             exportTableToXLSNode(tempTable, filename);
@@ -110,6 +116,14 @@ document.addEventListener('DOMContentLoaded', function () {
     // Listener for the cleanup toggle
     if (edgarCleanupToggle) {
         edgarCleanupToggle.addEventListener('change', function() {
+            const isChecked = this.checked;
+            if (edgar10qFillerToggle) {
+                edgar10qFillerToggle.disabled = !isChecked;
+                if (!isChecked) {
+                    edgar10qFillerToggle.checked = false;
+                }
+            }
+
             const isActiveTab = document.getElementById('tabular-view-tab')?.classList.contains('active');
             if (currentDisplayableRawData && isActiveTab) {
                 // Ensure currentDisplayableRawData is an array before reprocessing
@@ -120,7 +134,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (statusDivError) {
                         statusDivError.textContent = 'Cannot apply cleanup: Previous data load resulted in an error or no data.';
                         statusDivError.className = 'alert alert-warning mt-3';
-                        statusDiv.style.display = 'block';
+                        statusDivError.style.display = 'block';
                     }
                     return; 
                 }
@@ -139,6 +153,49 @@ document.addEventListener('DOMContentLoaded', function () {
                          if (statusDiv.textContent === 'Applying data clean-up settings...') {
                             statusDiv.style.display = 'none';
                          }
+                    }, 1000);
+                }
+            }
+        });
+    }
+
+    // Added: Event listener for the 10-Q Filler toggle
+    if (edgar10qFillerToggle) {
+        // Initialize disabled state based on cleanup toggle
+        if (edgarCleanupToggle) {
+            edgar10qFillerToggle.disabled = !edgarCleanupToggle.checked;
+            if (!edgarCleanupToggle.checked) {
+                 edgar10qFillerToggle.checked = false;
+            }
+        }
+
+        edgar10qFillerToggle.addEventListener('change', function() {
+            const isActiveTab = document.getElementById('tabular-view-tab')?.classList.contains('active');
+            if (currentDisplayableRawData && isActiveTab) {
+                if (!Array.isArray(currentDisplayableRawData)) {
+                    console.warn('10-Q Filler toggle: currentDisplayableRawData is not an array, aborting table refresh.');
+                    const statusDivError = document.getElementById('edgarStatusDiv');
+                    if (statusDivError) {
+                        statusDivError.textContent = 'Cannot apply 10-Q Filler: Previous data load resulted in an error or no data.';
+                        statusDivError.className = 'alert alert-warning mt-3';
+                        statusDivError.style.display = 'block';
+                    }
+                    return;
+                }
+                const statusDiv = document.getElementById('edgarStatusDiv');
+                if (statusDiv) {
+                    statusDiv.textContent = 'Applying 10-Q Filler settings...';
+                    statusDiv.className = 'alert alert-info mt-3';
+                    statusDiv.style.display = 'block';
+                }
+                const fyInputEl = document.getElementById('edgarFyInput');
+                const fiscalYearQuery = parseFiscalYearInput(fyInputEl.value);
+                populateCustomEdgarTable(currentDisplayableRawData, fiscalYearQuery); // Re-populate table
+                 if (statusDiv) {
+                    setTimeout(() => {
+                        if (statusDiv.textContent === 'Applying 10-Q Filler settings...') {
+                            statusDiv.style.display = 'none';
+                        }
                     }, 1000);
                 }
             }
@@ -738,6 +795,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const cleanupToggle = document.getElementById('edgarCleanupToggle');
         const applyCleanup = cleanupToggle ? cleanupToggle.checked : true;
         const filtersContainer = document.getElementById('edgarTableFilters'); // Get the new filters container
+        const q4FillerToggle = document.getElementById('edgar10qFillerToggle'); // Get Q4 filler toggle
+        const applyQ4Filler = q4FillerToggle ? q4FillerToggle.checked : false;
 
         if (!tableElement || !tableContainer || !exportBtn || !filtersContainer) { 
             console.error("Table UI or filters container missing"); 
@@ -785,12 +844,47 @@ document.addEventListener('DOMContentLoaded', function () {
                     let flaggedEntries = flagCumulativeRecords(entriesWithContext);
                     flaggedEntries = flagDuplicatesAndRestatements(flaggedEntries);
 
-                    let entriesToDisplay = flaggedEntries;
+                    // Process cleanup first
+                    let processedForCleanup = flaggedEntries;
                     if (applyCleanup) {
-                        entriesToDisplay = flaggedEntries.filter(e => 
-                            !e._isCumulative && !e._isRedundantDuplicate && !e._isSupersededRestatement
+                        processedForCleanup = flaggedEntries.filter(e => 
+                            !e._isCumulative && 
+                            !e._isRedundantDuplicate && 
+                            !e._isSupersededRestatement
                         );
                     }
+
+                    // Then apply Q4 filler if both toggles are active
+                    let entriesToDisplay = processedForCleanup;
+                    if (applyCleanup && applyQ4Filler) { 
+                        entriesToDisplay = generateInferredQ4Data(processedForCleanup); 
+                    }
+                    
+                    // Explicitly sort entries for the current concept/unit before adding to global table data
+                    const fpActualOrder = { 'FY': 1, 'Q4': 2, 'Q3': 3, 'Q2': 4, 'Q1': 5 };
+                    entriesToDisplay.sort((a, b) => {
+                        const dateA_end = new Date(String(a.end) + 'T00:00:00Z');
+                        const dateB_end = new Date(String(b.end) + 'T00:00:00Z');
+                        if (dateA_end > dateB_end) return -1; 
+                        if (dateA_end < dateB_end) return 1;
+
+                        // End Dates are equal, sort by fp_actual semantic order
+                        let orderA = fpActualOrder[a.fp_actual] || 99;
+                        let orderB = fpActualOrder[b.fp_actual] || 99;
+                        // Ensure _isInferredQ4 (which implies fp_actual should be Q4) uses the Q4 order
+                        if (a._isInferredQ4) orderA = fpActualOrder['Q4']; 
+                        if (b._isInferredQ4) orderB = fpActualOrder['Q4'];
+                        if (orderA !== orderB) return orderA - orderB;
+                        
+                        // fp_actual are also equal (or both unknown), sort by Start Date ascending
+                        const dateA_start = new Date(String(a.start) + 'T00:00:00Z');
+                        const dateB_start = new Date(String(b.start) + 'T00:00:00Z');
+                        if (dateA_start < dateB_start) return -1; 
+                        if (dateA_start > dateB_start) return 1;
+
+                        return 0; // All primary sort keys are equal
+                    });
+
                     if (entriesToDisplay.length > 0) conceptHasVisibleRowsOverall = true;
                     tableDataForDataTable.push(...entriesToDisplay);
                 }
@@ -819,7 +913,7 @@ document.addEventListener('DOMContentLoaded', function () {
             edgarDataTableInstance = $(tableElement).DataTable({ 
                 data: [], 
                 columns: [ 
-                    { title: 'Concept' }, { title: 'Unit' }, { title: 'FP' }, 
+                    { title: 'Concept' }, { title: 'Unit' }, { title: 'FP' }, { title: 'FP Actual' }, 
                     { title: 'Date of Filing' }, { title: 'Form' }, 
                     { title: 'Start Date' }, { title: 'End Date' }, { title: 'Value' }
                 ],
@@ -875,8 +969,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     render: function(data, type, row) {
                         if (type === 'display') {
                             let html = '';
+                            if (row._isInferredQ4) { // Check for inferred Q4
+                                html += '<span class="badge bg-danger me-1" title="Inferred Filler Data">F</span>';
+                            }
                             if (row._isRestatement) html += '<span class="badge bg-primary me-1" title="Restated Value (Latest)">R</span>';
-                            if (!applyCleanup) {
+                            if (!applyCleanup) { // Only show these if cleanup is OFF
                                 if (row._isCumulative) html += '<span class="badge bg-secondary me-1" title="Cumulative Record">C</span>';
                                 if (row._isRedundantDuplicate) html += '<span class="badge bg-light text-dark border me-1" title="Duplicate - Same Value">D</span>';
                                 if (row._isSupersededRestatement) html += '<span class="badge bg-info text-dark me-1" title="Duplicate - Superseded">D</span>';
@@ -888,6 +985,19 @@ document.addEventListener('DOMContentLoaded', function () {
                 },
                 { data: 'unit', title: 'Unit', defaultContent: 'N/A' },
                 { data: 'fp', title: 'FP', defaultContent: 'N/A' },
+                { data: 'fp_actual',
+                    title: 'FP Actual',
+                    defaultContent: 'N/A',
+                    render: function(data, type, row) {
+                        if (type === 'display') {
+                            if (data !== row.fp) {
+                                return `<span class="text-danger fw-bold" title="Original FP: ${row.fp}">${data}</span>`;
+                            }
+                            return data;
+                        }
+                        return data;
+                    }
+                },
                 { data: 'filed', title: 'Date of Filing', defaultContent: 'N/A'  },
                 { data: 'form', title: 'Form', defaultContent: 'N/A'  },
                 { data: 'start', title: 'Start Date', defaultContent: 'N/A' },
@@ -915,7 +1025,7 @@ document.addEventListener('DOMContentLoaded', function () {
             lengthChange: true,
             lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
             pageLength: 10, 
-            order: [[6, 'desc']], 
+            order: [[7, 'desc'], [6, 'asc']], // Adjusted: End Date (new col 7) desc, Start Date (new col 6) asc
             rowCallback: function(row, data, index) {
                 if (!applyCleanup) {
                     if (data._isCumulative) $(row).addClass('cumulative-row');
@@ -938,7 +1048,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('edgarFormFilterSelect').addEventListener('change', function() {
             const rawValue = this.value;
             const searchRegex = rawValue ? '^' + escapeRegex(rawValue) + '$' : '';
-            edgarDataTableInstance.column(4).search(searchRegex, true, false).draw();
+            edgarDataTableInstance.column(5).search(searchRegex, true, false).draw(); // Adjusted form filter to column 5
         });
     }
 
@@ -1202,5 +1312,229 @@ document.addEventListener('DOMContentLoaded', function () {
             URL.revokeObjectURL(downloadLink.href);
         }
         document.body.removeChild(downloadLink);
+    }
+
+    // New function to generate inferred Q4 data
+    function generateInferredQ4Data(cleanedUnitEntries) {
+        if (!Array.isArray(cleanedUnitEntries) || cleanedUnitEntries.length === 0) return [];
+
+        // Initialize resultEntries with fp_actual set to original fp, and a unique ID for easier updates
+        let resultEntries = cleanedUnitEntries.map((e, index) => ({ 
+            ...e, 
+            fp_actual: e.fp, // Default to original, will be updated
+            _uniqueId: index // Helper for updating specific entries
+        }));
+
+        const isValidDateString = (dateStr) => dateStr && dateStr !== 'N/A' && dateStr !== 'null' && dateStr !== 'undefined';
+        const parseDateSafe = (dateStr) => {
+            if (!isValidDateString(dateStr)) return null;
+            try { return new Date(dateStr + 'T00:00:00Z'); } 
+            catch (e) { return null; }
+        };
+        const getDurationInDays = (startStr, endStr) => {
+            const startDate = parseDateSafe(startStr);
+            const endDate = parseDateSafe(endStr);
+            if (!startDate || !endDate || startDate > endDate) return -1;
+            return (endDate - startDate) / (1000 * 60 * 60 * 24);
+        };
+        const formatDateISO = (dateObj) => {
+            if (!dateObj) return 'N/A';
+            return dateObj.toISOString().split('T')[0];
+        };
+
+        // 1. Identify Potential True Annual Reports
+        let potentialAnnuals = resultEntries.filter(e => {
+            if (e._isRedundantDuplicate || e._isSupersededRestatement) return false;
+            const duration = getDurationInDays(e.start, e.end);
+            return duration >= 330 && duration <= 400; 
+        });
+
+        potentialAnnuals.sort((a, b) => { 
+            const startA = parseDateSafe(a.start); const startB = parseDateSafe(b.start);
+            const endA = parseDateSafe(a.end); const endB = parseDateSafe(b.end);
+            if (!startA && !startB) return 0; if (!startA) return 1; if (!startB) return -1;
+            if (startA < startB) return -1; if (startA > startB) return 1;
+            if (!endA && !endB) return 0; if (!endA) return 1; if (!endB) return -1;
+            if (endA < endB) return -1; if (endA > endB) return 1;
+            return 0;
+        });
+
+        const trueAnnualReports = [];
+        let lastAddedAnnualReportEndDate = null;
+        for (const pa of potentialAnnuals) {
+            const paStart = parseDateSafe(pa.start);
+            if (!paStart) continue;
+            if (trueAnnualReports.length === 0 || (lastAddedAnnualReportEndDate && paStart > lastAddedAnnualReportEndDate)) {
+                trueAnnualReports.push(pa);
+                lastAddedAnnualReportEndDate = parseDateSafe(pa.end);
+            }
+        }
+        trueAnnualReports.sort((a,b) => parseDateSafe(b.end) - parseDateSafe(a.end)); 
+        console.log('[Q4 Filler] Identified True Annual Reports (preliminary, non-overlapping):', trueAnnualReports.length);
+
+        // Update fp_actual for these true annual reports
+        trueAnnualReports.forEach(annualReport => {
+            const indexInResult = resultEntries.findIndex(re => re._uniqueId === annualReport._uniqueId);
+            if (indexInResult !== -1) {
+                if (resultEntries[indexInResult].fp !== 'FY') {
+                     console.log(`[Q4 Filler] Re-classifying entry (ACC: ${annualReport.accn}, Start: ${annualReport.start}) from ${resultEntries[indexInResult].fp} to FY (actual)`);
+                }
+                resultEntries[indexInResult].fp_actual = 'FY';
+            }
+        });
+
+        // --- Main Loop for each True Annual Report to find quarters and infer Q4 ---
+        trueAnnualReports.forEach(annualReport => {
+            const annualReportStartDate = parseDateSafe(annualReport.start);
+            const annualReportEndDate = parseDateSafe(annualReport.end);
+            if (!annualReportStartDate || !annualReportEndDate) return;
+
+            const effectiveFyForDisplay = annualReportEndDate.getUTCFullYear();
+            console.log(`[Q4 Filler] Processing Annual Report (fp_actual: FY) ending ${formatDateISO(annualReportEndDate)} (Effective FY: ${effectiveFyForDisplay})`);
+
+            // 2. Find/Re-classify Explicit Q4 for this annualReport period
+            let explicitQ4Found = null;
+            const q4Candidates = resultEntries.filter(e => {
+                if (e._uniqueId === annualReport._uniqueId) return false; // Cannot be the annual report itself
+                if (e._isRedundantDuplicate || e._isSupersededRestatement) return false;
+                const qDuration = getDurationInDays(e.start, e.end);
+                if (!(qDuration >= 70 && qDuration <= 110)) return false;
+                const entryEnd = parseDateSafe(e.end);
+                if (!entryEnd || entryEnd.getTime() !== annualReportEndDate.getTime()) return false;
+                const entryStart = parseDateSafe(e.start);
+                if (!entryStart) return false;
+                const expectedQ4StartRough = new Date(annualReportEndDate);
+                expectedQ4StartRough.setUTCMonth(expectedQ4StartRough.getUTCMonth() - 3.5);
+                return entryStart >= expectedQ4StartRough && entryStart < annualReportEndDate;
+            });
+            if (q4Candidates.length > 0) {
+                q4Candidates.sort((a,b) => parseDateSafe(b.filed) - parseDateSafe(a.filed)); // latest filed
+                explicitQ4Found = q4Candidates[0];
+                const indexInResult = resultEntries.findIndex(re => re._uniqueId === explicitQ4Found._uniqueId);
+                if (indexInResult !== -1) {
+                    if (resultEntries[indexInResult].fp !== 'Q4') {
+                        console.log(`[Q4 Filler] Re-classifying entry (ACC: ${explicitQ4Found.accn}, Start: ${explicitQ4Found.start}) from ${resultEntries[indexInResult].fp} to Q4 (actual) for FY ending ${formatDateISO(annualReportEndDate)}`);
+                    }
+                    resultEntries[indexInResult].fp_actual = 'Q4';
+                }
+                console.log(`[Q4 Filler] Identified existing explicit Q4 (fp_actual: Q4) for FY ending ${formatDateISO(annualReportEndDate)}.`);
+                // return; // Continue to classify Q1,Q2,Q3 even if explicit Q4 found, for their fp_actual
+            }
+
+            // 3. Find/Re-classify Q1, Q2, Q3
+            let q1Found = null, q2Found = null, q3Found = null;
+
+            const findAndClassifyQuarter = (targetQuarterLabel, expectedStartDateObj, prevQuarterEndDateObj) => {
+                let candidates = resultEntries.filter(e => {
+                    if (e._uniqueId === annualReport._uniqueId || (explicitQ4Found && e._uniqueId === explicitQ4Found._uniqueId)) return false;
+                    if (e._isRedundantDuplicate || e._isSupersededRestatement || e._isCumulative) return false;
+                    const qDuration = getDurationInDays(e.start, e.end);
+                    if (!(qDuration >= 70 && qDuration <= 110)) return false;
+                    const entryStart = parseDateSafe(e.start); const entryEnd = parseDateSafe(e.end);
+                    if (!entryStart || !entryEnd || entryEnd >= annualReportEndDate) return false;
+
+                    if (targetQuarterLabel === 'Q1') {
+                        if (!expectedStartDateObj || entryStart.getTime() !== expectedStartDateObj.getTime()) return false;
+                    } else if (prevQuarterEndDateObj) { 
+                        const dayAfterPrev = new Date(prevQuarterEndDateObj); dayAfterPrev.setUTCDate(dayAfterPrev.getUTCDate() + 1);
+                        const sevenDaysAfter = new Date(dayAfterPrev); sevenDaysAfter.setUTCDate(sevenDaysAfter.getUTCDate() + 7);
+                        if (!(entryStart >= dayAfterPrev && entryStart <= sevenDaysAfter)) return false;
+                    }
+                    return entryStart < entryEnd;
+                });
+                
+                if (candidates.length === 0) return null;
+                candidates.sort((a,b) => {
+                    const fpA = String(a.fp).toUpperCase(); const fpB = String(b.fp).toUpperCase();
+                    if (fpA === targetQuarterLabel && fpB !== targetQuarterLabel) return -1;
+                    if (fpA !== targetQuarterLabel && fpB === targetQuarterLabel) return 1;
+                    return parseDateSafe(b.filed) - parseDateSafe(a.filed); // then by latest filed
+                }); 
+                
+                const foundQuarter = candidates[0];
+                const indexInResult = resultEntries.findIndex(re => re._uniqueId === foundQuarter._uniqueId);
+                if (indexInResult !== -1) {
+                    if (resultEntries[indexInResult].fp !== targetQuarterLabel) {
+                         console.log(`[Q4 Filler] Re-classifying entry (ACC: ${foundQuarter.accn}, Start: ${foundQuarter.start}) from ${resultEntries[indexInResult].fp} to ${targetQuarterLabel} (actual) for FY ending ${formatDateISO(annualReportEndDate)}`);
+                    }
+                    resultEntries[indexInResult].fp_actual = targetQuarterLabel;
+                }
+                return foundQuarter;
+            };
+
+            q1Found = findAndClassifyQuarter('Q1', annualReportStartDate, null);
+            if (q1Found) {
+                const q1End = parseDateSafe(q1Found.end);
+                if (q1End && (!explicitQ4Found || parseDateSafe(explicitQ4Found.start) > q1End)) { // Q2 must start before explicit Q4
+                     q2Found = findAndClassifyQuarter('Q2', null, q1End);
+                }
+            }
+            if (q2Found) {
+                const q2End = parseDateSafe(q2Found.end);
+                if (q2End && (!explicitQ4Found || parseDateSafe(explicitQ4Found.start) > q2End)) { // Q3 must start before explicit Q4
+                    q3Found = findAndClassifyQuarter('Q3', null, q2End);
+                }
+            }
+            
+            // Simple distinctness check - primarily for cases where the same entry might be picked if Q_fp tags are missing
+            // This might need more robust handling if the same data row is picked for multiple quarters despite different parameters to findAndClassifyQuarter
+            const foundQuarters = [q1Found, q2Found, q3Found].filter(Boolean);
+            const uniqueFoundQuarters = [...new Set(foundQuarters.map(q => q._uniqueId))];
+            if (foundQuarters.length !== uniqueFoundQuarters.length) {
+                console.warn(`[Q4 Filler] Duplicate quarters selected for FY ending ${formatDateISO(annualReportEndDate)}. Q1/Q2/Q3 fp_actual might be unreliable.`, {q1:q1Found?q1Found._uniqueId:null, q2:q2Found?q2Found._uniqueId:null, q3:q3Found?q3Found._uniqueId:null});
+                // Resetting to null if not distinct to prevent wrong Q4 calc. A better recovery might be needed.
+                if (q1Found && q2Found && q1Found._uniqueId === q2Found._uniqueId) q2Found = null;
+                if (q2Found && q3Found && q2Found._uniqueId === q3Found._uniqueId) q3Found = null;
+                if (q1Found && q3Found && q1Found._uniqueId === q3Found._uniqueId) q3Found = null; // q1 vs q3 just in case
+            }
+
+            console.log(`[Q4 Filler] For Annual Report ending ${formatDateISO(annualReportEndDate)} (fp_actual: FY): Q1_actual=${q1Found ? 'Q1' :'N'}, Q2_actual=${q2Found ? 'Q2' :'N'}, Q3_actual=${q3Found ? 'Q3' :'N'}`);
+
+            // 4. Infer Q4 (only if no explicit Q4 was found and classified)
+            if (!explicitQ4Found && q1Found && q2Found && q3Found && annualReport) {
+                try {
+                    const q1Val = parseFloat(q1Found.val);
+                    const q2Val = parseFloat(q2Found.val);
+                    const q3Val = parseFloat(q3Found.val);
+                    const fyVal = parseFloat(annualReport.val);
+
+                    if (![q1Val, q2Val, q3Val, fyVal].some(isNaN)) {
+                        const q4Val = fyVal - (q1Val + q2Val + q3Val);
+                        let q4StartDateObj = parseDateSafe(q3Found.end);
+                        if (q4StartDateObj) q4StartDateObj.setUTCDate(q4StartDateObj.getUTCDate() + 1);
+                        
+                        const q4InferredEntry = {
+                            ...annualReport, 
+                            _displayLabel: annualReport._displayLabel || 'Inferred Data',
+                            unit: annualReport.unit,
+                            fp: '', // Original fp for an inferred entry
+                            fp_actual: 'Q4', // Actual fp is Q4
+                            val: q4Val.toFixed(4), 
+                            start: formatDateISO(q4StartDateObj),
+                            end: annualReport.end, 
+                            fy: effectiveFyForDisplay, 
+                            _isInferredQ4: true,
+                            _uniqueId: `inferred_${annualReport.accn}_${annualReport.start}_${annualReport.end}`, // Unique ID for inferred
+                            _isCumulative: false, _isRedundantDuplicate: false, _isSupersededRestatement: false, _isRestatement: false
+                        };
+
+                        const alreadyExists = resultEntries.find(e => e._isInferredQ4 && e._uniqueId === q4InferredEntry._uniqueId );
+                        if (!alreadyExists) {
+                            resultEntries.push(q4InferredEntry);
+                            console.log(`[Q4 Filler] Inferred Q4 for period ${q4InferredEntry.start} to ${q4InferredEntry.end} (Effective FY ${effectiveFyForDisplay}): Val ${q4InferredEntry.val}`);
+                        } else {
+                            console.log(`[Q4 Filler] Inferred Q4 (Effective FY ${effectiveFyForDisplay}) already added. Skipping duplicate.`);
+                        }
+                    } else {
+                        console.warn(`[Q4 Filler] Values for calculation are NaN for Effective FY ${effectiveFyForDisplay}.`);
+                    }
+                } catch (e) {
+                    console.warn(`[Q4 Filler] Error during Q4 calculation for Effective FY ${effectiveFyForDisplay}:`, e);
+                }
+            } else if (!explicitQ4Found) {
+                console.log(`[Q4 Filler] Missing Q1,Q2,or Q3 for Annual Report ending ${formatDateISO(annualReportEndDate)} AND no explicit Q4. Cannot infer Q4.`);
+            }
+        });
+        return resultEntries;
     }
 }); 
