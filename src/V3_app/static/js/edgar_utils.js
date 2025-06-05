@@ -5,6 +5,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const edgarConceptSearchInput = document.getElementById('edgarConceptSearchInput'); // Get search input
     let edgarDataTableInstance = null; // For DataTables
     const edgar10qFillerToggle = document.getElementById('edgar10qFillerToggle'); // Added: Get 10-Q Filler Toggle
+    let edgarBarChartInstance = null; // For the bar chart
+
+    const showEdgarChartBtn = document.getElementById('showEdgarChartBtn');
+    const edgarChartModal = document.getElementById('edgarChartModal');
 
     // Helper function to escape regex special characters
     function escapeRegex(string) {
@@ -1079,13 +1083,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 exportButtonElement.style.display = 'inline-block';
                 exportButtonElement.addEventListener('click', handleExportEdgarCustomTable);
 
+                const chartButtonElement = document.createElement('button');
+                chartButtonElement.id = 'showEdgarChartBtn';
+                chartButtonElement.className = 'btn btn-sm btn-info ms-2';
+                chartButtonElement.textContent = 'Barchart';
+                chartButtonElement.style.display = 'inline-block'; // Show when table is ready
+                chartButtonElement.addEventListener('click', displayEdgarBarChart);
+
                 const filterDiv = $(tableElement).closest('.dataTables_wrapper').find('.dataTables_filter');
                 if (filterDiv.length > 0) {
                     filterDiv.css('display', 'flex').css('align-items', 'center').css('justify-content', 'flex-end'); 
+                    filterDiv.append(chartButtonElement); // Add chart button first
                     filterDiv.append(exportButtonElement);
                 } else {
-                    console.warn('[populateCustomEdgarTable] DataTables filter div not found. Cannot place export button.');
-                    $(tableElement).closest('.dataTables_wrapper').prepend(exportButtonElement); 
+                    console.warn('[populateCustomEdgarTable] DataTables filter div not found. Cannot place export/chart button.');
+                    const wrapper = $(tableElement).closest('.dataTables_wrapper');
+                    wrapper.prepend(exportButtonElement); 
+                    wrapper.prepend(chartButtonElement); // Add chart button
                 }
             }
         });
@@ -1120,6 +1134,16 @@ document.addEventListener('DOMContentLoaded', function () {
             $(tableElement).find('tfoot').empty(); // Clear tfoot as well
             edgarDataTableInstance = null;
         }
+        if (edgarBarChartInstance) {
+            edgarBarChartInstance.destroy();
+            edgarBarChartInstance = null;
+        }
+        const chartButton = document.getElementById('showEdgarChartBtn');
+        if (chartButton) {
+            // The button is now dynamically created, so direct hiding might not be needed if its parent (filterDiv) is cleared.
+            // However, if it was a static button, this would be: chartButton.style.display = 'none';
+        }
+
         const statusDiv = document.getElementById('edgarStatusDiv'); if(statusDiv) { statusDiv.style.display = 'none'; statusDiv.textContent = ''; }
         const resultsDiv = document.getElementById('edgarResultsDiv'); if(resultsDiv) resultsDiv.style.display = 'none';
         const jsonOutputCik = document.getElementById('edgarJsonOutput'); if(jsonOutputCik) jsonOutputCik.textContent = '';
@@ -1153,6 +1177,14 @@ document.addEventListener('DOMContentLoaded', function () {
                  $(tableElement).find('tbody').empty();
             }
             edgarDataTableInstance = null; 
+        }
+        if (edgarBarChartInstance) {
+            edgarBarChartInstance.destroy();
+            edgarBarChartInstance = null;
+        }
+        const chartButton = document.getElementById('showEdgarChartBtn');
+        if (chartButton) {
+             // As above, dynamic button handling.
         }
         // Clear and hide new dropdown filters container
         const filtersContainer = document.getElementById('edgarTableFilters');
@@ -1593,5 +1625,157 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
         return resultEntries;
+    }
+
+    function displayEdgarBarChart() {
+        if (!edgarDataTableInstance) {
+            alert('No table data available to chart.');
+            return;
+        }
+
+        const tableData = edgarDataTableInstance.rows({ search: 'applied' }).data().toArray();
+
+        if (!tableData || tableData.length === 0) {
+            alert('No data in the table to chart.');
+            return;
+        }
+
+        const fpActualColorMap = {
+            'FY': 'rgba(54, 162, 235, 0.7)',  // Blue
+            'Q1': 'rgba(255, 99, 132, 0.7)',  // Red
+            'Q2': 'rgba(75, 192, 192, 0.7)',  // Green
+            'Q3': 'rgba(255, 206, 86, 0.7)',  // Yellow
+            'Q4': 'rgba(153, 102, 255, 0.7)', // Purple
+            'DEFAULT': 'rgba(201, 203, 207, 0.7)' // Grey for others/undefined
+        };
+
+        const dataByConcept = {};
+        const allEndDates = new Set();
+
+        tableData.forEach(row => {
+            const conceptLabel = row._displayLabel; // This should be the clean label
+            const endDate = row.end;
+            const value = parseFloat(row.val);
+            const fpActual = row.fp_actual; // Get fp_actual
+
+            if (conceptLabel && endDate && !isNaN(value)) {
+                if (!dataByConcept[conceptLabel]) {
+                    dataByConcept[conceptLabel] = [];
+                }
+                // Store fp_actual along with value and endDate
+                dataByConcept[conceptLabel].push({ endDate: endDate, value: value, fp_actual: fpActual });
+                allEndDates.add(endDate);
+            }
+        });
+
+        const sortedEndDates = Array.from(allEndDates).sort((a, b) => new Date(a) - new Date(b));
+
+        const datasets = [];
+        // Removed: const colors = [...] and let colorIndex = 0;
+
+        for (const conceptLabel in dataByConcept) {
+            if (Object.hasOwnProperty.call(dataByConcept, conceptLabel)) {
+                const conceptEntries = dataByConcept[conceptLabel]; // Array of { endDate, value, fp_actual }
+                
+                const dataPoints = [];
+                const backgroundColorsForDataset = [];
+                const borderColorsForDataset = [];
+
+                sortedEndDates.forEach(date => {
+                    const entryForDate = conceptEntries.find(entry => entry.endDate === date);
+                    if (entryForDate) {
+                        dataPoints.push(entryForDate.value);
+                        const color = fpActualColorMap[entryForDate.fp_actual] || fpActualColorMap['DEFAULT'];
+                        backgroundColorsForDataset.push(color);
+                        borderColorsForDataset.push(color.replace('0.7', '1'));
+                    } else {
+                        dataPoints.push(null); // Keep data structure consistent for Chart.js
+                        // Use a default/transparent color for missing points to maintain array length
+                        const defaultColor = fpActualColorMap['DEFAULT'];
+                        backgroundColorsForDataset.push(defaultColor.replace('0.7', '0.1')); // Make it more transparent
+                        borderColorsForDataset.push(defaultColor.replace('0.7', '0.3'));
+                    }
+                });
+
+                datasets.push({
+                    label: conceptLabel,
+                    data: dataPoints,
+                    backgroundColor: backgroundColorsForDataset,
+                    borderColor: borderColorsForDataset,
+                    borderWidth: 1
+                });
+            }
+        }
+
+        if (datasets.length === 0) {
+            alert('No chartable data found. Ensure concepts have numerical values and end dates.');
+            return;
+        }
+
+        const ctx = document.getElementById('edgarBarChartCanvas').getContext('2d');
+
+        if (edgarBarChartInstance) {
+            edgarBarChartInstance.destroy();
+        }
+
+        edgarBarChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: sortedEndDates,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: 'EDGAR Concept Values by End Date'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed.y !== null) {
+                                    label += context.parsed.y.toLocaleString();
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'End Date'
+                        },
+                        stacked: false, // Set to true if you want stacked bars for different concepts on the same date
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Value'
+                        },
+                        beginAtZero: true,
+                        stacked: false, // Match x-axis stacking
+                        ticks: {
+                            callback: function(value, index, values) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const modal = new bootstrap.Modal(edgarChartModal);
+        modal.show();
     }
 }); 

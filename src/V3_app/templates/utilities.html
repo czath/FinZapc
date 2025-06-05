@@ -3,6 +3,8 @@
 {% block title %}Utilities - {{ super() }}{% endblock %}
 
 {% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <style>
   .utility-section {
     padding: 20px;
@@ -115,7 +117,7 @@
                 </div>
             </form>
             <!-- Define the export button here, initially hidden -->
-            <button id="exportEdgarCustomTableBtn" class="btn btn-sm btn-success" style="display: none;">Export Table to XLS</button>
+            <button id="showEdgarChartBtn" class="btn btn-sm btn-info me-2" style="display: none;">Barchart</button> <button id="exportEdgarCustomTableBtn" class="btn btn-sm btn-success" style="display: none;">Export Table to XLS</button>
 
             <div id="edgarStatusDiv" class="mt-3" role="alert" style="display: none;"></div>
             <div id="edgarResultsDiv" class="mt-3" style="display: none;">
@@ -162,7 +164,7 @@
                             <button class="nav-link active" id="tabular-view-tab" data-bs-toggle="tab" data-bs-target="#tabular-view-pane" type="button" role="tab" aria-controls="tabular-view-pane" aria-selected="true">Tabular Data</button>
                         </li>
                         <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="raw-json-view-tab" data-bs-toggle="tab" data-bs-target="#raw-json-view-pane" type="button" role="tab" aria-controls="raw-json-view-pane" aria-selected="false">Raw JSON (Single Concept)</button>
+                            <button class="nav-link" id="raw-json-view-tab" data-bs-toggle="tab" data-bs-target="#raw-json-view-pane" type="button" role="tab" aria-controls="raw-json-view-pane" aria-selected="false">Raw JSON</button>
                         </li>
                     </ul>
 
@@ -262,6 +264,22 @@
         </div>
     </div>
 </div>
+
+<!-- EDGAR Chart Modal -->
+<div class="modal fade" id="edgarChartModal" tabindex="-1" aria-labelledby="edgarChartModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="edgarChartModalLabel">EDGAR Data Chart</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <canvas id="edgarBarChartCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
