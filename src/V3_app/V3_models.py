@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 class TickerListPayload(BaseModel):
     source: str
     tickers: List[str] = []
+    send_telegram_notification: Optional[bool] = False
 
 class YahooFetchTriggerResponse(BaseModel):
     message: str

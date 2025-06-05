@@ -13,6 +13,27 @@
     let yahooSourceHelpText; // Added for the help text
     let dropZoneTextSpan; // Added for the text span inside dropzone
 
+    async function getTaskNotificationSetting(taskId) {
+        try {
+            const response = await fetch('/api/notifications/task_settings');
+            if (!response.ok) {
+                // 404 is fine, means not configured. Default to false.
+                if (response.status === 404) {
+                    console.info(`Task notification settings for '${taskId}' not found. Defaulting to 'false'.`);
+                    return false;
+                }
+                // Other errors should be logged.
+                console.warn(`Could not fetch task notification settings. Defaulting to 'false'. Status: ${response.status}`);
+                return false;
+            }
+            const settings = await response.json();
+            return settings[taskId] === true; // Return true only if explicitly true
+        } catch (error) {
+            console.error('Error fetching task notification setting:', error);
+            return false; // Default to false on any error
+        }
+    }
+
     function initializeDOMElements() {
         sourceSelect = document.getElementById('yahoo-mf-source');
         dropZone = document.getElementById('yahoo-mf-dropzone');
@@ -728,6 +749,10 @@
                 return; // Stop execution if no tickers
             }
             
+            // Fetch the notification setting
+            const sendNotification = await getTaskNotificationSetting('yahoo_data_fetch');
+            console.log(`[handleFetch] Telegram notification setting for 'yahoo_data_fetch' is: ${sendNotification}`);
+
             showYahooStatusAlert(`Triggering Yahoo mass fetch for ${tickersToFetch.length} tickers...`, 'info');
             // Update UI to show queued state immediately, before API call
             updateUIFromJobData({
@@ -739,10 +764,16 @@
                 progress_percent: 0
             });
 
+            const requestBody = {
+                source: source,
+                tickers: tickersToFetch,
+                send_telegram_notification: sendNotification // Add the new flag
+            };
+
             const response = await fetch('/api/analytics/yahoo-job/trigger', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ source: source, tickers: tickersToFetch })
+                body: JSON.stringify(requestBody) // Use the new request body
             });
             const triggerResultJobDetails = await response.json(); // Parse the response from /trigger
 

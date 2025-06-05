@@ -51,6 +51,35 @@ async def send_telegram_message(token: str, chat_id: str, message_text: str) -> 
         logger.error(f"[Telegram] Unexpected error sending message: {e}", exc_info=True)
         return False
 
+async def send_task_completion_telegram_notification(db_repo, message: str) -> bool:
+    """
+    Retrieves Telegram settings from DB and sends a notification message for a task.
+    """
+    try:
+        telegram_config = await db_repo.get_notification_settings("telegram")
+
+        if not telegram_config or not telegram_config.get("is_active"):
+            logger.info("[Telegram Task Notify] Service not configured or inactive. Skipping notification.")
+            return False
+
+        settings = telegram_config.get("settings")
+        if not settings:
+            logger.error("[Telegram Task Notify] Service is active, but settings are missing.")
+            return False
+
+        bot_token = settings.get("bot_token")
+        chat_id = settings.get("chat_id")
+
+        if not bot_token or not chat_id:
+            logger.error("[Telegram Task Notify] Bot token or chat_id is missing.")
+            return False
+
+        # The message is passed in directly.
+        return await send_telegram_message(token=bot_token, chat_id=chat_id, message_text=message)
+    except Exception as e:
+        logger.error(f"[Telegram Task Notify] Unexpected error: {e}", exc_info=True)
+        return False
+
 async def send_test_telegram_notification(db_repo, message_prefix="Test Notification") -> bool:
     """
     Retrieves Telegram settings from DB and sends a test message.

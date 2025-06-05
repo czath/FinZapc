@@ -13,6 +13,7 @@ from .V3_database import SQLiteRepository
 from .V3_models import TickerListPayload, JobDetailsResponse # Using the new models file
 from .V3_yahoo_fetch import mass_load_yahoo_data_from_file # <-- IMPORT THE REAL FUNCTION
 from .yahoo_repository import YahooDataRepository # <-- IMPORT YahooDataRepository
+from .services.notification_service import send_task_completion_telegram_notification
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ async def _update_job_status_internal(
     
     # SSE queue logic removed from here
 
-async def _run_yahoo_mass_fetch_background_internal(tickers: List[str], repository: SQLiteRepository):
+async def _run_yahoo_mass_fetch_background_internal(tickers: List[str], repository: SQLiteRepository, send_notification: bool = False):
     await asyncio.sleep(0.01) # Initial yield immediately upon entry
 
     total_tickers = len(tickers)
@@ -220,13 +221,29 @@ async def _run_yahoo_mass_fetch_background_internal(tickers: List[str], reposito
     }
     logger.info(f"[Yahoo BG Task - {YAHOO_MASS_FETCH_JOB_ID} @ {job_end_datetime.isoformat()}] COMPLETED. Final status: {final_status_str}. Full Summary: {detailed_run_summary}")
     await _update_job_status_internal(final_updates, repository)
-    # logger.info(f"[Yahoo BG Task - {YAHOO_MASS_FETCH_JOB_ID} @ {job_start_iso}] Finished. Summary: {concise_summary_msg}") # Log concise or detailed based on preference
+    
+    if send_notification:
+        logger.info(f"Job completion notification flag is set to True. Preparing to send Telegram message.")
+        try:
+            # Format the message as requested by the user
+            timestamp = datetime.now().strftime("%d/%m/%Y %H:%M")
+            notification_message = f"[{timestamp}] Yahoo Data Fetch: {concise_summary_msg}"
+            
+            success = await send_task_completion_telegram_notification(db_repo=repository, message=notification_message)
+            if success:
+                logger.info("Successfully sent task completion notification via Telegram.")
+            else:
+                logger.warning("Failed to send task completion notification via Telegram.")
+        except Exception as e:
+            logger.error(f"Error sending Telegram task completion notification: {e}", exc_info=True)
 
 async def trigger_yahoo_mass_fetch_job(
     tickers_payload: TickerListPayload,
     repository: SQLiteRepository
 ):
     tickers = tickers_payload.tickers
+    send_notification = tickers_payload.send_telegram_notification
+
     async with _job_status_lock:
         current_job_details = _job_status 
         current_status = current_job_details.get("status")
@@ -267,7 +284,7 @@ async def trigger_yahoo_mass_fetch_job(
         if _job_status: 
             job_details_to_return = dict(_job_status) 
 
-    asyncio.create_task(_run_yahoo_mass_fetch_background_internal(tickers, repository))
+    asyncio.create_task(_run_yahoo_mass_fetch_background_internal(tickers, repository, send_notification))
     logger.info(f"[TRIGGER_JOB] Created asyncio task for _run_yahoo_mass_fetch_background_internal.")
     
     logger.info(f"[TRIGGER_JOB] Returning initial job details from trigger: {job_details_to_return}")

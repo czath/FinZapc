@@ -470,6 +470,26 @@
                         </form>
                     </div>
                 </div>
+
+                <!-- Task-Specific Notifications Card -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <span>Task-Specific Notifications</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text"><small>Enable or disable Telegram notifications for the completion of specific long-running tasks. General Telegram notifications must be active to receive these.</small></p>
+                        <ul class="list-group">
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>Yahoo Data Fetch</span>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input task-notification-toggle" type="checkbox" role="switch" id="task-notify-yahoo-data-fetch" data-task-id="yahoo_data_fetch" data-bs-toggle="tooltip" data-bs-placement="top" title="Enable/Disable notifications for the Yahoo Data Fetch task">
+                                    <label class="form-check-label" for="task-notify-yahoo-data-fetch"></label>
+                                </div>
+                            </li>
+                            <!-- More tasks can be added here in the future -->
+                        </ul>
+                    </div>
+                </div>
             </div>
 
         </div> <!-- End Tab Content -->
@@ -695,6 +715,7 @@
 
             // --- Load initial notification settings ---
             loadTelegramSettings(); 
+            loadTaskNotificationSettings();
             // --- End Load initial notification settings ---
 
             // --- Attach listeners for notification forms/buttons ---
@@ -711,6 +732,17 @@
                 telegramNotificationsActiveSwitch.addEventListener('change', handleTelegramActiveToggle);
             }
             // --- End Notification Listeners ---
+
+            // --- Attach listeners for task notification toggles ---
+            const notificationsPane = document.getElementById('notifications-pane');
+            if (notificationsPane) {
+                notificationsPane.addEventListener('change', function(e) {
+                    if (e.target && e.target.classList.contains('task-notification-toggle')) {
+                        handleTaskNotificationToggle(e);
+                    }
+                });
+            }
+            // --- End task notification listeners ---
 
             console.log("[DEBUG Config] DOMContentLoaded listeners set up.");
         }); // --- End DOMContentLoaded ---
@@ -1458,6 +1490,63 @@
             }
         }
         // --- END TELEGRAM NOTIFICATION FUNCTIONS ---
+
+        // --- START TASK-SPECIFIC NOTIFICATION FUNCTIONS ---
+        async function loadTaskNotificationSettings() {
+            try {
+                const response = await fetch('/api/notifications/task_settings');
+                if (!response.ok) {
+                    // It's okay if settings don't exist yet (404), just means nothing is configured.
+                    if (response.status === 404) {
+                        console.info('Task notification settings not found. Toggles will be off.');
+                        document.querySelectorAll('.task-notification-toggle').forEach(toggle => {
+                            toggle.checked = false;
+                        });
+                        return;
+                    }
+                    throw new Error(`Failed to load task notification settings: ${response.status}`);
+                }
+                const settings = await response.json();
+                
+                // Loop through all toggles and set their state based on the response
+                document.querySelectorAll('.task-notification-toggle').forEach(toggle => {
+                    const taskId = toggle.dataset.taskId;
+                    if (settings && typeof settings[taskId] !== 'undefined') {
+                        toggle.checked = settings[taskId];
+                    } else {
+                        toggle.checked = false; // Default to off if not specified
+                    }
+                });
+                console.log('Task notification settings loaded.');
+
+            } catch (error) {
+                console.error('Error loading task notification settings:', error);
+                showAlert('Could not load task notification settings.', 'warning');
+            }
+        }
+
+        async function handleTaskNotificationToggle(event) {
+            const taskId = event.target.dataset.taskId;
+            const isActive = event.target.checked;
+            
+            console.log(`Toggling task notification for ${taskId} to ${isActive}`);
+
+            try {
+                const response = await fetch('/api/notifications/task_settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ task_id: taskId, is_active: isActive })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || 'Failed to update task notification setting');
+                showAlert(result.message || `Notification setting for '${taskId}' updated.`, 'success');
+            } catch (error) {
+                console.error('Error saving task notification setting:', error);
+                showAlert(`Error: ${error.message}`, 'danger');
+                event.target.checked = !isActive; // Revert toggle on error
+            }
+        }
+        // --- END TASK-SPECIFIC NOTIFICATION FUNCTIONS ---
 
     </script>
     {% endraw %}

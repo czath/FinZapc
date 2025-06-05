@@ -39,6 +39,10 @@ class TelegramSettingsPayload(BaseModel):
 class NotificationStatusPayload(BaseModel):
     is_active: bool
 
+class TaskNotificationPayload(BaseModel):
+    task_id: str
+    is_active: bool
+
 class TelegramSettingsResponse(BaseModel):
     service_name: str = "telegram"
     settings: Optional[Dict[str, str]] = None
@@ -143,6 +147,49 @@ async def trigger_test_telegram_notification(db: SQLiteRepository = Depends(get_
     except Exception as e:
         logger.error(f"[API Telegram Test] Unexpected error in trigger_test_telegram_notification route: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred while trying to send a test Telegram notification: {str(e)}")
+
+# --- Task-Specific Notification Settings ---
+
+@router.get("/task_settings", response_model=Dict[str, bool])
+async def get_task_notification_settings(db: SQLiteRepository = Depends(get_repository)):
+    """Retrieve task-specific notification settings."""
+    try:
+        config = await db.get_notification_settings("task_notifications")
+        if config and config.get("settings"):
+            return config["settings"]
+        # Return empty dict if not found, which is a valid state (all off)
+        return {}
+    except Exception as e:
+        logger.error(f"Error retrieving task_notification_settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve task notification settings.")
+
+@router.post("/task_settings", response_model=GeneralResponse)
+async def save_task_notification_setting(
+    payload: TaskNotificationPayload,
+    db: SQLiteRepository = Depends(get_repository)
+):
+    """Save a single task-specific notification setting."""
+    try:
+        # Get the current settings object, or an empty one if it doesn't exist
+        current_config = await db.get_notification_settings("task_notifications")
+        
+        current_settings = {}
+        if current_config and current_config.get("settings"):
+            current_settings = current_config["settings"]
+
+        # Update the specific task's setting
+        current_settings[payload.task_id] = payload.is_active
+
+        # Save the entire settings object back. The service is considered "active" as a container.
+        await db.save_notification_settings(
+            service_name="task_notifications",
+            settings=current_settings,
+            is_active=True
+        )
+        return {"status": "success", "message": f"Setting for '{payload.task_id}' updated."}
+    except Exception as e:
+        logger.error(f"Error saving task_notification_setting for {payload.task_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to save task notification setting.")
 
 # Remember to include this router in your main FastAPI app:
 # from .routers import notification_routes
