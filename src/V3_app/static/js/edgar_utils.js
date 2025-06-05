@@ -1710,15 +1710,15 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        const fpColorMap = {
-            'FY': { background: 'rgba(75, 192, 192, 0.7)', border: 'rgba(75, 192, 192, 1)' }, // Teal
-            'Q1': { background: 'rgba(255, 99, 132, 0.7)', border: 'rgba(255, 99, 132, 1)' }, // Red
-            'Q2': { background: 'rgba(54, 162, 235, 0.7)', border: 'rgba(54, 162, 235, 1)' }, // Blue
-            'Q3': { background: 'rgba(255, 206, 86, 0.7)', border: 'rgba(255, 206, 86, 1)' }, // Yellow
-            'Q4': { background: 'rgba(153, 102, 255, 0.7)', border: 'rgba(153, 102, 255, 1)' }, // Purple
-            'DEFAULT': { background: 'rgba(201, 203, 207, 0.7)', border: 'rgba(201, 203, 207, 1)' } // Grey
-        };
-        const nullPointColor = { background: 'rgba(0, 0, 0, 0.05)', border: 'rgba(0, 0, 0, 0.1)' };
+        const conceptColors = [
+            { background: 'rgba(54, 162, 235, 0.7)', border: 'rgba(54, 162, 235, 1)' }, // Blue
+            { background: 'rgba(255, 99, 132, 0.7)', border: 'rgba(255, 99, 132, 1)' },  // Red
+            { background: 'rgba(75, 192, 192, 0.7)', border: 'rgba(75, 192, 192, 1)' },  // Teal
+            { background: 'rgba(255, 206, 86, 0.7)', border: 'rgba(255, 206, 86, 1)' },  // Yellow
+            { background: 'rgba(153, 102, 255, 0.7)', border: 'rgba(153, 102, 255, 1)'}, // Purple
+            { background: 'rgba(255, 159, 64, 0.7)', border: 'rgba(255, 159, 64, 1)' },  // Orange
+            { background: 'rgba(201, 203, 207, 0.7)', border: 'rgba(201, 203, 207, 1)' }   // Grey
+        ];
 
         const dataByConcept = {};
         const allEndDates = new Set();
@@ -1727,7 +1727,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const conceptLabel = row._displayLabel; // This should be the clean concept name
             const endDate = row.end;
             const value = parseFloat(row.val);
-            const fpActual = row.fp_actual || 'DEFAULT'; // Default if fp_actual is missing
+            const fpActual = row.fp_actual || 'N/A'; // Default if fp_actual is missing
 
             if (conceptLabel && endDate && !isNaN(value)) {
                 if (!dataByConcept[conceptLabel]) {
@@ -1741,39 +1741,37 @@ document.addEventListener('DOMContentLoaded', function () {
         const sortedEndDates = Array.from(allEndDates).sort((a, b) => new Date(a) - new Date(b));
 
         const datasets = [];
-        // const colors = ['rgba(54, 162, 235, 0.7)', 'rgba(255, 99, 132, 0.7)', 'rgba(75, 192, 192, 0.7)', 'rgba(255, 206, 86, 0.7)', 'rgba(153, 102, 255, 0.7)', 'rgba(255, 159, 64, 0.7)'];
-        // let colorIndex = 0; // colorIndex is no longer used to color entire datasets
+        let colorIndex = 0; 
 
         for (const conceptLabel in dataByConcept) {
             if (Object.hasOwnProperty.call(dataByConcept, conceptLabel)) {
                 const conceptValues = dataByConcept[conceptLabel].sort((a,b) => new Date(a.endDate) - new Date(b.endDate));
                 
                 const dataPoints = [];
-                const backgroundColorsForDataset = [];
-                const borderColorsForDataset = [];
+                const fiscalPeriods = []; // Store fiscal period metadata here
 
                 sortedEndDates.forEach(date => {
                     const point = conceptValues.find(cv => cv.endDate === date);
                     if (point) {
                         dataPoints.push(point.value);
-                        const colorInfo = fpColorMap[point.fp_actual] || fpColorMap['DEFAULT'];
-                        backgroundColorsForDataset.push(colorInfo.background);
-                        borderColorsForDataset.push(colorInfo.border);
+                        fiscalPeriods.push(point.fp_actual);
                     } else {
-                        dataPoints.push(null); // Use null for missing data points on that date for this concept
-                        backgroundColorsForDataset.push(nullPointColor.background);
-                        borderColorsForDataset.push(nullPointColor.border);
+                        dataPoints.push(null);
+                        fiscalPeriods.push(null);
                     }
                 });
 
+                const colorInfo = conceptColors[colorIndex % conceptColors.length];
+                colorIndex++;
+
                 datasets.push({
                     label: conceptLabel,
-                    data: dataPoints,
-                    backgroundColor: backgroundColorsForDataset,
-                    borderColor: borderColorsForDataset,
+                    data: dataPoints, // Simple array of numbers/nulls
+                    fiscalPeriods: fiscalPeriods, // Custom property for metadata
+                    backgroundColor: colorInfo.background,
+                    borderColor: colorInfo.border,
                     borderWidth: 1
                 });
-                // colorIndex++; // Not needed anymore for this coloring scheme
             }
         }
 
@@ -1823,6 +1821,10 @@ document.addEventListener('DOMContentLoaded', function () {
                                 if (context.parsed.y !== null) {
                                     label += context.parsed.y.toLocaleString();
                                 }
+                                // Add fiscal period to the tooltip from our custom array
+                                if (context.dataset.fiscalPeriods && context.dataset.fiscalPeriods[context.dataIndex]) {
+                                    label += ` (${context.dataset.fiscalPeriods[context.dataIndex]})`;
+                                }
                                 return label;
                             }
                         }
@@ -1834,7 +1836,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             display: true,
                             text: 'End Date'
                         },
-                        stacked: false, // Set to true if you want stacked bars for different concepts on the same date
+                        stacked: false, 
                     },
                     y: {
                         title: {
@@ -1842,44 +1844,26 @@ document.addEventListener('DOMContentLoaded', function () {
                             text: 'Value'
                         },
                         beginAtZero: true,
-                        stacked: false, // Match x-axis stacking
+                        stacked: false, 
                         ticks: {
                             callback: function(value, index, values) {
                                 return value.toLocaleString();
                             }
                         }
                     }
+                },
+                parsing: {
+                     yAxisKey: 'y' // Tell Chart.js to find the value in the 'y' property of our data objects
                 }
             }
         });
 
         const modal = new bootstrap.Modal(edgarChartModal);
 
-        // Populate color key legend
+        // Remove the custom color key logic as it's no longer needed
         const colorKeyDiv = document.getElementById('edgarChartColorKey');
         if (colorKeyDiv) {
-            colorKeyDiv.innerHTML = ''; // Clear previous legend
-            let legendHTML = '<div class="d-flex flex-wrap justify-content-center">';
-            for (const fp in fpColorMap) {
-                if (Object.hasOwnProperty.call(fpColorMap, fp) && fp !== 'DEFAULT') {
-                    const colorInfo = fpColorMap[fp];
-                    legendHTML += `
-                        <div class="d-flex align-items-center me-3 mb-1">
-                            <span style="display: inline-block; width: 20px; height: 20px; background-color: ${colorInfo.background}; border: 1px solid ${colorInfo.border}; margin-right: 5px;"></span>
-                            <span>${fp}</span>
-                        </div>
-                    `;
-                }
-            }
-            // Add legend for null/missing points
-            legendHTML += `
-                <div class="d-flex align-items-center me-3 mb-1">
-                    <span style="display: inline-block; width: 20px; height: 20px; background-color: ${nullPointColor.background}; border: 1px solid ${nullPointColor.border}; margin-right: 5px;"></span>
-                    <span>No Data</span>
-                </div>
-            `;
-            legendHTML += '</div>';
-            colorKeyDiv.innerHTML = legendHTML;
+            colorKeyDiv.innerHTML = ''; 
         }
 
         modal.show();
