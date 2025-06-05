@@ -1,3 +1,4 @@
+/**** KEEP THIS COMMENT AT THE TOP OF THE FILE AND PREFIX ALL LOGS WITH [Q4 Filler] ****/
 document.addEventListener('DOMContentLoaded', function () {
     let currentDisplayableRawData = null; // Holds the latest fetched raw data (single object or array)
     const edgarCleanupToggle = document.getElementById('edgarCleanupToggle');
@@ -11,6 +12,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Attempt to attach export button listener early
+    /*
     const exportEdgarCustomTableBtn = document.getElementById('exportEdgarCustomTableBtn');
     if (exportEdgarCustomTableBtn) {
         exportEdgarCustomTableBtn.addEventListener('click', function() {
@@ -74,6 +76,65 @@ document.addEventListener('DOMContentLoaded', function () {
             });
             exportTableToXLSNode(tempTable, filename);
         });
+    }
+    */
+
+    // NEW: Named function to handle the Edgar Custom Table export logic
+    function handleExportEdgarCustomTable() {
+        if (!edgarDataTableInstance) {
+            alert('Table data is not available for export.');
+            return;
+        }
+        const ticker = currentEdgarExportContext.ticker || "SelectedConcepts";
+        const today = new Date().toISOString().slice(0, 10);
+        const filename = `EDGAR_Custom_${ticker}_${today}.xls`;
+        
+        const tempTable = document.createElement('table');
+        const tempThead = tempTable.createTHead();
+        const tempTbody = tempTable.createTBody();
+        const headerRow = tempThead.insertRow();
+        
+        edgarDataTableInstance.columns().every(function() {
+            const th = document.createElement('th');
+            th.textContent = $(this.header()).text();
+            headerRow.appendChild(th);
+        });
+
+        edgarDataTableInstance.rows({ search: 'applied' }).data().each(function(rowData) {
+            const tr = tempTbody.insertRow();
+            edgarDataTableInstance.columns().every(function(colIdx) {
+                const cellData = this.dataSrc() ? rowData[this.dataSrc()] : '';
+                let displayData = cellData;
+                const column = edgarDataTableInstance.column(colIdx);
+                const renderFunc = column.settings()[0].mRender || column.settings()[0].mData;
+                
+                if (typeof renderFunc === 'function') {
+                    displayData = renderFunc(cellData, 'display', rowData, {col: colIdx, row: 0, settings: column.settings()[0]});
+                } else if (typeof renderFunc === 'string') {
+                    displayData = rowData[renderFunc];
+                }
+
+                if (colIdx === 0 && typeof displayData === 'string') { 
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = displayData;
+                    displayData = tempDiv.textContent || tempDiv.innerText || "";
+                }
+                if (colIdx === 8 && typeof cellData !== 'undefined') { 
+                    const numericVal = parseFloat(cellData);
+                    if (!isNaN(numericVal)) {
+                        displayData = numericVal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+                    } else {
+                        displayData = cellData;
+                    }
+                }
+                const td = tr.insertCell();
+                if ([4, 6, 7].includes(colIdx)) { // Date of Filing (4), Start Date (6), End Date (7)
+                    td.style.msoNumberFormat = '\\@'; 
+                }
+                td.textContent = displayData !== undefined ? displayData : '';
+            });
+        });
+        exportTableToXLSNode(tempTable, filename);
     }
 
     // Helper to parse fiscal year input string into a query structure
@@ -195,7 +256,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     setTimeout(() => {
                         if (statusDiv.textContent === 'Applying 10-Q Filler settings...') {
                             statusDiv.style.display = 'none';
-                        }
+                         }
                     }, 1000);
                 }
             }
@@ -791,23 +852,19 @@ document.addEventListener('DOMContentLoaded', function () {
     function populateCustomEdgarTable(allConceptsData, fiscalYearQuery) {
         const tableContainer = document.getElementById('edgarCustomTableContainer');
         const tableElement = document.getElementById('edgarCustomDataTable');
-        const exportBtn = document.getElementById('exportEdgarCustomTableBtn');
         const cleanupToggle = document.getElementById('edgarCleanupToggle');
         const applyCleanup = cleanupToggle ? cleanupToggle.checked : true;
         const filtersContainer = document.getElementById('edgarTableFilters'); // Get the new filters container
         const q4FillerToggle = document.getElementById('edgar10qFillerToggle'); // Get Q4 filler toggle
         const applyQ4Filler = q4FillerToggle ? q4FillerToggle.checked : false;
 
-        if (!tableElement || !tableContainer || !exportBtn || !filtersContainer) { 
+        if (!tableElement || !tableContainer || !filtersContainer) { 
             console.error("Table UI or filters container missing"); 
-            // Potentially hide all related UI elements if critical ones are missing
             if(tableContainer) tableContainer.style.display = 'none';
-            if(exportBtn) exportBtn.style.display = 'none';
             if(filtersContainer) filtersContainer.style.display = 'none';
             return; 
         }
         
-        // Ensure allConceptsData is an array before proceeding to map/forEach etc.
         if (!Array.isArray(allConceptsData)) {
             console.error("populateCustomEdgarTable: allConceptsData is not an array.", allConceptsData);
             const statusDivError = document.getElementById('edgarStatusDiv');
@@ -816,12 +873,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 statusDivError.className = 'alert alert-danger mt-3';
                 statusDivError.style.display = 'block';
             }
-            // Attempt to clear/reset DataTable if it exists and data is bad
             if (edgarDataTableInstance) { edgarDataTableInstance.clear().draw(); 
-            } else { $(tableElement).find('tbody').empty().html('<tr><td colspan="8">Error: Data format issue.</td></tr>'); }
-            filtersContainer.style.display = 'none'; // Hide filters if data error
-            tableContainer.style.display = 'block'; // Show table container for error message display
-            exportBtn.style.display = 'none';
+            } else { $(tableElement).find('tbody').empty().html('<tr><td colspan="9">Error: Data format issue.</td></tr>'); }
+            filtersContainer.style.display = 'none'; 
+            tableContainer.style.display = 'block'; 
             return;
         }
 
@@ -844,7 +899,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     let flaggedEntries = flagCumulativeRecords(entriesWithContext);
                     flaggedEntries = flagDuplicatesAndRestatements(flaggedEntries);
 
-                    // Process cleanup first
                     let processedForCleanup = flaggedEntries;
                     if (applyCleanup) {
                         processedForCleanup = flaggedEntries.filter(e => 
@@ -854,13 +908,11 @@ document.addEventListener('DOMContentLoaded', function () {
                         );
                     }
 
-                    // Then apply Q4 filler if both toggles are active
                     let entriesToDisplay = processedForCleanup;
                     if (applyCleanup && applyQ4Filler) { 
                         entriesToDisplay = generateInferredQ4Data(processedForCleanup); 
                     }
                     
-                    // Explicitly sort entries for the current concept/unit before adding to global table data
                     const fpActualOrder = { 'FY': 1, 'Q4': 2, 'Q3': 3, 'Q2': 4, 'Q1': 5 };
                     entriesToDisplay.sort((a, b) => {
                         const dateA_end = new Date(String(a.end) + 'T00:00:00Z');
@@ -868,21 +920,18 @@ document.addEventListener('DOMContentLoaded', function () {
                         if (dateA_end > dateB_end) return -1; 
                         if (dateA_end < dateB_end) return 1;
 
-                        // End Dates are equal, sort by fp_actual semantic order
                         let orderA = fpActualOrder[a.fp_actual] || 99;
                         let orderB = fpActualOrder[b.fp_actual] || 99;
-                        // Ensure _isInferredQ4 (which implies fp_actual should be Q4) uses the Q4 order
                         if (a._isInferredQ4) orderA = fpActualOrder['Q4']; 
                         if (b._isInferredQ4) orderB = fpActualOrder['Q4'];
                         if (orderA !== orderB) return orderA - orderB;
                         
-                        // fp_actual are also equal (or both unknown), sort by Start Date ascending
                         const dateA_start = new Date(String(a.start) + 'T00:00:00Z');
                         const dateB_start = new Date(String(b.start) + 'T00:00:00Z');
                         if (dateA_start < dateB_start) return -1; 
                         if (dateA_start > dateB_start) return 1;
 
-                        return 0; // All primary sort keys are equal
+                        return 0; 
                     });
 
                     if (entriesToDisplay.length > 0) conceptHasVisibleRowsOverall = true;
@@ -897,12 +946,11 @@ document.addEventListener('DOMContentLoaded', function () {
             $(tableElement).find('tbody').empty(); 
             edgarDataTableInstance = null;
         }
-        filtersContainer.innerHTML = ''; // Clear previous filters before adding new ones
+        filtersContainer.innerHTML = ''; 
 
         if (!conceptHasVisibleRowsOverall && tableDataForDataTable.length === 0) {
-            filtersContainer.style.display = 'none'; // Hide filters if no data
-            tableContainer.style.display = 'block'; // Show table for "no data" message
-            exportBtn.style.display = 'none';
+            filtersContainer.style.display = 'none'; 
+            tableContainer.style.display = 'block'; 
             const statusDiv = document.getElementById('edgarStatusDiv');
             if (statusDiv) {
                 const fyQueryStringForMsg = Array.isArray(fiscalYearQuery) ? fiscalYearQuery.map(q => q.type === 'year' ? q.year : `${q.start}-${q.end}`).join(', ') : "selected period";
@@ -917,23 +965,18 @@ document.addEventListener('DOMContentLoaded', function () {
                     { title: 'Date of Filing' }, { title: 'Form' }, 
                     { title: 'Start Date' }, { title: 'End Date' }, { title: 'Value' }
                 ],
-                destroy: true,
-                searching: true, 
-                paging: true, 
-                lengthChange: true,
+                destroy: true, searching: true, paging: true, lengthChange: true,
                 lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-                pageLength: 10, 
+                pageLength: -1, 
                 language: { emptyTable: "No data available for the selected criteria." }
              });
             return; 
         }
         
-        // Create and append dropdown filters
         const conceptValues = [...new Set(tableDataForDataTable.map(item => item._displayLabel))].sort();
-        const formValues = [...new Set(tableDataForDataTable.map(item => item.form))].sort();
 
         const conceptFilterCol = document.createElement('div');
-        conceptFilterCol.className = 'col-md-4'; // Bootstrap column class
+        conceptFilterCol.className = 'col-md-4'; 
         conceptFilterCol.innerHTML = `
             <label for="edgarConceptFilterSelect" class="form-label form-label-sm">Filter Concept:</label>
             <select id="edgarConceptFilterSelect" class="form-select form-select-sm">
@@ -943,20 +986,21 @@ document.addEventListener('DOMContentLoaded', function () {
         `;
         filtersContainer.appendChild(conceptFilterCol);
 
-        const formFilterCol = document.createElement('div');
-        formFilterCol.className = 'col-md-3'; // Bootstrap column class
-        formFilterCol.innerHTML = `
-            <label for="edgarFormFilterSelect" class="form-label form-label-sm">Filter Form:</label>
-            <select id="edgarFormFilterSelect" class="form-select form-select-sm">
-                <option value="">All Forms</option>
-                ${formValues.map(val => `<option value="${val.replace(/"/g, '&quot;')}">${val}</option>`).join('')}
+        // NEW: Period Type Filter
+        const periodTypeFilterCol = document.createElement('div');
+        periodTypeFilterCol.className = 'col-md-3'; // Adjust class as needed
+        periodTypeFilterCol.innerHTML = `
+            <label for="edgarPeriodTypeFilterSelect" class="form-label form-label-sm">Filter Period Type:</label>
+            <select id="edgarPeriodTypeFilterSelect" class="form-select form-select-sm">
+                <option value="">All Period Types</option>
+                <option value="FY">Annual (FY)</option>
+                <option value="Q">Quarterly (Q1-Q4)</option>
             </select>
         `;
-        filtersContainer.appendChild(formFilterCol);
-        filtersContainer.style.display = 'flex'; // Show the filters container rows using flex
+        filtersContainer.appendChild(periodTypeFilterCol);
         
+        filtersContainer.style.display = 'flex'; 
         tableContainer.style.display = 'block';
-        exportBtn.style.display = 'inline-block';
         const statusDiv = document.getElementById('edgarStatusDiv');
         if (statusDiv) statusDiv.style.display = 'none';
 
@@ -964,16 +1008,13 @@ document.addEventListener('DOMContentLoaded', function () {
             data: tableDataForDataTable,
             columns: [
                 { 
-                    data: '_displayLabel', 
-                    title: 'Concept',
+                    data: '_displayLabel', title: 'Concept',
                     render: function(data, type, row) {
                         if (type === 'display') {
                             let html = '';
-                            if (row._isInferredQ4) { // Check for inferred Q4
-                                html += '<span class="badge bg-danger me-1" title="Inferred Filler Data">F</span>';
-                            }
+                            if (row._isInferredQ4) html += '<span class="badge bg-danger me-1" title="Inferred Filler Data">F</span>';
                             if (row._isRestatement) html += '<span class="badge bg-primary me-1" title="Restated Value (Latest)">R</span>';
-                            if (!applyCleanup) { // Only show these if cleanup is OFF
+                            if (!applyCleanup) {
                                 if (row._isCumulative) html += '<span class="badge bg-secondary me-1" title="Cumulative Record">C</span>';
                                 if (row._isRedundantDuplicate) html += '<span class="badge bg-light text-dark border me-1" title="Duplicate - Same Value">D</span>';
                                 if (row._isSupersededRestatement) html += '<span class="badge bg-info text-dark me-1" title="Duplicate - Superseded">D</span>';
@@ -985,9 +1026,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 },
                 { data: 'unit', title: 'Unit', defaultContent: 'N/A' },
                 { data: 'fp', title: 'FP', defaultContent: 'N/A' },
-                { data: 'fp_actual',
-                    title: 'FP Actual',
-                    defaultContent: 'N/A',
+                { data: 'fp_actual', title: 'FP Actual', defaultContent: 'N/A',
                     render: function(data, type, row) {
                         if (type === 'display') {
                             if (data !== row.fp) {
@@ -1003,8 +1042,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 { data: 'start', title: 'Start Date', defaultContent: 'N/A' },
                 { data: 'end', title: 'End Date', defaultContent: 'N/A' },
                 {
-                    data: 'val',
-                    title: 'Value',
+                    data: 'val', title: 'Value',
                     render: function(data, type, row) {
                         if (type === 'display') {
                             const numericValue = parseFloat(data);
@@ -1019,13 +1057,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     className: 'text-end' 
                 }
             ],
-            destroy: true,
-            searching: true, 
-            paging: true, 
-            lengthChange: true,
+            destroy: true, searching: true, paging: true, lengthChange: true,
             lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-            pageLength: 10, 
-            order: [[7, 'desc'], [6, 'asc']], // Adjusted: End Date (new col 7) desc, Start Date (new col 6) asc
+            pageLength: -1, 
+            order: [[7, 'desc'], [6, 'asc']], 
             rowCallback: function(row, data, index) {
                 if (!applyCleanup) {
                     if (data._isCumulative) $(row).addClass('cumulative-row');
@@ -1035,20 +1070,43 @@ document.addEventListener('DOMContentLoaded', function () {
             },
             initComplete: function () {
                 const api = this.api();
-                $(api.table().footer()).empty(); // Ensure tfoot is empty, if it exists (it shouldn't)
+                $(api.table().footer()).empty(); 
+
+                const exportButtonElement = document.createElement('button');
+                exportButtonElement.id = 'exportEdgarCustomTableBtn';
+                exportButtonElement.className = 'btn btn-sm btn-success ms-2'; 
+                exportButtonElement.textContent = 'Export Table to XLS';
+                exportButtonElement.style.display = 'inline-block';
+                exportButtonElement.addEventListener('click', handleExportEdgarCustomTable);
+
+                const filterDiv = $(tableElement).closest('.dataTables_wrapper').find('.dataTables_filter');
+                if (filterDiv.length > 0) {
+                    filterDiv.css('display', 'flex').css('align-items', 'center').css('justify-content', 'flex-end'); 
+                    filterDiv.append(exportButtonElement);
+                } else {
+                    console.warn('[populateCustomEdgarTable] DataTables filter div not found. Cannot place export button.');
+                    $(tableElement).closest('.dataTables_wrapper').prepend(exportButtonElement); 
+                }
             }
         });
 
-        // Add event listeners for the new select dropdowns
         document.getElementById('edgarConceptFilterSelect').addEventListener('change', function() {
             const rawValue = this.value;
             const searchRegex = rawValue ? '^' + escapeRegex(rawValue) + '$' : '';
             edgarDataTableInstance.column(0).search(searchRegex, true, false).draw();
         });
-        document.getElementById('edgarFormFilterSelect').addEventListener('change', function() {
-            const rawValue = this.value;
-            const searchRegex = rawValue ? '^' + escapeRegex(rawValue) + '$' : '';
-            edgarDataTableInstance.column(5).search(searchRegex, true, false).draw(); // Adjusted form filter to column 5
+
+        // NEW: Event listener for Period Type Filter
+        document.getElementById('edgarPeriodTypeFilterSelect').addEventListener('change', function() {
+            const selectedValue = this.value;
+            let searchRegex = '';
+            if (selectedValue === 'FY') {
+                searchRegex = '^FY$';
+            } else if (selectedValue === 'Q') {
+                searchRegex = '^Q[1-4]$';
+            }
+            // Column 3 is 'FP Actual'
+            edgarDataTableInstance.column(3).search(searchRegex, true, false).draw(); 
         });
     }
 
@@ -1073,10 +1131,9 @@ document.addEventListener('DOMContentLoaded', function () {
         const multiFetchControls = document.getElementById('edgarMultiFetchControls'); if(multiFetchControls) multiFetchControls.style.display = 'none';
         const fyInput = document.getElementById('edgarFyInput'); if(fyInput) fyInput.value = '';
         const customTableContainer = document.getElementById('edgarCustomTableContainer'); if(customTableContainer) customTableContainer.style.display = 'none';
-        const exportCustomBtn = document.getElementById('exportEdgarCustomTableBtn'); if(exportCustomBtn) exportCustomBtn.style.display = 'none';
         const edgarOutputSubTabs = document.getElementById('edgarOutputSubTabs'); if(edgarOutputSubTabs) edgarOutputSubTabs.style.display = 'none';
         
-        // Clear and hide new dropdown filters container
+        // Clear and hide new dropdown filters container (which includes the export button now)
         const filtersContainer = document.getElementById('edgarTableFilters');
         if (filtersContainer) {
             filtersContainer.innerHTML = '';
