@@ -6,9 +6,52 @@ document.addEventListener('DOMContentLoaded', function () {
     let edgarDataTableInstance = null; // For DataTables
     const edgar10qFillerToggle = document.getElementById('edgar10qFillerToggle'); // Added: Get 10-Q Filler Toggle
     let edgarBarChartInstance = null; // For the bar chart
+    let allFetchedConceptDetails = []; // To store the full list of concepts for re-rendering
+    const FAVORITES_STORAGE_KEY = 'edgarGlobalFavoriteConcepts';
 
     const showEdgarChartBtn = document.getElementById('showEdgarChartBtn');
     const edgarChartModal = document.getElementById('edgarChartModal');
+
+    // Helper function to get favorites from localStorage
+    function getFavorites() {
+        const favorites = localStorage.getItem(FAVORITES_STORAGE_KEY);
+        return favorites ? JSON.parse(favorites) : [];
+    }
+
+    // Helper function to save favorites to localStorage
+    function saveFavorites(favoritesArray) {
+        localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favoritesArray));
+    }
+
+    // Function to toggle favorite status
+    function toggleFavoriteStatus(conceptName) {
+        let favorites = getFavorites();
+        const index = favorites.indexOf(conceptName);
+        if (index > -1) {
+            favorites.splice(index, 1); // Remove from favorites
+        } else {
+            favorites.push(conceptName); // Add to favorites
+        }
+        saveFavorites(favorites);
+        // Re-render the list to reflect changes (including sort order)
+        displayConceptList(allFetchedConceptDetails, currentEdgarExportContext.cik); // Pass CIK for label links
+    }
+
+    // Delegated event listener for concept list actions (like favorite toggle)
+    const conceptListUl = document.getElementById('edgarConceptList');
+    if (conceptListUl) {
+        conceptListUl.addEventListener('click', function(event) {
+            const target = event.target;
+            if (target.dataset.action === 'toggle-favorite') {
+                event.preventDefault(); // Prevent label click / checkbox toggle
+                event.stopPropagation(); // Stop event from bubbling further
+                const conceptName = target.dataset.conceptName;
+                if (conceptName) {
+                    toggleFavoriteStatus(conceptName);
+                }
+            }
+        });
+    }
 
     // Helper function to escape regex special characters
     function escapeRegex(string) {
@@ -533,11 +576,11 @@ document.addEventListener('DOMContentLoaded', function () {
                         if (Object.hasOwnProperty.call(taxonomyFacts, conceptName)) {
                             const concept = taxonomyFacts[conceptName];
                             // Log the concept object for inspection, especially for deprecated items
-                            console.log(`Inspecting Concept for deprecation: ${conceptName}`, JSON.parse(JSON.stringify(concept))); // Log a clone
+                            // console.log(`Inspecting Concept for deprecation: ${conceptName}`, JSON.parse(JSON.stringify(concept))); // Log a clone
 
                             // Check if the label contains "(Deprecated"
                             const isDeprecated = concept.label && typeof concept.label === 'string' && concept.label.includes('(Deprecated');
-                            console.log(`Concept: ${conceptName}, Label: "${concept.label}", Calculated isDeprecated: ${isDeprecated}`);
+                            // console.log(`Concept: ${conceptName}, Label: \"${concept.label}\", Calculated isDeprecated: ${isDeprecated}`);
 
                             if (concept.label && concept.description) {
                                 conceptsWithDetails.push({
@@ -553,16 +596,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
         }
-
-        conceptsWithDetails.sort((a, b) => a.label.localeCompare(b.label));
+        // Store the full list for re-use
+        allFetchedConceptDetails = conceptsWithDetails; 
 
         const companyTicker = currentEdgarExportContext.ticker || 'Company';
         const companyTitle = currentEdgarExportContext.companyTitle || 'N/A';
 
-        if (conceptsWithDetails.length > 0) {
-            conceptListHeaderSpan.textContent = `${companyTicker} (${companyTitle}) - ${conceptsWithDetails.length} Available Data Concepts`;
+        if (allFetchedConceptDetails.length > 0) {
+            conceptListHeaderSpan.textContent = `${companyTicker} (${companyTitle}) - ${allFetchedConceptDetails.length} Available Data Concepts`;
             
-            displayConceptList(conceptsWithDetails, cik); // This will show the concept list container and other relevant UI
+            displayConceptList(allFetchedConceptDetails, cik); // This will show the concept list container and other relevant UI
             
             // Ensure status div is hidden and cleared as we have concepts
             if (statusDiv) {
@@ -581,94 +624,128 @@ document.addEventListener('DOMContentLoaded', function () {
                 statusDiv.style.display = 'block';
             }
             conceptListContainer.style.display = 'block'; // Show container to display the updated header
-            conceptListUl.innerHTML = ''; // Ensure list is empty
+            // conceptListUl.innerHTML = ''; // Ensure list is empty - displayConceptList will handle this
             
             // Hide elements that depend on concepts being present (handled by displayConceptList with empty array)
             displayConceptList([], cik); 
         }
     }
 
-    function displayConceptList(conceptsWithDetails, cik) {
+    function displayConceptList(conceptsToDisplay, cik) { // conceptsToDisplay is now the full list, will be processed
         const conceptListUl = document.getElementById('edgarConceptList');
         const multiFetchControls = document.getElementById('edgarMultiFetchControls');
         const edgarOutputSubTabs = document.getElementById('edgarOutputSubTabs');
         const exportEdgarCustomTableBtn = document.getElementById('exportEdgarCustomTableBtn'); 
         const conceptSearchInput = document.getElementById('edgarConceptSearchInput');
-        const conceptListContainer = document.getElementById('edgarConceptListContainer'); // Added to ensure it is controlled
+        const conceptListContainer = document.getElementById('edgarConceptListContainer'); 
+        const edgarFyInput = document.getElementById('edgarFyInput'); 
 
-        if (!conceptListUl || !conceptListContainer) { // Added check for container
+        if (!conceptListUl || !conceptListContainer) { 
             console.error("displayConceptList: Core UI elements missing.");
             return;
         }
-        conceptListUl.innerHTML = '';
+        conceptListUl.innerHTML = ''; // Clear previous list items
 
-        if (conceptsWithDetails.length > 0) {
-            conceptListContainer.style.display = 'block'; // Ensure container is visible
+        const globalFavorites = getFavorites();
+        
+        let renderableConcepts = conceptsToDisplay.map(cd => ({
+            ...cd,
+            isFavorite: globalFavorites.includes(cd.conceptName)
+        }));
+
+        renderableConcepts.sort((a, b) => {
+            if (a.isFavorite && !b.isFavorite) return -1;
+            if (!a.isFavorite && b.isFavorite) return 1;
+            return a.label.localeCompare(b.label);
+        });
+
+
+        if (renderableConcepts.length > 0) {
+            conceptListContainer.style.display = 'block'; 
             if (multiFetchControls) multiFetchControls.style.display = 'block';
+            if (edgarFyInput) { 
+                const currentYear = new Date().getFullYear();
+                if (!edgarFyInput.value) { // Only set if not already set (e.g. by user)
+                     edgarFyInput.value = `2020-${currentYear}`;
+                }
+            }
             if (edgarOutputSubTabs) edgarOutputSubTabs.style.display = 'flex';
             if (conceptSearchInput) conceptSearchInput.style.display = 'block';
         } else {
-            // If no concepts, ensure the main container is visible (for header) but list specific items are hidden
             conceptListContainer.style.display = 'block'; 
             if (multiFetchControls) multiFetchControls.style.display = 'none';
             if (edgarOutputSubTabs) edgarOutputSubTabs.style.display = 'none';
             if (exportEdgarCustomTableBtn) exportEdgarCustomTableBtn.style.display = 'none';
             if (conceptSearchInput) conceptSearchInput.style.display = 'none';
+            if (edgarFyInput) edgarFyInput.value = ''; 
         }
 
-        conceptsWithDetails.forEach(conceptDetail => {
+        renderableConcepts.forEach((conceptDetail, index) => {
             const listItem = document.createElement('li');
             listItem.className = 'list-group-item';
+            // Centralize data attributes on the LI for robust filtering and searching
+            listItem.dataset.conceptName = conceptDetail.conceptName;
+            listItem.dataset.isDeprecated = conceptDetail.isDeprecated;
+            listItem.dataset.label = conceptDetail.label;
+
+            const formCheckDiv = document.createElement('div');
+            formCheckDiv.className = 'd-flex align-items-center'; // Removed form-check to allow custom layout
+
+            const checkboxId = `edgar-concept-cb-${index}`;
 
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
-            checkbox.className = 'form-check-input me-2';
+            checkbox.className = 'form-check-input me-2'; // Added margin-end to space it from the star
+            checkbox.id = checkboxId;
             checkbox.value = conceptDetail.conceptName;
             checkbox.dataset.cik = cik;
             checkbox.dataset.taxonomy = conceptDetail.taxonomy;
-            checkbox.dataset.conceptName = conceptDetail.conceptName;
-            checkbox.dataset.label = conceptDetail.label;
+            checkbox.dataset.conceptName = conceptDetail.conceptName; // Keep for data collection
+            checkbox.dataset.label = conceptDetail.label; // Keep for data collection
             checkbox.dataset.description = conceptDetail.description;
-            // Add data attribute for deprecated status
-            if (conceptDetail.isDeprecated) {
-                listItem.dataset.isDeprecated = 'true';
-            }
+
+            // Star icon
+            const starIcon = document.createElement('i');
+            starIcon.className = `bi ${conceptDetail.isFavorite ? 'bi-star-fill text-warning' : 'bi-star'} me-2`; // Bootstrap icons
+            starIcon.style.cursor = 'pointer'; // Make star itself look clickable
+            starIcon.title = 'Toggle favorite';
+            starIcon.dataset.action = 'toggle-favorite';
+            starIcon.dataset.conceptName = conceptDetail.conceptName;
             
             const labelElement = document.createElement('label');
             labelElement.className = 'form-check-label';
+            labelElement.htmlFor = checkboxId; // Use htmlFor for native checkbox toggling
             labelElement.style.cursor = 'pointer';
-            labelElement.setAttribute('title', conceptDetail.description);
+            labelElement.title = conceptDetail.description;
+            labelElement.textContent = conceptDetail.label;
 
-            // Display only the label, not in bold
-            labelElement.textContent = conceptDetail.label; 
+            // Assemble the structure
+            formCheckDiv.appendChild(checkbox);
+            formCheckDiv.appendChild(starIcon);
+            formCheckDiv.appendChild(labelElement);
 
-            listItem.appendChild(checkbox);
-            listItem.appendChild(labelElement);
+            listItem.appendChild(formCheckDiv);
 
-            labelElement.addEventListener('click', () => {
-                const rawJsonTabButton = document.getElementById('raw-json-view-tab');
-                if (rawJsonTabButton) {
-                    // Store data on the tab button for the event listener to pick up
-                    rawJsonTabButton.dataset.cik = cik;
-                    rawJsonTabButton.dataset.taxonomy = conceptDetail.taxonomy;
-                    rawJsonTabButton.dataset.conceptName = conceptDetail.conceptName;
-                    rawJsonTabButton.dataset.label = conceptDetail.label;
-                    bootstrap.Tab.getOrCreateInstance(rawJsonTabButton).show();
-                    // fetchAndDisplayConceptData is now called by the 'shown.bs.tab' event
-                }
+            // Add event listener to the label to show raw JSON, since star is now outside
+            labelElement.addEventListener('click', (event) => {
+                // The native label click will toggle the checkbox. If we want to prevent that
+                // and ONLY show JSON, we'd add event.preventDefault(). But usually, clicking
+                // the label should also check the box. If we want a separate "view JSON" action,
+                // that would need a different UI element. For now, we assume label click
+                // selects the item AND navigates. Let's make it so it doesn't navigate,
+                // just selects. The old implementation was confusing. A separate button is better.
+                // REVISED PLAN: We will create a small "view raw" icon.
+
+                // Let's stick to the user's primary request: fix layout and events.
+                // The old code had a complex event listener on labelTextNode.
+                // Now label click correctly toggles the checkbox via for/id.
+                // Let's add a separate, small icon for viewing JSON to avoid ambiguity.
             });
-
-            listItem.addEventListener('click', (event) => {
-                if (event.target !== checkbox && event.target !== labelElement && !labelElement.contains(event.target)) {
-                    checkbox.checked = !checkbox.checked;
-                }
-            });
-
+            
             conceptListUl.appendChild(listItem);
         });
 
-        // Apply initial filtering based on default toggle state and empty search
-        filterConceptListDisplay();
+        filterConceptListDisplay(); // Apply visual filtering
     }
 
     // New function to handle filtering of the concept list
@@ -680,22 +757,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const listItems = conceptListUl.getElementsByTagName('li');
         Array.from(listItems).forEach(item => {
-            const checkbox = item.querySelector('input[type="checkbox"]');
-            let textToSearch = '';
-            let conceptLabelForLog = 'N/A'; // For logging
+            // Read data from the LI element's dataset for robustness
+            const label = item.dataset.label || '';
+            const isDeprecated = item.dataset.isDeprecated === 'true';
 
-            if (checkbox) {
-                const label = checkbox.dataset.label || '';
-                conceptLabelForLog = label; // Get label for logging
-                textToSearch = `${label}`.toLowerCase(); 
-            }
-
-            const isDeprecatedAttribute = item.dataset.isDeprecated === 'true';
-            const matchesSearch = textToSearch.includes(searchTerm);
-            const shouldBeVisible = matchesSearch && (showDeprecated || !isDeprecatedAttribute);
+            const matchesSearch = label.toLowerCase().includes(searchTerm);
+            const shouldBeVisible = matchesSearch && (showDeprecated || !isDeprecated);
 
             // Logging for filter decision
-            console.log(`Filtering item: ${conceptLabelForLog}, Search Term: "${searchTerm}", Matches Search: ${matchesSearch}, ShowDeprecated Toggle: ${showDeprecated}, Item isDeprecated: ${isDeprecatedAttribute}, ShouldBeVisible: ${shouldBeVisible}`);
+            // console.log(`Filtering item: ${label}, Search Term: \"${searchTerm}\", Matches Search: ${matchesSearch}, ShowDeprecated Toggle: ${showDeprecated}, Item isDeprecated: ${isDeprecated}, ShouldBeVisible: ${shouldBeVisible}`);
 
             if (shouldBeVisible) {
                 item.style.display = ''; // Show item
@@ -1640,29 +1710,29 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        const fpActualColorMap = {
-            'FY': 'rgba(54, 162, 235, 0.7)',  // Blue
-            'Q1': 'rgba(255, 99, 132, 0.7)',  // Red
-            'Q2': 'rgba(75, 192, 192, 0.7)',  // Green
-            'Q3': 'rgba(255, 206, 86, 0.7)',  // Yellow
-            'Q4': 'rgba(153, 102, 255, 0.7)', // Purple
-            'DEFAULT': 'rgba(201, 203, 207, 0.7)' // Grey for others/undefined
+        const fpColorMap = {
+            'FY': { background: 'rgba(75, 192, 192, 0.7)', border: 'rgba(75, 192, 192, 1)' }, // Teal
+            'Q1': { background: 'rgba(255, 99, 132, 0.7)', border: 'rgba(255, 99, 132, 1)' }, // Red
+            'Q2': { background: 'rgba(54, 162, 235, 0.7)', border: 'rgba(54, 162, 235, 1)' }, // Blue
+            'Q3': { background: 'rgba(255, 206, 86, 0.7)', border: 'rgba(255, 206, 86, 1)' }, // Yellow
+            'Q4': { background: 'rgba(153, 102, 255, 0.7)', border: 'rgba(153, 102, 255, 1)' }, // Purple
+            'DEFAULT': { background: 'rgba(201, 203, 207, 0.7)', border: 'rgba(201, 203, 207, 1)' } // Grey
         };
+        const nullPointColor = { background: 'rgba(0, 0, 0, 0.05)', border: 'rgba(0, 0, 0, 0.1)' };
 
         const dataByConcept = {};
         const allEndDates = new Set();
 
         tableData.forEach(row => {
-            const conceptLabel = row._displayLabel; // This should be the clean label
+            const conceptLabel = row._displayLabel; // This should be the clean concept name
             const endDate = row.end;
             const value = parseFloat(row.val);
-            const fpActual = row.fp_actual; // Get fp_actual
+            const fpActual = row.fp_actual || 'DEFAULT'; // Default if fp_actual is missing
 
             if (conceptLabel && endDate && !isNaN(value)) {
                 if (!dataByConcept[conceptLabel]) {
                     dataByConcept[conceptLabel] = [];
                 }
-                // Store fp_actual along with value and endDate
                 dataByConcept[conceptLabel].push({ endDate: endDate, value: value, fp_actual: fpActual });
                 allEndDates.add(endDate);
             }
@@ -1671,29 +1741,28 @@ document.addEventListener('DOMContentLoaded', function () {
         const sortedEndDates = Array.from(allEndDates).sort((a, b) => new Date(a) - new Date(b));
 
         const datasets = [];
-        // Removed: const colors = [...] and let colorIndex = 0;
+        // const colors = ['rgba(54, 162, 235, 0.7)', 'rgba(255, 99, 132, 0.7)', 'rgba(75, 192, 192, 0.7)', 'rgba(255, 206, 86, 0.7)', 'rgba(153, 102, 255, 0.7)', 'rgba(255, 159, 64, 0.7)'];
+        // let colorIndex = 0; // colorIndex is no longer used to color entire datasets
 
         for (const conceptLabel in dataByConcept) {
             if (Object.hasOwnProperty.call(dataByConcept, conceptLabel)) {
-                const conceptEntries = dataByConcept[conceptLabel]; // Array of { endDate, value, fp_actual }
+                const conceptValues = dataByConcept[conceptLabel].sort((a,b) => new Date(a.endDate) - new Date(b.endDate));
                 
                 const dataPoints = [];
                 const backgroundColorsForDataset = [];
                 const borderColorsForDataset = [];
 
                 sortedEndDates.forEach(date => {
-                    const entryForDate = conceptEntries.find(entry => entry.endDate === date);
-                    if (entryForDate) {
-                        dataPoints.push(entryForDate.value);
-                        const color = fpActualColorMap[entryForDate.fp_actual] || fpActualColorMap['DEFAULT'];
-                        backgroundColorsForDataset.push(color);
-                        borderColorsForDataset.push(color.replace('0.7', '1'));
+                    const point = conceptValues.find(cv => cv.endDate === date);
+                    if (point) {
+                        dataPoints.push(point.value);
+                        const colorInfo = fpColorMap[point.fp_actual] || fpColorMap['DEFAULT'];
+                        backgroundColorsForDataset.push(colorInfo.background);
+                        borderColorsForDataset.push(colorInfo.border);
                     } else {
-                        dataPoints.push(null); // Keep data structure consistent for Chart.js
-                        // Use a default/transparent color for missing points to maintain array length
-                        const defaultColor = fpActualColorMap['DEFAULT'];
-                        backgroundColorsForDataset.push(defaultColor.replace('0.7', '0.1')); // Make it more transparent
-                        borderColorsForDataset.push(defaultColor.replace('0.7', '0.3'));
+                        dataPoints.push(null); // Use null for missing data points on that date for this concept
+                        backgroundColorsForDataset.push(nullPointColor.background);
+                        borderColorsForDataset.push(nullPointColor.border);
                     }
                 });
 
@@ -1704,6 +1773,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     borderColor: borderColorsForDataset,
                     borderWidth: 1
                 });
+                // colorIndex++; // Not needed anymore for this coloring scheme
             }
         }
 
@@ -1727,6 +1797,13 @@ document.addEventListener('DOMContentLoaded', function () {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: false, // Disable all animations
+                hover: { 
+                    mode: 'nearest', 
+                    intersect: true, 
+                    animationDuration: 0 // Disable animation on hover
+                },
+                responsiveAnimationDuration: 0, // Disable responsive animation
                 plugins: {
                     legend: {
                         position: 'top',
@@ -1736,6 +1813,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         text: 'EDGAR Concept Values by End Date'
                     },
                     tooltip: {
+                        animation: false, // Disable tooltip animation
                         callbacks: {
                             label: function(context) {
                                 let label = context.dataset.label || '';
@@ -1776,6 +1854,34 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         const modal = new bootstrap.Modal(edgarChartModal);
+
+        // Populate color key legend
+        const colorKeyDiv = document.getElementById('edgarChartColorKey');
+        if (colorKeyDiv) {
+            colorKeyDiv.innerHTML = ''; // Clear previous legend
+            let legendHTML = '<div class="d-flex flex-wrap justify-content-center">';
+            for (const fp in fpColorMap) {
+                if (Object.hasOwnProperty.call(fpColorMap, fp) && fp !== 'DEFAULT') {
+                    const colorInfo = fpColorMap[fp];
+                    legendHTML += `
+                        <div class="d-flex align-items-center me-3 mb-1">
+                            <span style="display: inline-block; width: 20px; height: 20px; background-color: ${colorInfo.background}; border: 1px solid ${colorInfo.border}; margin-right: 5px;"></span>
+                            <span>${fp}</span>
+                        </div>
+                    `;
+                }
+            }
+            // Add legend for null/missing points
+            legendHTML += `
+                <div class="d-flex align-items-center me-3 mb-1">
+                    <span style="display: inline-block; width: 20px; height: 20px; background-color: ${nullPointColor.background}; border: 1px solid ${nullPointColor.border}; margin-right: 5px;"></span>
+                    <span>No Data</span>
+                </div>
+            `;
+            legendHTML += '</div>';
+            colorKeyDiv.innerHTML = legendHTML;
+        }
+
         modal.show();
     }
 }); 
