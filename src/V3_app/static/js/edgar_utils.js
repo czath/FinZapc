@@ -55,7 +55,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Helper function to escape regex special characters
     function escapeRegex(string) {
-        return string.replace(/[-\/\\\\^$*+?.()|[\\]{}]/g, '\\\\$&');
+        // The previous replacement string had too many backslashes. It should be '\\$&'.
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
     // Attempt to attach export button listener early
@@ -242,7 +243,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (statusDivError) {
                         statusDivError.textContent = 'Cannot apply cleanup: Previous data load resulted in an error or no data.';
                         statusDivError.className = 'alert alert-warning mt-3';
-                        statusDivError.style.display = 'block';
+                        statusDiv.style.display = 'block';
                     }
                     return; 
                 }
@@ -286,7 +287,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (statusDivError) {
                         statusDivError.textContent = 'Cannot apply 10-Q Filler: Previous data load resulted in an error or no data.';
                         statusDivError.className = 'alert alert-warning mt-3';
-                        statusDivError.style.display = 'block';
+                        statusDiv.style.display = 'block';
                     }
                     return;
                 }
@@ -1149,14 +1150,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 const exportButtonElement = document.createElement('button');
                 exportButtonElement.id = 'exportEdgarCustomTableBtn';
                 exportButtonElement.className = 'btn btn-sm btn-success ms-2'; 
-                exportButtonElement.textContent = 'Export Table to XLS';
+                exportButtonElement.innerHTML = '<i class="bi bi-file-earmark-excel"></i>';
+                exportButtonElement.title = 'Export Table to XLS';
                 exportButtonElement.style.display = 'inline-block';
                 exportButtonElement.addEventListener('click', handleExportEdgarCustomTable);
 
                 const chartButtonElement = document.createElement('button');
                 chartButtonElement.id = 'showEdgarChartBtn';
                 chartButtonElement.className = 'btn btn-sm btn-info ms-2';
-                chartButtonElement.textContent = 'Barchart';
+                chartButtonElement.innerHTML = '<i class="bi bi-bar-chart-line"></i>';
+                chartButtonElement.title = 'Barchart';
                 chartButtonElement.style.display = 'inline-block'; // Show when table is ready
                 chartButtonElement.addEventListener('click', displayEdgarBarChart);
 
