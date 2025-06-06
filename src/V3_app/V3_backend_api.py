@@ -379,7 +379,7 @@ def process_analytics_data_cache_in_process(db_url: str) -> bool:
         async def do_refresh():
             # No progress callback passed from here as it's hard to share across processes directly
             await processor.force_refresh_data_cache(progress_callback=None) 
-            await processor.close_http_client()
+            # await processor.close_http_client()
 
         asyncio.run(do_refresh()) # Runs the async function in a new event loop in this process
         process_logger.info("ProcessPoolWorker (DataCache): force_refresh_data_cache completed.")
@@ -406,7 +406,7 @@ def process_analytics_metadata_cache_in_process(db_url: str) -> bool:
         
         async def do_refresh():
             await processor.force_refresh_metadata_cache(progress_callback=None)
-            await processor.close_http_client()
+            # await processor.close_http_client()
 
         asyncio.run(do_refresh())
         process_logger.info("ProcessPoolWorker (MetadataCache): force_refresh_metadata_cache completed.")
