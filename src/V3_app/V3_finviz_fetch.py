@@ -5,6 +5,11 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List, Callable
 import asyncio
 import os
+import httpx
+
+from .V3_database import SQLiteRepository
+from .V3_models import TickerListPayload
+from .services.notification_service import dispatch_notification
 
 # Configure logging - SET TO DEBUG
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -239,57 +244,86 @@ def serialize_raw_data(data: Dict[str, Any]) -> str:
 # --- END NEW Helper ---
 
 async def update_screener_from_finviz(repository):
-    """Updates the screener table with data fetched from finviz_raw."""
-    logger.info("Starting screener update process from Finviz raw data...")
+    logger.info("Starting to update screener table from latest Finviz raw data...")
     try:
-        # 1. Get all raw data
-        all_raw_data = await repository.get_all_finviz_raw_data()
-        if not all_raw_data:
-            logger.warning("No data found in finviz_raw table. Skipping screener update.")
-            return
+        # Fetch all raw data and all existing screener data at the beginning
+        all_finviz_data = await repository.get_all_finviz_raw_data()
+        all_screener_data = await repository.get_all_screened_tickers()
         
-        # 2. Parse and update each ticker in screener
-        update_count = 0
-        for raw_entry in all_raw_data:
-            ticker = raw_entry['ticker']
-            raw_data_str = raw_entry.get('raw_data', '')
-            
-            if not raw_data_str:
-                logger.debug(f"Skipping ticker {ticker} due to empty raw_data.")
-                continue
-                
-            parsed_data = parse_raw_data(raw_data_str)
-            if not parsed_data:
-                logger.debug(f"Skipping ticker {ticker} as parsed_data is empty.")
-                continue
-                
-            # Prepare updates for the screener table
-            # Example: update 'sector', 'industry', 'price' if they exist in parsed_data
-            updates = {}
-            if 'Sector' in parsed_data:
-                updates['sector'] = parsed_data['Sector']
-            if 'Industry' in parsed_data:
-                updates['industry'] = parsed_data['Industry']
-            if 'Price' in parsed_data:
-                updates['price'] = parsed_data['Price']
-            # Add more fields as needed
-            
-            if updates:
-                try:
-                    # This method needs to exist in SQLiteRepository
-                    await repository.update_screener_multi_fields(ticker, updates) 
-                    update_count += 1
-                    logger.debug(f"Successfully updated screener for {ticker} with fields: {list(updates.keys())}")
-                except Exception as e:
-                    logger.error(f"Error updating screener for {ticker}: {e}", exc_info=False) # Keep log concise
-            else:
-                logger.debug(f"No relevant fields found in parsed_data for {ticker} to update screener.")
+        # Create a lookup map for efficient access to screener data
+        screener_data_map = {item['ticker']: item for item in all_screener_data}
 
-        logger.info(f"Screener update process completed. Updated {update_count} tickers.")
+        updated_count = 0
+        skipped_count = 0
+        for raw_entry in all_finviz_data:
+            ticker = raw_entry.get('ticker')
+            raw_data_str = raw_entry.get('raw_data')
+
+            if not ticker or not raw_data_str:
+                continue
+
+            parsed_data = parse_raw_data(raw_data_str)
+
+            # --- START: Company Name Sanity Check ---
+            # Use the in-memory map instead of a new DB call
+            screener_item = screener_data_map.get(ticker)
+            if not screener_item:
+                logger.warning(f"Finviz update: Ticker '{ticker}' found in finviz_raw but not in screener table. Skipping.")
+                continue
+
+            existing_company_name = screener_item.get('Company')
+            new_company_name_from_finviz = parsed_data.get('Name')
+
+            if existing_company_name and new_company_name_from_finviz:
+                # Normalize by lowercasing and taking the first word. This avoids issues with "Inc." vs "Inc" etc.
+                # but is strong enough to catch "Hellenic" vs "H2O".
+                existing_key_part = existing_company_name.split(' ')[0].lower()
+                new_key_part = new_company_name_from_finviz.split(' ')[0].lower()
+                
+                if existing_key_part != new_key_part:
+                    logger.warning(
+                        f"Finviz update SKIPPED for ticker '{ticker}' due to potential company mismatch. "
+                        f"DB name starts with '{existing_key_part}', Finviz name with '{new_key_part}'."
+                    )
+                    skipped_count += 1
+                    continue
+            # --- END: Company Name Sanity Check ---
+            
+            updates = {}
+            if 'Company' in parsed_data and parsed_data['Company']:
+                updates['Company'] = parsed_data['Company']
+            if 'Sector' in parsed_data and parsed_data['Sector']:
+                updates['sector'] = parsed_data['Sector']
+            if 'Industry' in parsed_data and parsed_data['Industry']:
+                updates['industry'] = parsed_data['Industry']
+
+            if 'Beta' in parsed_data and parsed_data['Beta']:
+                numeric_beta = convert_to_numeric(parsed_data['Beta'])
+                if isinstance(numeric_beta, (int, float)):
+                    updates['beta'] = numeric_beta
+
+            if 'ATR (14)' in parsed_data and parsed_data['ATR (14)']:
+                numeric_atr = convert_to_numeric(parsed_data['ATR (14)'])
+                if isinstance(numeric_atr, (int, float)):
+                    updates['atr'] = numeric_atr
+
+            if 'Price' in parsed_data and parsed_data['Price']:
+                numeric_price = convert_to_numeric(parsed_data['Price'])
+                if isinstance(numeric_price, (int, float)):
+                    updates['price'] = numeric_price
+
+            if updates:
+                for field, value in updates.items():
+                    await repository.update_screener_ticker_details(ticker, field, value)
+                updated_count += 1
+        
+        summary_message = f"Finviz update to screener complete. Updated: {updated_count} tickers, Skipped: {skipped_count} due to mismatch."
+        logger.info(summary_message)
+        await dispatch_notification(db_repo=repository, task_id='scheduled_finviz_update_from_raw', message=summary_message)
 
     except Exception as e:
-        logger.error(f"Error during screener update from Finviz: {e}", exc_info=True)
-
+        logger.error(f"Error updating screener from Finviz raw data: {e}", exc_info=True)
+        await dispatch_notification(db_repo=repository, task_id='scheduled_finviz_update_from_raw', message=f"Finviz update to screener failed: {e}")
 
 # Fetch and store data for a list of tickers (used by analytics pipe)
 async def fetch_and_store_finviz_data(repository): # Keep existing for scheduled job compatibility for now
@@ -317,11 +351,11 @@ async def fetch_and_store_finviz_data(repository): # Keep existing for scheduled
             if stock_data:
                 raw_data_str = serialize_raw_data(stock_data)
                 try:
-                    await repository.save_or_update_analytics_raw_data(ticker, 'finviz', raw_data_str)
+                    await repository.save_or_update_finviz_raw_data(ticker=ticker, raw_data=raw_data_str)
                     successful_count += 1
                     logger.debug(f"Successfully fetched and stored Finviz data for {ticker}")
                 except Exception as e_save:
-                    logger.error(f"Error saving Finviz data for {ticker} to analytics_raw: {e_save}")
+                    logger.error(f"Error saving Finviz data for {ticker} to finviz_raw: {e_save}")
                     failed_count += 1
                     errors_list.append({"ticker": ticker, "error": str(e_save)})
             else:
