@@ -1356,9 +1356,10 @@ def create_app():
                 from .yahoo_repository import YahooDataRepository
             
                 yahoo_repo = YahooDataRepository(repository.database_url)
-                tickers = await yahoo_repo.get_all_master_tickers()
+                tickers = await yahoo_repo.yahoo_incremental_refresh()
+                
                 if not tickers:
-                    logger.warning("No master tickers found for Yahoo scheduled job.")
+                    logger.warning("No tickers found in the database for the scheduled Yahoo job. Skipping.")
                     # fetch_successful remains False, so last_run won't be updated.
                     return
             

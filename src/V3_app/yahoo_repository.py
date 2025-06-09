@@ -622,6 +622,25 @@ class YahooDataRepository:
         records = await self.get_ticker_masters_by_criteria()
         return [rec['ticker'] for rec in records if 'ticker' in rec and rec['ticker']]
 
+    async def yahoo_incremental_refresh(self, limit: int = 200) -> list[str]:
+        """
+        Fetches a limited number of tickers that were least recently updated.
+        
+        Args:
+            limit (int): The maximum number of tickers to return. Defaults to 200.
+
+        Returns:
+            list[str]: A list of ticker symbols.
+        """
+        async with self.async_session_factory() as session:
+            query = (
+                select(YahooTickerMasterModel.ticker)
+                .order_by(YahooTickerMasterModel.update_last_full.asc())
+                .limit(limit)
+            )
+            result = await session.execute(query)
+            return result.scalars().all()
+
     def _normalize_db_type(self, db_type: str) -> str:
         """Normalize SQLAlchemy type string to 'numeric', 'text', 'boolean', 'date', or 'unknown'."""
         t = db_type.lower()
