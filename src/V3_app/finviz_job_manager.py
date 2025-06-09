@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional, Callable
 from .V3_database import SQLiteRepository 
 from .V3_models import TickerListPayload, JobDetailsResponse # Using the models file
 from .V3_finviz_fetch import fetch_and_store_analytics_finviz # Import the refactored Finviz function
+from .services.notification_service import dispatch_notification
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,7 @@ async def _run_finviz_mass_fetch_background_internal(tickers: List[str], reposit
     }
     logger.info(f"[Finviz BG Task - {FINVIZ_MASS_FETCH_JOB_ID} @ {job_end_datetime.isoformat()}] COMPLETED. Final status: {final_status_str}. Full Summary: {detailed_run_summary}")
     await _update_job_status_internal(final_updates, repository)
+    await dispatch_notification(db_repo=repository, task_id='finviz_mass_fetch', message=detailed_run_summary)
 
 async def trigger_finviz_mass_fetch_job(
     request_payload: TickerListPayload, # Original payload

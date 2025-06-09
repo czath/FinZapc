@@ -148,17 +148,14 @@ async def trigger_test_telegram_notification(db: SQLiteRepository = Depends(get_
         logger.error(f"[API Telegram Test] Unexpected error in trigger_test_telegram_notification route: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred while trying to send a test Telegram notification: {str(e)}")
 
-# --- Task-Specific Notification Settings ---
+# --- Task-Specific Notification Settings (Revised) ---
 
 @router.get("/task_settings", response_model=Dict[str, bool])
 async def get_task_notification_settings(db: SQLiteRepository = Depends(get_repository)):
-    """Retrieve task-specific notification settings."""
+    """Retrieve all task-specific notification settings directly."""
     try:
-        config = await db.get_notification_settings("task_notifications")
-        if config and config.get("settings"):
-            return config["settings"]
-        # Return empty dict if not found, which is a valid state (all off)
-        return {}
+        settings = await db.get_all_task_notification_settings()
+        return settings
     except Exception as e:
         logger.error(f"Error retrieving task_notification_settings: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to retrieve task notification settings.")
@@ -168,23 +165,11 @@ async def save_task_notification_setting(
     payload: TaskNotificationPayload,
     db: SQLiteRepository = Depends(get_repository)
 ):
-    """Save a single task-specific notification setting."""
+    """Save a single task-specific notification setting directly."""
     try:
-        # Get the current settings object, or an empty one if it doesn't exist
-        current_config = await db.get_notification_settings("task_notifications")
-        
-        current_settings = {}
-        if current_config and current_config.get("settings"):
-            current_settings = current_config["settings"]
-
-        # Update the specific task's setting
-        current_settings[payload.task_id] = payload.is_active
-
-        # Save the entire settings object back. The service is considered "active" as a container.
-        await db.save_notification_settings(
-            service_name="task_notifications",
-            settings=current_settings,
-            is_active=True
+        await db.save_task_notification_setting(
+            task_id=payload.task_id,
+            is_active=payload.is_active
         )
         return {"status": "success", "message": f"Setting for '{payload.task_id}' updated."}
     except Exception as e:

@@ -1857,6 +1857,61 @@ class SQLiteRepository:
             raise # Re-raise to indicate failure
     # --- END NOTIFICATION SETTINGS METHODS ---
 
+    # --- START TASK NOTIFICATION SETTINGS METHODS (REVISED) ---
+    async def save_task_notification_setting(self, task_id: str, is_active: bool) -> None:
+        """Saves or updates a notification setting for a specific task within the 'task_notifications' JSON blob."""
+        service_name = "task_notifications"
+        logger.info(f"[DB Task Notifications] Saving setting for task: {task_id}, is_active: {is_active}")
+        try:
+            # 1. Get the current settings object, or an empty one if it doesn't exist.
+            current_config = await self.get_notification_settings(service_name)
+            
+            current_settings = {}
+            if current_config and current_config.get("settings"):
+                current_settings = current_config["settings"]
+
+            # 2. Update the specific task's setting in the dictionary.
+            current_settings[task_id] = is_active
+
+            # 3. Save the entire settings object back. The service is considered "active" as a container.
+            await self.save_notification_settings(
+                service_name=service_name,
+                settings=current_settings,
+                is_active=True  # The container setting should always be active.
+            )
+            logger.info(f"[DB Task Notifications] Successfully saved settings for task '{task_id}'.")
+        except Exception as e:
+            logger.error(f"[DB Task Notifications] Error saving setting for {task_id}: {e}", exc_info=True)
+            raise
+
+    async def get_all_task_notification_settings(self) -> Dict[str, bool]:
+        """Retrieves all task notification settings from the 'task_notifications' JSON blob."""
+        service_name = "task_notifications"
+        logger.info("[DB Task Notifications] Getting all task settings.")
+        try:
+            config = await self.get_notification_settings(service_name)
+            if config and config.get("settings"):
+                # Ensure all values are boolean, handling potential string storage from JSON
+                settings = {k: bool(v) for k, v in config["settings"].items()}
+                return settings
+            return {}  # Return empty dict if not found, which is a valid state (all off)
+        except Exception as e:
+            logger.error(f"[DB Task Notifications] Error getting all task settings: {e}", exc_info=True)
+            return {}
+
+    async def get_task_notification_setting(self, task_id: str) -> bool:
+        """Retrieves the is_active status for a specific task notification from the 'task_notifications' JSON blob."""
+        logger.debug(f"[DB Task Notifications] Getting setting for task: {task_id}")
+        try:
+            all_settings = await self.get_all_task_notification_settings()
+            is_active = all_settings.get(task_id, False) # Safely default to False if task_id not in dict
+            logger.debug(f"[DB Task Notifications] Setting for '{task_id}' is '{is_active}'.")
+            return is_active
+        except Exception as e:
+            logger.error(f"[DB Task Notifications] Error getting setting for {task_id}: {e}", exc_info=True)
+            return False # Default to False on any error for safety
+    # --- END TASK NOTIFICATION SETTINGS METHODS (REVISED) ---
+
 # --- Database Initialization and Utility Functions ---
 async def get_exchange_rates(session):
     try:

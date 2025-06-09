@@ -2,8 +2,49 @@ import httpx
 import logging
 from typing import Optional
 from datetime import datetime, timezone
+from ..V3_database import SQLiteRepository
 
 logger = logging.getLogger(__name__)
+
+async def dispatch_notification(db_repo: SQLiteRepository, task_id: str, message: str) -> bool:
+    """
+    Central dispatcher for sending notifications.
+    Checks if the task and the notification service are active before sending.
+    """
+    try:
+        # 1. Check if the specific task is enabled for notifications
+        task_is_active = await db_repo.get_task_notification_setting(task_id)
+        if not task_is_active:
+            logger.info(f"[Dispatcher] Notifications for task '{task_id}' are disabled. Skipping.")
+            return False
+
+        # 2. Check for active notification services (starting with Telegram)
+        # --- Telegram Check ---
+        telegram_config = await db_repo.get_notification_settings("telegram")
+        if telegram_config and telegram_config.get("is_active"):
+            settings = telegram_config.get("settings")
+            if settings:
+                bot_token = settings.get("bot_token")
+                chat_id = settings.get("chat_id")
+                if bot_token and chat_id:
+                    logger.info(f"[Dispatcher] Task '{task_id}' is active and Telegram is configured. Sending notification.")
+                    # Prepend task_id to the message for clarity
+                    full_message = f"*{task_id}*\n\n{message}"
+                    await send_telegram_message(token=bot_token, chat_id=chat_id, message_text=full_message)
+                    return True # Sent successfully
+                else:
+                    logger.warning("[Dispatcher] Telegram service is active, but bot_token or chat_id is missing.")
+            else:
+                logger.warning("[Dispatcher] Telegram service is active, but settings are missing.")
+        
+        # --- (Future) Email Check would go here ---
+
+        logger.info(f"[Dispatcher] Task '{task_id}' is active, but no active and configured notification services found.")
+        return False
+
+    except Exception as e:
+        logger.error(f"[Dispatcher] Unexpected error processing notification for task '{task_id}': {e}", exc_info=True)
+        return False
 
 async def send_telegram_message(token: str, chat_id: str, message_text: str) -> bool:
     """

@@ -12,6 +12,7 @@ from .V3_database import SQLiteRepository
 from . import V3_finviz_fetch
 from .V3_finviz_fetch import parse_raw_data
 from . import V3_analytics
+from .services.notification_service import dispatch_notification
 
 # --- ADD IMPORTS for direct Yahoo data handling ---
 from .V3_yahoo_fetch import YahooDataRepository
@@ -696,73 +697,44 @@ class AnalyticsDataProcessor:
     async def process_data_for_analytics(self, data_source_selection: str, progress_callback=None):
         # This method is now less relevant as primary entry point for cache, but kept for potential direct use.
         # It calls _prepare_analytics_components which now has improved progress reporting.
-        logger.info(f"ADP process_data_for_analytics called with: {data_source_selection}. This method usually defers to cache now.")
-        
-        # Translate data_source_selection to what _prepare_analytics_components expects
-        # For simplicity, we'll always try to prepare both sources and let _prepare handle it,
-        # then filter if necessary, though the cache design makes this less direct.
-        # This method might need rethinking if used directly for non-cached scenarios.
-        # For now, let's assume it's primarily for generating data that would then be cached.
-        
-        # If this method is called directly, it should likely call _prepare for "both" and then metadata.
-        
-        # If this method is called directly, it should likely call _prepare_analytics_components.
-        # The data_source_selection logic here was for on-the-fly, which is now mostly deprecated by cache.
-        # Let's make it simpler: it just calls _prepare for "both" and then metadata.
-        
-        if progress_callback: 
-            if asyncio.iscoroutinefunction(progress_callback):
-                await progress_callback({"task_name":"process_data_for_analytics", "status":"started", "progress":0, "message":f"Processing for {data_source_selection}"})
-            else:
-                progress_callback({"task_name":"process_data_for_analytics", "status":"started", "progress":0, "message":f"Processing for {data_source_selection}"})
+        logger.info(f"ADP process_data_for_analytics called with source: {data_source_selection}")
+        error: Optional[str] = None
+        try:
+            # This is a simplified wrapper. The core logic is in _prepare_analytics_components.
+            # We assume it handles progress reporting internally.
+            original_data, field_metadata_dict = await self._prepare_analytics_components(
+                create_original_data=True,
+                create_metadata=True,
+                progress_callback=progress_callback
+            )
+            
+            message = f"Data preparation complete via _prepare_analytics_components. Records: {len(original_data if original_data else [])}"
+            return original_data if original_data is not None else [], field_metadata_dict
 
-        # Call the core preparation method, requesting both data and metadata
-        original_data, field_metadata_dict = await self._prepare_analytics_components(
-            create_original_data=True,
-            create_metadata=True,
-            progress_callback=progress_callback
-        )
-        
-        message = f"Data preparation complete via _prepare_analytics_components. Records: {len(original_data if original_data else [])}"
-
-        if progress_callback:
-            final_status = "completed" if original_data is not None else "failed"
-            if asyncio.iscoroutinefunction(progress_callback):
-                await progress_callback({"task_name":"process_data_for_analytics", "status":final_status, "progress":100, "message":message, "count": len(original_data if original_data else [])})
-            else:
-                 progress_callback({"task_name":"process_data_for_analytics", "status":final_status, "progress":100, "message":message, "count": len(original_data if original_data else [])})
-        
-        final_meta_data = {
-            "source_selection": "both_processed_internally", # Indicate it used internal full processing
-            "field_metadata": field_metadata_dict if field_metadata_dict else {},
-        }
-
-        logger.info(f"ADP process_data_for_analytics returning. Message: {message}")
-        return original_data if original_data is not None else [], final_meta_data
-
+        except Exception as e:
+            logger.error(f"ADP: Error during process_data_for_analytics: {e}", exc_info=True)
+            error = str(e)
+            return None, None
 
     async def force_refresh_data_cache(self, progress_callback: Optional[Callable] = None) -> None:
-        logger.info("ADP: Forcing refresh of DATA cache...")
-        if progress_callback:
-            cb_payload = {"type":"status", "task_name":"force_refresh_data_cache", "status":"started", "progress":0, "message": "Starting data cache refresh..."}
-            if asyncio.iscoroutinefunction(progress_callback): await progress_callback(cb_payload)
-            else: progress_callback(cb_payload)
-        
+        logger.info("ADP: Starting data cache refresh process...")
+        error: Optional[str] = None # Initialize error to None
         try:
-            original_data, _ = await self._prepare_analytics_components(
+            # Use the internal helper that has progress reporting built-in
+            analytics_data, _ = await self._prepare_analytics_components(
                 create_original_data=True, 
                 create_metadata=False, 
                 progress_callback=progress_callback
             )
 
-            if original_data is not None:
-                logger.info(f"ADP: Data generated for cache ({len(original_data)} records). Saving to DB...")
+            if analytics_data is not None:
+                logger.info(f"ADP: Data generated for cache ({len(analytics_data)} records). Saving to DB...")
                 if progress_callback:
-                    cb_payload_saving = {"type":"status", "task_name":"force_refresh_data_cache", "status":"saving_data", "progress":90, "message": f"Saving {len(original_data)} records to data cache..."}
+                    cb_payload_saving = {"type":"status", "task_name":"force_refresh_data_cache", "status":"saving_data", "progress":90, "message": f"Saving {len(analytics_data)} records to data cache..."}
                     if asyncio.iscoroutinefunction(progress_callback): await progress_callback(cb_payload_saving)
                     else: progress_callback(cb_payload_saving)
 
-                data_json = await run_in_threadpool(json.dumps, original_data, default=str) 
+                data_json = await run_in_threadpool(json.dumps, analytics_data, default=str) 
                 await self.db_repository.update_cached_analytics_data(data_json=data_json)
                 logger.info("ADP: Data cache updated successfully.")
                 if progress_callback:
@@ -778,18 +750,27 @@ class AnalyticsDataProcessor:
         
         except Exception as e:
             logger.error(f"ADP: Error during data cache refresh: {e}", exc_info=True)
+            error = str(e)
             if progress_callback:
                 cb_payload_err = {"type":"error", "task_name":"force_refresh_data_cache", "status":"failed", "progress":100, "message": f"Data cache refresh failed: {e}"}
                 if asyncio.iscoroutinefunction(progress_callback): await progress_callback(cb_payload_err)
                 else: progress_callback(cb_payload_err)
+        finally:
+            logger.info("ADP: Data cache refresh process finished.")
+            if progress_callback:
+                await progress_callback({"status": "finished", "progress": 100, "message": "Data cache refresh complete."})
+            
+            summary_log = "Analytics data cache refreshed successfully." if error is None else f"Analytics data cache refresh failed: {error}"
+            await dispatch_notification(db_repo=self.db_repository, task_id='scheduled_analytics_data_refresh', message=summary_log)
 
     async def force_refresh_metadata_cache(self, progress_callback: Optional[Callable] = None) -> None:
-        logger.info("ADP: Forcing refresh of METADATA cache...")
-        is_async_cb = asyncio.iscoroutinefunction(progress_callback)
+        logger.info("ADP: Starting metadata cache refresh process...")
+        error: Optional[str] = None # Initialize error to None
+
         async def _send_progress(status_str, prog_val, msg_str):
             if progress_callback:
-                payload = {"type":"status", "task_name":"force_refresh_metadata_cache", "status":status_str, "progress":prog_val, "message":msg_str}
-                if is_async_cb: await progress_callback(payload)
+                payload = {"status": status_str, "progress": prog_val, "message": msg_str}
+                if asyncio.iscoroutinefunction(progress_callback): await progress_callback(payload)
                 else: progress_callback(payload)
 
         await _send_progress("started", 0, "Starting metadata cache refresh...")
@@ -857,7 +838,16 @@ class AnalyticsDataProcessor:
 
         except Exception as e:
             logger.error(f"ADP: Error during metadata cache refresh: {e}", exc_info=True)
+            error = str(e)
             await _send_progress("failed", 100, f"Metadata cache refresh failed: {e}")
+
+        finally:
+            logger.info("ADP: Metadata cache refresh process finished.")
+            if progress_callback:
+                await _send_progress("finished", 100, "Metadata cache refresh complete.")
+
+            summary_log = "Analytics metadata cache refreshed successfully." if error is None else f"Analytics metadata cache refresh failed: {error}"
+            await dispatch_notification(db_repo=self.db_repository, task_id='scheduled_analytics_metadata_refresh', message=summary_log)
 
 # Example usage (for testing, would not be here in production)
 # async def example_progress_reporter(status_update: Dict[str, Any]):

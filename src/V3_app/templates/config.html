@@ -399,49 +399,33 @@
 
             <!-- Notifications Pane -->
             <div class="tab-pane fade" id="notifications-pane" role="tabpanel" aria-labelledby="notifications-tab" tabindex="0">
+                
+                <!-- Sub-tab navigation for Notifications -->
+                <ul class="nav nav-pills mb-3" id="notificationsSubTab" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="notify-services-tab" data-bs-toggle="tab" data-bs-target="#notify-services-pane" type="button" role="tab" aria-controls="notify-services-pane" aria-selected="true">Services</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="notify-tasks-tab" data-bs-toggle="tab" data-bs-target="#notify-tasks-pane" type="button" role="tab" aria-controls="notify-tasks-pane" aria-selected="false">Task Alerts</button>
+                    </li>
+                </ul>
+
+                <!-- Sub-tab content -->
+                <div class="tab-content" id="notificationsSubTabContent">
+                    
+                    <!-- Services Pane -->
+                    <div class="tab-pane fade show active" id="notify-services-pane" role="tabpanel" aria-labelledby="notify-services-tab" tabindex="0">
                 <!-- Email Notifications Card -->
                 <div class="card mb-4">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <span>Email Notifications</span>
                         <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" role="switch" id="email-notifications-active-switch" data-bs-toggle="tooltip" data-bs-placement="top" title="Enable/Disable Email Notifications">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="email-notifications-active-switch" data-bs-toggle="tooltip" data-bs-placement="top" title="Enable/Disable Email Notifications" disabled>
                             <label class="form-check-label" for="email-notifications-active-switch"><small>Active</small></label>
                         </div>
                     </div>
-                    <div class="card-body">
-                        <p class="card-text"><small>Configure SMTP settings for sending email notifications after scheduled tasks.</small></p>
-                        <form id="emailConfigForm">
-                            <div class="row mb-3">
-                                <div class="col-md-6">
-                                    <label for="smtpServer" class="form-label">SMTP Server</label>
-                                    <input type="text" class="form-control" id="smtpServer" name="smtp_server" placeholder="smtp.example.com">
-                                </div>
-                                <div class="col-md-6">
-                                    <label for="smtpPort" class="form-label">SMTP Port</label>
-                                    <input type="number" class="form-control" id="smtpPort" name="smtp_port" placeholder="587">
-                                </div>
-                            </div>
-                            <div class="row mb-3">
-                                <div class="col-md-6">
-                                    <label for="smtpUser" class="form-label">SMTP Username</label>
-                                    <input type="text" class="form-control" id="smtpUser" name="smtp_user" placeholder="your_email@example.com">
-                                </div>
-                                <div class="col-md-6">
-                                    <label for="smtpPassword" class="form-label">SMTP Password</label>
-                                    <input type="password" class="form-control" id="smtpPassword" name="smtp_password" placeholder="your_password">
-                                </div>
-                            </div>
-                            <div class="mb-3">
-                                <label for="senderEmail" class="form-label">Sender Email</label>
-                                <input type="email" class="form-control" id="senderEmail" name="sender_email" placeholder="notifications@example.com">
-                            </div>
-                            <div class="mb-3">
-                                <label for="recipientEmails" class="form-label">Recipient Email(s)</label>
-                                <textarea class="form-control" id="recipientEmails" name="recipient_emails" rows="2" placeholder="email1@example.com, email2@example.com"></textarea>
-                                <small class="text-muted">Comma-separated list of email addresses.</small>
-                            </div>
-                            <button type="submit" class="btn btn-primary">Save Email Settings</button>
-                        </form>
+                            <div class="card-body text-muted">
+                                <p class="card-text"><small>Email settings are not yet implemented.</small></p>
                     </div>
                 </div>
 
@@ -470,26 +454,23 @@
                         </form>
                     </div>
                 </div>
+                    </div> <!-- End Services Pane -->
 
-                <!-- Task-Specific Notifications Card -->
+                    <!-- Task Alerts Pane -->
+                    <div class="tab-pane fade" id="notify-tasks-pane" role="tabpanel" aria-labelledby="notify-tasks-tab" tabindex="0">
                 <div class="card mb-4">
                     <div class="card-header">
-                        <span>Task-Specific Notifications</span>
+                                <span>Task Completion Notifications</span>
                     </div>
                     <div class="card-body">
-                        <p class="card-text"><small>Enable or disable Telegram notifications for the completion of specific long-running tasks. General Telegram notifications must be active to receive these.</small></p>
-                        <ul class="list-group">
-                            <li class="list-group-item d-flex justify-content-between align-items-center">
-                                <span>Yahoo Data Fetch</span>
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input task-notification-toggle" type="checkbox" role="switch" id="task-notify-yahoo-data-fetch" data-task-id="yahoo_data_fetch" data-bs-toggle="tooltip" data-bs-placement="top" title="Enable/Disable notifications for the Yahoo Data Fetch task">
-                                    <label class="form-check-label" for="task-notify-yahoo-data-fetch"></label>
-                                </div>
-                            </li>
-                            <!-- More tasks can be added here in the future -->
+                                <p class="card-text"><small>Enable or disable notifications for the completion of specific background tasks. A notification service (like Telegram) must be active and configured to receive these alerts.</small></p>
+                                <ul class="list-group" id="task-notification-list">
+                                    <!-- JS will populate this list -->
                         </ul>
                     </div>
                 </div>
+                    </div> <!-- End Task Alerts Pane -->
+                </div> <!-- End Sub-tab content -->
             </div>
 
         </div> <!-- End Tab Content -->
@@ -583,6 +564,9 @@
 
             // Initialize DataTables
             initializeRulesTable();
+
+            // Populate Task Notification Toggles
+            populateTaskNotificationToggles();
 
             // --- Event Listeners using Delegation ---
             const schedulerPane = document.getElementById('scheduler-pane');
@@ -1329,7 +1313,7 @@
                     body: JSON.stringify(data)
                 });
                 const result = await response.json();
-                if (!response.ok) { throw new Error(result.detail || `Request failed: ${response.status}`); }
+                if (!response.ok) throw new Error(result.detail || `Request failed: ${response.status}`);
                 
                 showAlert(result.message || `Schedule updated for ${jobId}!`, 'success');
                 
@@ -1492,6 +1476,49 @@
         // --- END TELEGRAM NOTIFICATION FUNCTIONS ---
 
         // --- START TASK-SPECIFIC NOTIFICATION FUNCTIONS ---
+        
+        // NEW: Function to define tasks and populate the UI
+        function populateTaskNotificationToggles() {
+            const taskContainer = document.getElementById('task-notification-list');
+            if (!taskContainer) return;
+
+            // Define the list of tasks here
+            const taskInfo = [
+                { id: 'finviz_mass_fetch', name: 'Finviz Mass Fetch (User-Triggered)' },
+                { id: 'yahoo_mass_fetch', name: 'Yahoo Mass Fetch (User-Triggered)' },
+                { id: 'scheduled_ibkr_data', name: 'Scheduled IBKR Data Fetch' },
+                { id: 'scheduled_ibkr_snapshot', name: 'Scheduled IBKR Snapshot' },
+                { id: 'scheduled_finviz_data', name: 'Scheduled Finviz Data Fetch' },
+                { id: 'scheduled_yahoo_data', name: 'Scheduled Yahoo Data Fetch' },
+                { id: 'scheduled_analytics_data_refresh', name: 'Scheduled Analytics Data Refresh' },
+                { id: 'scheduled_analytics_metadata_refresh', name: 'Scheduled Analytics Metadata Refresh' }
+            ];
+
+            let content = '';
+            taskInfo.forEach(task => {
+                content += `
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span>${task.name}</span>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input task-notification-toggle" type="checkbox" role="switch" id="task-notify-${task.id}" data-task-id="${task.id}" data-bs-toggle="tooltip" data-bs-placement="left" title="Enable/Disable notifications for this task">
+                            <label class="form-check-label" for="task-notify-${task.id}"></label>
+                        </div>
+                    </li>
+                `;
+            });
+
+            taskContainer.innerHTML = content;
+            
+            // Re-initialize tooltips for the newly added elements
+            const newTooltipTriggerList = [].slice.call(taskContainer.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            newTooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+
+            // Load the settings for these new toggles
+            loadTaskNotificationSettings();
+        }
+
         async function loadTaskNotificationSettings() {
             try {
                 const response = await fetch('/api/notifications/task_settings');

@@ -57,6 +57,7 @@ from .V3_finviz_fetch import fetch_and_store_finviz_data, update_screener_from_f
 from .V3_finviz_fetch import fetch_and_store_analytics_finviz
 # from .V3_yahoo_api import YahooFinanceAPI, YahooError # Assuming Yahoo API integration
 from .V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate, add_or_update_exchange_rate_conid, update_screener_multi_fields_sync, get_screener_tickers_and_conids_sync, get_exchange_rates_and_conids_sync # Import new DB function AND SQLiteRepository
+from .services.notification_service import dispatch_notification
 # --- End Local Application Imports ---
 
 # --- Import V3_ibkr_monitor (Keep existing imports) ---
@@ -449,6 +450,7 @@ def _update_screener_single_field_sync(db_path: str, ticker: str, field_name: st
 def run_sync_ibkr_snapshot_job(repository: SQLiteRepository, loop: AbstractEventLoop, manager: 'ConnectionManager', ibkr_base_url: str):
     # --- ADD ENTRY LOG --- 
     logger.info("[Sync Snapshot Job] Starting synchronous IBKR snapshot job...")
+    job_successful = False # Initialize success flag
     db_path = repository.database_url.split("///", 1)[1] if repository.database_url.startswith("sqlite") else None
     if not db_path:
         logger.error("[Sync Snapshot Job] Could not extract database path from repository URL.")
@@ -685,12 +687,17 @@ def run_sync_ibkr_snapshot_job(repository: SQLiteRepository, loop: AbstractEvent
         # Optionally: Send success status via websocket
         # message = json.dumps({"type": "status", "service": "ibkr_snapshot", "status": "success", "message": "Snapshot data updated"})
         # loop.call_soon_threadsafe(asyncio.create_task, manager.broadcast(message))
-
+        job_successful = True # Set success flag
     except Exception as e:
         logger.error(f"[Sync Snapshot Job] Error during execution: {e}", exc_info=True)
         # Optionally: Send error status via websocket
         # message = json.dumps({"type": "status", "service": "ibkr_snapshot", "status": "error", "message": str(e)})
         # loop.call_soon_threadsafe(asyncio.create_task, manager.broadcast(message))
+    finally:
+        summary_log = "IBKR snapshot job completed successfully." if job_successful else "IBKR snapshot job failed. Check logs."
+        coro = dispatch_notification(db_repo=repository, task_id='scheduled_ibkr_snapshot', message=summary_log)
+        loop.call_soon_threadsafe(asyncio.create_task, coro)
+        logger.info("[Sync Snapshot Job] Finished and notification dispatched.")
 
 # --- END SYNC SNAPSHOT JOB ---
 
@@ -1215,6 +1222,13 @@ def create_app():
                 logger.error(f"Error during scheduled data fetch execution: {str(e)}")
                 logger.exception("Scheduled data fetch failed:")
             finally:
+                if fetch_successful:
+                    summary_log = f"IBKR scheduled job completed successfully for accounts: {all_account_ids}."
+                else:
+                    summary_log = "IBKR scheduled job failed. Check logs for details."
+                
+                await dispatch_notification(db_repo=app.state.repository, task_id='scheduled_ibkr_data', message=summary_log)
+                
                 job_lock.release() # Release lock in finally block
             
             # --- Temporarily comment out the problematic block for diagnostics ---
@@ -1233,6 +1247,9 @@ def create_app():
             """Job function for fetching Finviz data and updating screener."""
             job_id = "finviz_data_fetch"
             logger.info(f"Scheduler executing {job_id}...")
+
+            # Initialize summary variables to prevent NameError if fetch fails
+            updated_tickers, added_tickers, error_tickers = [], [], []
 
             # --- ADD Check is_active status --- 
             try:
@@ -1295,6 +1312,14 @@ def create_app():
                 except Exception as db_update_err:
                      logger.error(f"Failed to update last_run time for {job_id}: {db_update_err}")
 
+            summary_log = f"Finviz scheduled job completed. Updated: {len(updated_tickers)}, Added: {len(added_tickers)}, Errors: {len(error_tickers)}. Check logs for details."
+            logger.info(summary_log)
+            
+            await dispatch_notification(db_repo=app.state.repository, task_id='scheduled_finviz_data', message=summary_log)
+            
+            return
+
+
         # --- NEW Yahoo Scheduled Job --- 
         async def scheduled_yahoo_job():
             """Job function for fetching Yahoo data and updating screener."""
@@ -1352,6 +1377,9 @@ def create_app():
                 except Exception as broadcast_err:
                     logger.error(f"[{job_id}] Error during broadcast: {broadcast_err}")
                 # --- End Broadcast --- 
+                    
+                summary_log = f"Yahoo scheduled job completed. Processed {len(tickers)} tickers. See logs for details."
+                await dispatch_notification(db_repo=repository, task_id='scheduled_yahoo_data', message=summary_log)
                     
             except Exception as e:
                 logger.error(f"Error during scheduled {job_id} execution: {str(e)}")
@@ -1417,13 +1445,13 @@ def create_app():
                     "finviz_data_fetch": scheduled_finviz_job,
                     "yahoo_data_fetch": scheduled_yahoo_job,
                     "ibkr_sync_snapshot": run_sync_ibkr_snapshot_job,
-                    "analytics_data_cache_refresh": scheduled_analytics_data_cache_refresh_job, # Placeholder
-                    "analytics_metadata_cache_refresh": scheduled_analytics_metadata_cache_refresh_job # Placeholder
+                    "analytics_data_cache_refresh": scheduled_analytics_data_cache_refresh_job,
+                    "analytics_metadata_cache_refresh": scheduled_analytics_metadata_cache_refresh_job
                 }
                 job_args = {
                     "ibkr_sync_snapshot": lambda: [app.state.repository, loop, manager, os.environ.get("IBKR_BASE_URL", "https://localhost:5000/v1/api/")],
-                    "analytics_data_cache_refresh": lambda: [app.state.repository, os.environ.get("APP_BASE_URL", "http://localhost:8000")],
-                    "analytics_metadata_cache_refresh": lambda: [app.state.repository, os.environ.get("APP_BASE_URL", "http://localhost:8000")]
+                    "analytics_data_cache_refresh": lambda: [app, app.state.repository, os.environ.get("APP_BASE_URL", "http://localhost:8000")],
+                    "analytics_metadata_cache_refresh": lambda: [app, app.state.repository, os.environ.get("APP_BASE_URL", "http://localhost:8000")]
                 }
 
                 for job_id in job_ids_to_configure:
@@ -3232,7 +3260,7 @@ def get_prev_fire_time(trigger, now, lookback_days=14):
 # prev_run_time = get_prev_fire_time(trigger, now)
 
 # --- NEW Analytics Data Cache Refresh Scheduled Job ---
-async def scheduled_analytics_data_cache_refresh_job(repository: SQLiteRepository, app_base_url: str):
+async def scheduled_analytics_data_cache_refresh_job(app: FastAPI, repository: SQLiteRepository, app_base_url: str):
     job_id = "analytics_data_cache_refresh"
     logger.info(f"Scheduler executing {job_id}...")
 
@@ -3279,7 +3307,7 @@ async def scheduled_analytics_data_cache_refresh_job(repository: SQLiteRepositor
         logger.debug(f"Job lock released by {job_id}")
 
 # --- NEW Analytics Metadata Cache Refresh Scheduled Job ---
-async def scheduled_analytics_metadata_cache_refresh_job(repository: SQLiteRepository, app_base_url: str):
+async def scheduled_analytics_metadata_cache_refresh_job(app: FastAPI, repository: SQLiteRepository, app_base_url: str):
     job_id = "analytics_metadata_cache_refresh"
     logger.info(f"Scheduler executing {job_id}...")
 
