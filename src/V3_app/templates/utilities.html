@@ -5,6 +5,8 @@
 {% block head_extra %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<!-- jsPDF and html2canvas removed -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.0.2/marked.min.js"></script>
 <style>
   .utility-section {
     padding: 20px;
@@ -57,6 +59,112 @@
     font-size: 0.875rem; /* Apply desired font size directly to the label */
     font-weight: normal; /* Ensure label text is not bold */
   }
+
+  /* Styles for LLM Report Output */
+  #llmReportOutput {
+    background-color: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+    font-family: var(--bs-font-sans-serif);
+    white-space: normal; /* Allow text to wrap naturally */
+    border: 1px solid var(--bs-border-color);
+    border-radius: .375rem;
+    padding: 1rem;
+  }
+  #llmReportOutput h1, #llmReportOutput h2, #llmReportOutput h3, #llmReportOutput h4 {
+    color: var(--bs-heading-color);
+    margin-top: 1em;
+    margin-bottom: 0.5em;
+  }
+  #llmReportOutput h1 { font-size: 1.75rem; }
+  #llmReportOutput h2 { font-size: 1.5rem; }
+  #llmReportOutput h3 { font-size: 1.25rem; }
+  #llmReportOutput p {
+    margin-bottom: 1rem;
+    line-height: 1.6;
+  }
+  #llmReportOutput ul, #llmReportOutput ol {
+    padding-left: 2em;
+    margin-bottom: 1rem;
+  }
+  #llmReportOutput code {
+    background-color: var(--bs-secondary-bg);
+    padding: .2em .4em;
+    font-size: 85%;
+    border-radius: 6px;
+  }
+  #llmReportOutput pre {
+    background-color: var(--bs-secondary-bg);
+    padding: 1rem;
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  #llmReportOutput blockquote {
+    border-left: 4px solid var(--bs-border-color);
+    padding-left: 1rem;
+    color: var(--bs-secondary-color);
+    margin-left: 0;
+  }
+
+  /* --- Print-Specific Styles --- */
+  @media print {
+    /* Hide everything on the page by default */
+    body * {
+      visibility: hidden;
+    }
+    /* Make only the report container and its children visible */
+    #llmReportOutput, #llmReportOutput * {
+      visibility: visible;
+    }
+    /* Position the report at the top-left of the page */
+    #llmReportOutput {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      margin: 20px; /* Add some margin to the printout */
+      padding: 0;
+      border: none;
+      /* Force a white background and black text for printing */
+      background-color: #ffffff !important;
+      color: #000000 !important;
+    }
+    /* Ensure headings inside the report also have black text */
+    #llmReportOutput h1, #llmReportOutput h2, #llmReportOutput h3, #llmReportOutput h4, #llmReportOutput h5, #llmReportOutput h6 {
+      color: #000000 !important;
+    }
+    /* Remove the 'Export PDF' button from the printout */
+    #llmExportPdfBtn {
+      display: none;
+    }
+  }
+
+  /* Styles for chat messages */
+  .llm-chat-message {
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    max-width: 90%;
+  }
+
+  .llm-chat-message.user-message {
+    background-color: var(--bs-primary-bg-subtle);
+    border: 1px solid var(--bs-primary-border-subtle);
+    margin-left: auto;
+    text-align: left;
+  }
+
+  .llm-chat-message.model-message {
+    background-color: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+    margin-right: auto;
+    text-align: left;
+  }
+  .llm-chat-message h1, .llm-chat-message h2, .llm-chat-message h3 {
+      margin-top: 0.5rem;
+  }
+
+
 </style>
 {% endblock %}
 
@@ -74,6 +182,9 @@
         </li>
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="datalcm-tab" data-bs-toggle="tab" data-bs-target="#datalcm-tab-pane" type="button" role="tab" aria-controls="datalcm-tab-pane" aria-selected="false">Data LCM</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="llm-analytics-tab" data-bs-toggle="tab" data-bs-target="#llm-analytics-tab-pane" type="button" role="tab" aria-controls="llm-analytics-tab-pane" aria-selected="false">LLM Analytics</button>
         </li>
     </ul>
 
@@ -248,17 +359,61 @@
                     <div id="dbStatusMessage" class="mt-2" role="alert"></div>
                 </div>
             </div>
-            <!-- Future sections for other Data LCM functions can be added below -->
-            <!-- Example:
-            <div class="card mt-4">
+        </div>
+
+        <!-- LLM Analytics Tab Pane -->
+        <div class="tab-pane fade utility-section" id="llm-analytics-tab-pane" role="tabpanel" aria-labelledby="llm-analytics-tab" tabindex="0">
+            <div class="card">
                 <div class="card-header">
-                    <h2>Another Data Management Function</h2>
+                    <h2>LLM Financial Report Generator</h2>
                 </div>
                 <div class="card-body">
-                    <p>Controls and information for another function...</p>
+                    <p class="card-text">Enter tickers, write a prompt, and get instant financial analysis powered by Google's Gemini LLM.</p>
+            
+                    <!-- Ticker Selection Display -->
+                    <div id="llmSelectedTickersContainer" class="mb-3" style="display: none;">
+                        <strong>Selected Tickers:</strong>
+                        <div id="llmSelectedTickers" class="d-flex flex-wrap gap-2 mt-2">
+                            <!-- Ticker badges will be here -->
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <button id="llmOpenModalBtn" class="btn btn-outline-secondary">Select Tickers</button>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="llmPrompt" class="form-label">Your Prompt</label>
+                        <textarea class="form-control" id="llmPrompt" rows="3" placeholder="e.g., 'Compare the revenue growth and profitability of these companies over the last year.'"></textarea>
+                    </div>
+                    <button id="llmGenerateBtn" class="btn btn-primary">Generate Report</button>
+                    <button id="llmStartOverBtn" class="btn btn-secondary" style="display: none;">Start Over</button>
+                    <button id="llmExportPdfBtn" class="btn btn-success" style="display: none;">Print Report</button>
                 </div>
             </div>
-            -->
+
+            <!-- Report Output Section -->
+            <div id="llmReportCard" class="card mt-4" style="display: none;">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Generated Report</h5>
+                    <div id="llmSpinner" class="spinner-border text-primary" role="status" style="display: none;">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="llmReportOutput">
+                        <!-- Chat messages will appear here -->
+                    </div>
+                    <!-- Follow-up input area -->
+                    <div id="llmFollowUpContainer" class="mt-3" style="display: none;">
+                      <hr>
+                      <div class="input-group">
+                        <textarea id="llmFollowUpPrompt" class="form-control" placeholder="Ask a follow-up question..." rows="2"></textarea>
+                        <button id="llmFollowUpBtn" class="btn btn-primary">Send</button>
+                      </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -275,6 +430,31 @@
         <div style="position: relative; height: 60vh;">
             <canvas id="edgarBarChartCanvas"></canvas>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LLM Ticker Selection Modal -->
+<div class="modal fade" id="llmTickerModal" tabindex="-1" aria-labelledby="llmTickerModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="llmTickerModalLabel">Select Tickers</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="input-group mb-3">
+          <input type="text" class="form-control" id="llmTickerSearchInput" placeholder="Search for tickers...">
+          <button class="btn btn-outline-secondary" type="button" id="llmClearSelectedBtn">Clear</button>
+        </div>
+        <div class="list-group" id="llmTickerList" style="max-height: 300px; overflow-y: auto;">
+          <!-- Ticker list will be dynamically inserted here -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="llmAddSelectedTickersBtn">Add Selected</button>
       </div>
     </div>
   </div>
@@ -454,6 +634,309 @@ document.addEventListener('DOMContentLoaded', function () {
             fetchAndDisplayDbStatus();
         }
     }
+
+    // Self-contained logic for the LLM Analytics Tab
+    const llmTabPane = document.getElementById('llm-analytics-tab-pane');
+    if (!llmTabPane) {
+        // If the LLM pane isn't here, do nothing.
+        return;
+    }
+
+    // Get all required elements
+    const llmPrompt = document.getElementById('llmPrompt');
+    const llmGenerateBtn = document.getElementById('llmGenerateBtn');
+    const llmExportPdfBtn = document.getElementById('llmExportPdfBtn');
+    const llmSpinner = document.getElementById('llmSpinner');
+    const llmReportCard = document.getElementById('llmReportCard');
+    const llmReportOutput = document.getElementById('llmReportOutput');
+    const llmSelectedTickersDiv = document.getElementById('llmSelectedTickers');
+    const llmSelectedTickersContainer = document.getElementById('llmSelectedTickersContainer');
+    const llmOpenModalBtn = document.getElementById('llmOpenModalBtn');
+    const llmTickerModal = document.getElementById('llmTickerModal');
+    const llmTickerSearchInput = document.getElementById('llmTickerSearchInput');
+    const llmTickerList = document.getElementById('llmTickerList');
+    const llmClearSelectedBtn = document.getElementById('llmClearSelectedBtn');
+    const llmAddSelectedTickersBtn = document.getElementById('llmAddSelectedTickersBtn');
+    const llmFollowUpContainer = document.getElementById('llmFollowUpContainer');
+    const llmFollowUpPrompt = document.getElementById('llmFollowUpPrompt');
+    const llmFollowUpBtn = document.getElementById('llmFollowUpBtn');
+    const llmStartOverBtn = document.getElementById('llmStartOverBtn');
+
+    // State variables
+    let allTickers = [];
+    let selectedTickers = new Set();
+    let llmConversationHistory = [];
+
+    // --- Ticker Loading and Caching ---
+    async function loadTickers() {
+        const cacheKey = 'dbTickersList';
+        const cachedData = sessionStorage.getItem(cacheKey);
+
+        if (cachedData) {
+            try {
+                allTickers = JSON.parse(cachedData);
+                enableSearch();
+                return;
+            } catch (e) {
+                console.error("Failed to parse cached tickers, refetching.", e);
+                sessionStorage.removeItem(cacheKey);
+            }
+        }
+
+        try {
+            const response = await fetch('/api/utilities/all-tickers');
+            if (!response.ok) {
+                throw new Error(`Failed to load tickers list: ${response.statusText}`);
+            }
+            allTickers = await response.json();
+            sessionStorage.setItem(cacheKey, JSON.stringify(allTickers));
+            enableSearch();
+        } catch (error) {
+            console.error(error);
+            alert("Error loading tickers. Please refresh.");
+        }
+    }
+
+    function enableSearch() {
+        llmTickerSearchInput.disabled = false;
+        llmTickerSearchInput.placeholder = "Search for a ticker to add...";
+    }
+
+    // --- UI Interaction Logic ---
+    llmTickerSearchInput.addEventListener('input', () => {
+        const query = llmTickerSearchInput.value.toUpperCase().trim();
+        llmTickerList.innerHTML = '';
+        if (query.length === 0) {
+            return;
+        }
+
+        const filtered = allTickers
+            .filter(ticker => ticker.startsWith(query) && !selectedTickers.has(ticker))
+            .slice(0, 7); // Show a max of 7 suggestions for performance
+
+        if (filtered.length > 0) {
+            filtered.forEach(ticker => {
+                const item = document.createElement('a');
+                item.href = '#';
+                item.className = 'list-group-item list-group-item-action';
+                item.textContent = ticker;
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    addTickerToSelection(ticker);
+                });
+                llmTickerList.appendChild(item);
+            });
+        }
+    });
+
+    llmClearSelectedBtn.addEventListener('click', () => {
+        llmTickerSearchInput.value = '';
+        llmTickerList.innerHTML = '';
+    });
+
+    llmAddSelectedTickersBtn.addEventListener('click', () => {
+        const selectedOptions = Array.from(llmTickerList.querySelectorAll('.active'));
+        selectedOptions.forEach(option => {
+            addTickerToSelection(option.textContent);
+        });
+        bootstrap.Modal.getInstance(llmTickerModal).hide();
+    });
+
+    llmOpenModalBtn.addEventListener('click', () => {
+        bootstrap.Modal.getOrCreateInstance(llmTickerModal).show();
+    });
+
+    function addTickerToSelection(ticker) {
+        if (selectedTickers.has(ticker)) return;
+        selectedTickers.add(ticker);
+        updateSelectedTickersUI();
+        // Clear search and hide suggestions
+        llmTickerSearchInput.value = '';
+        llmTickerList.innerHTML = '';
+        llmTickerSearchInput.focus();
+    }
+
+    function removeTickerFromSelection(ticker) {
+        selectedTickers.delete(ticker);
+        updateSelectedTickersUI();
+    }
+
+    function updateSelectedTickersUI() {
+        llmSelectedTickersDiv.innerHTML = '';
+        selectedTickers.forEach(ticker => {
+            const badge = createTickerBadge(ticker);
+            llmSelectedTickersDiv.appendChild(badge);
+        });
+
+        if (selectedTickers.size > 0) {
+            llmSelectedTickersContainer.style.display = 'block';
+        } else {
+            llmSelectedTickersContainer.style.display = 'none';
+        }
+    }
+
+    function createTickerBadge(ticker) {
+        const badge = document.createElement('span');
+        badge.className = 'badge bg-primary d-flex align-items-center';
+        badge.style.fontSize = '0.9em';
+        badge.innerHTML = `
+            ${ticker}
+            <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.6em;" aria-label="Remove"></button>
+        `;
+        const removeBtn = badge.querySelector('button');
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent the badge click from firing
+            removeTickerFromSelection(ticker);
+        });
+        return badge;
+    }
+
+    // --- Initializer ---
+    loadTickers();
+
+    // --- Reset and Start Over ---
+    function resetLlmUI() {
+        llmConversationHistory = [];
+        selectedTickers.clear();
+        updateSelectedTickersUI();
+        
+        llmReportOutput.innerHTML = '';
+        llmReportCard.style.display = 'none';
+        llmFollowUpContainer.style.display = 'none';
+        
+        llmPrompt.value = '';
+        llmGenerateBtn.disabled = false;
+        llmGenerateBtn.style.display = 'inline-block';
+        llmOpenModalBtn.disabled = false;
+
+        llmStartOverBtn.style.display = 'none';
+        llmExportPdfBtn.style.display = 'none';
+    }
+
+    llmStartOverBtn.addEventListener('click', resetLlmUI);
+
+
+    // --- API Call Logic ---
+    llmGenerateBtn.addEventListener('click', async () => {
+        const prompt = llmPrompt.value.trim();
+        const tickers = Array.from(selectedTickers);
+
+        if (tickers.length === 0) {
+            alert('Please select at least one ticker.');
+            return;
+        }
+        if (!prompt) {
+            alert('Please enter a prompt.');
+            return;
+        }
+
+        // Reset UI for new report
+        llmReportCard.style.display = 'block';
+        llmReportOutput.innerHTML = '';
+        llmSpinner.style.display = 'block';
+        llmGenerateBtn.disabled = true;
+        llmOpenModalBtn.disabled = true;
+        llmExportPdfBtn.style.display = 'none';
+        llmFollowUpContainer.style.display = 'none';
+
+        try {
+            const response = await fetch('/api/utilities/generate_llm_report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tickers, prompt })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            llmConversationHistory = data.history || [];
+            
+            // Render initial report in a styled message bubble
+            appendChatMessage(data.report_markdown, 'model-message');
+            
+            // Show/hide buttons for conversation mode
+            llmExportPdfBtn.style.display = 'inline-block';
+            llmFollowUpContainer.style.display = 'block';
+            llmStartOverBtn.style.display = 'inline-block';
+            llmGenerateBtn.style.display = 'none';
+
+
+        } catch (error) {
+            console.error('Error generating report:', error);
+            appendChatMessage(`Error: ${error.message}`, 'model-message', true);
+        } finally {
+            llmSpinner.style.display = 'none';
+            // llmGenerateBtn is re-enabled via Start Over button
+        }
+    });
+
+    llmFollowUpBtn.addEventListener('click', async () => {
+        const prompt = llmFollowUpPrompt.value.trim();
+        if (!prompt) {
+            return;
+        }
+
+        appendChatMessage(prompt, 'user-message');
+        llmConversationHistory.push({ role: 'user', parts: [{ text: prompt }] });
+        llmFollowUpPrompt.value = '';
+        llmSpinner.style.display = 'block';
+        llmFollowUpBtn.disabled = true;
+
+        try {
+            const response = await fetch('/api/utilities/llm_chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ history: llmConversationHistory })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            llmConversationHistory.push({ role: 'model', parts: [{ text: data.response_markdown }] });
+            appendChatMessage(data.response_markdown, 'model-message');
+
+        } catch (error) {
+            console.error('Error in follow-up chat:', error);
+            appendChatMessage(`Error: ${error.message}`, 'model-message', true);
+        } finally {
+            llmSpinner.style.display = 'none';
+            llmFollowUpBtn.disabled = false;
+        }
+    });
+
+    function appendChatMessage(markdown, role, isError = false) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `llm-chat-message ${role}`;
+
+        if (isError) {
+            messageDiv.classList.add('alert', 'alert-danger');
+            messageDiv.textContent = markdown;
+        } else {
+            messageDiv.innerHTML = marked.parse(markdown);
+        }
+        
+        llmReportOutput.appendChild(messageDiv);
+        llmReportOutput.scrollTop = llmReportOutput.scrollHeight; // Auto-scroll to bottom
+    }
+
+
+    // --- PDF Export Functionality ---
+    llmExportPdfBtn.addEventListener('click', () => {
+        const reportElement = llmReportOutput;
+        if (!reportElement.innerHTML.trim() || reportElement.innerText.trim() === 'Your report will appear here...') {
+            alert('There is no report to print.');
+            return;
+        }
+
+        // Trigger the browser's print dialog
+        window.print();
+    });
 });
 </script>
 {% endblock %}
