@@ -59,75 +59,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
-    // Attempt to attach export button listener early
-    /*
-    const exportEdgarCustomTableBtn = document.getElementById('exportEdgarCustomTableBtn');
-    if (exportEdgarCustomTableBtn) {
-        exportEdgarCustomTableBtn.addEventListener('click', function() {
-            if (!edgarDataTableInstance) {
-                alert('Table data is not available for export.');
-                return;
-            }
-            const ticker = currentEdgarExportContext.ticker || "SelectedConcepts";
-            const today = new Date().toISOString().slice(0, 10);
-            const filename = `EDGAR_Custom_${ticker}_${today}.xls`;
-            
-            // Create a temporary table with display data for export
-            const tempTable = document.createElement('table');
-            const tempThead = tempTable.createTHead();
-            const tempTbody = tempTable.createTBody();
-            const headerRow = tempThead.insertRow();
-            
-            edgarDataTableInstance.columns().every(function() {
-                const th = document.createElement('th');
-                th.textContent = $(this.header()).text();
-                headerRow.appendChild(th);
-            });
-
-            edgarDataTableInstance.rows({ search: 'applied' }).data().each(function(rowData) {
-                const tr = tempTbody.insertRow();
-                edgarDataTableInstance.columns().every(function(colIdx) {
-                    const cellData = this.dataSrc() ? rowData[this.dataSrc()] : ''; // Get raw data
-                    let displayData = cellData;
-                    const column = edgarDataTableInstance.column(colIdx);
-                    const renderFunc = column.settings()[0].mRender || column.settings()[0].mData;
-                    
-                    if (typeof renderFunc === 'function') {
-                         // For display rendering, we need the full row object if render func expects it
-                        displayData = renderFunc(cellData, 'display', rowData, {col: colIdx, row: 0, settings: column.settings()[0]});
-                    } else if (typeof renderFunc === 'string') {
-                        displayData = rowData[renderFunc];
-                    }
-
-                    // Strip HTML for XLS export from rendered concept column
-                    if (colIdx === 0 && typeof displayData === 'string') { // Concept column
-                        const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = displayData;
-                        displayData = tempDiv.textContent || tempDiv.innerText || "";
-                    }
-                     // Format numbers for value column explicitly for export
-                    if (colIdx === 8 && typeof cellData !== 'undefined') { // Value column (index adjusted from 7 to 8)
-                        const numericVal = parseFloat(cellData);
-                        if (!isNaN(numericVal)) {
-                            displayData = numericVal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 });
-                        } else {
-                            displayData = cellData;
-                        }
-                    }
-                    const td = tr.insertCell();
-                    // Date columns: Date of Filing (4), Start Date (6), End Date (7)
-                    if ([4, 6, 7].includes(colIdx)) {
-                        td.style.msoNumberFormat = '\\@'; // Force text format for date columns
-                    }
-                    td.textContent = displayData !== undefined ? displayData : '';
-                });
-            });
-            exportTableToXLSNode(tempTable, filename);
-        });
-    }
-    */
-
-    // NEW: Named function to handle the Edgar Custom Table export logic
+    // Named function to handle the Edgar Custom Table export logic
     function handleExportEdgarCustomTable() {
         if (!edgarDataTableInstance) {
             alert('Table data is not available for export.');
@@ -1073,6 +1005,28 @@ document.addEventListener('DOMContentLoaded', function () {
             </select>
         `;
         filtersContainer.appendChild(periodTypeFilterCol);
+
+        // Create a new container for action buttons and add it to the filter row
+        const actionsCol = document.createElement('div');
+        actionsCol.className = 'col-auto ms-auto d-flex align-items-end'; // Use col-auto and ms-auto to push to the right
+
+        const chartButtonElement = document.createElement('button');
+        chartButtonElement.id = 'showEdgarChartBtn';
+        chartButtonElement.className = 'btn btn-sm btn-outline-secondary';
+        chartButtonElement.title = 'View Chart';
+        chartButtonElement.innerHTML = '<i class="bi bi-bar-chart-line"></i>';
+        chartButtonElement.addEventListener('click', displayEdgarBarChart);
+
+        const exportButtonElement = document.createElement('button');
+        exportButtonElement.id = 'exportEdgarCustomTableBtn';
+        exportButtonElement.className = 'btn btn-sm btn-outline-secondary ms-2';
+        exportButtonElement.title = 'Export to XLS';
+        exportButtonElement.innerHTML = '<i class="bi bi-file-earmark-excel"></i>';
+        exportButtonElement.addEventListener('click', handleExportEdgarCustomTable);
+        
+        actionsCol.appendChild(chartButtonElement);
+        actionsCol.appendChild(exportButtonElement);
+        filtersContainer.appendChild(actionsCol);
         
         filtersContainer.style.display = 'flex'; 
         tableContainer.style.display = 'block';
@@ -1141,38 +1095,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (data._isCumulative) $(row).addClass('cumulative-row');
                     if (data._isRedundantDuplicate) $(row).addClass('redundant-row');
                     if (data._isSupersededRestatement) $(row).addClass('superseded-row');
-                }
-            },
-            initComplete: function () {
-                const api = this.api();
-                $(api.table().footer()).empty(); 
-
-                const exportButtonElement = document.createElement('button');
-                exportButtonElement.id = 'exportEdgarCustomTableBtn';
-                exportButtonElement.className = 'btn btn-sm btn-success ms-2'; 
-                exportButtonElement.innerHTML = '<i class="bi bi-file-earmark-excel"></i>';
-                exportButtonElement.title = 'Export Table to XLS';
-                exportButtonElement.style.display = 'inline-block';
-                exportButtonElement.addEventListener('click', handleExportEdgarCustomTable);
-
-                const chartButtonElement = document.createElement('button');
-                chartButtonElement.id = 'showEdgarChartBtn';
-                chartButtonElement.className = 'btn btn-sm btn-info ms-2';
-                chartButtonElement.innerHTML = '<i class="bi bi-bar-chart-line"></i>';
-                chartButtonElement.title = 'Barchart';
-                chartButtonElement.style.display = 'inline-block'; // Show when table is ready
-                chartButtonElement.addEventListener('click', displayEdgarBarChart);
-
-                const filterDiv = $(tableElement).closest('.dataTables_wrapper').find('.dataTables_filter');
-                if (filterDiv.length > 0) {
-                    filterDiv.css('display', 'flex').css('align-items', 'center').css('justify-content', 'flex-end'); 
-                    filterDiv.append(chartButtonElement); // Add chart button first
-                    filterDiv.append(exportButtonElement);
-                } else {
-                    console.warn('[populateCustomEdgarTable] DataTables filter div not found. Cannot place export/chart button.');
-                    const wrapper = $(tableElement).closest('.dataTables_wrapper');
-                    wrapper.prepend(exportButtonElement); 
-                    wrapper.prepend(chartButtonElement); // Add chart button
                 }
             }
         });
