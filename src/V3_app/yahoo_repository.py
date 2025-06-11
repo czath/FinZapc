@@ -831,5 +831,75 @@ class YahooDataRepository:
             logger.error(f"Database error in get_master_data_for_analytics: {e}", exc_info=True)
             return [] # Return empty list on error
         except Exception as e:
-            logger.error(f"Unexpected error in get_master_data_for_analytics: {e}", exc_info=True)
-            return [] # Return empty list on error
+            logger.error(f"Failed to get yahoo master data for analytics: {e}", exc_info=True)
+            return []
+
+    async def get_all_data_items(self) -> List[Dict[str, Any]]:
+        """
+        Fetches all records from the ticker_data_items table. Used for maintenance tasks.
+
+        Returns:
+            A list of dictionaries, where each dictionary represents a row.
+        """
+        async with self.async_session_factory() as session:
+            try:
+                stmt = select(TickerDataItemsModel)
+                result = await session.execute(stmt)
+                items = result.scalars().all()
+                return [self._model_to_dict(item) for item in items]
+            except Exception as e:
+                logger.error(f"Error fetching all data items: {e}", exc_info=True)
+                return []
+
+    async def delete_yahoo_ticker_master(self, ticker_symbol: str) -> bool:
+        """
+        Deletes a ticker record from the ticker_master table.
+        Note: This will cascade and delete related ticker_data_items due to DB relationship.
+
+        Args:
+            ticker_symbol: The ticker symbol to delete.
+
+        Returns:
+            True if deletion was successful, False otherwise.
+        """
+        async with self.async_session_factory() as session:
+            try:
+                stmt = delete(YahooTickerMasterModel).where(YahooTickerMasterModel.ticker == ticker_symbol)
+                result = await session.execute(stmt)
+                await session.commit()
+                if result.rowcount > 0:
+                    logger.info(f"Successfully deleted ticker '{ticker_symbol}' from ticker_master.")
+                    return True
+                else:
+                    logger.warning(f"Ticker '{ticker_symbol}' not found in ticker_master for deletion.")
+                    return False
+            except Exception as e:
+                logger.error(f"Error deleting ticker '{ticker_symbol}' from ticker_master: {e}", exc_info=True)
+                await session.rollback()
+                return False
+
+    async def delete_ticker_data_item(self, data_item_id: int) -> bool:
+        """
+        Deletes a specific data item from the ticker_data_items table by its ID.
+
+        Args:
+            data_item_id: The primary key of the data item to delete.
+
+        Returns:
+            True if deletion was successful, False otherwise.
+        """
+        async with self.async_session_factory() as session:
+            try:
+                stmt = delete(TickerDataItemsModel).where(TickerDataItemsModel.data_item_id == data_item_id)
+                result = await session.execute(stmt)
+                await session.commit()
+                if result.rowcount > 0:
+                    logger.info(f"Successfully deleted data item with ID '{data_item_id}'.")
+                    return True
+                else:
+                    logger.warning(f"Data item with ID '{data_item_id}' not found for deletion.")
+                    return False
+            except Exception as e:
+                logger.error(f"Error deleting data item ID '{data_item_id}': {e}", exc_info=True)
+                await session.rollback()
+                return False

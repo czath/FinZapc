@@ -7,6 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <!-- jsPDF and html2canvas removed -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.0.2/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/2.0.8/css/dataTables.bootstrap5.min.css">
 <style>
   .utility-section {
     padding: 20px;
@@ -311,19 +312,99 @@
 
         <!-- Data LCM Tab Pane -->
         <div class="tab-pane fade utility-section" id="datalcm-tab-pane" role="tabpanel" aria-labelledby="datalcm-tab" tabindex="0">
-            <div class="card">
-                <div class="card-header">
-                    <h2>Database Status</h2>
-                </div>
-                <div class="card-body">
-                    <div id="dbStatusContainer">
-                        <p><strong>Database Size:</strong> <span id="dbSizeValue">Loading...</span></p>
-                        <p><strong>Yahoo Master Records:</strong> <span id="yahooMasterCountValue">Loading...</span></p>
-                        <p><strong>Yahoo Items Records:</strong> <span id="yahooItemsCountValue">Loading...</span></p>
-                        <p><strong>Analytics Raw Records:</strong> <span id="analyticsRawCountValue">Loading...</span></p>
+            <!-- Nav tabs for Data LCM -->
+            <ul class="nav nav-pills mb-3" id="dataLcmSubTab" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="db-status-subtab" data-bs-toggle="tab" data-bs-target="#db-status-subtab-pane" type="button" role="tab" aria-controls="db-status-subtab-pane" aria-selected="true">DB Status</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="db-cleanup-subtab" data-bs-toggle="tab" data-bs-target="#db-cleanup-subtab-pane" type="button" role="tab" aria-controls="db-cleanup-subtab-pane" aria-selected="false">DB Clean-Up</button>
+                </li>
+            </ul>
+
+            <!-- Tab panes for Data LCM -->
+            <div class="tab-content" id="dataLcmSubTabContent">
+                <!-- DB Status Sub-Tab Pane -->
+                <div class="tab-pane fade show active" id="db-status-subtab-pane" role="tabpanel" aria-labelledby="db-status-subtab" tabindex="0">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Database Status</h2>
+                        </div>
+                        <div class="card-body">
+                            <div id="dbStatusContainer">
+                                <p><strong>Database Size:</strong> <span id="dbSizeValue">Loading...</span></p>
+                                <p><strong>Yahoo Master Records:</strong> <span id="yahooMasterCountValue">Loading...</span></p>
+                                <p><strong>Yahoo Items Records:</strong> <span id="yahooItemsCountValue">Loading...</span></p>
+                                <p><strong>Analytics Raw Records:</strong> <span id="analyticsRawCountValue">Loading...</span></p>
+                            </div>
+                            <button id="refreshDbStatusBtn" class="btn btn-primary mt-3">Refresh Status</button>
+                            <div id="dbStatusMessage" class="mt-2" role="alert"></div>
+                        </div>
                     </div>
-                    <button id="refreshDbStatusBtn" class="btn btn-primary mt-3">Refresh Status</button>
-                    <div id="dbStatusMessage" class="mt-2" role="alert"></div>
+                </div>
+                <!-- DB Clean-Up Sub-Tab Pane -->
+                <div class="tab-pane fade" id="db-cleanup-subtab-pane" role="tabpanel" aria-labelledby="db-cleanup-subtab" tabindex="0">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Database Cleanup</h2>
+                        </div>
+                        <div class="card-body">
+                            <p>Scan the database for records that are largely incomplete and remove them to maintain data quality.</p>
+                            
+                            <!-- Filter Controls -->
+                            <div class="row g-3 align-items-center mb-3 p-3 border rounded bg-body-tertiary">
+                                <div class="col-md-5">
+                                    <label for="emptinessThresholdSlider" class="form-label">Min. Emptiness Threshold: <span id="emptinessThresholdValue" class="fw-bold">70%</span></label>
+                                    <input type="range" class="form-range" min="0" max="100" step="1" id="emptinessThresholdSlider" value="70">
+                                </div>
+                                <div class="col-md-3">
+                                    <label for="startDateFilter" class="form-label">Start Date</label>
+                                    <input type="date" class="form-control" id="startDateFilter">
+                                </div>
+                                <div class="col-md-3">
+                                    <label for="endDateFilter" class="form-label">End Date</label>
+                                    <input type="date" class="form-control" id="endDateFilter">
+                                </div>
+                                <div class="col-md-1 d-flex align-items-end">
+                                    <button id="clearDateFiltersBtn" class="btn btn-outline-secondary btn-sm" title="Clear date filters">Clear</button>
+                                </div>
+                            </div>
+                            
+                            <button id="scanInvalidRecordsBtn" class="btn btn-warning">Scan for Invalid Records</button>
+                            <div id="cleanupSpinner" class="spinner-border text-warning ms-2" role="status" style="display: none;">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+
+                            <div id="cleanupResultsContainer" class="mt-4" style="display: none;">
+                                <h4>Scan Results</h4>
+                                <p id="cleanupSummaryText"></p>
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div>
+                                        <button id="deleteSelectedRecordsBtn" class="btn btn-danger" disabled>Delete Selected</button>
+                                        <button id="selectAllForCleanupBtn" class="btn btn-outline-secondary btn-sm ms-2">Select All</button>
+                                    </div>
+                                </div>
+                                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                                    <table class="table table-sm table-bordered table-hover" id="invalidRecordsTable">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 5%;"><input type="checkbox" id="selectAllCleanupCheckbox" title="Select/Deselect all"></th>
+                                                <th style="width: 15%;">Table</th>
+                                                <th style="width: 15%;">Primary Key</th>
+                                                <th style="width: 15%;">Ticker</th>
+                                                <th style="width: 15%;">Date</th>
+                                                <th>Reason for Flagging</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="invalidRecordsTbody">
+                                            <!-- Rows will be inserted here by JavaScript -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div id="cleanupStatusMessage" class="mt-3" role="alert" style="display: none;"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -434,6 +515,8 @@
 {% block scripts %}
 {{ super() }} {# Include scripts from base.html if any #}
 <script src="{{ url_for('static', path='js/edgar_utils.js') }}"></script>
+<script src="https://cdn.datatables.net/2.0.8/js/dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/2.0.8/js/dataTables.bootstrap5.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     // --- ATR Calculator Logic --- 
@@ -602,6 +685,237 @@ document.addEventListener('DOMContentLoaded', function () {
         if (dataLcmTabPane.classList.contains('active') && dataLcmTabPane.classList.contains('show')) {
             fetchAndDisplayDbStatus();
         }
+    }
+
+    // --- Database Cleanup Logic ---
+    const scanBtn = document.getElementById('scanInvalidRecordsBtn');
+    const cleanupSpinner = document.getElementById('cleanupSpinner');
+    const resultsContainer = document.getElementById('cleanupResultsContainer');
+    const summaryText = document.getElementById('cleanupSummaryText');
+    const recordsTbody = document.getElementById('invalidRecordsTbody');
+    const statusMessage = document.getElementById('cleanupStatusMessage');
+    const deleteBtn = document.getElementById('deleteSelectedRecordsBtn');
+    const selectAllCheckbox = document.getElementById('selectAllCleanupCheckbox');
+    const selectAllBtn = document.getElementById('selectAllForCleanupBtn');
+    const emptinessThresholdSlider = document.getElementById('emptinessThresholdSlider');
+    const emptinessThresholdValue = document.getElementById('emptinessThresholdValue');
+    const startDateFilter = document.getElementById('startDateFilter');
+    const endDateFilter = document.getElementById('endDateFilter');
+    const clearDateFiltersBtn = document.getElementById('clearDateFiltersBtn');
+    let cleanupDataTable = null;
+
+    if(emptinessThresholdSlider && emptinessThresholdValue) {
+        emptinessThresholdSlider.addEventListener('input', (event) => {
+            emptinessThresholdValue.textContent = `${event.target.value}%`;
+        });
+    }
+
+    if(clearDateFiltersBtn) {
+        clearDateFiltersBtn.addEventListener('click', () => {
+            startDateFilter.value = '';
+            endDateFilter.value = '';
+        });
+    }
+
+    if (scanBtn) {
+        scanBtn.addEventListener('click', async () => {
+            // Reset UI
+            scanBtn.disabled = true;
+            cleanupSpinner.style.display = 'inline-block';
+            resultsContainer.style.display = 'none';
+            statusMessage.style.display = 'none';
+            
+            // Destroy existing DataTable instance if it exists
+            if (cleanupDataTable) {
+                cleanupDataTable.destroy();
+                cleanupDataTable = null;
+            }
+            recordsTbody.innerHTML = '';
+            deleteBtn.disabled = true;
+
+            const filters = {
+                threshold: parseInt(emptinessThresholdSlider.value, 10) / 100.0,
+                start_date: startDateFilter.value || null,
+                end_date: endDateFilter.value || null
+            };
+
+            try {
+                const response = await fetch('/api/v3/utilities/scan-invalid-records', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(filters)
+                });
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.detail || 'Failed to scan for records.');
+                }
+                const data = await response.json();
+
+                let totalInvalid = 0;
+                const master_records = data.ticker_master || [];
+                const item_records = data.ticker_data_items || [];
+
+                master_records.forEach(rec => {
+                    if (rec.primary_key) {
+                        addRecordToTable('ticker_master', rec.primary_key, rec.reason, rec.primary_key); // For master table, ticker is the PK
+                        totalInvalid++;
+                    }
+                });
+                item_records.forEach(rec => {
+                    if (rec.primary_key) {
+                        addRecordToTable('ticker_data_items', rec.primary_key, rec.reason, rec.ticker, rec.item_key_date);
+                        totalInvalid++;
+                    }
+                });
+
+                summaryText.textContent = `Found ${totalInvalid} potentially invalid records.`;
+                resultsContainer.style.display = 'block';
+
+                const actionButtonsContainer = resultsContainer.querySelector('.d-flex');
+                if (totalInvalid === 0) {
+                    if(actionButtonsContainer) actionButtonsContainer.style.display = 'none';
+                } else {
+                    if(actionButtonsContainer) actionButtonsContainer.style.display = 'flex';
+                    // Initialize DataTable
+                    cleanupDataTable = new DataTable('#invalidRecordsTable', {
+                        paging: false,
+                        info: false,
+                        searching: false,
+                        columnDefs: [
+                            { orderable: false, targets: 0 } // Disable sorting on the checkbox column
+                        ],
+                        order: [[4, 'desc']] // Default sort by Date descending
+                    });
+                }
+
+            } catch (error) {
+                showCleanupStatus(error.message, 'danger');
+            } finally {
+                scanBtn.disabled = false;
+                cleanupSpinner.style.display = 'none';
+            }
+        });
+    }
+
+    function addRecordToTable(table, pk, reason, ticker = null, date = null) {
+        const row = document.createElement('tr');
+        // Use an unambiguous date format for display and sorting
+        const formattedDate = date ? new Date(date).toISOString().split('T')[0] : 'N/A';
+        const displayTicker = ticker || 'N/A';
+
+        row.innerHTML = `
+            <td><input type="checkbox" class="cleanup-checkbox form-check-input" data-table="${table}" data-pk="${pk}"></td>
+            <td>${table}</td>
+            <td>${pk}</td>
+            <td>${displayTicker}</td>
+            <td>${formattedDate}</td>
+            <td><small>${reason}</small></td>
+        `;
+        recordsTbody.appendChild(row);
+    }
+
+    function showCleanupStatus(message, type = 'info') {
+        statusMessage.textContent = message;
+        statusMessage.className = `alert alert-${type}`;
+        statusMessage.style.display = 'block';
+    }
+
+    if (recordsTbody) {
+        recordsTbody.addEventListener('change', (event) => {
+            if (event.target.classList.contains('cleanup-checkbox')) {
+                const anyChecked = recordsTbody.querySelector('.cleanup-checkbox:checked');
+                deleteBtn.disabled = !anyChecked;
+            }
+        });
+    }
+
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', () => {
+            const checkboxes = recordsTbody.querySelectorAll('.cleanup-checkbox');
+            checkboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
+            deleteBtn.disabled = !selectAllCheckbox.checked && checkboxes.length > 0;
+        });
+    }
+
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', () => {
+            selectAllCheckbox.checked = true;
+            const checkboxes = recordsTbody.querySelectorAll('.cleanup-checkbox');
+            checkboxes.forEach(cb => cb.checked = true);
+            deleteBtn.disabled = !(checkboxes.length > 0);
+        });
+    }
+
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', async () => {
+            const selectedCheckboxes = recordsTbody.querySelectorAll('.cleanup-checkbox:checked');
+            if (selectedCheckboxes.length === 0) {
+                return;
+            }
+
+            if (!confirm(`Are you sure you want to delete ${selectedCheckboxes.length} records? This action cannot be undone.`)) {
+                return;
+            }
+
+            const recordsToDelete = {
+                ticker_master: [],
+                ticker_data_items: []
+            };
+
+            selectedCheckboxes.forEach(cb => {
+                const table = cb.dataset.table;
+                const pk = cb.dataset.pk;
+                if (table === 'ticker_master') {
+                    recordsToDelete.ticker_master.push(pk);
+                } else if (table === 'ticker_data_items') {
+                    recordsToDelete.ticker_data_items.push(parseInt(pk, 10));
+                }
+            });
+
+            deleteBtn.disabled = true;
+            scanBtn.disabled = true;
+            cleanupSpinner.style.display = 'inline-block';
+            statusMessage.style.display = 'none';
+            let deletionSucceeded = false;
+
+            try {
+                const response = await fetch('/api/v3/utilities/delete-invalid-records', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(recordsToDelete)
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.detail || 'Failed to delete records.');
+                }
+
+                const summary = await response.json();
+                const totalDeleted = summary.deleted_master_count + summary.deleted_items_count;
+                const totalErrors = summary.errors ? summary.errors.length : 0;
+                let message = `Successfully deleted ${totalDeleted} records.`;
+                if (totalErrors > 0) {
+                    message += ` Failed to delete ${totalErrors} records. Check console for details.`;
+                    console.error("Deletion errors:", summary.errors);
+                }
+
+                showCleanupStatus(message, totalErrors > 0 ? 'warning' : 'success');
+                deletionSucceeded = true;
+
+            } catch (error) {
+                showCleanupStatus(error.message, 'danger');
+            } finally {
+                cleanupSpinner.style.display = 'none';
+                scanBtn.disabled = false; // Always re-enable scan button
+                if (deletionSucceeded) {
+                    scanBtn.click(); // Re-scan to show updated list
+                } else {
+                    // On failure, re-enable delete button if there's still a selection
+                    const anyChecked = recordsTbody.querySelector('.cleanup-checkbox:checked');
+                    deleteBtn.disabled = !anyChecked;
+                }
+            }
+        });
     }
 
     // Self-contained logic for the LLM Analytics Tab

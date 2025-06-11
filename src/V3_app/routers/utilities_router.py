@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # Assuming get_latest_atr is in V3_yahoo_fetch.py and accessible
 # Adjust the import path as per your project structure
@@ -15,6 +15,7 @@ from ..V3_database import SQLiteRepository
 # --- LLM Analytics Imports ---
 from ..services.llm_service import LLMService
 from ..llm_data_fetcher import get_yahoo_data_for_tickers
+from .. import db_maintenance
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,15 @@ class LLMChatRequest(BaseModel):
 
 class LLMChatResponse(BaseModel):
     response_markdown: str
+
+class ScanInvalidRecordsRequest(BaseModel):
+    threshold: float = Field(0.7, ge=0.0, le=1.0, description="Minimum emptiness threshold (0.0 to 1.0).")
+    start_date: Optional[str] = Field(None, description="Start date for item_key_date (YYYY-MM-DD).")
+    end_date: Optional[str] = Field(None, description="End date for item_key_date (YYYY-MM-DD).")
+
+class InvalidRecordsDeleteRequest(BaseModel):
+    ticker_master: List[str] = Field(default_factory=list, description="List of ticker symbols to delete from the master table.")
+    ticker_data_items: List[int] = Field(default_factory=list, description="List of data item IDs to delete from the items table.")
 
 @router.post("/calculate_atr", response_model=ATRResponse)
 async def calculate_atr_endpoint(request_data: ATRRequest):
@@ -183,6 +193,52 @@ async def get_all_tickers_with_names(
     except Exception as e:
         logger.error(f"Error fetching all tickers with names: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch ticker list with names.")
+
+@router.post("/scan-invalid-records",
+             summary="Scan DB for invalid records with filters",
+             response_model=Dict[str, List[Dict[str, Any]]],
+             tags=["Database Utilities"])
+async def scan_for_invalid_records(
+    request_data: ScanInvalidRecordsRequest,
+    repo: YahooDataRepository = Depends(get_yahoo_repository),
+):
+    """
+    Scans the Yahoo ticker_master and ticker_data_items tables for records
+    that meet the specified emptiness and date criteria.
+    """
+    try:
+        invalid_records = await db_maintenance.find_invalid_records(
+            repo=repo,
+            threshold=request_data.threshold,
+            start_date_str=request_data.start_date,
+            end_date_str=request_data.end_date
+        )
+        return invalid_records
+    except Exception as e:
+        logger.error(f"Error during invalid record scan: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred during the scan: {e}")
+
+@router.post("/delete-invalid-records",
+             summary="Delete specified invalid records",
+             response_model=Dict[str, Any],
+             tags=["Database Utilities"])
+async def delete_invalid_records_endpoint(
+    request_data: InvalidRecordsDeleteRequest,
+    repo: YahooDataRepository = Depends(get_yahoo_repository),
+):
+    """
+    Deletes a specified list of invalid records from the database.
+    """
+    try:
+        records_to_delete = {
+            "ticker_master": request_data.ticker_master,
+            "ticker_data_items": request_data.ticker_data_items
+        }
+        summary = await db_maintenance.delete_invalid_records(repo, records_to_delete)
+        return summary
+    except Exception as e:
+        logger.error(f"Error during invalid record deletion: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred during deletion: {e}")
 
 # Example of how to include this router in your main.py:
 # from V3_app.routers import utilities_router
