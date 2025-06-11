@@ -19,8 +19,7 @@ from ..llm_data_fetcher import get_yahoo_data_for_tickers
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/utilities",
-    tags=["Utilities"],
+    tags=["Utilities"]
 )
 
 # --- LOCAL DEPENDENCIES FOR THIS ROUTER ---
@@ -49,6 +48,7 @@ class LLMReportRequest(BaseModel):
 class LLMReportResponse(BaseModel):
     report_markdown: str
     history: List[Dict[str, Any]]
+    model_name: str | None = None
 
 class LLMChatRequest(BaseModel):
     history: List[Dict[str, Any]] = Field(..., description="The conversation history.")
@@ -110,7 +110,13 @@ async def generate_llm_report(
         llm_service = LLMService()
         report_data = await llm_service.generate_report(tickers_data, request.prompt)
         
-        return LLMReportResponse(**report_data)
+        # Add the model name to the response
+        response_payload = {
+            **report_data,
+            "model_name": llm_service.model_name
+        }
+        
+        return LLMReportResponse(**response_payload)
 
     except Exception as e:
         logger.error(f"Error in generate_llm_report endpoint: {e}", exc_info=True)
@@ -152,6 +158,31 @@ async def get_all_tickers(
     except Exception as e:
         logger.error(f"Error fetching all tickers: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch ticker list.")
+
+@router.get(
+    "/all-tickers-with-names",
+    summary="Get all available tickers with their company names",
+    response_model=List[Dict[str, str]],
+    tags=["Utilities"]
+)
+async def get_all_tickers_with_names(
+    repo: YahooDataRepository = Depends(get_yahoo_repository)
+):
+    """
+    Retrieves a list of all available tickers from the 'ticker_master' table,
+    including their company names.
+    """
+    try:
+        logger.info("Fetching all ticker symbols with company names.")
+        tickers_with_names = await repo.get_all_master_tickers_with_names()
+        if not tickers_with_names:
+            logger.warning("No tickers with names found in the database.")
+            return []
+        logger.info(f"Successfully fetched {len(tickers_with_names)} tickers with names.")
+        return tickers_with_names
+    except Exception as e:
+        logger.error(f"Error fetching all tickers with names: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch ticker list with names.")
 
 # Example of how to include this router in your main.py:
 # from V3_app.routers import utilities_router

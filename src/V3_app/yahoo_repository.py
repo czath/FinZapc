@@ -622,6 +622,17 @@ class YahooDataRepository:
         records = await self.get_ticker_masters_by_criteria()
         return [rec['ticker'] for rec in records if 'ticker' in rec and rec['ticker']]
 
+    async def get_all_master_tickers_with_names(self) -> list[dict]:
+        """Return a list of dicts with 'ticker' and 'name' for all tickers in the master table."""
+        records = await self.get_ticker_masters_by_criteria()
+        # Use 'company_name' from the database and map it to 'name' in the output dictionary.
+        # Provide an empty string as a default if company_name is missing or None.
+        return [
+            {"ticker": rec['ticker'], "name": rec.get('company_name') or ''}
+            for rec in records
+            if 'ticker' in rec and rec['ticker']
+        ]
+
     async def yahoo_incremental_refresh(self, limit: int = 200) -> list[str]:
         """
         Fetches a limited number of tickers that were least recently updated.

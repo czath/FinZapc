@@ -106,39 +106,6 @@
     margin-left: 0;
   }
 
-  /* --- Print-Specific Styles --- */
-  @media print {
-    /* Hide everything on the page by default */
-    body * {
-      visibility: hidden;
-    }
-    /* Make only the report container and its children visible */
-    #llmReportOutput, #llmReportOutput * {
-      visibility: visible;
-    }
-    /* Position the report at the top-left of the page */
-    #llmReportOutput {
-      position: absolute;
-      left: 0;
-      top: 0;
-      width: 100%;
-      margin: 20px; /* Add some margin to the printout */
-      padding: 0;
-      border: none;
-      /* Force a white background and black text for printing */
-      background-color: #ffffff !important;
-      color: #000000 !important;
-    }
-    /* Ensure headings inside the report also have black text */
-    #llmReportOutput h1, #llmReportOutput h2, #llmReportOutput h3, #llmReportOutput h4, #llmReportOutput h5, #llmReportOutput h6 {
-      color: #000000 !important;
-    }
-    /* Remove the 'Export PDF' button from the printout */
-    #llmExportPdfBtn {
-      display: none;
-    }
-  }
-
   /* Styles for chat messages */
   .llm-chat-message {
     padding: 10px;
@@ -184,7 +151,7 @@
             <button class="nav-link" id="datalcm-tab" data-bs-toggle="tab" data-bs-target="#datalcm-tab-pane" type="button" role="tab" aria-controls="datalcm-tab-pane" aria-selected="false">Data LCM</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="llm-analytics-tab" data-bs-toggle="tab" data-bs-target="#llm-analytics-tab-pane" type="button" role="tab" aria-controls="llm-analytics-tab-pane" aria-selected="false">LLM Analytics</button>
+            <button class="nav-link" id="llm-analytics-tab" data-bs-toggle="tab" data-bs-target="#llm-analytics-tab-pane" type="button" role="tab" aria-controls="llm-analytics-tab-pane" aria-selected="false">AI Assistant</button>
         </li>
     </ul>
 
@@ -365,7 +332,7 @@
         <div class="tab-pane fade utility-section" id="llm-analytics-tab-pane" role="tabpanel" aria-labelledby="llm-analytics-tab" tabindex="0">
             <div class="card">
                 <div class="card-header">
-                    <h2>LLM Financial Report Generator</h2>
+                    <h2>AI Report Assistant</h2>
                 </div>
                 <div class="card-body">
                     <p class="card-text">Enter tickers, write a prompt, and get instant financial analysis powered by Google's Gemini LLM.</p>
@@ -384,11 +351,10 @@
 
                     <div class="mb-3">
                         <label for="llmPrompt" class="form-label">Your Prompt</label>
-                        <textarea class="form-control" id="llmPrompt" rows="3" placeholder="e.g., 'Compare the revenue growth and profitability of these companies over the last year.'"></textarea>
+                        <textarea class="form-control" id="llmPrompt" rows="5" placeholder="e.g., 'Compare the revenue growth and profitability of these companies over the last year.'">prepare a detailed financial report comparing all key metrics for the defined tickers. the report should have three distinct sections: (a) financial assessment based on company fundamentals (b) technical assessment based on stock performance (c) sentiment assessment based on available forecasts and analyst opinions. when there are more than one tickers submitted add an additional section d) comparative analysis of the provided tickers. Base your analysis entirely on the attached data. For every calculation and assessment, always clearly reference the data point(s) you use and what is the source document of this datapoint. the report should conclude with an apraisal of the overal appeal of each stock (pros/cons) and a recommendation in the scale of 1-strong buy, 2-buy, 3-hold, 4-sell , 5-strong sell.</textarea>
                     </div>
                     <button id="llmGenerateBtn" class="btn btn-primary">Generate Report</button>
                     <button id="llmStartOverBtn" class="btn btn-secondary" style="display: none;">Start Over</button>
-                    <button id="llmExportPdfBtn" class="btn btn-success" style="display: none;">Print Report</button>
                 </div>
             </div>
 
@@ -396,13 +362,16 @@
             <div id="llmReportCard" class="card mt-4" style="display: none;">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Generated Report</h5>
-                    <div id="llmSpinner" class="spinner-border text-primary" role="status" style="display: none;">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
+                    <span id="llmModelInfo" class="badge bg-secondary"></span>
                 </div>
                 <div class="card-body">
                     <div id="llmReportOutput">
                         <!-- Chat messages will appear here -->
+                    </div>
+                    <!-- Spinner now lives here, at the bottom of the chat/report body -->
+                    <div id="llmSpinner" class="d-flex align-items-center mt-3 d-none">
+                        <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+                        <strong>AI is thinking...</strong>
                     </div>
                     <!-- Follow-up input area -->
                     <div id="llmFollowUpContainer" class="mt-3" style="display: none;">
@@ -488,7 +457,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             try {
-                const response = await fetch('/api/utilities/calculate_atr', {
+                const response = await fetch('/api/v3/utilities/calculate_atr', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -645,7 +614,6 @@ document.addEventListener('DOMContentLoaded', function () {
     // Get all required elements
     const llmPrompt = document.getElementById('llmPrompt');
     const llmGenerateBtn = document.getElementById('llmGenerateBtn');
-    const llmExportPdfBtn = document.getElementById('llmExportPdfBtn');
     const llmSpinner = document.getElementById('llmSpinner');
     const llmReportCard = document.getElementById('llmReportCard');
     const llmReportOutput = document.getElementById('llmReportOutput');
@@ -670,6 +638,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // --- Ticker Loading and Caching ---
     async function loadTickers() {
         const cacheKey = 'dbTickersList';
+        sessionStorage.removeItem(cacheKey); // --- ADDED FOR DEBUGGING ---
         const cachedData = sessionStorage.getItem(cacheKey);
 
         if (cachedData) {
@@ -684,11 +653,15 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         try {
-            const response = await fetch('/api/utilities/all-tickers');
+            const response = await fetch('/api/v3/utilities/all-tickers-with-names');
             if (!response.ok) {
                 throw new Error(`Failed to load tickers list: ${response.statusText}`);
             }
             allTickers = await response.json();
+            // --- ADDED FOR DEBUGGING ---
+            console.log("Fetched tickers data from API:", allTickers);
+            console.log(`Found ${allTickers.length} total tickers.`);
+            // --- END DEBUGGING ---
             sessionStorage.setItem(cacheKey, JSON.stringify(allTickers));
             enableSearch();
         } catch (error) {
@@ -699,32 +672,37 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function enableSearch() {
         llmTickerSearchInput.disabled = false;
-        llmTickerSearchInput.placeholder = "Search for a ticker to add...";
+        llmTickerSearchInput.placeholder = "Search by Ticker or Company Name...";
     }
 
     // --- UI Interaction Logic ---
     llmTickerSearchInput.addEventListener('input', () => {
-        const query = llmTickerSearchInput.value.toUpperCase().trim();
+        const query = llmTickerSearchInput.value.toLowerCase().trim();
         llmTickerList.innerHTML = '';
         if (query.length === 0) {
             return;
         }
 
+        // Filter based on both ticker and name. Handles cases where name might be empty.
         const filtered = allTickers
-            .filter(ticker => ticker.startsWith(query) && !selectedTickers.has(ticker))
-            .slice(0, 7); // Show a max of 7 suggestions for performance
+            .filter(item =>
+                ((item.ticker && item.ticker.toLowerCase().startsWith(query)) || (item.name && item.name.toLowerCase().includes(query)))
+                && !selectedTickers.has(item.ticker)
+            )
+            .slice(0, 7); // Show a max of 7 suggestions
 
         if (filtered.length > 0) {
-            filtered.forEach(ticker => {
-                const item = document.createElement('a');
-                item.href = '#';
-                item.className = 'list-group-item list-group-item-action';
-                item.textContent = ticker;
-                item.addEventListener('click', (e) => {
+            filtered.forEach(item => {
+                const a = document.createElement('a');
+                a.href = '#';
+                a.className = 'list-group-item list-group-item-action';
+                // Display both ticker and name for clarity
+                a.textContent = item.name ? `${item.ticker} - ${item.name}` : item.ticker;
+                a.addEventListener('click', (e) => {
                     e.preventDefault();
-                    addTickerToSelection(ticker);
+                    addTickerToSelection(item.ticker);
                 });
-                llmTickerList.appendChild(item);
+                llmTickerList.appendChild(a);
             });
         }
     });
@@ -797,20 +775,16 @@ document.addEventListener('DOMContentLoaded', function () {
     // --- Reset and Start Over ---
     function resetLlmUI() {
         llmConversationHistory = [];
-        selectedTickers.clear();
-        updateSelectedTickersUI();
         
         llmReportOutput.innerHTML = '';
         llmReportCard.style.display = 'none';
         llmFollowUpContainer.style.display = 'none';
         
-        llmPrompt.value = '';
         llmGenerateBtn.disabled = false;
         llmGenerateBtn.style.display = 'inline-block';
         llmOpenModalBtn.disabled = false;
 
         llmStartOverBtn.style.display = 'none';
-        llmExportPdfBtn.style.display = 'none';
     }
 
     llmStartOverBtn.addEventListener('click', resetLlmUI);
@@ -833,14 +807,13 @@ document.addEventListener('DOMContentLoaded', function () {
         // Reset UI for new report
         llmReportCard.style.display = 'block';
         llmReportOutput.innerHTML = '';
-        llmSpinner.style.display = 'block';
+        llmSpinner.classList.remove('d-none');
         llmGenerateBtn.disabled = true;
         llmOpenModalBtn.disabled = true;
-        llmExportPdfBtn.style.display = 'none';
         llmFollowUpContainer.style.display = 'none';
 
         try {
-            const response = await fetch('/api/utilities/generate_llm_report', {
+            const response = await fetch('/api/v3/utilities/generate_llm_report', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ tickers, prompt })
@@ -854,11 +827,16 @@ document.addEventListener('DOMContentLoaded', function () {
             const data = await response.json();
             llmConversationHistory = data.history || [];
             
+            // Display the model name
+            const modelInfoSpan = document.getElementById('llmModelInfo');
+            if (modelInfoSpan && data.model_name) {
+                modelInfoSpan.textContent = `Model: ${data.model_name}`;
+            }
+
             // Render initial report in a styled message bubble
             appendChatMessage(data.report_markdown, 'model-message');
             
             // Show/hide buttons for conversation mode
-            llmExportPdfBtn.style.display = 'inline-block';
             llmFollowUpContainer.style.display = 'block';
             llmStartOverBtn.style.display = 'inline-block';
             llmGenerateBtn.style.display = 'none';
@@ -868,7 +846,7 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('Error generating report:', error);
             appendChatMessage(`Error: ${error.message}`, 'model-message', true);
         } finally {
-            llmSpinner.style.display = 'none';
+            llmSpinner.classList.add('d-none');
             // llmGenerateBtn is re-enabled via Start Over button
         }
     });
@@ -882,11 +860,11 @@ document.addEventListener('DOMContentLoaded', function () {
         appendChatMessage(prompt, 'user-message');
         llmConversationHistory.push({ role: 'user', parts: [{ text: prompt }] });
         llmFollowUpPrompt.value = '';
-        llmSpinner.style.display = 'block';
+        llmSpinner.classList.remove('d-none');
         llmFollowUpBtn.disabled = true;
 
         try {
-            const response = await fetch('/api/utilities/llm_chat', {
+            const response = await fetch('/api/v3/utilities/llm_chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ history: llmConversationHistory })
@@ -905,7 +883,7 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('Error in follow-up chat:', error);
             appendChatMessage(`Error: ${error.message}`, 'model-message', true);
         } finally {
-            llmSpinner.style.display = 'none';
+            llmSpinner.classList.add('d-none');
             llmFollowUpBtn.disabled = false;
         }
     });
@@ -924,19 +902,6 @@ document.addEventListener('DOMContentLoaded', function () {
         llmReportOutput.appendChild(messageDiv);
         llmReportOutput.scrollTop = llmReportOutput.scrollHeight; // Auto-scroll to bottom
     }
-
-
-    // --- PDF Export Functionality ---
-    llmExportPdfBtn.addEventListener('click', () => {
-        const reportElement = llmReportOutput;
-        if (!reportElement.innerHTML.trim() || reportElement.innerText.trim() === 'Your report will appear here...') {
-            alert('There is no report to print.');
-            return;
-        }
-
-        // Trigger the browser's print dialog
-        window.print();
-    });
 });
 </script>
 {% endblock %}

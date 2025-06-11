@@ -35,28 +35,26 @@ async def get_yahoo_data_for_tickers(tickers: List[str], query_service: YahooDat
         logger.info(f"Fetching all data for ticker: {ticker}")
         try:
             # Using asyncio.gather to run all data fetching concurrently.
-            # We now fetch the FULL data item, not just the payload, to get the key date.
             profile_task = query_service.get_ticker_profile(ticker)
             
-            # Use get_data_items with limit=1 to get the latest full item.
+            # Fetch latest TTM income statement and cash flow
             income_task = query_service.get_data_items(ticker, "INCOME_STATEMENT", "TTM", limit=1)
-            balance_sheet_task = query_service.get_data_items(ticker, "BALANCE_SHEET", "FYEAR", limit=1)
             cash_flow_task = query_service.get_data_items(ticker, "CASH_FLOW_STATEMENT", "TTM", limit=1)
             
-            # These helpers already return the full object with date and payload if structured that way,
-            # but for consistency, we'll ensure they fit the desired structure.
-            # Let's assume for now they return a structure that might need normalizing.
-            # The get_latest_... methods in the query service return just the payload.
-            # This was the source of the bug. We need the full item.
-            # We will use get_data_items for all financial statements.
+            # Fetch both annual and quarterly balance sheets to find the latest one.
+            balance_sheet_annual_task = query_service.get_data_items(ticker, "BALANCE_SHEET", "FYEAR", limit=1)
+            balance_sheet_quarterly_task = query_service.get_data_items(ticker, "BALANCE_SHEET", "QUARTER", limit=1)
+
+            # Fetch other supporting data
             analyst_targets_task = query_service.get_data_items(ticker, "ANALYST_PRICE_TARGETS", "CUMULATIVE_SNAPSHOT", limit=1)
             forecast_summary_task = query_service.get_data_items(ticker, "FORECAST_SUMMARY", "CUMULATIVE", limit=1)
 
             results = await asyncio.gather(
                 profile_task,
                 income_task,
-                balance_sheet_task,
                 cash_flow_task,
+                balance_sheet_annual_task,
+                balance_sheet_quarterly_task,
                 analyst_targets_task,
                 forecast_summary_task,
                 return_exceptions=True  # Prevent one failure from stopping others
@@ -66,8 +64,9 @@ async def get_yahoo_data_for_tickers(tickers: List[str], query_service: YahooDat
             (
                 profile,
                 income_list,
-                balance_sheet_list,
                 cash_flow_list,
+                balance_sheet_annual_list,
+                balance_sheet_quarterly_list,
                 analyst_targets_list,
                 forecast_summary_list,
             ) = results
@@ -81,16 +80,44 @@ async def get_yahoo_data_for_tickers(tickers: List[str], query_service: YahooDat
                 return None
 
             income_statement = get_first_item(income_list)
-            balance_sheet = get_first_item(balance_sheet_list)
             cash_flow = get_first_item(cash_flow_list)
             analyst_targets = get_first_item(analyst_targets_list)
             forecast_summary = get_first_item(forecast_summary_list)
+
+            # Determine the latest balance sheet to use
+            balance_sheet_annual = get_first_item(balance_sheet_annual_list)
+            balance_sheet_quarterly = get_first_item(balance_sheet_quarterly_list)
+            
+            latest_balance_sheet = None
+            if balance_sheet_annual and balance_sheet_quarterly:
+                # Both are available, compare their key dates
+                try:
+                    date_annual = balance_sheet_annual.get('item_key_date')
+                    date_quarterly = balance_sheet_quarterly.get('item_key_date')
+                    if date_annual and date_quarterly:
+                        if date_quarterly > date_annual:
+                            latest_balance_sheet = balance_sheet_quarterly
+                            logger.info(f"For {ticker}, using quarterly balance sheet dated {date_quarterly} (newer).")
+                        else:
+                            latest_balance_sheet = balance_sheet_annual
+                            logger.info(f"For {ticker}, using annual balance sheet dated {date_annual} (newer or same).")
+                    else:
+                        # Fallback if a date is missing, prefer quarterly as it's often more recent
+                        latest_balance_sheet = balance_sheet_quarterly or balance_sheet_annual
+                except Exception as e:
+                        logger.error(f"Error comparing balance sheet dates for {ticker}: {e}")
+                        latest_balance_sheet = balance_sheet_quarterly or balance_sheet_annual # Fallback
+            elif balance_sheet_quarterly:
+                latest_balance_sheet = balance_sheet_quarterly
+                logger.info(f"For {ticker}, using quarterly balance sheet (annual not found).")
+            elif balance_sheet_annual:
+                latest_balance_sheet = balance_sheet_annual
+                logger.info(f"For {ticker}, using annual balance sheet (quarterly not found).")
 
             # Check for and log any errors
             if isinstance(profile, Exception):
                 logger.error(f"Error fetching profile for {ticker}: {profile}")
                 profile = None
-            # The get_first_item helper now handles logging for list-based results
 
             if not profile:
                 logger.warning(f"Could not retrieve mandatory profile for {ticker}. Skipping ticker.")
@@ -99,7 +126,7 @@ async def get_yahoo_data_for_tickers(tickers: List[str], query_service: YahooDat
             return {
                 "profile": profile,
                 "income_statement_ttm": income_statement,
-                "balance_sheet_annual": balance_sheet,
+                "balance_sheet_latest": latest_balance_sheet,
                 "cash_flow_ttm": cash_flow,
                 "analyst_price_targets": analyst_targets,
                 "forecast_summary": forecast_summary
