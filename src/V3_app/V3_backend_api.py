@@ -11,16 +11,32 @@ from typing import List, Dict, Any, Optional, Union
 import logging
 from datetime import datetime
 import json
+import math
 
 # Import for ProcessPoolExecutor
 from concurrent.futures import ProcessPoolExecutor
 
 # Import your Yahoo fetch logic (adjust import as needed)
 from .V3_yahoo_fetch import mass_load_yahoo_data_from_file, YahooDataRepository, fetch_daily_historical_data
+from .V3_yahoo_fetch import mass_load_yahoo_data_from_file, YahooDataRepository, fetch_daily_historical_data
 from .yahoo_data_query_srv import YahooDataQueryService
 from .analytics_data_processor import AnalyticsDataProcessor
 from .yahoo_data_query_adv import YahooDataQueryAdvService
 from .yahoo_data_query_pro import YahooDataQueryProService
+
+# --- Helper to clean data for JSON serialization ---
+def clean_for_json(obj: Any) -> Any:
+    """
+    Recursively traverses a data structure and replaces non-finite float values
+    (NaN, infinity, -infinity) with None, making it JSON-compliant.
+    """
+    if isinstance(obj, dict):
+        return {k: clean_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [clean_for_json(i) for i in obj]
+    elif isinstance(obj, float) and not math.isfinite(obj):
+        return None
+    return obj
 
 router = APIRouter()
 
@@ -291,9 +307,13 @@ async def get_processed_analytics_data(
                 logger.error(f"API: JSONDecodeError when loading analytics from cache: {e_json}", exc_info=True)
                 raise HTTPException(status_code=500, detail="Error decoding cached analytics data.")
 
+            # NEW: Clean data to remove non-JSON-compliant values like NaN, Infinity
+            cleaned_data = clean_for_json(cached_data)
+            cleaned_metadata = clean_for_json(cached_metadata)
+
             return {
-                "originalData": cached_data, 
-                "metaData": {"field_metadata": cached_metadata},
+                "originalData": cleaned_data, 
+                "metaData": {"field_metadata": cleaned_metadata},
                 "message": "Served from cache.",
                 "data_cached_at": data_generated_at.isoformat() if data_generated_at else None,
                 "metadata_cached_at": metadata_generated_at.isoformat() if metadata_generated_at else None
