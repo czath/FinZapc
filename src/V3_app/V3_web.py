@@ -58,6 +58,7 @@ from .V3_finviz_fetch import fetch_and_store_analytics_finviz
 # from .V3_yahoo_api import YahooFinanceAPI, YahooError # Assuming Yahoo API integration
 from .V3_database import SQLiteRepository, get_exchange_rates, update_exchange_rate, add_or_update_exchange_rate_conid, update_screener_multi_fields_sync, get_screener_tickers_and_conids_sync, get_exchange_rates_and_conids_sync # Import new DB function AND SQLiteRepository
 from .services.notification_service import dispatch_notification
+from .yahoo_repository import YahooDataRepository
 # --- End Local Application Imports ---
 
 # --- Import V3_ibkr_monitor (Keep existing imports) ---
@@ -104,7 +105,7 @@ from .finviz_job_manager import (
 #     last_run_summary: Optional[str] = None
 #     # ... other relevant fields
 # Ensure these models are correctly imported or defined globally if needed.
-from .V3_models import TickerListPayload, JobDetailsResponse # This should already be there for Yahoo jobs
+from .V3_models import TickerListPayload, JobDetailsResponse, JobDetailedLogResponse # This should already be there for Yahoo jobs
 from .V3_models import JobDetailedLogResponse # <<< ADD IMPORT FOR NEW MODEL
 
 # --- NEW Dependency Function ---
@@ -159,35 +160,70 @@ async def get_job_detailed_run_log(
         # For now, let client handle generic 500 or specific 404 from above.
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to get detailed job log: {str(e)}")
 
+def get_yahoo_repository(request: Request) -> YahooDataRepository:
+    """Dependency injector for YahooDataRepository."""
+    if not hasattr(request.app.state, 'repository') or not hasattr(request.app.state.repository, 'database_url'):
+        raise HTTPException(status_code=500, detail="Database URL not configured in repository")
+    return YahooDataRepository(database_url=request.app.state.repository.database_url)
+
 @finviz_job_api_router.post("/finviz/trigger", response_model=JobDetailsResponse, summary="Trigger Finviz Mass Fetch Job")
 async def trigger_finviz_job(
     payload: TickerListPayload, # For uploaded tickers or dummy for screener
-    source_type: Optional[str] = Query(None, description="Source of tickers. Expected: 'finviz_screener' or 'upload_finviz_txt'"),
-    repository: SQLiteRepository = Depends(get_repository) 
+    source_type: Optional[str] = Query(None, description="Source of tickers. Expected: 'finviz_screener' or 'upload_finviz_txt', or 'yahoo_master_us'"),
+    repository: SQLiteRepository = Depends(get_repository),
+    yahoo_repo: YahooDataRepository = Depends(get_yahoo_repository)
 ):
+    """
+    Triggers a background job to fetch data from Finviz.
+    - **finviz_screener**: Fetches tickers from the local screener table.
+    - **upload_finviz_txt**: Fetches tickers provided in the `tickers` field of the request body.
+    - **yahoo_master_us**: Fetches tickers from the Yahoo Master table for US exchanges (NMS, NYQ).
+    """
     try:
-        effective_source = source_type
-        if not effective_source:
-            # If source_type is None, and payload.tickers is guaranteed by TickerListPayload to be non-empty,
-            # it implies an upload from a client not yet sending source_type.
-            # Defaulting to upload_finviz_txt if not specified by query param.
-            effective_source = "upload_finviz_txt"
-            logger.info(f"[API FINVIZ TRIGGER] 'source_type' query parameter not provided, defaulting to '{effective_source}' based on payload presence.")
-        
+        # Determine the source and fetch tickers accordingly
+        effective_source = source_type or payload.source
         logger.info(f"[API FINVIZ TRIGGER] Effective source: '{effective_source}', Payload tickers count: {len(payload.tickers)}.")
         
-        job_details = await finviz_job_manager.trigger_finviz_mass_fetch_job(
-            request_payload=payload, 
-            source_identifier=effective_source, 
-            repository=repository
-        )
-        return job_details
-    except HTTPException as http_exc: # Re-raise HTTPExceptions directly
-        raise http_exc
-    except Exception as e:
-        logger.error(f"[API FINVIZ TRIGGER] Error triggering Finviz job: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to trigger Finviz job: {str(e)}")
+        tickers_to_process = []
+        
+        if effective_source == 'finviz_screener':
+            logger.info("Fetching tickers from screener list.")
+            screener_entries = await repository.get_all_screened_tickers()
+            tickers_to_process = [entry['ticker'] for entry in screener_entries if entry.get('ticker')]
+            logger.info(f"Found {len(tickers_to_process)} tickers in screener.")
 
+        elif effective_source == 'upload_finviz_txt':
+            tickers_to_process = payload.tickers
+            logger.info(f"Using {len(tickers_to_process)} tickers from uploaded list.")
+
+        elif effective_source == 'yahoo_master_us':
+            logger.info("Fetching US exchange tickers from Yahoo Master table.")
+            us_exchanges = ['NMS', 'NYQ'] 
+            tickers_to_process = await yahoo_repo.get_tickers_by_exchanges(us_exchanges)
+            logger.info(f"Found {len(tickers_to_process)} US tickers in Yahoo Master table.")
+
+        else:
+            logger.error(f"Invalid source type provided: {effective_source}")
+            raise HTTPException(status_code=400, detail=f"Invalid source_type: {effective_source}. Expected 'finviz_screener', 'upload_finviz_txt', or 'yahoo_master_us'.")
+
+        if not tickers_to_process:
+            logger.warning(f"No tickers found for source '{effective_source}'. Job not started.")
+            return JobDetailsResponse(job_id=effective_source, status="failed", message="No tickers found for the specified source.")
+
+        # Create a new payload for the job manager with the correct tickers
+        job_payload = TickerListPayload(tickers=tickers_to_process, source=effective_source)
+
+        job_details = await finviz_job_manager.trigger_finviz_mass_fetch_job(
+            request_payload=job_payload, 
+            repository=repository,
+            source_identifier=effective_source
+        )
+        
+        return job_details
+    except Exception as e:
+        logger.error(f"Error in Finviz trigger endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+        
 @finviz_job_api_router.get("/finviz/details", response_model=JobDetailsResponse, summary="Get Finviz Mass Fetch Job Details")
 async def get_finviz_job_status_details(
     repository: SQLiteRepository = Depends(get_repository)

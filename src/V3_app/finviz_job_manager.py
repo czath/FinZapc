@@ -259,6 +259,9 @@ async def trigger_finviz_mass_fetch_job(
         # TickerListPayload ensures tickers is non-empty via min_items=1 for this path.
         logger.info(f"[FINVIZ_TRIGGER_JOB] Source is '{source_identifier}'. Using {len(request_payload.tickers)} tickers from payload.")
         actual_tickers_to_process = request_payload.tickers
+    elif source_identifier == "yahoo_master_us":
+        logger.info("[FINVIZ_TRIGGER_JOB] Source is yahoo_master_us, using tickers from payload.")
+        actual_tickers_to_process = request_payload.tickers
     else:
         # This case should ideally not be hit if source_identifier is validated or defaulted in the API layer.
         # However, if it is, TickerListPayload guarantees request_payload.tickers is non-empty.

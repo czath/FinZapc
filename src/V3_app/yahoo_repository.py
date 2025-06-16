@@ -617,6 +617,32 @@ class YahooDataRepository:
             logger.error(f"[DB Get DataItems By Criteria] Unexpected error for {ticker}/{item_type}: {e_gen}", exc_info=True)
             return []
 
+    async def get_tickers_by_exchanges(self, exchanges: List[str]) -> List[str]:
+        """Retrieves a list of ticker symbols for a given list of exchanges."""
+        if not exchanges:
+            logger.warning("[DB Get Tickers By Exchanges] No exchanges provided.")
+            return []
+        
+        logger.debug(f"[DB Get Tickers By Exchanges] Fetching tickers for exchanges: {exchanges}")
+
+        stmt = (
+            select(YahooTickerMasterModel.ticker)
+            .where(YahooTickerMasterModel.exchange.in_(exchanges))
+        )
+
+        try:
+            async with self.async_session_factory() as session:
+                result = await session.execute(stmt)
+                tickers = result.scalars().all()
+                logger.info(f"[DB Get Tickers By Exchanges] Found {len(tickers)} tickers for exchanges {exchanges}.")
+                return tickers
+        except SQLAlchemyError as e:
+            logger.error(f"[DB Get Tickers By Exchanges] SQLAlchemyError fetching tickers: {e}", exc_info=True)
+            return []
+        except Exception as e:
+            logger.error(f"[DB Get Tickers By Exchanges] Unexpected error fetching tickers: {e}", exc_info=True)
+            return []
+
     async def get_all_master_tickers(self) -> list[str]:
         """Return a list of all tickers in the Yahoo master ticker table."""
         records = await self.get_ticker_masters_by_criteria()

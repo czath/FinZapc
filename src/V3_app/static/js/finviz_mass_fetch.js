@@ -463,14 +463,30 @@ function handleFinvizDataSourceChange() {
         finvizSourceHelpText.textContent = "Upload a .txt file (one ticker per line).";
         if (dropZoneText) dropZoneText.textContent = "Drag & drop .txt file or click";
         setFinvizButtonState(false); // Disable button until file is selected
-    } else { // finviz_screener
+    } else if (selectedSource === 'finviz_screener') {
         finvizMfDropzone.style.display = 'block'; // Ensure it's visible to apply opacity etc.
         finvizMfDropzone.style.opacity = '0.6';
         finvizMfDropzone.style.pointerEvents = 'none';
         finvizMfDropzone.style.backgroundColor = 'var(--bs-secondary-bg)'; // Visually disabled background
         finvizSourceHelpText.textContent = "Fetches all data from the main Finviz source.";
         if (dropZoneText) dropZoneText.textContent = "File upload not applicable for this source.";
-        setFinvizButtonState(true); // Enable button as no file is needed
+        setFinvizButtonState(true, "Fetch from Screener");
+    } else if (selectedSource === 'yahoo_master_us') {
+        finvizMfDropzone.style.display = 'block'; // Ensure it's visible to apply opacity etc.
+        finvizMfDropzone.style.opacity = '0.6';
+        finvizMfDropzone.style.pointerEvents = 'none';
+        finvizMfDropzone.style.backgroundColor = 'var(--bs-secondary-bg)'; // Visually disabled background
+        finvizSourceHelpText.textContent = "Fetches Finviz data for all US-listed tickers from the Yahoo Master table (e.g., NYSE, NASDAQ).";
+        if (dropZoneText) dropZoneText.textContent = "File upload not applicable for this source.";
+        setFinvizButtonState(true, "Fetch from Yahoo Master");
+    } else {
+        finvizMfDropzone.style.display = 'block'; // Ensure it's visible to apply opacity etc.
+        finvizMfDropzone.style.opacity = '0.6';
+        finvizMfDropzone.style.pointerEvents = 'none';
+        finvizMfDropzone.style.backgroundColor = 'var(--bs-secondary-bg)'; // Visually disabled background
+        finvizSourceHelpText.textContent = "Select a data source to begin.";
+        if (dropZoneText) dropZoneText.textContent = "File upload not applicable for this source.";
+        setFinvizButtonState(false);
     }
 }
 
@@ -583,6 +599,9 @@ async function handleFinvizFetch() {
         bodyPayload.tickers = ['_DUMMY_FOR_VALIDATION_']; // Satisfy TickerListPayload min_items=1
     } else if (selectedSource === 'upload_finviz_txt') {
         apiUrl += '?source_type=upload_finviz_txt';
+        bodyPayload.tickers = parsedFinvizTickers; // Use the pre-parsed tickers
+    } else if (selectedSource === 'yahoo_master_us') {
+        apiUrl += '?source_type=yahoo_master_us';
         bodyPayload.tickers = parsedFinvizTickers; // Use the pre-parsed tickers
     } else {
         // Fallback or error for unknown source if necessary
