@@ -1754,6 +1754,10 @@ document.addEventListener('DOMContentLoaded', function() { // No longer needs to
         }
         // --- End call to new module ---
 
+        // <<< NEW: Dispatch event indicating main module is ready >>>
+        console.log("[Analytics] Dispatching AnalyticsDataReady event.");
+        window.dispatchEvent(new Event('AnalyticsDataReady'));
+        // <<< END NEW >>>
      }
      // --- END applyFilters definition ---
 

@@ -368,7 +368,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Field Select (Use ALL final fields)
             const fieldSelectElement = document.createElement('select');
-            fieldSelectElement.className = 'form-select form-select-sm me-2 w-auto';
+            fieldSelectElement.className = 'form-select form-select-sm me-2';
+            fieldSelectElement.style.width = '150px';
+            fieldSelectElement.style.maxWidth = '150px';
             fieldSelectElement.title = 'Select Field';
             fieldSelectElement.innerHTML = '<option value="">-- Field --</option>';
             finalFields.forEach(fieldName => {
@@ -384,7 +386,6 @@ document.addEventListener('DOMContentLoaded', function() {
             const operatorSelect = document.createElement('select');
             operatorSelect.className = 'form-select form-select-sm me-2 w-auto';
             operatorSelect.title = 'Select Operator';
-            // <<< ADDED: Prevent operator select from growing/shrinking >>>
             operatorSelect.style.flexGrow = '0';
             operatorSelect.style.flexShrink = '0';
             operators.forEach(op => {
@@ -399,8 +400,11 @@ document.addEventListener('DOMContentLoaded', function() {
             // Value Input Wrapper
             const valueWrapper = document.createElement('div');
             valueWrapper.className = 'value-input-wrapper me-2';
+            valueWrapper.style.width = '150px';
+            valueWrapper.style.maxWidth = '150px';
+            valueWrapper.style.flexGrow = '0';
             // <<< MODIFIED: Allow wrapper to grow, remove min-width >>>
-            valueWrapper.style.flexGrow = '1'; 
+            // valueWrapper.style.flexGrow = '1'; 
             // valueWrapper.style.minWidth = '200px'; // Removed fixed min-width
             // valueWrapper.style.flexShrink = '0'; // Keep default shrink behavior (1)
             // valueWrapper.style.maxWidth = '150px'; // Remove max-width constraint
@@ -1244,6 +1248,7 @@ document.addEventListener('DOMContentLoaded', function() {
              // Re-render the filter UI to apply the new settings/metadata to hints
              renderSpiderFilterUI();
              populateSelectors(); // <<< ADDED: Repopulate chart field selectors
+             applySpiderFilters(); // <<< ADD THIS LINE to repopulate tickers
         } catch (error) {
             console.error("[Spider Chart Refresh] Error refreshing settings:", error);
         }
