@@ -243,6 +243,26 @@ class YahooDataQueryService:
         # As per instructions, ticker_master fields are NOT converted.
         return await self.db_repo.get_ticker_masters_by_criteria(filters) # Corrected method name
 
+    async def get_tickers_by_sector(self, sector: str) -> List[Dict[str, Any]]:
+        """
+        Retrieves all tickers within a specific sector.
+        """
+        if not sector:
+            logger.warning("[QuerySrv.get_tickers_by_sector] Sector cannot be empty.")
+            return []
+        logger.info(f"[QuerySrv.get_tickers_by_sector] Fetching tickers for sector: {sector}")
+        return await self.get_multiple_ticker_profiles(filters={"sector": sector})
+
+    async def get_tickers_by_industry(self, industry: str) -> List[Dict[str, Any]]:
+        """
+        Retrieves all tickers within a specific industry.
+        """
+        if not industry:
+            logger.warning("[QuerySrv.get_tickers_by_industry] Industry cannot be empty.")
+            return []
+        logger.info(f"[QuerySrv.get_tickers_by_industry] Fetching tickers for industry: {industry}")
+        return await self.get_multiple_ticker_profiles(filters={"industry": industry})
+
     async def get_data_items(
         self, 
         ticker: str, 

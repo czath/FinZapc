@@ -100,10 +100,10 @@ class LLMService:
             self.model_name = "Unknown Model"
 
         # Generation Config with type casting and defaults
-        self.temperature = float(env_config.get("LLM_TEMPERATURE", 0.3))
+        self.temperature = float(env_config.get("LLM_TEMPERATURE", 0.0))
         self.top_k = int(env_config.get("LLM_TOP_K", 1))
         self.top_p = int(env_config.get("LLM_TOP_P", 1))
-        self.max_output_tokens = int(env_config.get("LLM_MAX_OUTPUT_TOKENS", 2048))
+        self.max_output_tokens = int(env_config.get("LLM_MAX_OUTPUT_TOKENS", 8192))
 
         # Prompt components are now expected to be in the .env file.
         # The fallback values have been removed to enforce this.
@@ -114,13 +114,15 @@ class LLMService:
             logger.critical("LLM_PROMPT_ROLE and/or LLM_PROMPT_INSTRUCTIONS not found in config.")
             raise ValueError("LLM_PROMPT_ROLE and LLM_PROMPT_INSTRUCTIONS must be set in the .env file.")
 
-    async def generate_report(self, tickers_data: List[Dict[str, Any]], user_prompt: str) -> Dict[str, Any]:
+    async def generate_report(self, tickers_data: List[Dict[str, Any]], user_prompt: str = None, examples: str = None) -> Dict[str, Any]:
         """
         Generates the initial financial report and provides the conversation history.
 
         Args:
             tickers_data: A list of dictionaries, where each dict contains data for a ticker.
-            user_prompt: The user's specific query or prompt for the analysis.
+            user_prompt: The user's specific query or prompt for the analysis. If None or empty, 
+                        the default prompt from configuration will be used.
+            examples: Optional sample reports to use as examples for improving output quality.
 
         Returns:
             A dictionary containing the report markdown and the initial conversation history.
@@ -130,7 +132,7 @@ class LLMService:
             return {"report_markdown": "Error: No data was provided for the financial report.", "history": []}
 
         # 1. Construct the initial detailed prompt
-        system_prompt = self._construct_prompt(tickers_data, user_prompt)
+        system_prompt = self._construct_prompt(tickers_data, user_prompt, examples)
 
         # This is the first "user" turn in the conversation
         history = [
@@ -213,14 +215,41 @@ class LLMService:
             logger.error(f"An unexpected error occurred in continue_chat: {e}", exc_info=True)
             return "Error: An unexpected error occurred while generating the report."
 
-    def _construct_prompt(self, tickers_data: List[Dict[str, Any]], user_prompt: str) -> str:
+    def _construct_prompt(self, tickers_data: List[Dict[str, Any]], user_prompt: str = None, examples: str = None) -> str:
         """
         Constructs a detailed, structured prompt for the LLM based on the available data.
+        Uses either the user-provided prompt or the default prompt from configuration.
+        Optionally includes examples from uploaded sample reports.
         """
+        # Determine which prompt to use
+        if user_prompt and user_prompt.strip():
+            # Use user-provided prompt
+            effective_prompt = user_prompt.strip()
+            logger.info("Using user-provided prompt for LLM analysis.")
+        else:
+            # Use default prompt from configuration
+            effective_prompt = self.prompt_instructions
+            logger.info("Using default prompt from configuration for LLM analysis.")
+        
         prompt = f"""{self.prompt_role}
 
-        **User's Request:** "{user_prompt}"
+        **User's Request:** "{effective_prompt}"
+        """
+        
+        # Add examples section if provided
+        if examples and examples.strip():
+            prompt += f"""
+        
+        **Sample Report Examples for Reference:**
+        Please use the following example(s) as a guide for structure, format, and style:
 
+        {examples.strip()}
+        
+        ---
+        """
+            logger.info("Including uploaded sample reports as examples for improved quality.")
+        
+        prompt += """
         **Available Data:**
         Here is the financial data for the requested tickers. For each ticker, a profile is provided along with its last update date, and various financial statements, each with its own 'key date' indicating the time of that specific data point.
         ---
@@ -273,5 +302,11 @@ class LLMService:
             
             prompt += "\n---\n" # Separator between tickers
 
-        prompt += "\nRemember to follow all instructions, especially the one about including the 'Sources' section at the end of your report."
+        # Add instruction reminder
+        instruction_reminder = "\nRemember to follow all instructions"
+        if examples and examples.strip():
+            instruction_reminder += ", use the provided sample reports as a guide for structure and format,"
+        instruction_reminder += " especially the one about including the 'Sources' section at the end of your report."
+        
+        prompt += instruction_reminder
         return prompt 

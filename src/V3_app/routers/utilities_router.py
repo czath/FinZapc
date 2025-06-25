@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, File, UploadFile, Form
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 import logging
+import math
 from typing import List, Dict, Any, Optional
 
 # Assuming get_latest_atr is in V3_yahoo_fetch.py and accessible
@@ -31,6 +32,37 @@ async def get_yahoo_query_service(db_repo: YahooDataRepository = Depends(get_yah
     return YahooDataQueryService(db_repo=db_repo)
 # --- END LOCAL DEPENDENCIES ---
 
+# --- JSON SERIALIZATION HELPERS ---
+def clean_float_value(value):
+    """Clean float values for JSON serialization."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    return value
+
+def clean_dict_for_json(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Clean a dictionary by removing or fixing invalid float values for JSON serialization."""
+    if not isinstance(data, dict):
+        return data
+    
+    cleaned = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            cleaned[key] = clean_dict_for_json(value)
+        elif isinstance(value, list):
+            cleaned[key] = [clean_dict_for_json(item) if isinstance(item, dict) else clean_float_value(item) for item in value]
+        else:
+            cleaned[key] = clean_float_value(value)
+    return cleaned
+
+def clean_list_for_json(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Clean a list of dictionaries for JSON serialization."""
+    return [clean_dict_for_json(item) for item in data]
+# --- END JSON SERIALIZATION HELPERS ---
+
 class ATRRequest(BaseModel):
     ticker: str = Field(..., title="Ticker Symbol", description="The stock ticker symbol (e.g., AAPL)")
     period: int = Field(14, title="ATR Period", description="The period for ATR calculation", gt=0)
@@ -44,7 +76,7 @@ class ATRResponse(BaseModel):
 # --- LLM Analytics Models ---
 class LLMReportRequest(BaseModel):
     tickers: List[str] = Field(..., min_items=1, description="A list of ticker symbols for analysis.")
-    prompt: str = Field(..., min_length=10, description="The user's prompt for the financial analysis.")
+    prompt: Optional[str] = Field(None, description="Optional user prompt for the financial analysis. If empty or None, the default prompt from configuration will be used.")
 
 class LLMReportResponse(BaseModel):
     report_markdown: str
@@ -101,24 +133,55 @@ async def calculate_atr_endpoint(request_data: ATRRequest):
 
 @router.post("/generate_llm_report", response_model=LLMReportResponse, summary="Generate Financial Report with LLM")
 async def generate_llm_report(
-    request: LLMReportRequest,
+    tickers: str = Form(..., description="Comma-separated list of ticker symbols"),
+    prompt: Optional[str] = Form(None, description="Optional user prompt for analysis"),
+    sample_reports: List[UploadFile] = File(default=[], description="Optional sample report files to use as examples"),
     query_service: YahooDataQueryService = Depends(get_yahoo_query_service),
 ):
     """
-    Takes a list of tickers and a prompt, fetches comprehensive Yahoo data,
-    and uses the Gemini LLM to generate a financial analysis report.
+    Takes a list of tickers, an optional prompt, and optional sample report files,
+    fetches comprehensive Yahoo data, and uses the Gemini LLM to generate a financial analysis report.
+    Sample reports will be used as examples to improve output quality.
     """
     try:
-        # 1. Fetch data using the isolated data fetcher
-        logger.info(f"Endpoint: Fetching data for tickers: {request.tickers}")
-        tickers_data = await get_yahoo_data_for_tickers(request.tickers, query_service)
+        # 1. Parse tickers from form data
+        ticker_list = [ticker.strip().upper() for ticker in tickers.split(',') if ticker.strip()]
+        if not ticker_list:
+            raise HTTPException(status_code=400, detail="At least one ticker symbol is required.")
+
+        # 2. Fetch data using the isolated data fetcher
+        logger.info(f"Endpoint: Fetching data for tickers: {ticker_list}")
+        tickers_data = await get_yahoo_data_for_tickers(ticker_list, query_service)
         if not tickers_data:
             raise HTTPException(status_code=404, detail="Could not retrieve any data for the specified tickers.")
 
-        # 2. Generate report using the LLM service
-        logger.info(f"Endpoint: Generating report for tickers: {request.tickers}")
+        # 3. Process sample report files if provided
+        examples_content = ""
+        if sample_reports:
+            logger.info(f"Endpoint: Processing {len(sample_reports)} sample report files.")
+            for i, file in enumerate(sample_reports):
+                if file.filename:
+                    try:
+                        # Read file content
+                        content = await file.read()
+                        # Decode content (assuming text files)
+                        decoded_content = content.decode('utf-8')
+                        examples_content += f"\n--- Sample Report {i+1} ({file.filename}) ---\n"
+                        examples_content += decoded_content + "\n"
+                    except Exception as e:
+                        logger.warning(f"Failed to read sample report file {file.filename}: {e}")
+                        continue
+
+        # 4. Log which prompt type will be used
+        if prompt and prompt.strip():
+            logger.info(f"Endpoint: Using user-provided prompt for tickers: {ticker_list}")
+        else:
+            logger.info(f"Endpoint: Using default configuration prompt for tickers: {ticker_list}")
+
+        # 5. Generate report using the LLM service
+        logger.info(f"Endpoint: Generating report for tickers: {ticker_list}")
         llm_service = LLMService()
-        report_data = await llm_service.generate_report(tickers_data, request.prompt)
+        report_data = await llm_service.generate_report(tickers_data, prompt, examples_content if examples_content.strip() else None)
         
         # Add the model name to the response
         response_payload = {
@@ -193,6 +256,81 @@ async def get_all_tickers_with_names(
     except Exception as e:
         logger.error(f"Error fetching all tickers with names: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch ticker list with names.")
+
+@router.get("/ticker-profile/{ticker}", response_model=Dict[str, Any], summary="Get profile for a single ticker")
+async def get_ticker_profile(
+    ticker: str,
+    query_service: YahooDataQueryService = Depends(get_yahoo_query_service),
+):
+    """
+    Retrieves the master profile for a single ticker symbol.
+    """
+    try:
+        logger.info(f"Fetching profile for ticker: {ticker}")
+        profile = await query_service.get_ticker_profile(ticker)
+        if not profile:
+            logger.warning(f"Profile not found for ticker: {ticker}")
+            raise HTTPException(status_code=404, detail="Ticker profile not found.")
+        logger.info(f"Successfully fetched profile for {ticker}")
+        return clean_dict_for_json(profile)
+    except Exception as e:
+        logger.error(f"Error fetching profile for {ticker}: {e}", exc_info=True)
+        if isinstance(e, HTTPException):
+            raise e # Re-raise if it's already an HTTPException
+        raise HTTPException(status_code=500, detail=f"Failed to fetch profile for ticker: {ticker}")
+
+@router.get(
+    "/tickers-by-sector/{sector}",
+    summary="Get all tickers in a specific sector",
+    response_model=List[Dict[str, Any]],
+    tags=["Utilities"]
+)
+async def get_tickers_by_sector(
+    sector: str,
+    query_service: YahooDataQueryService = Depends(get_yahoo_query_service)
+):
+    """
+    Retrieves a list of all tickers within a specific sector.
+    """
+    try:
+        logger.info(f"Fetching tickers for sector: {sector}")
+        # URL encoding might replace spaces with %20, FastAPI handles this decoding.
+        logger.debug(f"Received sector for lookup: '{sector}'")
+        tickers = await query_service.get_tickers_by_sector(sector)
+        if not tickers:
+            logger.warning(f"No tickers found for sector: {sector}")
+            return []
+        logger.info(f"Successfully fetched {len(tickers)} tickers for sector: {sector}")
+        return clean_list_for_json(tickers)
+    except Exception as e:
+        logger.error(f"Error fetching tickers for sector {sector}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch ticker list for sector: {sector}")
+
+@router.get(
+    "/tickers-by-industry/{industry}",
+    summary="Get all tickers in a specific industry",
+    response_model=List[Dict[str, Any]],
+    tags=["Utilities"]
+)
+async def get_tickers_by_industry(
+    industry: str,
+    query_service: YahooDataQueryService = Depends(get_yahoo_query_service)
+):
+    """
+    Retrieves a list of all tickers within a specific industry.
+    """
+    try:
+        logger.info(f"Fetching tickers for industry: {industry}")
+        logger.debug(f"Received industry for lookup: '{industry}'")
+        tickers = await query_service.get_tickers_by_industry(industry)
+        if not tickers:
+            logger.warning(f"No tickers found for industry: {industry}")
+            return []
+        logger.info(f"Successfully fetched {len(tickers)} tickers for industry: {industry}")
+        return clean_list_for_json(tickers)
+    except Exception as e:
+        logger.error(f"Error fetching tickers for industry {industry}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch ticker list for industry: {industry}")
 
 @router.post("/scan-invalid-records",
              summary="Scan DB for invalid records with filters",

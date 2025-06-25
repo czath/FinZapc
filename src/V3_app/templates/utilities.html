@@ -419,8 +419,14 @@
             
                     <!-- Ticker Selection Display -->
                     <div id="llmSelectedTickersContainer" class="mb-3" style="display: none;">
-                        <strong>Selected Tickers:</strong>
-                        <div id="llmSelectedTickers" class="d-flex flex-wrap gap-2 mt-2">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <strong>Selected Tickers:</strong>
+                            <div>
+                                <button class="btn btn-sm btn-outline-info me-1" type="button" id="llmSearchSectorBtn" disabled>Search in Sector</button>
+                                <button class="btn btn-sm btn-outline-info" type="button" id="llmSearchIndustryBtn" disabled>Search in Industry</button>
+                            </div>
+                        </div>
+                        <div id="llmSelectedTickers" class="d-flex flex-wrap gap-2">
                             <!-- Ticker badges will be here -->
                         </div>
                     </div>
@@ -429,9 +435,39 @@
                         <button id="llmOpenModalBtn" class="btn btn-outline-secondary">Select Tickers</button>
                     </div>
 
+                    <!-- Sample Reports Upload Section -->
                     <div class="mb-3">
-                        <label for="llmPrompt" class="form-label">Your Prompt</label>
-                        <textarea class="form-control" id="llmPrompt" rows="5" placeholder="e.g., 'Compare the revenue growth and profitability of these companies over the last year.'">prepare a detailed financial report comparing all key metrics for the defined tickers. the report should have three distinct sections: (a) financial assessment based on company fundamentals (b) technical assessment based on stock performance (c) sentiment assessment based on available forecasts and analyst opinions. when there are more than one tickers submitted add an additional section d) comparative analysis of the provided tickers. Base your analysis entirely on the attached data. For every calculation and assessment, always clearly reference the data point(s) you use and what is the source document of this datapoint. the report should conclude with an apraisal of the overal appeal of each stock (pros/cons) and a recommendation in the scale of 1-strong buy, 2-buy, 3-hold, 4-sell , 5-strong sell.</textarea>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label for="llmSampleReports" class="form-label">Sample Reports (Optional)</label>
+                            <small class="text-muted">Upload example reports to improve output quality</small>
+                        </div>
+                        <input type="file" class="form-control" id="llmSampleReports" accept=".txt,.md,.docx,.pdf" multiple>
+                        <div class="form-text">
+                            Upload text files (.txt, .md) containing sample reports that the AI should use as examples.
+                            Multiple files supported.
+                        </div>
+                        <div id="llmUploadedFiles" class="mt-2" style="display: none;">
+                            <strong>Uploaded Files:</strong>
+                            <div id="llmFilesList" class="d-flex flex-wrap gap-2 mt-1">
+                                <!-- File badges will appear here -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label for="llmPrompt" class="form-label">Your Prompt</label>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="useDefaultPromptToggle" checked>
+                                <label class="form-check-label" for="useDefaultPromptToggle">
+                                    <small>Use default prompt</small>
+                                </label>
+                            </div>
+                        </div>
+                        <textarea class="form-control" id="llmPrompt" rows="5" placeholder="Leave empty to use default prompt from configuration, or enter your custom analysis request here..." disabled></textarea>
+                        <small class="form-text text-muted">
+                            <span id="promptModeIndicator">Using default prompt from configuration</span>
+                        </small>
                     </div>
                     <button id="llmGenerateBtn" class="btn btn-primary">Generate Report</button>
                     <button id="llmStartOverBtn" class="btn btn-secondary" style="display: none;">Start Over</button>
@@ -504,6 +540,39 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-primary" id="llmAddSelectedTickersBtn">Add Selected</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Similar Tickers Modal -->
+<div class="modal fade" id="llmSimilarTickersModal" tabindex="-1" aria-labelledby="llmSimilarTickersModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="llmSimilarTickersModalLabel">Similar Tickers</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="llmSimilarTickersLoading" class="text-center" style="display: none;">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <p class="mt-2">Finding similar tickers...</p>
+        </div>
+        <div id="llmSimilarTickersContent" style="display: none;">
+          <p id="llmSimilarTickersDescription" class="text-muted mb-3"></p>
+          <div id="llmSimilarTickersList" style="max-height: 400px; overflow-y: auto;">
+            <!-- Similar tickers will be dynamically inserted here -->
+          </div>
+        </div>
+        <div id="llmSimilarTickersError" class="alert alert-danger" style="display: none;">
+          <!-- Error message will be displayed here -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="llmAddSimilarTickersBtn" disabled>Add Selected</button>
       </div>
     </div>
   </div>
@@ -926,6 +995,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Get all required elements
     const llmPrompt = document.getElementById('llmPrompt');
+    const useDefaultPromptToggle = document.getElementById('useDefaultPromptToggle');
+    const promptModeIndicator = document.getElementById('promptModeIndicator');
+    const llmSampleReports = document.getElementById('llmSampleReports');
+    const llmUploadedFiles = document.getElementById('llmUploadedFiles');
+    const llmFilesList = document.getElementById('llmFilesList');
     const llmGenerateBtn = document.getElementById('llmGenerateBtn');
     const llmSpinner = document.getElementById('llmSpinner');
     const llmReportCard = document.getElementById('llmReportCard');
@@ -942,10 +1016,22 @@ document.addEventListener('DOMContentLoaded', function () {
     const llmFollowUpPrompt = document.getElementById('llmFollowUpPrompt');
     const llmFollowUpBtn = document.getElementById('llmFollowUpBtn');
     const llmStartOverBtn = document.getElementById('llmStartOverBtn');
+    
+    // Similar Tickers Elements
+    const llmSearchSectorBtn = document.getElementById('llmSearchSectorBtn');
+    const llmSearchIndustryBtn = document.getElementById('llmSearchIndustryBtn');
+    const llmSimilarTickersModal = document.getElementById('llmSimilarTickersModal');
+    const llmSimilarTickersLoading = document.getElementById('llmSimilarTickersLoading');
+    const llmSimilarTickersContent = document.getElementById('llmSimilarTickersContent');
+    const llmSimilarTickersError = document.getElementById('llmSimilarTickersError');
+    const llmSimilarTickersDescription = document.getElementById('llmSimilarTickersDescription');
+    const llmSimilarTickersList = document.getElementById('llmSimilarTickersList');
+    const llmAddSimilarTickersBtn = document.getElementById('llmAddSimilarTickersBtn');
 
     // State variables
     let allTickers = [];
     let selectedTickers = new Set();
+    let selectedLlmTickers = {}; // Store full ticker profile objects by ticker symbol
     let llmConversationHistory = [];
 
     // --- Ticker Loading and Caching ---
@@ -1037,10 +1123,23 @@ document.addEventListener('DOMContentLoaded', function () {
         bootstrap.Modal.getOrCreateInstance(llmTickerModal).show();
     });
 
-    function addTickerToSelection(ticker) {
+    async function addTickerToSelection(ticker) {
         if (selectedTickers.has(ticker)) return;
         selectedTickers.add(ticker);
+        
+        // Fetch and store the ticker profile
+        try {
+            const response = await fetch(`/api/v3/utilities/ticker-profile/${ticker}`);
+            if (response.ok) {
+                const profile = await response.json();
+                selectedLlmTickers[ticker] = profile;
+            }
+        } catch (error) {
+            console.error(`Failed to fetch profile for ${ticker}:`, error);
+        }
+        
         updateSelectedTickersUI();
+        updateSimilarSearchButtons();
         // Clear search and hide suggestions
         llmTickerSearchInput.value = '';
         llmTickerList.innerHTML = '';
@@ -1049,7 +1148,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function removeTickerFromSelection(ticker) {
         selectedTickers.delete(ticker);
+        delete selectedLlmTickers[ticker];
         updateSelectedTickersUI();
+        updateSimilarSearchButtons();
     }
 
     function updateSelectedTickersUI() {
@@ -1082,6 +1183,238 @@ document.addEventListener('DOMContentLoaded', function () {
         return badge;
     }
 
+    // --- Similar Tickers Logic ---
+    function updateSimilarSearchButtons() {
+        const hasTickersWithSector = Object.values(selectedLlmTickers).some(profile => profile.sector);
+        const hasTickersWithIndustry = Object.values(selectedLlmTickers).some(profile => profile.industry);
+        
+        if (llmSearchSectorBtn) {
+            llmSearchSectorBtn.disabled = !hasTickersWithSector;
+        }
+        if (llmSearchIndustryBtn) {
+            llmSearchIndustryBtn.disabled = !hasTickersWithIndustry;
+        }
+    }
+
+    // Event listeners for search buttons
+    if (llmSearchSectorBtn) {
+        llmSearchSectorBtn.addEventListener('click', () => {
+            const sectorsSet = new Set();
+            Object.values(selectedLlmTickers).forEach(profile => {
+                if (profile.sector) sectorsSet.add(profile.sector);
+            });
+            const sectors = Array.from(sectorsSet);
+            searchSimilarTickers('sector', sectors);
+        });
+    }
+
+    if (llmSearchIndustryBtn) {
+        llmSearchIndustryBtn.addEventListener('click', () => {
+            const industriesSet = new Set();
+            Object.values(selectedLlmTickers).forEach(profile => {
+                if (profile.industry) industriesSet.add(profile.industry);
+            });
+            const industries = Array.from(industriesSet);
+            searchSimilarTickers('industry', industries);
+        });
+    }
+
+    async function searchSimilarTickers(type, values) {
+        if (!llmSimilarTickersModal || values.length === 0) return;
+        
+        // Show modal and loading state
+        const modal = bootstrap.Modal.getOrCreateInstance(llmSimilarTickersModal);
+        modal.show();
+        
+        // Reset modal state
+        llmSimilarTickersLoading.style.display = 'block';
+        llmSimilarTickersContent.style.display = 'none';
+        llmSimilarTickersError.style.display = 'none';
+        llmAddSimilarTickersBtn.disabled = true;
+        
+        try {
+            const allSimilarTickers = [];
+            
+            // Fetch tickers for each value
+            for (const value of values) {
+                const endpoint = type === 'sector' 
+                    ? `/api/v3/utilities/tickers-by-sector/${encodeURIComponent(value)}`
+                    : `/api/v3/utilities/tickers-by-industry/${encodeURIComponent(value)}`;
+                
+                const response = await fetch(endpoint);
+                if (response.ok) {
+                    const tickers = await response.json();
+                    allSimilarTickers.push(...tickers);
+                }
+            }
+            
+            // Remove duplicates and already selected tickers
+            const uniqueTickers = [];
+            const seenTickers = new Set();
+            
+            allSimilarTickers.forEach(ticker => {
+                if (!seenTickers.has(ticker.ticker) && !selectedTickers.has(ticker.ticker)) {
+                    seenTickers.add(ticker.ticker);
+                    uniqueTickers.push(ticker);
+                }
+            });
+            
+            if (uniqueTickers.length === 0) {
+                throw new Error(`No similar tickers found in the same ${type}(s).`);
+            }
+            
+            // Update modal content
+            llmSimilarTickersDescription.textContent = `Found ${uniqueTickers.length} similar tickers in the same ${type}(s): ${values.join(', ')}`;
+            
+            // Fetch full profiles for all unique tickers
+            const tickersWithProfiles = [];
+            for (const ticker of uniqueTickers) {
+                try {
+                    const profileResponse = await fetch(`/api/v3/utilities/ticker-profile/${ticker.ticker}`);
+                    if (profileResponse.ok) {
+                        const profile = await profileResponse.json();
+                        tickersWithProfiles.push(profile);
+                    } else {
+                        // Fallback to basic info if profile fetch fails
+                        tickersWithProfiles.push(ticker);
+                    }
+                } catch (error) {
+                    console.error(`Failed to fetch profile for ${ticker.ticker}:`, error);
+                    // Fallback to basic info if profile fetch fails
+                    tickersWithProfiles.push(ticker);
+                }
+            }
+
+            // Sort by company name in ascending order
+            tickersWithProfiles.sort((a, b) => {
+                const nameA = (a.company_name || a.ticker || '').toLowerCase();
+                const nameB = (b.company_name || b.ticker || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+
+            // Create ticker checkboxes with full information
+            llmSimilarTickersList.innerHTML = '';
+            tickersWithProfiles.forEach(ticker => {
+                const checkboxDiv = document.createElement('div');
+                checkboxDiv.className = 'form-check mb-2';
+                checkboxDiv.innerHTML = `
+                    <input class="form-check-input" type="checkbox" value="${ticker.ticker}" id="similar_${ticker.ticker}">
+                    <label class="form-check-label" for="similar_${ticker.ticker}">
+                        <div><strong>${ticker.company_name || ticker.ticker}</strong> (${ticker.ticker})</div>
+                        <small class="text-muted">
+                            Sector: ${ticker.sector || 'N/A'} | 
+                            Industry: ${ticker.industry || 'N/A'} | 
+                            Country: ${ticker.country || 'N/A'}
+                        </small>
+                    </label>
+                `;
+                llmSimilarTickersList.appendChild(checkboxDiv);
+            });
+            
+            // Show content and hide loading
+            llmSimilarTickersLoading.style.display = 'none';
+            llmSimilarTickersContent.style.display = 'block';
+            llmAddSimilarTickersBtn.disabled = false;
+            
+        } catch (error) {
+            console.error('Error fetching similar tickers:', error);
+            llmSimilarTickersLoading.style.display = 'none';
+            llmSimilarTickersError.style.display = 'block';
+            llmSimilarTickersError.textContent = error.message;
+        }
+    }
+
+    // Event listener for adding similar tickers
+    if (llmAddSimilarTickersBtn) {
+        llmAddSimilarTickersBtn.addEventListener('click', async () => {
+            const checkedBoxes = llmSimilarTickersList.querySelectorAll('input[type="checkbox"]:checked');
+            const tickersToAdd = Array.from(checkedBoxes).map(cb => cb.value);
+            
+            // Add each selected ticker
+            for (const ticker of tickersToAdd) {
+                await addTickerToSelection(ticker);
+            }
+            
+            // Close modal
+            bootstrap.Modal.getInstance(llmSimilarTickersModal).hide();
+        });
+    }
+
+    // --- Prompt Mode Toggle Logic ---
+    function updatePromptMode() {
+        const useDefault = useDefaultPromptToggle.checked;
+        llmPrompt.disabled = useDefault;
+        
+        if (useDefault) {
+            llmPrompt.value = '';
+            llmPrompt.placeholder = 'Default prompt from configuration will be used...';
+            promptModeIndicator.textContent = 'Using default prompt from configuration';
+        } else {
+            llmPrompt.placeholder = 'Enter your custom analysis request here...';
+            promptModeIndicator.textContent = 'Using custom prompt';
+            llmPrompt.focus();
+        }
+    }
+    
+    useDefaultPromptToggle.addEventListener('change', updatePromptMode);
+    
+    // Initialize prompt mode
+    updatePromptMode();
+
+    // --- File Upload Handling ---
+    let uploadedSampleFiles = [];
+
+    function updateUploadedFilesDisplay() {
+        llmFilesList.innerHTML = '';
+        
+        if (uploadedSampleFiles.length === 0) {
+            llmUploadedFiles.style.display = 'none';
+            return;
+        }
+        
+        llmUploadedFiles.style.display = 'block';
+        
+        uploadedSampleFiles.forEach((file, index) => {
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-info d-flex align-items-center';
+            badge.style.fontSize = '0.8em';
+            badge.innerHTML = `
+                ${file.name}
+                <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.6em;" aria-label="Remove"></button>
+            `;
+            
+            const removeBtn = badge.querySelector('button');
+            removeBtn.addEventListener('click', () => {
+                uploadedSampleFiles.splice(index, 1);
+                updateUploadedFilesDisplay();
+            });
+            
+            llmFilesList.appendChild(badge);
+        });
+    }
+
+    llmSampleReports.addEventListener('change', (event) => {
+        const files = Array.from(event.target.files);
+        
+        // Validate file types
+        const allowedTypes = ['.txt', '.md'];
+        const validFiles = files.filter(file => {
+            const extension = '.' + file.name.split('.').pop().toLowerCase();
+            return allowedTypes.includes(extension);
+        });
+        
+        if (validFiles.length !== files.length) {
+            alert(`Only text files (.txt, .md) are supported. ${files.length - validFiles.length} file(s) were skipped.`);
+        }
+        
+        // Add valid files to the list
+        uploadedSampleFiles = [...uploadedSampleFiles, ...validFiles];
+        updateUploadedFilesDisplay();
+        
+        // Clear the input to allow re-selecting the same file
+        event.target.value = '';
+    });
+
     // --- Initializer ---
     loadTickers();
 
@@ -1092,6 +1425,10 @@ document.addEventListener('DOMContentLoaded', function () {
         llmReportOutput.innerHTML = '';
         llmReportCard.style.display = 'none';
         llmFollowUpContainer.style.display = 'none';
+        
+        // Clear uploaded files
+        uploadedSampleFiles = [];
+        updateUploadedFilesDisplay();
         
         llmGenerateBtn.disabled = false;
         llmGenerateBtn.style.display = 'inline-block';
@@ -1105,15 +1442,18 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // --- API Call Logic ---
     llmGenerateBtn.addEventListener('click', async () => {
-        const prompt = llmPrompt.value.trim();
         const tickers = Array.from(selectedTickers);
+        const useDefault = useDefaultPromptToggle.checked;
+        const prompt = useDefault ? null : llmPrompt.value.trim();
 
         if (tickers.length === 0) {
             alert('Please select at least one ticker.');
             return;
         }
-        if (!prompt) {
-            alert('Please enter a prompt.');
+        
+        // Only require prompt if not using default
+        if (!useDefault && !prompt) {
+            alert('Please enter a custom prompt or enable "Use default prompt".');
             return;
         }
 
@@ -1126,10 +1466,23 @@ document.addEventListener('DOMContentLoaded', function () {
         llmFollowUpContainer.style.display = 'none';
 
         try {
+            // Prepare FormData for file upload
+            const formData = new FormData();
+            formData.append('tickers', tickers.join(','));
+            
+            // Add prompt if not using default
+            if (!useDefault && prompt) {
+                formData.append('prompt', prompt);
+            }
+            
+            // Add sample report files
+            uploadedSampleFiles.forEach((file) => {
+                formData.append('sample_reports', file);
+            });
+
             const response = await fetch('/api/v3/utilities/generate_llm_report', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tickers, prompt })
+                body: formData // Note: Don't set Content-Type header, let browser set it with boundary
             });
 
             if (!response.ok) {
